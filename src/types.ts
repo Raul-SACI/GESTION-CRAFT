@@ -123,12 +123,39 @@ export interface PerformanceData {
   weekStarting: string;
   googleScore: number;
   googleComments: number;
-  pedidosYaRating: number;
+  pedidosYaRating: number; // General or Resto
+  pedidosYaCafeRating?: number;
   pedidosYaNegativeComments: number;
   pedidosYaDelayMinutes: number;
+  
+  // New dashboard metrics
+  monthlyProjection?: number;
+  netSalesVsPreviousMonth?: number; // percentage
+  ordersVsPreviousMonth?: number; // percentage (Compras + Movimientos vs mes anterior)
+  monthlyOrdersAmount?: number; // Sum of Compras + Movimientos
+  criticalStockDeviations?: number; // count
+  criticalTablewareDeviations?: number; // count
+  criticalHourDeviations?: number; // count (total)
+  hourlyDeviationsByPosition?: Record<string, number>; // deviation by position name
+  currentFlags?: {
+    red: number;
+    yellow: number;
+    green: number;
+  };
 }
 
-// 6. Vajilla
+// 6. Supervision Flags
+export interface SupervisionFlag {
+  id: string;
+  branchId: string;
+  date: string;
+  color: 'red' | 'yellow' | 'green';
+  category: string;
+  description: string;
+  supervisorName: string;
+}
+
+// 7. Vajilla
 export interface TablewareInventory {
   id: string;
   branchId: string;
@@ -167,6 +194,7 @@ export interface FinanceEntry {
     [accountId: string]: number;
   };
   isExecuted?: boolean; // Tildar si se cumplió
+  description?: string;
 }
 
 export interface CashFlowDay {

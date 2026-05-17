@@ -17,6 +17,7 @@ import {
   Bell,
   Search,
   ChevronRight,
+  Flag,
   Plus,
   ArrowUpRight,
   ArrowDownRight,
@@ -80,7 +81,7 @@ const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsVie
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
 
 import { PerformanceView, TablewareView, NewsView } from './components/ExtraViews';
-import { Key, ShieldCheck, Flag } from 'lucide-react';
+import { Key, ShieldCheck } from 'lucide-react';
 
 // --- MOCK DATA ---
 const MOCK_SALES: SalesData[] = [
@@ -97,13 +98,32 @@ const MOCK_PERFORMANCE: PerformanceData = {
   googleScore: 4.7,
   googleComments: 124,
   pedidosYaRating: 4.5,
+  pedidosYaCafeRating: 4.2,
   pedidosYaNegativeComments: 2,
-  pedidosYaDelayMinutes: 22
+  pedidosYaDelayMinutes: 22,
+  monthlyProjection: 45000000,
+  netSalesVsPreviousMonth: 12.5,
+  ordersVsPreviousMonth: -5.2,
+  monthlyOrdersAmount: 3200000,
+  criticalStockDeviations: 3,
+  criticalTablewareDeviations: 1,
+  criticalHourDeviations: 2,
+  hourlyDeviationsByPosition: {
+    'COCINA': 12,
+    'SALÓN': -4,
+    'DELIVERY': 8,
+    'LIMPIEZA': 2
+  },
+  currentFlags: {
+    red: 1,
+    yellow: 3,
+    green: 12
+  }
 };
 
 // --- COMPONENTS ---
 
-const Card = ({ children, className }: { children: React.ReactNode, className?: string }) => (
+const Card = ({ children, className }: { children: React.ReactNode, className?: string, key?: any }) => (
   <div className={cn("glass-card p-6", className)}>
     {children}
   </div>
@@ -390,6 +410,36 @@ export default function App() {
                 Flujo de Caja Estimado
               </button>
               <button
+                onClick={() => setActiveTab('bank_liabilities')}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                  activeTab === 'bank_liabilities' 
+                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                )}
+              >
+                <Building2 size={16} className={cn(
+                  "transition-colors",
+                  activeTab === 'bank_liabilities' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                )} />
+                Pasivos Bancarios
+              </button>
+              <button
+                onClick={() => setActiveTab('tax_liabilities')}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                  activeTab === 'tax_liabilities' 
+                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                )}
+              >
+                <Calculator size={16} className={cn(
+                  "transition-colors",
+                  activeTab === 'tax_liabilities' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                )} />
+                Pasivos Fiscales
+              </button>
+              <button
                 onClick={() => setActiveTab('cronograma_pagos')}
                 className={cn(
                   "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
@@ -673,7 +723,9 @@ export default function App() {
               )}
               {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} />}
-              {activeTab === 'finanzas_estimado' && <EstimatedCashFlowView key="finanzas_estimado" />}
+              {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" />}
+              {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" />}
+              {activeTab === 'tax_liabilities' && <FinanceView key="tax_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="tax" />}
               {activeTab === 'cronograma_pagos' && <PaymentScheduleView key="cronograma_pagos" />}
               {activeTab === 'finanzas_mensual' && <MonthlyCashFlowView key="finanzas_mensual" />}
               {activeTab === 'control_desvios' && (
@@ -823,72 +875,245 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
       exit={{ opacity: 0 }}
       className="space-y-6"
     >
-      {/* KPI Cards Row */}
+      {/* KPI Cards Row - Part 1: Sales & Performance */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2">
+        <TrendingUp size={12} className="text-brand-500" />
+        Ventas & Proyecciones
+      </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="flex flex-col justify-between group h-32">
+        <Card className="flex flex-col justify-between group h-32 border-l-4 border-brand-500">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Ventas Actual</span>
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Ventas Netas vs Mes Ant.</span>
             <div className={cn(
               "text-[10px] font-mono px-2 py-0.5 rounded",
-              currentSalesComparison.isUp ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10"
+              (performance.netSalesVsPreviousMonth || 0) > 0 ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10"
             )}>
-              {currentSalesComparison.isUp ? '+' : ''}{currentSalesComparison.diff}%
+              {performance.netSalesVsPreviousMonth && (performance.netSalesVsPreviousMonth > 0 ? '+' : '')}{performance.netSalesVsPreviousMonth}%
             </div>
           </div>
           <div>
             <h2 className="text-2xl font-mono font-bold text-text-main">${currentSalesComparison.current.toLocaleString()}</h2>
-            <p className="text-[9px] text-text-dim uppercase mt-1">vs anterior: ${currentSalesComparison.previous.toLocaleString()}</p>
+            <p className="text-[9px] text-text-dim uppercase mt-1 italic font-bold">VENTAS ACTUALES (SEMANA)</p>
           </div>
         </Card>
 
-        <Card className="h-32">
+        <Card className="flex flex-col justify-between group h-32 border-l-4 border-emerald-600">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider border-l-2 border-yellow-500 pl-2">Google Rating</span>
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Pedidos vs Mes Ant.</span>
+            <div className={cn(
+              "text-[10px] font-mono px-2 py-0.5 rounded",
+              (performance.ordersVsPreviousMonth || 0) > 0 ? "text-emerald-400 bg-emerald-500/10" : "text-red-400 bg-red-500/10"
+            )}>
+              {performance.ordersVsPreviousMonth && (performance.ordersVsPreviousMonth > 0 ? '+' : '')}{performance.ordersVsPreviousMonth}%
+            </div>
+          </div>
+          <div>
+            <h2 className="text-2xl font-mono font-bold text-text-main">${(performance.monthlyOrdersAmount || 0).toLocaleString()}</h2>
+            <p className="text-[9px] text-text-dim uppercase mt-1 italic font-bold">COMPRAS + MOVIMIENTOS (MES)</p>
+          </div>
+        </Card>
+
+        <Card className="flex flex-col justify-between group h-32 border-l-4 border-blue-500">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Proyección Mensual</span>
+            <TrendingUp size={14} className="text-blue-500" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-mono font-bold text-text-main">${(performance.monthlyProjection || 0).toLocaleString()}</h2>
+            <p className="text-[9px] text-text-dim uppercase mt-1 italic font-bold">ESTIMADO FIN DE MES</p>
+          </div>
+        </Card>
+
+        <Card className="h-32 border-l-4 border-yellow-500">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Calificación Google</span>
             <Star size={14} className="text-yellow-500 fill-yellow-500" />
           </div>
           <div className="flex items-baseline gap-2">
             <h2 className="text-2xl font-mono font-bold text-text-main">{performance.googleScore}</h2>
             <span className="text-text-dim text-[10px]">/ 5.0</span>
           </div>
-          <div className="w-full bg-bg-accent h-1 rounded mt-4 overflow-hidden">
-            <motion.div 
-              initial={{ width: 0 }}
-              animate={{ width: `${(performance.googleScore / 5) * 100}%` }}
-              className="bg-yellow-500 h-full rounded"
-            />
+          <div className="text-[9px] text-text-dim uppercase mt-4 font-bold flex justify-between">
+            <span>{performance.googleComments} Comentarios</span>
+            <a href="#" className="text-brand-500 hover:underline">Ver todos</a>
           </div>
-        </Card>
-
-        <Card className="h-32">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider border-l-2 border-red-500 pl-2">Pedidos Ya</span>
-          </div>
-          <h2 className="text-2xl font-mono font-bold text-text-main">{performance.pedidosYaRating}</h2>
-          <div className="mt-4 flex justify-between items-center">
-             <span className="text-[9px] text-red-400 font-bold uppercase">{performance.pedidosYaNegativeComments} Alertas</span>
-             <span className="text-[9px] text-text-dim italic font-mono">{performance.pedidosYaDelayMinutes}m avg</span>
-          </div>
-        </Card>
-
-        <Card className="h-32 bg-brand-500/5 border-brand-500/20">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-brand-500 uppercase tracking-wider">Eficiencia Laboral</span>
-            <Clock size={14} className="text-brand-500" />
-          </div>
-          <h2 className="text-2xl font-mono font-bold text-text-main">28.5%</h2>
-          <p className="text-[9px] text-text-dim uppercase mt-4">Meta: <span className="text-brand-500">25.0%</span></p>
         </Card>
       </div>
 
-      {/* Main Stats Row */}
-      <div className="grid grid-cols-12 gap-4">
-        <Card className="col-span-12 lg:col-span-8 p-4">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xs font-bold uppercase text-text-dim border-l-2 border-brand-500 pl-2">Análisis de Ventas</h3>
-            <div className="flex gap-1 bg-bg-accent p-1 rounded">
-               <button className="px-3 py-1 text-[9px] font-bold bg-bg-card text-brand-500 rounded border border-border-dim shadow-sm">SEMANA</button>
-               <button className="px-3 py-1 text-[9px] font-bold text-text-dim hover:text-text-main transition-colors">MES</button>
+      {/* Ratings Row */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2 mt-8">
+        <Star size={12} className="text-brand-500" />
+        Calificaciones Delivery
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="h-32 border-l-4 border-red-500 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Pedidos Ya Restó</span>
+            <div className="bg-red-500 text-white text-[8px] px-1.5 py-0.5 rounded font-black">PY</div>
+          </div>
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-mono font-black text-text-main">{performance.pedidosYaRating}</h2>
+            <div className="flex-1">
+              <div className="flex justify-between text-[9px] text-text-dim mb-1 font-bold uppercase">
+                <span>Alertas: {performance.pedidosYaNegativeComments}</span>
+                <span>Demora: {performance.pedidosYaDelayMinutes}m</span>
+              </div>
+              <div className="w-full bg-bg-accent h-1.5 rounded-full overflow-hidden">
+                <div className="bg-red-500 h-full" style={{ width: `${(performance.pedidosYaRating / 5) * 100}%` }} />
+              </div>
             </div>
+          </div>
+        </Card>
+
+        <Card className="h-32 border-l-4 border-orange-500 relative overflow-hidden">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Pedidos Ya Café</span>
+            <Coffee size={14} className="text-orange-500" />
+          </div>
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-mono font-black text-text-main">{performance.pedidosYaCafeRating}</h2>
+            <div className="flex-1">
+              <div className="flex justify-between text-[9px] text-text-dim mb-1 font-bold uppercase">
+                <span>Rating Café</span>
+                <span>/ 5.0</span>
+              </div>
+              <div className="w-full bg-bg-accent h-1.5 rounded-full overflow-hidden">
+                <div className="bg-orange-500 h-full" style={{ width: `${((performance.pedidosYaCafeRating || 0) / 5) * 100}%` }} />
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Critical Deviations Row */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2 mt-8">
+        <Bell size={12} className="text-red-500 animate-pulse" />
+        Desvíos Críticos (Alertas)
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className={cn(
+          "h-32 flex flex-col justify-between border-l-4",
+          (performance.criticalStockDeviations || 0) > 0 ? "border-red-600 bg-red-500/5" : "border-emerald-500"
+        )}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Desvíos Stock</span>
+            <Package size={14} className={(performance.criticalStockDeviations || 0) > 0 ? "text-red-600" : "text-emerald-500"} />
+          </div>
+          <div>
+            <h2 className={cn(
+              "text-3xl font-mono font-black",
+              (performance.criticalStockDeviations || 0) > 0 ? "text-red-600" : "text-emerald-500"
+            )}>
+              {performance.criticalStockDeviations}
+            </h2>
+            <p className="text-[9px] text-text-dim uppercase mt-1 font-bold">INSUMOS FUERA DE TOLERANCIA</p>
+          </div>
+        </Card>
+
+        <Card className={cn(
+          "h-32 flex flex-col justify-between border-l-4",
+          (performance.criticalTablewareDeviations || 0) > 0 ? "border-red-600 bg-red-500/5" : "border-emerald-500"
+        )}>
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Desvíos Vajilla</span>
+            <Utensils size={14} className={(performance.criticalTablewareDeviations || 0) > 0 ? "text-red-600" : "text-emerald-500"} />
+          </div>
+          <div>
+            <h2 className={cn(
+              "text-3xl font-mono font-black",
+              (performance.criticalTablewareDeviations || 0) > 0 ? "text-red-600" : "text-emerald-500"
+            )}>
+              {performance.criticalTablewareDeviations}
+            </h2>
+            <p className="text-[9px] text-text-dim uppercase mt-1 font-bold">FALTANTES CRÍTICOS SEMANA</p>
+          </div>
+        </Card>
+
+        <Card className={cn(
+          "h-32 flex flex-col justify-between border-l-4",
+          (performance.criticalHourDeviations || 0) > 0 ? "border-red-600 bg-red-500/5" : "border-emerald-500"
+        )}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Desvíos Horas por Puesto</span>
+            <Clock size={14} className={(performance.criticalHourDeviations || 0) > 0 ? "text-red-600" : "text-emerald-500"} />
+          </div>
+          <div className="space-y-1">
+            {performance.hourlyDeviationsByPosition && Object.entries(performance.hourlyDeviationsByPosition).map(([pos, dev]) => (
+              <div key={pos} className="flex justify-between items-center bg-bg-card/50 px-2 py-0.5 rounded border border-border-dim/30">
+                <span className="text-[8px] font-black text-text-dim uppercase truncate mr-2">{pos}</span>
+                <span className={cn(
+                  "text-[9px] font-mono font-black",
+                  dev > 0 ? "text-red-500" : dev < 0 ? "text-emerald-500" : "text-text-dim"
+                )}>
+                  {dev > 0 ? '+' : ''}{dev}h
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+      
+      {/* Supervision Flags Row */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2 mt-8">
+        <Flag size={12} className="text-brand-500" />
+        Banderas de Supervisión (Estado Operativo)
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {selectedBranchId === 'all' ? (
+          branches.map(branch => (
+            <Card key={branch.id} className="h-24 flex items-center justify-between p-4 group hover:border-brand-500/50 transition-all">
+              <div>
+                <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1">{branch.name}</p>
+                <div className="flex gap-2">
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+                    <span className="text-[10px] font-mono font-bold text-red-500">1</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.5)]" />
+                    <span className="text-[10px] font-mono font-bold text-yellow-500">2</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="text-[10px] font-mono font-bold text-emerald-500">8</span>
+                  </div>
+                </div>
+              </div>
+              <ChevronRight size={14} className="text-text-dim opacity-0 group-hover:opacity-100 transition-all" />
+            </Card>
+          ))
+        ) : (
+          <React.Fragment>
+            <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="h-32 flex flex-col items-center justify-center border-b-4 border-red-500 bg-red-500/5 group hover:scale-[1.02] transition-transform">
+                <Flag size={20} className="text-red-500 mb-2 drop-shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+                <h2 className="text-3xl font-mono font-black text-red-500">{performance.currentFlags?.red || 0}</h2>
+                <p className="text-[10px] font-black text-text-dim uppercase mt-1">BANDERAS ROJAS</p>
+              </Card>
+              <Card className="h-32 flex flex-col items-center justify-center border-b-4 border-yellow-500 bg-yellow-500/5 group hover:scale-[1.02] transition-transform">
+                <Flag size={20} className="text-yellow-500 mb-2 drop-shadow-[0_0_10px_rgba(234,179,8,0.5)]" />
+                <h2 className="text-3xl font-mono font-black text-yellow-500">{performance.currentFlags?.yellow || 0}</h2>
+                <p className="text-[10px] font-black text-text-dim uppercase mt-1">BANDERAS AMARILLAS</p>
+              </Card>
+              <Card className="h-32 flex flex-col items-center justify-center border-b-4 border-emerald-500 bg-emerald-500/5 group hover:scale-[1.02] transition-transform">
+                <Flag size={20} className="text-emerald-500 mb-2 drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+                <h2 className="text-3xl font-mono font-black text-emerald-500">{performance.currentFlags?.green || 0}</h2>
+                <p className="text-[10px] font-black text-text-dim uppercase mt-1">BANDERAS VERDES</p>
+              </Card>
+            </div>
+          </React.Fragment>
+        )}
+      </div>
+
+      {/* Main Stats Row - Chart moved down */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2 mt-8">
+        <BarChart3 size={12} className="text-brand-500" />
+        Evolución de Ventas
+      </h3>
+      <div className="grid grid-cols-12 gap-4">
+        <Card className="col-span-12 lg:col-span-12 p-4">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-xs font-bold uppercase text-text-dim border-l-2 border-brand-500 pl-2">Análisis de Ventas Semanal</h3>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -923,37 +1148,6 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
               </AreaChart>
             </ResponsiveContainer>
           </div>
-        </Card>
-
-        <Card className="col-span-12 lg:col-span-4 bg-bg-accent border-border-dim p-4 flex flex-col h-full">
-          <div className="flex items-center justify-between mb-4">
-             <h3 className="text-xs font-bold uppercase text-text-dim">Log de Actividad</h3>
-             <span className="text-[9px] bg-bg-card px-2 py-0.5 rounded border border-border-dim text-text-dim uppercase tracking-tighter">Últimas 24h</span>
-          </div>
-          <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
-            {[
-              { text: 'Control Stock Insumos Críticos finalizado', time: '2h', status: 'ok' },
-              { text: 'Alerta Pedidos Ya: Demora > 40min', time: '5h', status: 'error' },
-              { text: 'Presupuesto RRHH Abril completado', time: '1d', status: 'warning' },
-              { text: 'Ajuste de mermas en sucursal Norte', time: '2d', status: 'info' },
-            ].map((item, i) => (
-              <div key={i} className="flex gap-3 items-center border-b border-border-dim/50 pb-3 last:border-0 last:pb-0">
-                <div className={cn(
-                  "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                  item.status === 'error' ? 'bg-red-500' : 
-                  item.status === 'warning' ? 'bg-orange-500' :
-                  item.status === 'info' ? 'bg-blue-500' : 'bg-emerald-500'
-                )} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-medium text-text-main truncate leading-none">{item.text}</p>
-                  <p className="text-[9px] text-text-dim uppercase mt-1 font-mono">{item.time} ago</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button className="w-full mt-4 py-2 bg-bg-card border border-border-dim text-[10px] font-bold uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all">
-            Auditoría Completa
-          </button>
         </Card>
       </div>
     </motion.div>

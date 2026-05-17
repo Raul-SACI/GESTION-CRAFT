@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   DollarSign, 
@@ -26,7 +26,9 @@ import {
   Circle,
   Check,
   Bell,
-  StickyNote
+  StickyNote,
+  Building2,
+  Calculator
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch, ScheduledPayment, FinanceCategory, FinanceEntry } from '../types';
@@ -52,67 +54,159 @@ interface Account {
 }
 
 const ACCOUNTS: Account[] = [
-  { id: 'caja', name: 'Caja Cent', icon: Banknote, color: 'text-brand-500' },
-  { id: 'mp', name: 'Mercado Pago', icon: Wallet, color: 'text-blue-400' },
-  { id: 'bbva', name: 'BBVA', icon: CreditCard, color: 'text-blue-600' },
-  { id: 'santander', name: 'Santander', icon: CreditCard, color: 'text-red-500' },
+  { id: 'efectivo', name: 'EFECTIVO', icon: Banknote, color: 'text-brand-500' },
+  { id: 'bbva', name: 'BANCO BBVA', icon: CreditCard, color: 'text-blue-600' },
+  { id: 'santander', name: 'BANCO SANTANDER', icon: CreditCard, color: 'text-red-500' },
+  { id: 'ciudad', name: 'BANCO CIUDAD', icon: CreditCard, color: 'text-sky-500' },
+  { id: 'nacion', name: 'BANCO NACION', icon: CreditCard, color: 'text-blue-400' },
+  { id: 'macro', name: 'BANCO MACRO', icon: CreditCard, color: 'text-indigo-600' },
+  { id: 'mp', name: 'MERCADO PAGO', icon: Wallet, color: 'text-blue-400' },
 ];
 
 const FINANCE_CATEGORIES = [
   { 
-    id: 'income_ord', 
-    name: 'Ingresos Ordinarios', 
+    id: 'balance_initial', 
+    name: 'SALDO INICIAL', 
     type: 'income',
     items: [
-      { id: 'ret_suc', name: 'Retiros de Sucursales' },
-      { id: 'acr_tarj', name: 'Acreditaciones Tarjetas' },
-      { id: 'acr_vent', name: 'Acreditaciones por Ventas' },
-      { id: 'acr_py', name: 'Acreditaciones Pedidos Ya' }
+      { id: 'balance_start', name: 'SALDO INICIAL', subrubro: 'SALDO INICIAL' }
     ]
   },
   { 
-    id: 'rents', 
-    name: 'Alquileres', 
-    type: 'expense',
+    id: 'income_estim', 
+    name: 'INGRESOS ESTIMADOS', 
+    type: 'income',
     items: [
-      { id: 'rent_bn', name: 'Alquiler Barrio Norte' },
-      { id: 'rent_peron', name: 'Alquiler Peron' },
-      { id: 'expensas', name: 'Expensas' }
+      { id: 'ret_suc', name: 'RETIROS SUCURSALES', subrubro: 'RETIROS' },
+      { id: 'acr_tarj', name: 'ACREDITACIONES TARJETAS', subrubro: 'INGRESO POR VENTAS' },
+      { id: 'acr_py', name: 'ACREDITACIONES PEDIDOS YA', subrubro: 'INGRESO POR VENTAS' },
+      { id: 'loan_inc', name: 'ACREDITACION DE PRÉSTAMOS', subrubro: 'PRESTAMOS' },
+      { id: 'inc_others', name: 'OTROS', subrubro: 'OTROS' },
+      { id: 'aportes', name: 'APORTE DE SOCIOS', subrubro: 'APORTES' }
     ]
   },
   { 
-    id: 'services', 
-    name: 'Servicios y Contrataciones', 
+    id: 'expense_estim', 
+    name: 'EGRESOS ESTIMADOS', 
     type: 'expense',
     items: [
-      { id: 'soft_maxi', name: 'Software (Maxirest)' },
-      { id: 'energy', name: 'Consumo Energía' },
-      { id: 'gas', name: 'Consumo Gas' },
-      { id: 'honorarios', name: 'Honorarios' }
+      { id: 'prov_fri', name: 'PAGOS VIERNES', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_ant', name: 'ANTICIPOS A PROVEEDORES', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_pend', name: 'PAGO DE SALDOS PENDIENTES', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_maxi', name: 'MAXICONSUMO', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_gomez', name: 'GOMEZ PARDO', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_verd', name: 'VERDURAS', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'prov_other', name: 'OTROS', subrubro: 'PAGOS A PROVEEDORES' },
+      { id: 'serv_agua', name: 'AGUA', subrubro: 'SERVICIOS' },
+      { id: 'serv_gas', name: 'GAS', subrubro: 'SERVICIOS' },
+      { id: 'serv_luz', name: 'LUZ', subrubro: 'SERVICIOS' },
+      { id: 'serv_alarm', name: 'ALARMA', subrubro: 'SERVICIOS' },
+      { id: 'serv_other', name: 'OTROS', subrubro: 'SERVICIOS' },
+      { id: 'hon_abog_1', name: 'HONORARIOS ABOGADOS', subrubro: 'HONORARIOS' },
+      { id: 'hon_cont', name: 'HONORARIOS CONTADOR', subrubro: 'HONORARIOS' },
+      { id: 'hon_abog_2', name: 'HONORARIOS ABOGADA', subrubro: 'HONORARIOS' },
+      { id: 'hon_domo', name: 'HONORARIOS DOMO', subrubro: 'HONORARIOS' },
+      { id: 'hon_franco', name: 'HONORARIOS FRANCO MKT', subrubro: 'HONORARIOS' },
+      { id: 'hon_rrhh', name: 'HONORARIOS RRHH', subrubro: 'HONORARIOS' },
+      { id: 'hon_other', name: 'OTROS', subrubro: 'HONORARIOS' },
+      { id: 'suel_oper', name: 'SUELDOS OPERATIVOS', subrubro: 'SUELDOS' },
+      { id: 'suel_enc', name: 'SUELDOS ENCARGADOS', subrubro: 'SUELDOS' },
+      { id: 'suel_comp', name: 'SUELDOS COMPARTIDOS', subrubro: 'SUELDOS' },
+      { id: 'suel_soc', name: 'SUELDOS SOCIOS', subrubro: 'SUELDOS' },
+      { id: 'suel_var', name: 'VARIABLES', subrubro: 'SUELDOS' },
+      { id: 'suel_liq', name: 'LIQUIDACION FINAL', subrubro: 'SUELDOS' },
+      { id: 'suel_other', name: 'OTROS', subrubro: 'SUELDOS' },
+      { id: 'alq_rent', name: 'ALQUILER', subrubro: 'ALQUILERES' },
+      { id: 'alq_exp', name: 'EXPENSAS', subrubro: 'ALQUILERES' },
+      { id: 'tax_931', name: 'F931', subrubro: 'IMPUESTOS LABORALES' },
+      { id: 'tax_salud', name: 'SALUD PUBLICA', subrubro: 'IMPUESTOS LABORALES' },
+      { id: 'tax_lab_other', name: 'OTROS', subrubro: 'IMPUESTOS LABORALES' },
+      { id: 'tax_mun', name: 'MUNICIPALES', subrubro: 'IMPUESTOS FISCALES' },
+      { id: 'tax_iva', name: 'IVA', subrubro: 'IMPUESTOS FISCALES' },
+      { id: 'tax_gan', name: 'GANANCIAS', subrubro: 'IMPUESTOS FISCALES' },
+      { id: 'tax_plans', name: 'PLANES', subrubro: 'IMPUESTOS FISCALES' },
+      { id: 'tax_fisc_other', name: 'OTROS', subrubro: 'IMPUESTOS FISCALES' },
+      { id: 'loan_bank', name: 'PRESTAMO BANCARIO', subrubro: 'PRESTAMOS' },
+      { id: 'loan_cuota', name: 'CUOTA FINANCIERA', subrubro: 'PRESTAMOS' },
+      { id: 'echeq_deb', name: 'DEBITOS E-CHEQ EMITIDOS', subrubro: 'E-CHEQ EMITIDOS' },
+      { id: 'maint', name: 'MANTENIMIENTO', subrubro: 'MANTENIMIENTO' },
+      { id: 'exp_other', name: 'OTROS', subrubro: 'OTROS' }
+    ]
+  },
+  {
+    id: 'dividends',
+    name: 'DIVIDENDOS',
+    type: 'expense',
+    items: [
+      { id: 'div_manuel', name: 'DIVIDENDOS MANUEL', subrubro: 'DIVIDENDOS' },
+      { id: 'div_raul', name: 'DIVIDENDOS RAUL', subrubro: 'DIVIDENDOS' },
+      { id: 'div_franco', name: 'DIVIDENDOS FRANCO', subrubro: 'DIVIDENDOS' }
+    ]
+  },
+  {
+    id: 'investments',
+    name: 'INVERSIONES',
+    type: 'expense',
+    items: [
+      { id: 'inv_mach', name: 'COMPRA DE MAQUINARIA', subrubro: 'COMPRA DE MAQUINARIA' },
+      { id: 'inv_food', name: 'FOOD TEAM', subrubro: 'FOOD TEAM' },
+      { id: 'inv_works', name: 'OBRAS EN CURSO', subrubro: 'OBRAS EN CURSO' }
     ]
   }
 ];
 
 const INITIAL_PAYMENTS: ScheduledPayment[] = [
-  { id: '1', description: 'Cuota Préstamo BBVA #4/12', dueDate: '2024-05-20', amount: 450000, status: 'pending', category: 'loan' },
-  { id: '2', description: 'Aportes y Contribuciones F931', dueDate: '2024-05-22', amount: 2800000, status: 'pending', category: 'tax' },
-  { id: '3', description: 'Alquiler Barrio Norte', dueDate: '2024-05-15', amount: 1200000, status: 'paid', category: 'other' },
+  { id: '1', description: 'CUOTA PRÉSTAMO BBVA #4/12', dueDate: '2024-05-20', amount: 450000, status: 'pending', category: 'loan' },
+  { id: '2', description: 'SALDO F931 AFORO', dueDate: '2024-05-22', amount: 2800000, status: 'pending', category: 'tax' },
+  { id: '3', description: 'ALQUILER BARRIO NORTE', dueDate: '2024-05-15', amount: 1200000, status: 'paid', category: 'other' },
+  { id: '4', description: 'PLAN DE PAGO ARCA #10', dueDate: '2024-05-25', amount: 120000, status: 'pending', category: 'tax' },
+  { id: '5', description: 'PRÉSTAMO SANTANDER CUOTA', dueDate: '2024-05-18', amount: 350000, status: 'pending', category: 'loan' },
 ];
 
-export default function FinanceView({ branches, selectedBranchId }: { branches: Branch[], selectedBranchId: string }) {
-  const [activeSubTab, setActiveSubTab] = useState<'flow' | 'payments'>('flow');
+export default function FinanceView({ 
+  branches, 
+  selectedBranchId, 
+  mode = 'default' 
+}: { 
+  branches: Branch[], 
+  selectedBranchId: string,
+  mode?: 'default' | 'bank' | 'tax'
+}) {
+  const today = useMemo(() => new Date(), []);
+  const lastWeek = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d;
+  }, []);
+
+  const [activeSubTab, setActiveSubTab] = useState<'flow' | 'payments'>(mode === 'default' ? 'flow' : 'payments');
   const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
   const [payments, setPayments] = useState<ScheduledPayment[]>(INITIAL_PAYMENTS);
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
+  
+  const [entries, setEntries] = useState<FinanceEntry[]>([
+    { id: 'start', date: today.toISOString().split('T')[0], itemId: 'balance_start', amounts: { efectivo: 5258100, mp: 0, bbva: 850000, santander: 14515000 }, isExecuted: true },
+    { id: '1', date: today.toISOString().split('T')[0], itemId: 'ret_suc', amounts: { efectivo: 17400000, mp: 0, bbva: 0, santander: 0 }, isExecuted: true },
+    { id: '2', date: today.toISOString().split('T')[0], itemId: 'acr_tarj', amounts: { efectivo: 0, mp: 0, bbva: 0, santander: 11570000 }, isExecuted: true },
+  ]);
+
+  // Global initial balances are 0 now because we use the 'balance_start' entry row
+  const initialBalances: Record<string, number> = useMemo(() => {
+    return ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {});
+  }, []);
+
+  // Filter payments based on mode
+  const filteredPayments = useMemo(() => {
+    if (mode === 'bank') return payments.filter(p => p.category === 'loan');
+    if (mode === 'tax') return payments.filter(p => p.category === 'tax');
+    return payments;
+  }, [payments, mode]);
+
   const [notes, setNotes] = useState<TreasuryNote[]>([
     { id: '1', text: 'Recordar que los días 15 de cada mes vence el alquiler de la sucursal Barrio Norte.', color: 'border-brand-500' },
     { id: '2', text: 'La cuota del préstamo BBVA tiene débito automático de la cuenta corriente.', color: 'border-blue-500' },
   ]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
-  
-  const today = new Date();
-  const lastWeek = new Date();
-  lastWeek.setDate(today.getDate() - 7);
   
   const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
@@ -130,16 +224,23 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
     amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {}) as Record<string, number>
   });
 
-  const [entries, setEntries] = useState<FinanceEntry[]>([
-    { id: '1', date: today.toISOString().split('T')[0], itemId: 'ret_suc', amounts: { caja: 17400000, mp: 0, bbva: 0, santander: 0 }, isExecuted: true },
-    { id: '2', date: today.toISOString().split('T')[0], itemId: 'acr_tarj', amounts: { caja: 0, mp: 0, bbva: 0, santander: 11570000 }, isExecuted: true },
-    { id: '3', date: today.toISOString().split('T')[0], itemId: 'honorarios', amounts: { caja: 0, mp: 0, bbva: 0, santander: 0 }, isExecuted: false },
-    { id: '4', date: today.toISOString().split('T')[0], itemId: 'rent_bn', amounts: { caja: 3000000, mp: 0, bbva: 0, santander: 980000 }, isExecuted: true },
-    { id: '5', date: today.toISOString().split('T')[0], itemId: 'rent_peron', amounts: { caja: 2000000, mp: 0, bbva: 0, santander: 600000 }, isExecuted: false },
-  ]);
+  // Get all unique items present in entries for selected period
+  const activeEntriesByCat = useMemo(() => {
+    const grouped: Record<string, FinanceEntry[]> = {};
+    
+    entries.forEach(entry => {
+      const cat = FINANCE_CATEGORIES.find(c => c.items.some(i => i.id === entry.itemId));
+      if (cat) {
+        if (!grouped[cat.id]) grouped[cat.id] = [];
+        grouped[cat.id].push(entry);
+      }
+    });
 
-  // Mock data for initial balances
-  const initialBalances: Record<string, number> = { caja: 5258100, mp: 0, bbva: 0, santander: 14515000 };
+    return grouped;
+  }, [entries]);
+
+  const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : 'Flujo de Caja Estimado';
+  const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
 
   const toggleExecution = (entryId: string | undefined) => {
     if (!entryId) return;
@@ -206,32 +307,36 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h2 className="text-xl font-bold text-text-main uppercase tracking-tight italic flex items-center gap-2">
-            <DollarSign className="text-brand-500" size={24} />
-            Gestión Financiera
+            <ViewIcon className="text-brand-500" size={24} />
+            {viewTitle}
           </h2>
-          <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest mt-1">Cash flow semanal y cronograma de obligaciones</p>
+          <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest mt-1">
+            {mode === 'default' ? 'Cash flow semanal y cronograma de obligaciones' : 'Listado de compromisos y cuotas pendientes'}
+          </p>
         </div>
 
-        <div className="flex bg-bg-card border border-border-dim p-1 rounded">
-          <button 
-            onClick={() => setActiveSubTab('flow')}
-            className={cn(
-              "px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded transition-all",
-              activeSubTab === 'flow' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-            )}
-          >
-            Flujo de Caja
-          </button>
-          <button 
-            onClick={() => setActiveSubTab('payments')}
-            className={cn(
-              "px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded transition-all",
-              activeSubTab === 'payments' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-            )}
-          >
-            Cronograma de Pagos
-          </button>
-        </div>
+        {mode === 'default' && (
+          <div className="flex bg-bg-card border border-border-dim p-1 rounded">
+            <button 
+              onClick={() => setActiveSubTab('flow')}
+              className={cn(
+                "px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded transition-all",
+                activeSubTab === 'flow' ? "bg-brand-500 text-black shadow-lg" : "text-sidebar-dim hover:text-text-main"
+              )}
+            >
+              Flujo de Caja
+            </button>
+            <button 
+              onClick={() => setActiveSubTab('payments')}
+              className={cn(
+                "px-6 py-2 text-[10px] font-black uppercase tracking-widest rounded transition-all",
+                activeSubTab === 'payments' ? "bg-brand-500 text-black shadow-lg" : "text-sidebar-dim hover:text-text-main"
+              )}
+            >
+              Cronograma de Pagos
+            </button>
+          </div>
+        )}
 
         {activeSubTab === 'flow' && (
           <div className="flex gap-3">
@@ -309,10 +414,12 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-bg-accent border-b border-border-dim">
-                        <th className="px-6 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[250px]">Detalle de Rubros / Items</th>
+                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Rubro</th>
+                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Subrubro</th>
+                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[200px]">Concepto</th>
                         <th className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest">Ejecución</th>
                         {ACCOUNTS.map(acc => (
-                          <th key={acc.id} className="px-4 py-4 text-center min-w-[140px]">
+                          <th key={acc.id} className="px-4 py-4 text-center min-w-[120px]">
                             <div className="flex flex-col items-center gap-1">
                               <acc.icon size={14} className={acc.color} />
                               <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">{acc.name}</span>
@@ -323,91 +430,78 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border-dim font-mono">
-                      {/* Initial Balances Row */}
-                      <tr className="bg-brand-500/5 font-black italic">
-                        <td className="px-6 py-3">
-                          <span className="text-[10px] uppercase text-brand-500">Saldos Iniciales de Fondos</span>
-                        </td>
-                        <td className="px-4 py-3"></td>
-                        {ACCOUNTS.map(acc => (
-                          <td key={acc.id} className="px-4 py-3 text-center text-xs text-brand-500">
-                             ${(initialBalances[acc.id] as number).toLocaleString()}
-                          </td>
-                        ))}
-                        <td className="px-6 py-3 text-right text-xs text-brand-500">
-                           ${Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0).toLocaleString()}
-                        </td>
-                      </tr>
+                      {(Object.entries(activeEntriesByCat) as [string, FinanceEntry[]][]).map(([catId, catEntries]) => {
+                        const cat = FINANCE_CATEGORIES.find(c => c.id === catId);
+                        if (!cat) return null;
 
-                      {categories.map((cat) => (
-                        <React.Fragment key={cat.id}>
-                          {/* Category Header */}
-                          <tr className="bg-bg-accent/40">
-                            <td colSpan={ACCOUNTS.length + 3} className="px-6 py-2">
-                               <span className="text-[9px] font-black uppercase text-text-main tracking-widest opacity-60">
-                                 {cat.name}
-                               </span>
-                            </td>
-                          </tr>
-                          {/* Items */}
-                          {cat.items.map((item) => {
-                            const entry = entries.find(e => e.itemId === item.id);
-                            const amounts = entry?.amounts || ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {});
-                            const totalRow = Object.values(amounts).reduce((a: number, b: any) => a + (b as number), 0);
-                            const isExecuted = entry?.isExecuted;
-                            
-                            return (
-                              <tr key={item.id} className={cn(
-                                "hover:bg-bg-accent/30 transition-colors group",
-                                !isExecuted && "opacity-40 grayscale-[0.5]"
-                              )}>
-                                <td className="px-6 py-2.5 pl-10">
-                                  <span className={cn(
-                                    "text-[10px] font-bold uppercase transition-colors",
-                                    isExecuted ? "text-text-main" : "text-text-dim italic"
-                                  )}>
-                                    {item.name} {!isExecuted && <span className="text-[8px] opacity-60">(Presupuestado)</span>}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-2.5 text-center">
-                                   <button 
-                                    onClick={() => toggleExecution(entry?.id)}
-                                    className={cn(
-                                      "p-1.5 rounded-full transition-all scale-90 hover:scale-110",
-                                      isExecuted 
-                                        ? "bg-emerald-500/20 text-emerald-500 shadow-lg shadow-emerald-500/20" 
-                                        : "bg-bg-accent text-text-dim hover:text-brand-500"
-                                    )}
-                                    title={isExecuted ? "Confirmado (REAL)" : "Pendiente (PRESUPUESTADO)"}
-                                   >
-                                      {isExecuted ? <Check size={14} /> : <Circle size={14} />}
-                                   </button>
-                                </td>
-                                {ACCOUNTS.map(acc => (
-                                  <td key={acc.id} className={cn(
-                                    "px-4 py-2.5 text-center text-xs font-bold",
-                                    (amounts as any)[acc.id] !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-20'
-                                  )}>
-                                    {(amounts as any)[acc.id] !== 0 ? (
-                                      <span className="flex items-center justify-center gap-1">
-                                        {(amounts as any)[acc.id] < 0 ? '-' : ''}
-                                        <span className="opacity-40">$</span>
-                                        {Math.abs((amounts as any)[acc.id]).toLocaleString()}
-                                      </span>
-                                    ) : '-'}
-                                  </td>
-                                ))}
-                                <td className={cn(
-                                  "px-6 py-2.5 text-right text-xs font-black",
-                                  totalRow !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-20'
+                        return (
+                          <React.Fragment key={cat.id}>
+                            {catEntries.map((entry, idx) => {
+                              const item = cat.items.find(i => i.id === entry.itemId);
+                              if (!item) return null;
+
+                              const amounts = entry.amounts;
+                              const totalRow = Object.values(amounts).reduce((a: number, b: any) => a + (b as number), 0);
+                              const isExecuted = entry.isExecuted;
+                              
+                              return (
+                                <tr key={entry.id} className={cn(
+                                  "hover:bg-bg-accent/30 transition-colors group text-[10px]",
+                                  !isExecuted && "opacity-60"
                                 )}>
-                                   {totalRow !== 0 ? `$${Math.abs(totalRow as number).toLocaleString()}` : '-'}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </React.Fragment>
-                      ))}
+                                  <td className="px-4 py-2 font-black uppercase text-text-dim/50 tracking-tighter">
+                                    {idx === 0 ? cat.name : ''}
+                                  </td>
+                                  <td className="px-4 py-2 font-bold uppercase text-text-dim/80">
+                                    {(item as any).subrubro}
+                                  </td>
+                                  <td className="px-4 py-2">
+                                    <span className={cn(
+                                      "font-bold uppercase transition-colors",
+                                      isExecuted ? "text-text-main" : "text-text-dim italic"
+                                    )}>
+                                      {item.name}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2 text-center">
+                                     <button 
+                                      onClick={() => toggleExecution(entry.id)}
+                                      className={cn(
+                                        "p-1.5 rounded-full transition-all scale-75 hover:scale-95",
+                                        isExecuted 
+                                          ? "bg-emerald-500 text-black shadow-lg" 
+                                          : "bg-bg-accent text-text-dim hover:text-brand-500 border border-border-dim"
+                                      )}
+                                     >
+                                        {isExecuted ? <Check size={10} strokeWidth={4} /> : <Circle size={10} />}
+                                     </button>
+                                  </td>
+                                  {ACCOUNTS.map(acc => (
+                                    <td key={acc.id} className={cn(
+                                      "px-4 py-2 text-center text-[10px] font-bold",
+                                      (amounts as any)[acc.id] !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-10'
+                                    )}>
+                                      {(amounts as any)[acc.id] !== 0 ? (
+                                        <span className="flex items-center justify-center gap-1">
+                                          {(amounts as any)[acc.id] < 0 ? '-' : ''}
+                                          <span className="opacity-40">$</span>
+                                          {Math.abs((amounts as any)[acc.id]).toLocaleString()}
+                                        </span>
+                                      ) : '-'}
+                                    </td>
+                                  ))}
+                                  <td className={cn(
+                                    "px-6 py-2 text-right text-[10px] font-black",
+                                    totalRow !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-10'
+                                  )}>
+                                     {totalRow !== 0 ? `$${Math.abs(totalRow as number).toLocaleString()}` : '-'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        );
+                      })}
                     </tbody>
                     <tfoot className="bg-bg-main/80 backdrop-blur font-black text-text-main border-t-2 border-border-dim">
                       {/* REAL Footer Row */}
@@ -513,7 +607,7 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                   </button>
                 </div>
                 <div className="divide-y divide-border-dim">
-                  {payments.map(pay => (
+                  {filteredPayments.map(pay => (
                     <div key={pay.id} className="p-6 flex items-center justify-between hover:bg-bg-accent/30 transition-colors group">
                        <div className="flex items-center gap-4">
                           <div className={cn(
@@ -561,11 +655,11 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                       <div>
                         <p className="text-[9px] text-text-dim uppercase font-bold opacity-60">Total Pendiente</p>
                         <p className="text-2xl font-mono font-black text-brand-500 leading-tight italic tracking-tighter">
-                          ${payments.filter(p => p.status !== 'paid').reduce((a, b) => a + b.amount, 0).toLocaleString()}
+                          ${filteredPayments.filter(p => p.status !== 'paid').reduce((a, b) => a + b.amount, 0).toLocaleString()}
                         </p>
                       </div>
                       <p className="text-[9px] text-text-dim uppercase font-bold mb-1">
-                         {payments.filter(p => p.status !== 'paid').length} Pagos
+                         {filteredPayments.filter(p => p.status !== 'paid').length} Pagos
                       </p>
                     </div>
                     <div className="pt-4 border-t border-border-dim">
@@ -972,9 +1066,9 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-xl bg-bg-card border border-border-dim rounded-lg shadow-2xl overflow-hidden"
+              className="relative w-full max-w-4xl max-h-[85vh] bg-bg-card border border-border-dim rounded-lg shadow-2xl overflow-hidden flex flex-col"
             >
-              <div className="p-6 border-b border-border-dim flex justify-between items-center bg-bg-accent/50">
+              <div className="p-6 border-b border-border-dim flex justify-between items-center bg-bg-accent/50 shrink-0">
                  <div className="flex items-center gap-3">
                    <div className="p-2 bg-brand-500/10 rounded-full text-brand-500">
                      <Plus size={20} />
@@ -989,7 +1083,7 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                  </button>
               </div>
 
-              <div className="p-8 space-y-6">
+              <div className="p-8 space-y-6 overflow-y-auto custom-scrollbar">
                 <div className="grid grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase tracking-widest text-text-dim flex items-center gap-2">
@@ -1021,7 +1115,9 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                       onChange={(e) => setNewEntry({...newEntry, itemId: e.target.value})}
                     >
                       {categories.find(c => c.id === newEntry.categoryId)?.items.map(item => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
+                        <option key={item.id} value={item.id}>
+                          {(item as any).subrubro} - {item.name}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -1052,32 +1148,51 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                   <label className="text-[10px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim pb-2 block">
                     Distribución por Cuentas ($ ARS)
                   </label>
-                  <div className="grid grid-cols-2 gap-4">
-                    {ACCOUNTS.map(account => (
-                      <div key={account.id} className="bg-bg-accent p-4 rounded border border-border-dim flex items-center gap-4">
-                        <div className={cn("p-2 bg-bg-card rounded", account.color)}>
-                          <account.icon size={18} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                    {ACCOUNTS.map(account => {
+                      const value = newEntry.amounts[account.id] || 0;
+                      // Format display as $ 25.000.000
+                      const displayValue = value === 0 ? '' : value.toLocaleString('es-AR');
+                      
+                      return (
+                        <div key={account.id} className="bg-bg-accent/40 p-5 rounded border border-border-dim flex flex-col gap-3 group focus-within:border-brand-500 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className={cn("p-1.5 bg-bg-card rounded shadow-sm", account.color)}>
+                              <account.icon size={14} />
+                            </div>
+                            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest">{account.name}</p>
+                          </div>
+                          <div className="relative flex items-center">
+                            <span className="text-text-dim text-xl font-mono mr-2 opacity-30">$</span>
+                            <input 
+                              type="text"
+                              inputMode="numeric"
+                              className={cn(
+                                "w-full bg-transparent border-none p-0 text-2xl font-mono font-black outline-none focus:ring-0",
+                                value > 0 ? "text-emerald-400" : value < 0 ? "text-red-400" : "text-text-main"
+                              )}
+                              placeholder="0"
+                              value={displayValue}
+                              onChange={(e) => {
+                                // Remove non-numeric characters
+                                const raw = e.target.value.replace(/\D/g, '');
+                                const numValue = parseInt(raw) || 0;
+                                
+                                setNewEntry({
+                                  ...newEntry, 
+                                  amounts: { ...newEntry.amounts, [account.id]: numValue }
+                                });
+                              }}
+                            />
+                          </div>
                         </div>
-                        <div className="flex-1">
-                          <p className="text-[9px] font-black uppercase text-text-dim mb-1">{account.name}</p>
-                          <input 
-                            type="number"
-                            className="w-full bg-transparent border-none p-0 text-lg font-mono font-black text-text-main outline-none focus:ring-0"
-                            placeholder="0"
-                            value={newEntry.amounts[account.id] || ''}
-                            onChange={(e) => setNewEntry({
-                              ...newEntry, 
-                              amounts: { ...newEntry.amounts, [account.id]: parseFloat(e.target.value) || 0 }
-                            })}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </div>
 
-              <div className="p-6 bg-bg-accent/50 border-t border-border-dim flex justify-end gap-3">
+              <div className="p-6 bg-bg-accent/50 border-t border-border-dim flex justify-end gap-3 shrink-0">
                  <button 
                   onClick={() => setShowEntryModal(false)}
                   className="px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all"
@@ -1088,16 +1203,26 @@ export default function FinanceView({ branches, selectedBranchId }: { branches: 
                   onClick={async () => {
                     setIsSaving(true);
                     // Simulate API call
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    await new Promise(resolve => setTimeout(resolve, 800));
                     
+                    const entry: FinanceEntry = {
+                      id: `entry_${Date.now()}`,
+                      date: new Date().toISOString().split('T')[0],
+                      itemId: newEntry.itemId,
+                      amounts: newEntry.amounts,
+                      isExecuted: false,
+                      description: newEntry.description
+                    };
+
+                    setEntries([...entries, entry]);
                     setIsSaving(false);
                     setShowEntryModal(false);
                     setNewEntry({
                       description: '',
-                      categoryId: categories[0].id,
-                      itemId: categories[0].items[0].id,
-                      type: 'expense',
-                      amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {})
+                      categoryId: FINANCE_CATEGORIES[0].id,
+                      itemId: FINANCE_CATEGORIES[0].items[0].id,
+                      type: 'expense' as 'income' | 'expense',
+                      amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {}) as Record<string, number>
                     });
                   }}
                   disabled={isSaving}
