@@ -54,6 +54,7 @@ import {
   StockItem,
   Product
 } from './types';
+import { supabase } from './lib/supabase';
 
 // Lazy load views for better performance
 const SalesView = lazy(() => import('./components/SalesView'));
@@ -134,20 +135,58 @@ export default function App() {
     { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
     { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
   ]);
-  const [items, setItems] = useState<StockItem[]>([
-    { id: '1', name: 'Carne (Medallón)', unit: 'u', cost: 8500 },
-    { id: '2', name: 'Pan de Papa', unit: 'u', cost: 4200 },
-    { id: '3', name: 'Papas Bastón', unit: 'kg', cost: 12000 },
-    { id: '4', name: 'Cero Azúcar 1.5L', unit: 'u', cost: 15000 },
-    { id: '5', name: 'Cheddar Feteado', unit: 'kg', cost: 9500 },
-    { id: '6', name: 'Bacon Ahumado', unit: 'kg', cost: 11000 },
-  ]);
-  const [products, setProducts] = useState<Product[]>([
-    { id: 'p1', name: 'Classic Burger', category: 'Hamburguesas' },
-    { id: 'p2', name: 'Double Bacon Cheese', category: 'Hamburguesas' },
-    { id: 'p3', name: 'Combo Familiar', category: 'Combos' },
-    { id: 'p4', name: 'Papas Fritas Medianas', category: 'Anexos' },
-  ]);
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  // Fetch items and products from Supabase
+  React.useEffect(() => {
+    const fetchData = async () => {
+      // Fetch Items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('stock_items')
+        .select('*')
+        .order('name');
+      
+      if (itemsData) {
+        setItems(itemsData.map(i => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit,
+          cost: i.cost
+        })));
+      }
+
+      // Fetch Products
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .order('name');
+      
+      if (productsData) {
+        setProducts(productsData.map(p => ({
+          id: p.id,
+          name: p.name,
+          category: p.category
+        })));
+      }
+    };
+
+    fetchData();
+
+    // Listen for changes
+    const itemsChannel = supabase.channel('stock_items_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'stock_items' }, fetchData)
+      .subscribe();
+
+    const productsChannel = supabase.channel('products_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchData)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(itemsChannel);
+      supabase.removeChannel(productsChannel);
+    };
+  }, []);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [currentUser] = useState({ name: 'Administrador', role: 'dueño' as UserRole, branch: 'Todas las Sucursales' });

@@ -17,6 +17,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch, StockItem, Product } from '../types';
+import { supabase } from '../lib/supabase';
 
 export default function DeviationControlView({ 
   branches, 
@@ -46,36 +47,82 @@ export default function DeviationControlView({
   const [productForm, setProductForm] = useState({ name: '', category: '' });
 
   // 2. Recipes State
-  const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({
-    'p1': [{ productId: 'p1', itemId: '1', quantity: 1 }, { productId: 'p1', itemId: '2', quantity: 1 }],
-    'p2': [{ productId: 'p2', itemId: '1', quantity: 2 }, { productId: 'p2', itemId: '2', quantity: 1 }, { productId: 'p2', itemId: '5', quantity: 0.05 }],
-  });
+  const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({});
 
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(products[0]?.id || null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState('');
 
-  const addIngredientToRecipe = (productId: string, itemId: string) => {
+  // Fetch Recipes
+  React.useEffect(() => {
+    const fetchRecipes = async () => {
+      const { data, error } = await supabase
+        .from('recipes')
+        .select('*');
+      
+      if (data) {
+        const grouped: Record<string, any[]> = {};
+        data.forEach(r => {
+          if (!grouped[r.product_id]) grouped[r.product_id] = [];
+          grouped[r.product_id].push({
+            productId: r.product_id,
+            itemId: r.item_id,
+            quantity: r.quantity
+          });
+        });
+        setRecipes(grouped);
+      }
+    };
+
+    fetchRecipes();
+    
+    // Default selection
+    if (!selectedProductId && products.length > 0) {
+      setSelectedProductId(products[0].id);
+    }
+  }, [products]);
+
+  const addIngredientToRecipe = async (productId: string, itemId: string) => {
     const currentRecipe = recipes[productId] || [];
     if (currentRecipe.some(r => r.itemId === itemId)) return;
 
-    setRecipes(prev => ({
-      ...prev,
-      [productId]: [...currentRecipe, { productId, itemId, quantity: 0 }]
-    }));
+    const { error } = await supabase
+      .from('recipes')
+      .insert({ product_id: productId, item_id: itemId, quantity: 1 });
+
+    if (!error) {
+       setRecipes(prev => ({
+         ...prev,
+         [productId]: [...currentRecipe, { productId, itemId, quantity: 1 }]
+       }));
+    }
   };
 
-  const updateIngredientQuantity = (productId: string, itemId: string, quantity: number) => {
-    setRecipes(prev => ({
-      ...prev,
-      [productId]: (prev[productId] || []).map(r => r.itemId === itemId ? { ...r, quantity } : r)
-    }));
+  const updateIngredientQuantity = async (productId: string, itemId: string, quantity: number) => {
+    const { error } = await supabase
+      .from('recipes')
+      .update({ quantity })
+      .match({ product_id: productId, item_id: itemId });
+
+    if (!error) {
+      setRecipes(prev => ({
+        ...prev,
+        [productId]: (prev[productId] || []).map(r => r.itemId === itemId ? { ...r, quantity } : r)
+      }));
+    }
   };
 
-  const removeIngredientFromRecipe = (productId: string, itemId: string) => {
-    setRecipes(prev => ({
-      ...prev,
-      [productId]: (prev[productId] || []).filter(r => r.itemId !== itemId)
-    }));
+  const removeIngredientFromRecipe = async (productId: string, itemId: string) => {
+    const { error } = await supabase
+      .from('recipes')
+      .delete()
+      .match({ product_id: productId, item_id: itemId });
+
+    if (!error) {
+      setRecipes(prev => ({
+        ...prev,
+        [productId]: (prev[productId] || []).filter(r => r.itemId !== itemId)
+      }));
+    }
   };
 
   // 3. Comparison State (Mock data for deviations)
@@ -386,12 +433,12 @@ export default function DeviationControlView({
                       </div>
                    </div>
                    <button 
-                    onClick={() => {
+                    onClick={async () => {
                         if (editingItem) {
-                          setItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...itemForm } : i));
+                          await supabase.from('stock_items').update(itemForm).eq('id', editingItem.id);
                           setEditingItem(null);
                         } else {
-                          setItems([...items, { id: Math.random().toString(36).substr(2, 9), ...itemForm }]);
+                          await supabase.from('stock_items').insert(itemForm);
                         }
                         setItemForm({ name: '', unit: '', cost: 0 });
                     }}
@@ -422,7 +469,9 @@ export default function DeviationControlView({
                           <Edit2 size={14} />
                         </button>
                         <button 
-                          onClick={() => setItems(prev => prev.filter(i => i.id !== item.id))}
+                          onClick={async () => {
+                            await supabase.from('stock_items').delete().eq('id', item.id);
+                          }}
                           className="p-2 text-text-dim hover:text-red-500 transition-colors"
                         >
                           <Trash2 size={14} />
@@ -462,12 +511,12 @@ export default function DeviationControlView({
                       </div>
                    </div>
                    <button 
-                    onClick={() => {
+                    onClick={async () => {
                         if (editingProduct) {
-                          setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...productForm } : p));
+                          await supabase.from('products').update(productForm).eq('id', editingProduct.id);
                           setEditingProduct(null);
                         } else {
-                          setProducts([...products, { id: Math.random().toString(36).substr(2, 9), ...productForm }]);
+                          await supabase.from('products').insert(productForm);
                         }
                         setProductForm({ name: '', category: '' });
                     }}
@@ -498,17 +547,11 @@ export default function DeviationControlView({
                           <Edit2 size={14} />
                         </button>
                         <button 
-                          onClick={() => {
-                            setProducts(prev => prev.filter(prod => prod.id !== p.id));
+                          onClick={async () => {
+                            await supabase.from('products').delete().eq('id', p.id);
                             if (selectedProductId === p.id) {
                               setSelectedProductId(null);
                             }
-                            // Clean up recipes
-                            setRecipes(prev => {
-                              const newRecipes = { ...prev };
-                              delete newRecipes[p.id];
-                              return newRecipes;
-                            });
                           }}
                           className="p-2 text-text-dim hover:text-red-500 transition-colors"
                         >
