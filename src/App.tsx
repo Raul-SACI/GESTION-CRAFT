@@ -37,7 +37,8 @@ import {
   PanelLeftOpen,
   Sun,
   Moon,
-  Calculator
+  Calculator,
+  Factory
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -82,8 +83,10 @@ const DeviationControlView = lazy(() => import('./components/DeviationControlVie
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
 const DocumentsView = lazy(() => import('./components/DocumentsView'));
+const TablewareView = lazy(() => import('./components/TablewareView'));
+const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 
-import { PerformanceView, TablewareView, NewsView } from './components/ExtraViews';
+import { PerformanceView, NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
 
 // --- MOCK DATA ---
@@ -404,7 +407,7 @@ function AppContent() {
 
         <nav className="flex-1 py-4 space-y-0.5 overflow-y-auto custom-scrollbar">
           <div className="px-4 mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Gestión Encargado</span>
+            <span className="text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Gestión Sucursal</span>
             {!isSidebarCollapsed && (
               <button 
                 onClick={() => setIsSidebarCollapsed(true)}
@@ -520,6 +523,23 @@ function AppContent() {
           )}
 
           <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Mantenimiento</div>
+
+          <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Centro de Producción</div>
+          <button
+            onClick={() => setActiveTab('produccion_mes')}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+              activeTab === 'produccion_mes' 
+                ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+            )}
+          >
+            <Factory size={16} className={cn(
+              "transition-colors",
+              activeTab === 'produccion_mes' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+            )} />
+            Producción del mes
+          </button>
 
           {currentUser.role === 'dueño' && (
             <>
@@ -904,6 +924,7 @@ function AppContent() {
                   onBranchSelect={(id) => setSelectedBranchId(id)}
                 />
               )}
+              {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
               {activeTab === 'papeles_administracion' && (
                 <DocumentsView 
                   key="papeles_administracion" 

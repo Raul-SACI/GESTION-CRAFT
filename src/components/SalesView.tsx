@@ -18,11 +18,18 @@ import {
   FileUp,
   Download,
   Trash2,
-  BarChart3
+  BarChart3,
+  Filter,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  X
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SalesData, Branch, SaleType, Product, ProductRankingEntry } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import { AnimatePresence } from 'motion/react';
 
 interface SalesViewProps {
   branches: Branch[];
@@ -33,8 +40,19 @@ interface SalesViewProps {
 const SALE_TYPES: SaleType[] = ['Turno Mañana', 'Turno Tarde', 'Pedidos Ya Restó', 'Pedidos Ya Café'];
 
 export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  // Rankings State
+  const [rankings, setRankings] = useState<any[]>([]);
+  const [isImportingRanking, setIsImportingRanking] = useState(false);
+  const [rankingToImport, setRankingToImport] = useState<{
+    branchId: string;
+    date: string;
+    entries: any[];
+  } | null>(null);
   
   // New combined form state for all 4 slots
   const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
@@ -50,6 +68,52 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       setBranchId(selectedBranchId);
     }
   }, [selectedBranchId, isAdding]);
+
+  // Fetch from Supabase
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch Sales
+      let salesQuery = supabase.from('sales').select('*').order('date', { ascending: false });
+      if (selectedBranchId !== 'all') {
+        salesQuery = salesQuery.eq('branch_id', selectedBranchId);
+      }
+      const { data: salesData } = await salesQuery;
+      if (salesData) {
+        setSalesRecords(salesData.map(s => ({
+          id: s.id,
+          branchId: s.branch_id,
+          date: s.date,
+          type: s.type as SaleType,
+          pesos: s.pesos,
+          netSales: s.net_sales,
+          orders: s.orders,
+          covers: s.covers,
+          projection: s.projection,
+          productRanking: s.product_ranking
+        })));
+      }
+
+      // Fetch Rankings Table (independent table if it exists, or from sales)
+      // For now we'll assume a dedicated table 'product_rankings' is better for large imports
+      let rankingQuery = supabase.from('product_rankings').select('*').order('date', { ascending: false });
+      if (selectedBranchId !== 'all') {
+        rankingQuery = rankingQuery.eq('branch_id', selectedBranchId);
+      }
+      const { data: rankingData } = await rankingQuery;
+      if (rankingData) {
+        setRankings(rankingData);
+      }
+    } catch (err) {
+      console.error('Error fetching sales data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchData();
+  }, [selectedBranchId]);
   
   const [values, setValues] = useState<Record<SaleType, { pesos: number, netSales: number, orders: number, covers: number }>>({
     'Turno Mañana': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
@@ -58,33 +122,42 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     'Pedidos Ya Café': { pesos: 0, netSales: 0, orders: 0, covers: 0 }
   });
 
-  const handleSave = () => {
-    const newRecords: SalesData[] = SALE_TYPES.map(type => {
-      const v = values[type];
-      return {
-        id: Math.random().toString(36).substr(2, 9),
-        branchId,
-        date: entryDate,
-        type,
-        pesos: v.pesos,
-        netSales: v.netSales,
-        orders: v.orders,
-        covers: v.covers,
-        projection: v.pesos * 30,
-        productRanking: type === 'Turno Mañana' ? productRanking : [] // Attach ranking to one of the records for the day/branch
-      };
-    }).filter(r => r.pesos > 0 || r.orders > 0);
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      const newRecords = SALE_TYPES.map(type => {
+        const v = values[type];
+        return {
+          branch_id: branchId,
+          date: entryDate,
+          type,
+          pesos: v.pesos,
+          net_sales: v.netSales,
+          orders: v.orders,
+          covers: v.covers,
+          projection: v.pesos * 30,
+          product_ranking: type === 'Turno Mañana' ? productRanking : []
+        };
+      }).filter(r => r.pesos > 0 || r.orders > 0);
 
-    setSalesRecords([...newRecords, ...salesRecords]);
-    setIsAdding(false);
-    setProductRanking([]);
-    // Reset values but keep date/branch for convenience
-    setValues({
-      'Turno Mañana': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
-      'Turno Tarde': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
-      'Pedidos Ya Restó': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
-      'Pedidos Ya Café': { pesos: 0, netSales: 0, orders: 0, covers: 0 }
-    });
+      const { error } = await supabase.from('sales').insert(newRecords);
+      if (error) throw error;
+
+      setIsAdding(false);
+      setProductRanking([]);
+      setValues({
+        'Turno Mañana': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
+        'Turno Tarde': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
+        'Pedidos Ya Restó': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
+        'Pedidos Ya Café': { pesos: 0, netSales: 0, orders: 0, covers: 0 }
+      });
+      fetchData();
+    } catch (err) {
+      console.error('Error saving sales:', err);
+      alert('Error al guardar los datos.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addRankingItem = (productId: string) => {
@@ -137,6 +210,85 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       return acc;
     }, init);
   }, [filteredSales]);
+
+  const handleImportRankingExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+      // Map columns: Código, Nombre, Cantidad, [Importe]
+      const entries = data.map(row => ({
+        product_code: row.Código || row.Code || row.id || '',
+        product_name: row.Nombre || row.Name || row.Producto || '',
+        quantity: Number(row.Cantidad || row.Quantity || row.Cant || 0),
+        amount: Number(row.Importe || row.Amount || row.Precio || 0)
+      })).filter(e => e.product_name && e.quantity > 0);
+
+      setRankingToImport({
+        branchId: selectedBranchId === 'all' ? (branches[0]?.id || '') : selectedBranchId,
+        date: new Date().toISOString().split('T')[0],
+        entries
+      });
+      setIsImportingRanking(true);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const confirmRankingImport = async () => {
+    if (!rankingToImport) return;
+    setLoading(true);
+    try {
+      const rows = rankingToImport.entries.map(e => ({
+        branch_id: rankingToImport.branchId,
+        date: rankingToImport.date,
+        product_code: e.product_code,
+        product_name: e.product_name,
+        quantity: e.quantity,
+        amount: e.amount
+      }));
+
+      const { error } = await supabase.from('product_rankings').insert(rows);
+      if (error) throw error;
+
+      setIsImportingRanking(false);
+      setRankingToImport(null);
+      fetchData();
+    } catch (err) {
+      console.error('Error importing ranking:', err);
+      alert('Error al importar el ranking.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExportRankingTemplate = () => {
+    const templateData = [
+      {
+        Código: 'P001',
+        Nombre: 'CAFÉ LATTE',
+        Cantidad: 150,
+        Importe: 450000
+      },
+      {
+        Código: 'P002',
+        Nombre: 'AVOCADO TOAST',
+        Cantidad: 85,
+        Importe: 320000
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Modelo Ranking");
+    XLSX.writeFile(wb, "Modelo_Ranking_Articulos.xlsx");
+  };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -218,27 +370,62 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             <TrendingUp size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-text-main tracking-tight uppercase">Control de Ventas Diarias</h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest text-brand-500/80">Input separado por turnos y canales</p>
+            <h2 className="text-xl font-bold text-text-main tracking-tight uppercase">Administración de Ventas</h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest text-brand-500/80">Control de Ingresos y Rankings</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="flex bg-bg-accent p-1 rounded border border-border-dim mr-4">
+             <button 
+              onClick={() => setActiveSubTab('daily')}
+              className={cn(
+                "px-4 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                activeSubTab === 'daily' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+              )}
+             >
+                Control Diario
+             </button>
+             <button 
+              onClick={() => setActiveSubTab('rankings')}
+              className={cn(
+                "px-4 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                activeSubTab === 'rankings' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+              )}
+             >
+                Ranking Artículos
+             </button>
+          </div>
+
           <button 
-            onClick={handleExportTemplate}
+            onClick={activeSubTab === 'daily' ? handleExportTemplate : handleExportRankingTemplate}
             className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2"
           >
-            <Download size={16} /> EXPORTAR MODELO
+            <Download size={16} /> MODELO
           </button>
-          <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
-            <FileUp size={16} /> IMPORTAR EXCEL
-            <input 
-              type="file" 
-              accept=".xlsx, .xls, .csv" 
-              className="hidden" 
-              onChange={handleImportExcel}
-            />
-          </label>
-          {!isAdding && (
+          
+          {activeSubTab === 'daily' ? (
+            <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
+              <FileUp size={16} /> IMPORTAR VENTAS
+              <input 
+                type="file" 
+                accept=".xlsx, .xls, .csv" 
+                className="hidden" 
+                onChange={handleImportExcel}
+              />
+            </label>
+          ) : (
+            <label className="bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-brand-500 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
+              <FileUp size={16} /> IMPORTAR RANKING
+              <input 
+                type="file" 
+                accept=".xlsx, .xls, .csv" 
+                className="hidden" 
+                onChange={handleImportRankingExcel}
+              />
+            </label>
+          )}
+
+          {!isAdding && activeSubTab === 'daily' && (
             <button 
               onClick={() => setIsAdding(true)}
               className="bg-brand-500 hover:bg-brand-600 text-black px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest shadow-xl transition-all flex items-center justify-center gap-2"
@@ -249,8 +436,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         </div>
       </div>
 
-      {isAdding && (
-        <div className="bg-bg-sidebar border border-brand-500/30 p-8 rounded shadow-2xl space-y-8">
+      {activeSubTab === 'daily' ? (
+        <>
+          {isAdding && (
+            <div className="bg-bg-sidebar border border-brand-500/30 p-8 rounded shadow-2xl space-y-8">
           <div className="flex flex-col md:flex-row gap-6 pb-6 border-b border-border-dim">
             <div className="flex-1 space-y-2">
               <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Sucursal</label>
@@ -469,6 +658,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3">
           <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+            <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
+               <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas</h3>
+               {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
+            </div>
             <table className="w-full border-collapse text-[10px]">
               <thead>
                 <tr className="bg-bg-accent border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
@@ -592,6 +785,192 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           </div>
         </div>
       </div>
+      </>
+      ) : (
+        <div className="space-y-6">
+           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="md:col-span-1 space-y-4">
+                 <div className="bg-bg-sidebar border border-border-dim p-6 rounded space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 border-b border-border-dim pb-2">Resumen Ranking</h3>
+                    <div className="space-y-4">
+                       <div className="p-4 bg-bg-accent rounded border border-border-dim">
+                          <p className="text-[8px] font-bold text-text-dim uppercase mb-1">Registros Cargados</p>
+                          <p className="text-2xl font-mono font-black text-text-main">{rankings.length}</p>
+                       </div>
+                       <div className="p-4 bg-bg-accent rounded border border-border-dim">
+                          <p className="text-[8px] font-bold text-text-dim uppercase mb-1">Sucursales con Datos</p>
+                          <p className="text-2xl font-mono font-black text-text-main">
+                             {new Set(rankings.map(r => r.branch_id)).size}
+                          </p>
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="bg-brand-500/5 border border-brand-500/20 p-6 rounded">
+                    <div className="flex items-center gap-2 text-brand-500 mb-2">
+                       <Filter size={14} />
+                       <span className="text-[10px] font-black uppercase">Filtro Rápido</span>
+                    </div>
+                    <p className="text-[9px] text-text-dim leading-relaxed uppercase font-bold">
+                       Use el selector de sucursal arriba para ver el ranking específico de un punto de venta.
+                    </p>
+                 </div>
+              </div>
+
+              <div className="md:col-span-3">
+                 <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+                    <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
+                       <div className="flex items-center gap-4">
+                          <span className="text-[9px] font-bold text-text-dim uppercase">Mostrando: {selectedBranchId === 'all' ? 'Todas las Sucursales' : branches.find(b => b.id === selectedBranchId)?.name}</span>
+                          {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
+                       </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                       <table className="w-full border-collapse text-[10px]">
+                          <thead>
+                             <tr className="bg-bg-card border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
+                                <th className="px-6 py-4">Producto</th>
+                                <th className="px-4 py-4 text-center">Código</th>
+                                <th className="px-4 py-4 text-center">Sucursal</th>
+                                <th className="px-4 py-4 text-center">Fecha/Mes</th>
+                                <th className="px-4 py-4 text-right">Cantidad</th>
+                                <th className="px-4 py-4 text-right">Importe</th>
+                                <th className="px-6 py-4"></th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border-dim">
+                             {rankings.length === 0 ? (
+                               <tr>
+                                  <td colSpan={7} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                                     No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.
+                                  </td>
+                               </tr>
+                             ) : (
+                               rankings.map((r, idx) => (
+                                 <tr key={r.id || idx} className="hover:bg-bg-accent/50 transition-colors group">
+                                    <td className="px-6 py-4">
+                                       <span className="font-black text-text-main uppercase">{r.product_name}</span>
+                                    </td>
+                                    <td className="px-4 py-4 text-center">
+                                       <span className="font-mono text-text-dim bg-bg-card px-2 py-0.5 rounded border border-border-dim text-[9px]">{r.product_code || '---'}</span>
+                                    </td>
+                                    <td className="px-4 py-4 text-center">
+                                       <span className="text-text-dim uppercase font-bold">{branches.find(b => b.id === r.branch_id)?.name || 'Desconocida'}</span>
+                                    </td>
+                                    <td className="px-4 py-4 text-center">
+                                       <span className="text-text-dim font-mono">{r.date}</span>
+                                    </td>
+                                    <td className="px-4 py-4 text-right font-black text-brand-500 text-sm">
+                                       {r.quantity.toLocaleString()}
+                                    </td>
+                                    <td className="px-4 py-4 text-right font-mono font-bold text-text-main">
+                                       ${r.amount?.toLocaleString() || 0}
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                       <button className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <Trash2 size={14} />
+                                       </button>
+                                    </td>
+                                 </tr>
+                               ))
+                             )}
+                          </tbody>
+                       </table>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Ranking Import Modal */}
+      <AnimatePresence>
+         {isImportingRanking && rankingToImport && (
+           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-4xl max-h-[80vh] flex flex-col shadow-2xl overflow-hidden"
+              >
+                 <div className="p-6 border-b border-border-dim bg-bg-accent flex justify-between items-center">
+                    <div>
+                       <h3 className="text-sm font-black text-brand-500 uppercase tracking-widest flex items-center gap-2">
+                          <CheckCircle2 size={18} /> Previsualización de Importación
+                       </h3>
+                       <p className="text-[10px] text-text-dim font-bold uppercase mt-1">Verifique los datos antes de confirmar</p>
+                    </div>
+                    <button onClick={() => setIsImportingRanking(false)} className="text-text-dim hover:text-text-main">
+                       <X size={20} />
+                    </button>
+                 </div>
+
+                 <div className="p-6 bg-bg-main border-b border-border-dim grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                       <label className="text-[9px] font-black text-text-dim uppercase">Sucursal de Destino</label>
+                       <select 
+                        value={rankingToImport.branchId}
+                        onChange={(e) => setRankingToImport({...rankingToImport, branchId: e.target.value})}
+                        className="w-full bg-bg-sidebar border border-border-dim rounded px-3 py-2 text-xs font-black uppercase text-brand-500"
+                       >
+                          {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                       </select>
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[9px] font-black text-text-dim uppercase">Fecha del Ranking</label>
+                       <input 
+                        type="date"
+                        value={rankingToImport.date}
+                        onChange={(e) => setRankingToImport({...rankingToImport, date: e.target.value})}
+                        className="w-full bg-bg-sidebar border border-border-dim rounded px-3 py-2 text-xs font-mono"
+                       />
+                    </div>
+                 </div>
+
+                 <div className="flex-1 overflow-y-auto p-0 custom-scrollbar">
+                    <table className="w-full border-collapse text-[10px]">
+                       <thead className="sticky top-0 z-10 bg-bg-accent shadow-sm">
+                          <tr className="text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+                             <th className="px-6 py-3">Código</th>
+                             <th className="px-6 py-3">Nombre del Producto</th>
+                             <th className="px-6 py-3 text-right">Cantidad</th>
+                             <th className="px-6 py-3 text-right">Importe</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-border-dim/30">
+                          {rankingToImport.entries.map((e, idx) => (
+                            <tr key={idx} className="hover:bg-bg-accent/30">
+                               <td className="px-6 py-3 font-mono text-text-dim">{e.product_code}</td>
+                               <td className="px-6 py-3 font-black text-text-main uppercase">{e.product_name}</td>
+                               <td className="px-6 py-3 text-right font-black text-brand-500">{e.quantity}</td>
+                               <td className="px-6 py-3 text-right font-mono text-text-dim">${e.amount?.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
+
+                 <div className="p-6 bg-bg-accent border-t border-border-dim flex gap-4">
+                    <button 
+                      onClick={confirmRankingImport}
+                      disabled={loading}
+                      className="flex-1 bg-brand-500 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 shadow-xl transition-all flex items-center justify-center gap-2"
+                    >
+                       {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                       CONFIRMAR E IMPORTAR {rankingToImport.entries.length} ARTÍCULOS
+                    </button>
+                    <button 
+                      onClick={() => setIsImportingRanking(false)}
+                      className="px-8 py-3 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-sidebar transition-all"
+                    >
+                       CANCELAR
+                    </button>
+                 </div>
+              </motion.div>
+           </div>
+         )}
+      </AnimatePresence>
     </motion.div>
   );
 }

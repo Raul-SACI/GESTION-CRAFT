@@ -157,11 +157,23 @@ export interface SupervisionFlag {
 }
 
 // 7. Vajilla
-export interface TablewareInventory {
+export interface TablewareItem {
   id: string;
   branchId: string;
-  weekStarting: string;
-  items: Record<string, number>; // item name: count
+  category: string;
+  name: string;
+  idealStock: number;
+  criticalStock: number;
+}
+
+export interface TablewareWeeklyCheck {
+  id: string;
+  branchId: string;
+  itemId: string;
+  date: string; // Week start
+  initialStock: number;
+  finalStock: number;
+  breakages: number; // initial - final
 }
 
 // 7. Novedades
@@ -231,4 +243,21 @@ export interface PLMonthlyData {
   month: string;
   branchId: string;
   records: PLRecord[];
+}
+
+// 10. Centro de Producción
+export interface ProductionItem {
+  id: string;
+  name: string;
+  unit: string;
+  category: string;
+}
+
+export interface ProductionLog {
+  id: string;
+  itemId: string;
+  date: string; // ISO Date
+  quantity: number;
+  batchNumber?: string;
+  notes?: string;
 }
