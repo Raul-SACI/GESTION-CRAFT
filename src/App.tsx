@@ -904,9 +904,13 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
     userRatingCount?: number;
+    allReviews: google.maps.places.Review[];
     criticalReviews: google.maps.places.Review[];
+    recentWithText: google.maps.places.Review[];
     loading: boolean;
-  }>({ criticalReviews: [], loading: false });
+  }>({ allReviews: [], criticalReviews: [], recentWithText: [], loading: false });
+
+  const [activeView, setActiveView] = useState<'summary' | 'all' | 'critical' | 'recent'>('summary');
 
   const placesLib = useMapsLibrary('places');
 
@@ -921,19 +925,26 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           fields: ['rating', 'userRatingCount', 'reviews']
         });
 
+        const now = new Date();
         const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        sevenDaysAgo.setDate(now.getDate() - 7);
 
-        const criticalReviews = (place.reviews || []).filter(review => {
-          const isCritical = (review.rating || 0) < 4;
+        const all = place.reviews || [];
+        
+        const critical = all.filter(review => (review.rating || 0) <= 4);
+        
+        const recent = all.filter(review => {
+          const hasText = review.text && review.text.trim().length > 0;
           const isRecent = review.publishTime && review.publishTime > sevenDaysAgo;
-          return isCritical && isRecent;
+          return hasText && isRecent;
         });
 
         setData({
           rating: place.rating || undefined,
           userRatingCount: place.userRatingCount || undefined,
-          criticalReviews,
+          allReviews: all,
+          criticalReviews: critical,
+          recentWithText: recent,
           loading: false
         });
       } catch (err) {
@@ -947,51 +958,124 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
 
   if (!branch.googlePlaceId) return null;
 
-  return (
-    <Card className="h-full border-l-4 border-yellow-500 flex flex-col justify-between">
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-black text-text-dim uppercase tracking-wider">{branch.name} (Google)</span>
-          <Star size={14} className="text-yellow-500 fill-yellow-500" />
-        </div>
-        {data.loading ? (
-          <div className="animate-pulse space-y-2">
-            <div className="h-8 bg-bg-accent rounded w-1/2" />
-            <div className="h-4 bg-bg-accent rounded w-3/4" />
-          </div>
-        ) : (
-          <>
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-2xl font-mono font-bold text-text-main">{data.rating || 'N/A'}</h2>
-              <span className="text-text-dim text-[10px]">/ 5.0</span>
+  const renderStars = (rating: number, size = 8, colorClass = "text-yellow-500 fill-yellow-500") => (
+    <div className="flex gap-0.5">
+      {[...Array(5)].map((_, i) => (
+        <Star 
+          key={i} 
+          size={size} 
+          className={cn(i < Math.floor(rating) ? colorClass : "text-text-dim/20")} 
+        />
+      ))}
+    </div>
+  );
+
+  const ReviewList = ({ reviews, emptyMsg }: { reviews: google.maps.places.Review[], emptyMsg: string }) => (
+    <div className="space-y-2 mt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+      {reviews.length === 0 ? (
+        <p className="text-[9px] text-text-dim italic text-center py-4">{emptyMsg}</p>
+      ) : (
+        reviews.map((rev, i) => (
+          <div key={i} className="p-2 bg-bg-accent/50 border border-border-dim rounded group hover:border-brand-500/30 transition-all">
+            <div className="flex justify-between items-start mb-1">
+              <div className="flex flex-col">
+                <span className="text-[9px] font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario Google'}</span>
+                {renderStars(rev.rating || 0, 7)}
+              </div>
+              <span className="text-[7px] text-text-dim whitespace-nowrap">{rev.publishTime?.toLocaleDateString()}</span>
             </div>
-            <p className="text-[9px] text-text-dim uppercase font-bold mt-1">{data.userRatingCount || 0} COMENTARIOS TOTALES</p>
-            
-            {data.criticalReviews.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <p className="text-[8px] font-black text-red-500 uppercase flex items-center gap-1">
-                  <AlertCircle size={10} /> Alertas Críticas (7d): {data.criticalReviews.length}
-                </p>
-                <div className="max-h-24 overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                  {data.criticalReviews.map((rev, i) => (
-                    <div key={i} className="p-2 bg-red-500/5 border border-red-500/10 rounded">
-                      <div className="flex justify-between items-center mb-1">
-                        <div className="flex gap-0.5">
-                          {[...Array(5)].map((_, starI) => (
-                            <Star key={starI} size={6} className={cn(starI < (rev.rating || 0) ? "text-red-500 fill-red-500" : "text-text-dim/20")} />
-                          ))}
-                        </div>
-                        <span className="text-[7px] text-text-dim italic">{rev.publishTime?.toLocaleDateString()}</span>
-                      </div>
-                      <p className="text-[9px] text-text-main leading-tight line-clamp-2 italic">"{rev.text}"</p>
-                    </div>
-                  ))}
+            {rev.text && (
+              <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">"{rev.text}"</p>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  );
+
+  return (
+    <Card className="h-full border-l-4 border-yellow-500 flex flex-col p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-text-dim uppercase tracking-wider">{branch.name}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono font-bold text-text-main">{data.rating || '--'}</span>
+            {renderStars(data.rating || 0, 10)}
+          </div>
+        </div>
+        <div className="flex gap-1 bg-bg-accent p-0.5 rounded border border-border-dim">
+          {[
+            { id: 'summary', icon: LayoutDashboard, label: 'Resumen' },
+            { id: 'all', icon: Star, label: 'Todas' },
+            { id: 'critical', icon: AlertCircle, label: 'Críticas' },
+            { id: 'recent', icon: Clock, label: '7d Texto' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveView(tab.id as any)}
+              className={cn(
+                "p-1.5 rounded transition-all group relative",
+                activeView === tab.id ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+              )}
+              title={tab.label}
+            >
+              <tab.icon size={12} />
+              {activeView === tab.id && (
+                 <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black text-white text-[7px] px-1 rounded uppercase font-bold whitespace-nowrap shadow-xl">
+                   {tab.label}
+                 </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data.loading ? (
+        <div className="animate-pulse space-y-3 py-4">
+          <div className="h-4 bg-bg-accent rounded w-3/4" />
+          <div className="h-12 bg-bg-accent rounded w-full" />
+          <div className="h-12 bg-bg-accent rounded w-full" />
+        </div>
+      ) : (
+        <div className="flex-1">
+          {activeView === 'summary' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div className="p-3 bg-bg-accent rounded text-center border border-border-dim">
+                  <p className="text-[8px] font-black text-text-dim uppercase">Total</p>
+                  <p className="text-lg font-mono font-bold text-text-main leading-none mt-1">{data.userRatingCount || 0}</p>
+                  <p className="text-[7px] text-text-dim uppercase mt-1">Reseñas</p>
+                </div>
+                <div className="p-3 bg-red-500/5 rounded text-center border border-red-500/20">
+                  <p className="text-[8px] font-black text-red-500 uppercase">Alertas</p>
+                  <p className="text-lg font-mono font-bold text-red-500 leading-none mt-1">{data.criticalReviews.length}</p>
+                  <p className="text-[7px] text-text-dim uppercase mt-1">Críticas</p>
                 </div>
               </div>
-            )}
-          </>
-        )}
-      </div>
+              {data.recentWithText.length > 0 && (
+                <div className="p-2 border-2 border-dashed border-brand-500/20 rounded-lg animate-pulse-slow">
+                  <p className="text-[8px] font-black text-brand-500 uppercase flex items-center gap-1 mb-1">
+                    <Clock size={10} /> Nuevos Comentarios (7d): {data.recentWithText.length}
+                  </p>
+                  <p className="text-[8px] text-text-dim italic line-clamp-1">"{data.recentWithText[0].text}"</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeView === 'all' && (
+            <ReviewList reviews={data.allReviews} emptyMsg="No hay reseñas disponibles." />
+          )}
+
+          {activeView === 'critical' && (
+            <ReviewList reviews={data.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." />
+          )}
+
+          {activeView === 'recent' && (
+            <ReviewList reviews={data.recentWithText} emptyMsg="Sin comentarios con texto en los últimos 7 días." />
+          )}
+        </div>
+      )}
     </Card>
   );
 };
