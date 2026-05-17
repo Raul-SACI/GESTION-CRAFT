@@ -22,6 +22,7 @@ export interface Branch {
   isActive: boolean;
   googleMapsUrl?: string;
   googleReviewUrl?: string;
+  googlePlaceId?: string;
 }
 
 // 0. Base Entities

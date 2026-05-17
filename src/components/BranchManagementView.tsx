@@ -11,10 +11,12 @@ import {
   CheckCircle2,
   AlertCircle,
   Globe,
-  Star
+  Star,
+  Search
 } from 'lucide-react';
 import { Branch } from '../types';
 import { cn } from '../lib/utils';
+import { useMapsLibrary } from '@vis.gl/react-google-maps';
 
 export default function BranchManagementView({ 
   branches, 
@@ -27,10 +29,34 @@ export default function BranchManagementView({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<Branch>>({});
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<google.maps.places.Place[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const placesLib = useMapsLibrary('places');
+
+  const handlePlaceSearch = async () => {
+    if (!placesLib || !placeQuery) return;
+    setIsSearching(true);
+    try {
+      const { places } = await placesLib.Place.searchByText({
+        textQuery: placeQuery,
+        fields: ['displayName', 'formattedAddress', 'id'],
+        maxResultCount: 5
+      });
+      setSearchResults(places || []);
+    } catch (error) {
+      console.error('Error searching places:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const startEditing = (branch: Branch) => {
     setEditingId(branch.id);
     setEditValues(branch);
+    setPlaceQuery(branch.name);
+    setSearchResults([]);
   };
 
   const handleSave = () => {
@@ -102,6 +128,59 @@ export default function BranchManagementView({
                       className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs text-text-main outline-none focus:border-brand-500"
                     />
                   </div>
+                  <div>
+                    <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Buscar en Google Maps</label>
+                    <div className="flex gap-2">
+                       <input 
+                        type="text"
+                        value={placeQuery}
+                        onChange={(e) => setPlaceQuery(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handlePlaceSearch()}
+                        placeholder="Nombre o dirección para vincular..."
+                        className="flex-1 bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs text-text-main outline-none focus:border-brand-500"
+                      />
+                      <button 
+                        onClick={handlePlaceSearch}
+                        disabled={isSearching}
+                        className="bg-bg-accent hover:bg-brand-500 hover:text-black border border-border-dim px-3 rounded transition-all"
+                      >
+                         <Search size={14} className={isSearching ? "animate-spin" : ""} />
+                      </button>
+                    </div>
+                    
+                    {searchResults.length > 0 && (
+                      <div className="mt-2 space-y-1 bg-bg-accent rounded border border-border-dim p-1 max-h-32 overflow-y-auto custom-scrollbar">
+                        {searchResults.map(place => (
+                          <button
+                            key={place.id}
+                            onClick={() => {
+                              setEditValues({
+                                ...editValues, 
+                                googlePlaceId: place.id || undefined,
+                                location: place.formattedAddress || editValues.location,
+                                name: place.displayName || editValues.name
+                              });
+                              setSearchResults([]);
+                              setPlaceQuery(place.displayName || '');
+                            }}
+                            className="w-full text-left px-2 py-1.5 hover:bg-brand-500/10 rounded group transition-all"
+                          >
+                            <p className="text-[10px] font-bold text-text-main group-hover:text-brand-500 line-clamp-1">{place.displayName}</p>
+                            <p className="text-[8px] text-text-dim line-clamp-1 italic">{place.formattedAddress}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                     <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block italic">Place ID (Vinculado)</label>
+                     <div className="flex items-center gap-2 px-3 py-1.5 bg-bg-sidebar border border-dashed border-border-dim rounded">
+                        <Star size={10} className={editValues.googlePlaceId ? "text-yellow-500" : "text-text-dim"} />
+                        <span className="text-[9px] font-mono text-text-dim truncate">{editValues.googlePlaceId || 'No vinculado'}</span>
+                     </div>
+                  </div>
+
                   <div>
                     <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Google Maps URL</label>
                     <input 

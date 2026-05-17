@@ -4,7 +4,7 @@
  */
 
 // Vercel deployment trigger
-import React, { useState, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { 
   LayoutDashboard, 
   TrendingUp, 
@@ -29,6 +29,8 @@ import {
   Clock,
   ExternalLink,
   Building2,
+  MapPin,
+  AlertCircle,
   BarChart3,
   DollarSign,
   PanelLeftClose,
@@ -121,10 +123,58 @@ const MOCK_PERFORMANCE: PerformanceData = {
   }
 };
 
+import { APIProvider } from '@vis.gl/react-google-maps';
+
+const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
+const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
+
 // --- COMPONENTS ---
 
-const Card = ({ children, className }: { children: React.ReactNode, className?: string, key?: any }) => (
-  <div className={cn("glass-card p-6", className)}>
+const ApiKeySplash = () => (
+  <div className="flex items-center justify-center min-h-screen bg-bg-main p-8">
+    <div className="max-w-xl w-full glass-card p-12 text-center border-2 border-brand-500/20 shadow-2xl">
+      <div className="w-20 h-20 bg-brand-500/10 rounded-full flex items-center justify-center mx-auto mb-8">
+        <Key className="text-brand-500 animate-pulse" size={40} />
+      </div>
+      <h2 className="text-2xl font-black text-text-main uppercase tracking-tighter mb-4 italic italic">
+        Google Maps API Key Required
+      </h2>
+      <p className="text-text-dim text-sm leading-relaxed mb-8">
+        Para integrar las calificaciones de Google automáticamente, se requiere una clave de API válida.
+      </p>
+      <div className="space-y-4 text-left bg-bg-accent p-6 rounded-lg border border-border-dim mb-8">
+        <p className="text-[11px] font-bold text-text-main uppercase">Instrucciones de Configuración:</p>
+        <ol className="text-[10px] space-y-3 text-text-dim list-decimal pl-4 font-medium uppercase tracking-wider">
+          <li>Obtén tu API Key en <a href="https://console.cloud.google.com/google/maps-apis/start" target="_blank" rel="noopener" className="text-brand-500 underline">Google Cloud Console</a>.</li>
+          <li>Abre <strong>Configuración</strong> (icono de engranaje ⚙️, arriba a la derecha).</li>
+          <li>Selecciona <strong>Secrets</strong>.</li>
+          <li>Agrega <code>GOOGLE_MAPS_PLATFORM_KEY</code> como nombre.</li>
+          <li>Pega tu clave como valor y presiona <strong>Enter</strong>.</li>
+        </ol>
+      </div>
+      <div className="p-4 bg-brand-500/5 rounded border border-brand-500/20">
+        <p className="text-[9px] text-brand-500 font-bold uppercase italic">
+          La aplicación se reconstruirá automáticamente después de agregar el secreto.
+        </p>
+      </div>
+    </div>
+  </div>
+);
+
+export default function App() {
+  if (!hasValidKey) {
+    return <ApiKeySplash />;
+  }
+
+  return (
+    <APIProvider apiKey={API_KEY} version="weekly">
+      <AppContent />
+    </APIProvider>
+  );
+}
+
+const Card = ({ children, className, key }: { children: React.ReactNode, className?: string, key?: any }) => (
+  <div key={key} className={cn("glass-card p-6", className)}>
     {children}
   </div>
 );
@@ -136,7 +186,7 @@ const LoadingState = () => (
   </div>
 );
 
-export default function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -848,6 +898,104 @@ export default function App() {
 
 // --- SUB-VIEWS ---
 
+import { useMapsLibrary } from '@vis.gl/react-google-maps';
+
+function GoogleMetricsCard({ branch }: { branch: Branch, key?: any }) {
+  const [data, setData] = useState<{
+    rating?: number;
+    userRatingCount?: number;
+    criticalReviews: google.maps.places.Review[];
+    loading: boolean;
+  }>({ criticalReviews: [], loading: false });
+
+  const placesLib = useMapsLibrary('places');
+
+  useEffect(() => {
+    if (!placesLib || !branch.googlePlaceId) return;
+
+    const fetchData = async () => {
+      setData(prev => ({ ...prev, loading: true }));
+      try {
+        const place = new placesLib.Place({ id: branch.googlePlaceId });
+        await place.fetchFields({
+          fields: ['rating', 'userRatingCount', 'reviews']
+        });
+
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const criticalReviews = (place.reviews || []).filter(review => {
+          const isCritical = (review.rating || 0) < 4;
+          const isRecent = review.publishTime && review.publishTime > sevenDaysAgo;
+          return isCritical && isRecent;
+        });
+
+        setData({
+          rating: place.rating || undefined,
+          userRatingCount: place.userRatingCount || undefined,
+          criticalReviews,
+          loading: false
+        });
+      } catch (err) {
+        console.error('Error fetching Google metrics:', err);
+        setData(prev => ({ ...prev, loading: false }));
+      }
+    };
+
+    fetchData();
+  }, [placesLib, branch.googlePlaceId]);
+
+  if (!branch.googlePlaceId) return null;
+
+  return (
+    <Card className="h-full border-l-4 border-yellow-500 flex flex-col justify-between">
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-black text-text-dim uppercase tracking-wider">{branch.name} (Google)</span>
+          <Star size={14} className="text-yellow-500 fill-yellow-500" />
+        </div>
+        {data.loading ? (
+          <div className="animate-pulse space-y-2">
+            <div className="h-8 bg-bg-accent rounded w-1/2" />
+            <div className="h-4 bg-bg-accent rounded w-3/4" />
+          </div>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-2">
+              <h2 className="text-2xl font-mono font-bold text-text-main">{data.rating || 'N/A'}</h2>
+              <span className="text-text-dim text-[10px]">/ 5.0</span>
+            </div>
+            <p className="text-[9px] text-text-dim uppercase font-bold mt-1">{data.userRatingCount || 0} COMENTARIOS TOTALES</p>
+            
+            {data.criticalReviews.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-[8px] font-black text-red-500 uppercase flex items-center gap-1">
+                  <AlertCircle size={10} /> Alertas Críticas (7d): {data.criticalReviews.length}
+                </p>
+                <div className="max-h-24 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                  {data.criticalReviews.map((rev, i) => (
+                    <div key={i} className="p-2 bg-red-500/5 border border-red-500/10 rounded">
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex gap-0.5">
+                          {[...Array(5)].map((_, starI) => (
+                            <Star key={starI} size={6} className={cn(starI < (rev.rating || 0) ? "text-red-500 fill-red-500" : "text-text-dim/20")} />
+                          ))}
+                        </div>
+                        <span className="text-[7px] text-text-dim italic">{rev.publishTime?.toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-[9px] text-text-main leading-tight line-clamp-2 italic">"{rev.text}"</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function DashboardView({ salesComparison: initialSalesComparison, performance, branches, selectedBranchId }: { salesComparison: any, performance: PerformanceData, branches: Branch[], selectedBranchId: string }) {
   // Filter sales data for the chart and KPIs
   const filteredSales = useMemo(() => {
@@ -924,20 +1072,38 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
           </div>
         </Card>
 
-        <Card className="h-32 border-l-4 border-yellow-500">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Calificación Google</span>
-            <Star size={14} className="text-yellow-500 fill-yellow-500" />
+        {selectedBranchId === 'all' ? (
+          <Card className="h-32 border-l-4 border-yellow-500 flex flex-col justify-center items-center bg-yellow-500/5">
+             <Star size={24} className="text-yellow-500 mb-1" />
+             <p className="text-[10px] font-black text-text-dim uppercase">Métricas Google</p>
+             <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
+          </Card>
+        ) : (
+          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+        )}
+      </div>
+
+      {/* Google Maps Performance Row */}
+      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-text-dim border-b border-border-dim pb-2 flex items-center gap-2 mt-8">
+        <MapPin size={12} className="text-yellow-500" />
+        Reputación en Google Maps
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {selectedBranchId === 'all' ? (
+          branches.filter(b => b.googlePlaceId).map(branch => (
+            <GoogleMetricsCard key={branch.id} branch={branch} />
+          ))
+        ) : (
+          <div className="col-span-full">
+            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
           </div>
-          <div className="flex items-baseline gap-2">
-            <h2 className="text-2xl font-mono font-bold text-text-main">{performance.googleScore}</h2>
-            <span className="text-text-dim text-[10px]">/ 5.0</span>
+        )}
+        {branches.filter(b => b.googlePlaceId).length === 0 && (
+          <div className="col-span-full p-8 text-center border-2 border-dashed border-border-dim rounded-lg">
+            <p className="text-[10px] font-bold text-text-dim uppercase">No hay sucursales vinculadas a Google Maps</p>
+            <p className="text-[9px] text-text-dim italic mt-1">Configura el Place ID en Gestión Sucursales</p>
           </div>
-          <div className="text-[9px] text-text-dim uppercase mt-4 font-bold flex justify-between">
-            <span>{performance.googleComments} Comentarios</span>
-            <a href="#" className="text-brand-500 hover:underline">Ver todos</a>
-          </div>
-        </Card>
+        )}
       </div>
 
       {/* Ratings Row */}
