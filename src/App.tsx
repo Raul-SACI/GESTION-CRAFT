@@ -199,19 +199,50 @@ function AppContent() {
     }
   }, [isDarkMode]);
 
-  const [branches, setBranches] = useState<Branch[]>([
-    { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
-    { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
-    { id: 'mt', name: 'Mercato', location: 'Av. Juan B. Justo 789, Tucumán', isActive: true },
-    { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
-    { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
-  ]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [items, setItems] = useState<StockItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
-  // Fetch items and products from Supabase
+  // Fetch items, products and branches from Supabase
   React.useEffect(() => {
     const fetchData = async () => {
+      // Fetch Branches
+      const { data: branchesData, error: branchesError } = await supabase
+        .from('branches')
+        .select('*')
+        .order('name');
+      
+      if (branchesError) {
+        console.error('Error fetching branches (check if table exists):', branchesError);
+        // Fallback to defaults if table doesn't exist yet to not break the app
+        setBranches([
+          { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
+          { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
+          { id: 'mt', name: 'Mercato', location: 'Av. Juan B. Justo 789, Tucumán', isActive: true },
+          { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
+          { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
+        ]);
+      } else if (branchesData && branchesData.length > 0) {
+        setBranches(branchesData.map(b => ({
+          id: b.id,
+          name: b.name,
+          location: b.location,
+          isActive: b.is_active,
+          googleMapsUrl: b.google_maps_url,
+          googleReviewUrl: b.google_review_url,
+          googlePlaceId: b.google_place_id
+        })));
+      } else {
+        // Table exists but is empty
+        setBranches([
+          { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
+          { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
+          { id: 'mt', name: 'Mercato', location: 'Av. Juan B. Justo 789, Tucumán', isActive: true },
+          { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
+          { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
+        ]);
+      }
+
       // Fetch Items
       const { data: itemsData, error: itemsError } = await supabase
         .from('stock_items')
@@ -269,7 +300,7 @@ function AppContent() {
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
 
-  const handleAddBranch = () => {
+  const handleAddBranch = async () => {
     if (!newBranchName.trim()) return;
     const newBranch: Branch = {
       id: Math.random().toString(36).substr(2, 9),
@@ -278,11 +309,52 @@ function AppContent() {
       isActive: true,
       googleMapsUrl: newBranchUrl || undefined
     };
-    setBranches([...branches, newBranch]);
+
+    // Save to Supabase
+    const { error } = await supabase
+      .from('branches')
+      .insert([{
+        id: newBranch.id,
+        name: newBranch.name,
+        location: newBranch.location,
+        is_active: newBranch.isActive,
+        google_maps_url: newBranch.googleMapsUrl
+      }]);
+
+    if (error) {
+      console.error('Error adding branch to Supabase:', error);
+      // Fallback update state anyway if it's just a local run
+      setBranches(prev => [...prev, newBranch]);
+    } else {
+      setBranches(prev => [...prev, newBranch]);
+    }
+
     setNewBranchName('');
     setNewBranchUrl('');
     setNewBranchLocation('');
     setShowAddBranch(false);
+  };
+
+  const handleUpdateBranch = async (updated: Branch) => {
+    // Update Supabase
+    const { error } = await supabase
+      .from('branches')
+      .update({
+        name: updated.name,
+        location: updated.location,
+        is_active: updated.isActive,
+        google_maps_url: updated.googleMapsUrl,
+        google_review_url: updated.googleReviewUrl,
+        google_place_id: updated.googlePlaceId
+      })
+      .eq('id', updated.id);
+
+    if (error) {
+      console.error('Error updating branch in Supabase:', error);
+    }
+    
+    // Update local state
+    setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
   };
 
   // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
@@ -803,9 +875,7 @@ function AppContent() {
               {activeTab === 'sucursales' && (
                 <BranchManagementView 
                   branches={branches} 
-                  onUpdateBranch={(updated) => {
-                    setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
-                  }} 
+                  onUpdateBranch={handleUpdateBranch} 
                   onAddBranchClick={() => setShowAddBranch(true)}
                 />
               )}
@@ -928,6 +998,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         const now = new Date();
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(now.getDate() - 7);
+        sevenDaysAgo.setHours(0, 0, 0, 0); // Inclusive of the 7th day ago from starts of the day
 
         const all = place.reviews || [];
         
@@ -935,7 +1006,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         
         const recent = all.filter(review => {
           const hasText = review.text && review.text.trim().length > 0;
-          const isRecent = review.publishTime && review.publishTime > sevenDaysAgo;
+          const isRecent = review.publishTime && review.publishTime >= sevenDaysAgo;
           return hasText && isRecent;
         });
 
