@@ -1,0 +1,6 @@
+{
+  "name": "CRAFT - Dashboard Gastronómico",
+  "description": "Plataforma integral para la gestión de KPIs, stock, presupuestos y desempeño de la cadena CRAFT.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

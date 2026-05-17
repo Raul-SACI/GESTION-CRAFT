@@ -1,0 +1,178 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User information and access roles.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["manager", "supervisor", "admin", "owner"] },
+        "displayName": { "type": "string" },
+        "branchId": { "type": "string", "description": "Applicable for managers to link them to a specific restaurant." }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Branch": {
+      "title": "Restaurant Branch",
+      "description": "Information about each restaurant branch.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "address": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "WeeklySales": {
+      "title": "Weekly Sales Data",
+      "description": "Sales records in pesos and orders.",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "totalAmount": { "type": "number" },
+        "totalOrders": { "type": "number" },
+        "covers": { "type": "number" }
+      },
+      "required": ["branchId", "weekStartDate", "totalAmount"]
+    },
+    "WeeklyConsumption": {
+      "title": "Weekly Food Consumption",
+      "description": "Consumption calculation: EI + Compras + Movimientos - EF.",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "initialExistences": { "type": "number" },
+        "purchases": { "type": "number" },
+        "internalMovements": { "type": "number" },
+        "finalExistences": { "type": "number" }
+      },
+      "required": ["branchId", "weekStartDate"]
+    },
+    "WeeklySalaries": {
+      "title": "Weekly Salaries and Budgets",
+      "description": "Hours and costs by role.",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "rolesData": {
+          "type": "object",
+          "properties": {
+            "caja": { "$ref": "#/entities/SalaryRoleEntry" },
+            "runners": { "$ref": "#/entities/SalaryRoleEntry" },
+            "mozos": { "$ref": "#/entities/SalaryRoleEntry" },
+            "barra": { "$ref": "#/entities/SalaryRoleEntry" },
+            "cocina": { "$ref": "#/entities/SalaryRoleEntry" },
+            "bacha": { "$ref": "#/entities/SalaryRoleEntry" }
+          }
+        }
+      },
+      "required": ["branchId", "weekStartDate"]
+    },
+    "SalaryRoleEntry": {
+      "title": "Role Salary Entry",
+      "type": "object",
+      "properties": {
+        "budgetedHours": { "type": "number" },
+        "realHours": { "type": "number" },
+        "hourlyRate": { "type": "number" }
+      }
+    },
+    "StockControl": {
+      "title": "Monthly Stock Control",
+      "description": "Detailed stock metrics for specific items.",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "month": { "type": "string", "description": "e.g., '2024-05'" },
+        "itemId": { "type": "string" },
+        "initialExistences": { "type": "number" },
+        "internalMovementsPurchases": { "type": "number" },
+        "finalExistences": { "type": "number" },
+        "cmv": { "type": "number" },
+        "loans": { "type": "number" },
+        "discard": { "type": "number" },
+        "personalConsumption": { "type": "number" },
+        "theoreticalConsumption": { "type": "number" },
+        "deviationUnits": { "type": "number" },
+        "deviationPesos": { "type": "number" },
+        "deviationPercentage": { "type": "number" }
+      },
+      "required": ["branchId", "month", "itemId"]
+    },
+    "PerformanceMetric": {
+      "title": "Branch Performance Metrics",
+      "description": "External platform feedback.",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "googleScore": { "type": "number" },
+        "googleCommentsCount": { "type": "number" },
+        "pedidosYaRating": { "type": "number" },
+        "pedidosYaNegativeComments": { "type": "number" },
+        "pedidosYaDelay": { "type": "number" }
+      }
+    },
+    "WeeklyTableware": {
+      "title": "Weekly Tableware Inventory",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "weekStartDate": { "type": "string", "format": "date" },
+        "inventory": { "type": "object", "description": "Key-value pairs of item and count" }
+      }
+    },
+    "DailyUpdate": {
+      "title": "Daily Branch Update",
+      "type": "object",
+      "properties": {
+        "branchId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "content": { "type": "string" },
+        "authorUid": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Application users."
+    },
+    "branches": {
+      "schema": "Branch",
+      "description": "Restaurant locations."
+    },
+    "sales": {
+      "schema": "WeeklySales",
+      "description": "Weekly sales records."
+    },
+    "consumption": {
+      "schema": "WeeklyConsumption",
+      "description": "Weekly food consumption data."
+    },
+    "salaries": {
+      "schema": "WeeklySalaries",
+      "description": "Weekly salary/budget records."
+    },
+    "stock_control": {
+      "schema": "StockControl",
+      "description": "Monthly stock items and counts."
+    },
+    "performance": {
+      "schema": "PerformanceMetric",
+      "description": "Feedback from Google and Pedidos Ya."
+    },
+    "tableware": {
+      "schema": "WeeklyTableware",
+      "description": "Weekly tableware inventory records."
+    },
+    "updates": {
+      "schema": "DailyUpdate",
+      "description": "Daily branch news/updates."
+    }
+  }
+}
