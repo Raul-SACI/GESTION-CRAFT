@@ -147,6 +147,7 @@ export default function App() {
         .select('*')
         .order('name');
       
+      if (itemsError) console.error('Error fetching items:', itemsError);
       if (itemsData) {
         setItems(itemsData.map(i => ({
           id: i.id,
@@ -162,6 +163,7 @@ export default function App() {
         .select('*')
         .order('name');
       
+      if (productsError) console.error('Error fetching products:', productsError);
       if (productsData) {
         setProducts(productsData.map(p => ({
           id: p.id,
