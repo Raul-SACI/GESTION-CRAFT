@@ -81,9 +81,10 @@ const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
+const DocumentsView = lazy(() => import('./components/DocumentsView'));
 
 import { PerformanceView, TablewareView, NewsView } from './components/ExtraViews';
-import { Key, ShieldCheck } from 'lucide-react';
+import { Key, ShieldCheck, FileText } from 'lucide-react';
 
 // --- MOCK DATA ---
 const MOCK_SALES: SalesData[] = [
@@ -200,6 +201,7 @@ function AppContent() {
   }, [isDarkMode]);
 
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [isBranchesLoading, setIsBranchesLoading] = useState(true);
   const [items, setItems] = useState<StockItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
@@ -207,40 +209,39 @@ function AppContent() {
   React.useEffect(() => {
     const fetchData = async () => {
       // Fetch Branches
-      const { data: branchesData, error: branchesError } = await supabase
-        .from('branches')
-        .select('*')
-        .order('name');
-      
-      if (branchesError) {
-        console.error('Error fetching branches (check if table exists):', branchesError);
-        // Fallback to defaults if table doesn't exist yet to not break the app
-        setBranches([
-          { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
-          { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
-          { id: 'mt', name: 'Mercato', location: 'Av. Juan B. Justo 789, Tucumán', isActive: true },
-          { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
-          { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
-        ]);
-      } else if (branchesData && branchesData.length > 0) {
-        setBranches(branchesData.map(b => ({
-          id: b.id,
-          name: b.name,
-          location: b.location,
-          isActive: b.is_active,
-          googleMapsUrl: b.google_maps_url,
-          googleReviewUrl: b.google_review_url,
-          googlePlaceId: b.google_place_id
-        })));
-      } else {
-        // Table exists but is empty
-        setBranches([
-          { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
-          { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
-          { id: 'mt', name: 'Mercato', location: 'Av. Juan B. Justo 789, Tucumán', isActive: true },
-          { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
-          { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
-        ]);
+      setIsBranchesLoading(true);
+      try {
+        const { data: branchesData, error: branchesError } = await supabase
+          .from('branches')
+          .select('*');
+        
+        if (branchesError) {
+          console.error('Error fetching branches:', branchesError);
+        } else if (branchesData && branchesData.length > 0) {
+          setBranches(branchesData.map(b => ({
+            id: b.id,
+            name: b.name,
+            location: b.location,
+            isActive: b.is_active,
+            googleMapsUrl: b.google_maps_url,
+            googleReviewUrl: b.google_review_url,
+            googlePlaceId: b.google_place_id
+          })));
+        } else {
+          // Fallback defaults
+          const defaults: Branch[] = [
+            { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
+            { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true },
+            { id: 'mt', name: 'Casco Viejo', location: 'San Lorenzo 207, Yerba Buena, Tucumán', isActive: true, googlePlaceId: 'ChIJz3uE95S6U5YRMmP_V1kY9B0' },
+            { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true },
+            { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true },
+          ];
+          setBranches(defaults);
+        }
+      } catch (err) {
+        console.error('Branches fetch catch:', err);
+      } finally {
+        setIsBranchesLoading(false);
       }
 
       // Fetch Items
@@ -286,9 +287,14 @@ function AppContent() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, fetchData)
       .subscribe();
 
+    const branchesChannel = supabase.channel('branches_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, fetchData)
+      .subscribe();
+
     return () => {
       supabase.removeChannel(itemsChannel);
       supabase.removeChannel(productsChannel);
+      supabase.removeChannel(branchesChannel);
     };
   }, []);
 
@@ -336,21 +342,22 @@ function AppContent() {
   };
 
   const handleUpdateBranch = async (updated: Branch) => {
-    // Update Supabase
+    // Upsert to Supabase
     const { error } = await supabase
       .from('branches')
-      .update({
+      .upsert({
+        id: updated.id,
         name: updated.name,
         location: updated.location,
         is_active: updated.isActive,
         google_maps_url: updated.googleMapsUrl,
         google_review_url: updated.googleReviewUrl,
         google_place_id: updated.googlePlaceId
-      })
-      .eq('id', updated.id);
+      });
 
     if (error) {
-      console.error('Error updating branch in Supabase:', error);
+      console.error('Error upserting branch in Supabase:', error);
+      alert('Error al guardar los cambios en la base de datos.');
     }
     
     // Update local state
@@ -377,6 +384,7 @@ function AppContent() {
     { id: 'vajilla', label: 'Vajilla', icon: Utensils },
     { id: 'horas', label: 'Carga de Horas', icon: Clock },
     { id: 'novedades', label: 'Novedades', icon: ClipboardList },
+    { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
     { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
   ];
 
@@ -669,6 +677,21 @@ function AppContent() {
                   )} />
                   Supervisiones y Banderas
                 </button>
+                <button
+                onClick={() => setActiveTab('papeles_administracion')}
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                  activeTab === 'papeles_administracion' 
+                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                )}
+              >
+                <FileText size={16} className={cn(
+                  "transition-colors",
+                  activeTab === 'papeles_administracion' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                )} />
+                Papeles Importantes
+              </button>
               <button
                 onClick={() => setActiveTab('precios')}
                 className={cn(
@@ -871,6 +894,22 @@ function AppContent() {
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" />}
+              {activeTab === 'papeles_sucursal' && (
+                <DocumentsView 
+                  key="papeles_sucursal" 
+                  mode="encargado" 
+                  branchId={selectedBranchId} 
+                  branchName={selectedBranchId === 'all' ? 'Todas' : branches.find(b => b.id === selectedBranchId)?.name}
+                  branches={branches}
+                  onBranchSelect={(id) => setSelectedBranchId(id)}
+                />
+              )}
+              {activeTab === 'papeles_administracion' && (
+                <DocumentsView 
+                  key="papeles_administracion" 
+                  mode="administracion" 
+                />
+              )}
               {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} />}
               {activeTab === 'sucursales' && (
                 <BranchManagementView 
@@ -977,6 +1016,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     allReviews: google.maps.places.Review[];
     criticalReviews: google.maps.places.Review[];
     recentWithText: google.maps.places.Review[];
+    error?: string;
     loading: boolean;
   }>({ allReviews: [], criticalReviews: [], recentWithText: [], loading: false });
 
@@ -988,7 +1028,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     if (!placesLib || !branch.googlePlaceId) return;
 
     const fetchData = async () => {
-      setData(prev => ({ ...prev, loading: true }));
+      setData(prev => ({ ...prev, loading: true, error: undefined }));
       try {
         const place = new placesLib.Place({ id: branch.googlePlaceId });
         await place.fetchFields({
@@ -998,15 +1038,20 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         const now = new Date();
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(now.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0); // Inclusive of the 7th day ago from starts of the day
+        sevenDaysAgo.setHours(0, 0, 0, 0);
 
         const all = place.reviews || [];
         
         const critical = all.filter(review => (review.rating || 0) <= 4);
         
         const recent = all.filter(review => {
-          const hasText = review.text && review.text.trim().length > 0;
-          const isRecent = review.publishTime && review.publishTime >= sevenDaysAgo;
+          if (!review.text) return false;
+          const hasText = review.text.toString().trim().length > 0;
+          
+          // Debugging date comparison
+          const pubDate = review.publishTime ? new Date(review.publishTime) : null;
+          const isRecent = pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
+          
           return hasText && isRecent;
         });
 
@@ -1018,9 +1063,14 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           recentWithText: recent,
           loading: false
         });
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching Google metrics:', err);
-        setData(prev => ({ ...prev, loading: false }));
+        const errorMsg = err.message || '';
+        if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('invalid') || errorMsg.includes('Place ID')) {
+          setData(prev => ({ ...prev, loading: false, error: 'ID de Google inválido o expirado. Por favor, actualice el ID en Gestión de Sucursales.' }));
+        } else {
+          setData(prev => ({ ...prev, loading: false, error: 'Error al cargar datos de Google (Verifica la conexión y el ID).' }));
+        }
       }
     };
 
@@ -1041,25 +1091,35 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     </div>
   );
 
-  const ReviewList = ({ reviews, emptyMsg }: { reviews: google.maps.places.Review[], emptyMsg: string }) => (
+  const ReviewList = ({ reviews, emptyMsg, showLimitNote = false }: { reviews: google.maps.places.Review[], emptyMsg: string, showLimitNote?: boolean }) => (
     <div className="space-y-2 mt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+      {showLimitNote && (
+        <div className="p-2 bg-blue-500/5 border border-blue-500/10 rounded mb-2">
+          <p className="text-[7px] text-blue-500 uppercase font-black leading-tight">
+            Nota: Google API limita la respuesta a los 5 comentarios más relevantes. Si un comentario nuevo no aparece, es por esta restricción de Google.
+          </p>
+        </div>
+      )}
       {reviews.length === 0 ? (
         <p className="text-[9px] text-text-dim italic text-center py-4">{emptyMsg}</p>
       ) : (
-        reviews.map((rev, i) => (
-          <div key={i} className="p-2 bg-bg-accent/50 border border-border-dim rounded group hover:border-brand-500/30 transition-all">
-            <div className="flex justify-between items-start mb-1">
-              <div className="flex flex-col">
-                <span className="text-[9px] font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario Google'}</span>
-                {renderStars(rev.rating || 0, 7)}
+        reviews.map((rev, i) => {
+          const pubDate = rev.publishTime ? new Date(rev.publishTime) : null;
+          return (
+            <div key={i} className="p-2 bg-bg-accent/50 border border-border-dim rounded group hover:border-brand-500/30 transition-all">
+              <div className="flex justify-between items-start mb-1">
+                <div className="flex flex-col">
+                  <span className="text-[9px] font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario Google'}</span>
+                  {renderStars(rev.rating || 0, 7)}
+                </div>
+                <span className="text-[7px] text-text-dim whitespace-nowrap">{pubDate?.toLocaleDateString()}</span>
               </div>
-              <span className="text-[7px] text-text-dim whitespace-nowrap">{rev.publishTime?.toLocaleDateString()}</span>
+              {rev.text && (
+                <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">"{rev.text}"</p>
+              )}
             </div>
-            {rev.text && (
-              <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">"{rev.text}"</p>
-            )}
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -1107,6 +1167,11 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           <div className="h-12 bg-bg-accent rounded w-full" />
           <div className="h-12 bg-bg-accent rounded w-full" />
         </div>
+      ) : data.error ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+          <AlertCircle size={24} className="text-red-500 mb-2" />
+          <p className="text-[10px] text-text-dim font-medium uppercase leading-tight italic">{data.error}</p>
+        </div>
       ) : (
         <div className="flex-1">
           {activeView === 'summary' && (
@@ -1135,15 +1200,15 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           )}
 
           {activeView === 'all' && (
-            <ReviewList reviews={data.allReviews} emptyMsg="No hay reseñas disponibles." />
+            <ReviewList reviews={data.allReviews} emptyMsg="No hay reseñas disponibles." showLimitNote={true} />
           )}
 
           {activeView === 'critical' && (
-            <ReviewList reviews={data.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." />
+            <ReviewList reviews={data.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." showLimitNote={true} />
           )}
 
           {activeView === 'recent' && (
-            <ReviewList reviews={data.recentWithText} emptyMsg="Sin comentarios con texto en los últimos 7 días." />
+            <ReviewList reviews={data.recentWithText} emptyMsg="Sin comentarios con texto en los últimos 7 días." showLimitNote={true} />
           )}
         </div>
       )}
