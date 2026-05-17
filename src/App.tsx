@@ -173,8 +173,8 @@ export default function App() {
   );
 }
 
-const Card = ({ children, className, key }: { children: React.ReactNode, className?: string, key?: any }) => (
-  <div key={key} className={cn("glass-card p-6", className)}>
+const Card: React.FC<{ children: React.ReactNode, className?: string }> = ({ children, className }) => (
+  <div className={cn("glass-card p-6", className)}>
     {children}
   </div>
 );
@@ -900,7 +900,7 @@ function AppContent() {
 
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 
-function GoogleMetricsCard({ branch }: { branch: Branch, key?: any }) {
+const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
     userRatingCount?: number;
@@ -994,7 +994,7 @@ function GoogleMetricsCard({ branch }: { branch: Branch, key?: any }) {
       </div>
     </Card>
   );
-}
+};
 
 function DashboardView({ salesComparison: initialSalesComparison, performance, branches, selectedBranchId }: { salesComparison: any, performance: PerformanceData, branches: Branch[], selectedBranchId: string }) {
   // Filter sales data for the chart and KPIs
