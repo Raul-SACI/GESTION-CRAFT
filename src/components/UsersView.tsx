@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { 
   Users, 
@@ -13,20 +13,19 @@ import {
   MapPin,
   MoreVertical,
   Trash2,
-  Edit2
+  Edit2,
+  Loader2
 } from 'lucide-react';
 import { User, UserRole, Branch } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 const ROLES: UserRole[] = ['encargado', 'supervisor', 'administrativo', 'dueño'];
 
 export default function UsersView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
-  const [users, setUsers] = useState<User[]>([
-    { id: '1', name: 'Admin Principal', role: 'dueño', branch: 'Todas' },
-    { id: '2', name: 'Carlos Herrera', role: 'encargado', branch: 'Barrio Norte' },
-    { id: '3', name: 'Lucia Gimenez', role: 'administrativo', branch: 'Sede Central' }
-  ]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState<Partial<User>>({
@@ -35,21 +34,50 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
     branch: ''
   });
 
-  const handleAddUser = () => {
-    if (!formData.name) return;
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: formData.name,
-      role: formData.role as UserRole,
-      branch: formData.branch
-    };
-    setUsers([...users, newUser]);
-    setIsAdding(false);
-    setFormData({ name: '', role: 'encargado', branch: '' });
+  const fetchData = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('profiles').select('*').order('name');
+    if (data) {
+      setUsers(data.map(u => ({
+        id: u.id,
+        name: u.name,
+        role: u.role as UserRole,
+        branch: u.branch_name
+      })));
+    }
+    setLoading(false);
   };
 
-  const deleteUser = (id: string) => {
-    setUsers(users.filter(u => u.id !== id));
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleAddUser = async () => {
+    if (!formData.name) return;
+    const { data, error } = await supabase.from('profiles').insert([{
+      name: formData.name.toUpperCase(),
+      role: formData.role,
+      branch_name: formData.branch?.toUpperCase()
+    }]).select().single();
+
+    if (data) {
+      setUsers([...users, {
+        id: data.id,
+        name: data.name,
+        role: data.role as UserRole,
+        branch: data.branch_name
+      }]);
+      setIsAdding(false);
+      setFormData({ name: '', role: 'encargado', branch: '' });
+    }
+  };
+
+  const deleteUser = async (id: string) => {
+    if (!confirm('¿Eliminar usuario?')) return;
+    const { error } = await supabase.from('profiles').delete().eq('id', id);
+    if (!error) {
+      setUsers(users.filter(u => u.id !== id));
+    }
   };
 
   const filteredUsers = useMemo(() => {
@@ -96,7 +124,19 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-dim">
-                {filteredUsers.map((user) => (
+                {loading ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-10 text-center">
+                      <Loader2 className="animate-spin text-brand-500 mx-auto" size={24} />
+                    </td>
+                  </tr>
+                ) : filteredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-10 text-center text-text-dim/50 uppercase italic">
+                      No hay usuarios registrados
+                    </td>
+                  </tr>
+                ) : filteredUsers.map((user) => (
                   <tr key={user.id} className="hover:bg-bg-accent/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">

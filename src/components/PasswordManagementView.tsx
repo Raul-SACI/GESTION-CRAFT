@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Key, 
@@ -18,20 +18,22 @@ import {
   Music,
   Mail,
   Wifi,
-  ShoppingBag
+  ShoppingBag,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import { supabase } from '../lib/supabase';
 
 interface Account {
   id: string;
   service: string;
-  type: 'gmail' | 'spotify' | 'pedidosya' | 'wifi' | 'other';
+  type: string;
   username: string;
   password: string;
   notes?: string;
 }
 
-const TYPE_ICONS = {
+const TYPE_ICONS: Record<string, any> = {
   gmail: Mail,
   spotify: Music,
   pedidosya: ShoppingBag,
@@ -40,12 +42,8 @@ const TYPE_ICONS = {
 };
 
 export default function PasswordManagementView() {
-  const [accounts, setAccounts] = useState<Account[]>([
-    { id: '1', service: 'Gmail Sucursal', type: 'gmail', username: 'sucursal.centro@gmail.com', password: 'Password123!', notes: 'Cuenta principal para proveedores' },
-    { id: '2', service: 'Spotify Premium', type: 'spotify', username: 'musica.salon', password: 'MusicKey2024', notes: 'Playlist oficial del local' },
-    { id: '3', service: 'WiFi Clientes', type: 'wifi', username: 'Clientes_Local', password: 'bienvenidos2024', notes: 'Cambiar cada mes' },
-  ]);
-
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPassword, setShowPassword] = useState<Record<string, boolean>>({});
@@ -53,11 +51,31 @@ export default function PasswordManagementView() {
 
   const [newAcc, setNewAcc] = useState({
     service: '',
-    type: 'other' as Account['type'],
+    type: 'other',
     username: '',
     password: '',
     notes: ''
   });
+
+  const fetchData = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('passwords').select('*');
+    if (data) {
+      setAccounts(data.map(p => ({
+        id: p.id,
+        service: p.service,
+        type: p.category,
+        username: p.username,
+        password: p.password,
+        notes: '' // notes column wasn't in schema, but we can add it if needed or just ignore for now
+      })));
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const togglePassword = (id: string) => {
     setShowPassword(prev => ({ ...prev, [id]: !prev[id] }));
@@ -69,15 +87,34 @@ export default function PasswordManagementView() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const handleAddAccount = () => {
+  const handleAddAccount = async () => {
     if (!newAcc.service || !newAcc.username) return;
-    const acc: Account = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...newAcc
-    };
-    setAccounts([...accounts, acc]);
-    setShowAddModal(false);
-    setNewAcc({ service: '', type: 'other', username: '', password: '', notes: '' });
+    const { data, error } = await supabase.from('passwords').insert([{
+      service: newAcc.service.toUpperCase(),
+      category: newAcc.type,
+      username: newAcc.username,
+      password: newAcc.password
+    }]).select().single();
+
+    if (data) {
+      setAccounts([...accounts, {
+        id: data.id,
+        service: data.service,
+        type: data.category,
+        username: data.username,
+        password: data.password
+      }]);
+      setShowAddModal(false);
+      setNewAcc({ service: '', type: 'other', username: '', password: '', notes: '' });
+    }
+  };
+
+  const handleDeleteAccount = async (id: string) => {
+    if (!confirm('¿Eliminar esta cuenta?')) return;
+    const { error } = await supabase.from('passwords').delete().eq('id', id);
+    if (!error) {
+      setAccounts(accounts.filter(a => a.id !== id));
+    }
   };
 
   const filteredAccounts = accounts.filter(acc => 
@@ -122,8 +159,12 @@ export default function PasswordManagementView() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <AnimatePresence mode="popLayout">
-          {filteredAccounts.map(acc => {
-            const Icon = TYPE_ICONS[acc.type];
+          {loading ? (
+            <div className="col-span-full py-20 flex justify-center">
+              <Loader2 className="animate-spin text-brand-500" size={32} />
+            </div>
+          ) : filteredAccounts.map(acc => {
+            const Icon = TYPE_ICONS[acc.type] || TYPE_ICONS.other;
             return (
               <motion.div 
                 key={acc.id}
@@ -135,7 +176,7 @@ export default function PasswordManagementView() {
               >
                 <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                    <button 
-                    onClick={() => setAccounts(accounts.filter(a => a.id !== acc.id))}
+                    onClick={() => handleDeleteAccount(acc.id)}
                     className="text-text-dim hover:text-red-500"
                    >
                      <Trash2 size={14} />

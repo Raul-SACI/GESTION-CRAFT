@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Tag, 
@@ -16,9 +16,11 @@ import {
   DollarSign,
   UtensilsCrossed,
   Layers,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import { supabase } from '../lib/supabase';
 
 interface MenuItem {
   id: string;
@@ -39,19 +41,13 @@ export default function PriceListView() {
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Mock data for initial state
+  // Persistence State
   const [menus, setMenus] = useState<Record<string, MenuItem[]>>({
-    salon: [
-      { id: '1', category: 'Entradas', name: 'Provoleta clásica', price: 4500, lastUpdate: '2024-05-10' },
-      { id: '2', category: 'Platos Principales', name: 'Lomo al Malbec', price: 12500, lastUpdate: '2024-05-12' },
-    ],
-    celiacos: [
-      { id: '3', category: 'Platos Principales', name: 'Pasta sin TACC c/Salsa', price: 8900, lastUpdate: '2024-05-10' },
-    ],
-    pedidosya: [
-      { id: '4', category: 'Combos', name: 'Combo Burguer + Papas', price: 7500, lastUpdate: '2024-05-14' },
-    ]
+    salon: [],
+    celiacos: [],
+    pedidosya: []
   });
 
   const [newItem, setNewItem] = useState({
@@ -60,35 +56,92 @@ export default function PriceListView() {
     price: 0
   });
 
-  const handleAddItem = () => {
-    if (!newItem.name || newItem.price <= 0) return;
-    
-    const item: MenuItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...newItem,
-      lastUpdate: new Date().toISOString().split('T')[0]
-    };
-
-    setMenus({
-      ...menus,
-      [activeMenu]: [...menus[activeMenu], item]
-    });
-    
-    setShowAddModal(false);
-    setNewItem({ category: '', name: '', price: 0 });
+  const fetchData = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('menu_items').select('*');
+    if (data) {
+      const organized: Record<string, MenuItem[]> = {
+        salon: [],
+        celiacos: [],
+        pedidosya: []
+      };
+      data.forEach(item => {
+        if (organized[item.menu_type]) {
+          organized[item.menu_type].push({
+            id: item.id,
+            category: item.category,
+            name: item.name,
+            price: item.price,
+            lastUpdate: item.last_update
+          });
+        }
+      });
+      setMenus(organized);
+    }
+    setLoading(false);
   };
 
-  const handleUpdatePrice = (id: string, newPrice: number) => {
-    setMenus({
-      ...menus,
-      [activeMenu]: menus[activeMenu].map(item => 
-        item.id === id ? { ...item, price: newPrice, lastUpdate: new Date().toISOString().split('T')[0] } : item
-      )
-    });
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleAddItem = async () => {
+    if (!newItem.name || newItem.price <= 0) return;
+    
+    const { data, error } = await supabase.from('menu_items').insert([{
+      menu_type: activeMenu,
+      category: newItem.category.toUpperCase(),
+      name: newItem.name.toUpperCase(),
+      price: newItem.price,
+      last_update: new Date().toISOString().split('T')[0]
+    }]).select().single();
+
+    if (data) {
+      setMenus({
+        ...menus,
+        [activeMenu]: [...menus[activeMenu], {
+          id: data.id,
+          category: data.category,
+          name: data.name,
+          price: data.price,
+          lastUpdate: data.last_update
+        }]
+      });
+      setShowAddModal(false);
+      setNewItem({ category: '', name: '', price: 0 });
+    }
+  };
+
+  const handleUpdatePrice = async (id: string, newPrice: number) => {
+    const today = new Date().toISOString().split('T')[0];
+    const { error } = await supabase
+      .from('menu_items')
+      .update({ price: newPrice, last_update: today })
+      .eq('id', id);
+
+    if (!error) {
+      setMenus({
+        ...menus,
+        [activeMenu]: menus[activeMenu].map(item => 
+          item.id === id ? { ...item, price: newPrice, lastUpdate: today } : item
+        )
+      });
+    }
     setEditingItem(null);
   };
 
-  const filteredItems = menus[activeMenu].filter(item => 
+  const handleDeleteItem = async (id: string) => {
+    if (!confirm('¿Eliminar este plato?')) return;
+    const { error } = await supabase.from('menu_items').delete().eq('id', id);
+    if (!error) {
+      setMenus({
+        ...menus,
+        [activeMenu]: menus[activeMenu].filter(i => i.id !== id)
+      });
+    }
+  };
+
+  const filteredItems = (menus[activeMenu] || []).filter(item => 
     item.name.toLowerCase().includes(search.toLowerCase()) ||
     item.category.toLowerCase().includes(search.toLowerCase())
   );
@@ -143,7 +196,12 @@ export default function PriceListView() {
         </div>
       </div>
 
-      <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
+      <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl relative min-h-[400px]">
+        {loading && (
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-50 flex items-center justify-center">
+            <Loader2 className="text-brand-500 animate-spin" size={32} />
+          </div>
+        )}
         <div className="p-4 border-b border-border-dim bg-bg-accent/30 flex flex-wrap justify-between items-center gap-4">
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={16} />
@@ -217,12 +275,7 @@ export default function PriceListView() {
                         <Edit2 size={14} />
                       </button>
                       <button 
-                        onClick={() => {
-                          setMenus({
-                            ...menus,
-                            [activeMenu]: menus[activeMenu].filter(i => i.id !== item.id)
-                          });
-                        }}
+                        onClick={() => handleDeleteItem(item.id)}
                         className="p-1.5 hover:text-red-500 transition-colors"
                       >
                         <Trash2 size={14} />

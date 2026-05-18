@@ -5,10 +5,10 @@
 
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Star, Utensils, ClipboardList, Plus, MessageSquare, MapPin, ExternalLink, Calendar } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
-
-import { Branch } from '../types';
+import { Star, Utensils, ClipboardList, Plus, MessageSquare, MapPin, ExternalLink, Calendar, Loader2, Trash2 } from 'lucide-react';
+ import { cn } from '@/src/lib/utils';
+ import { Branch } from '../types';
+ import { supabase } from '../lib/supabase';
 
 export const PerformanceView: React.FC<{ branches: Branch[], selectedBranchId: string }> = ({ branches, selectedBranchId }) => {
   const selectedBranch = branches.find(b => b.id === selectedBranchId);
@@ -112,6 +112,39 @@ export const PerformanceView: React.FC<{ branches: Branch[], selectedBranchId: s
 
 export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }> = ({ branches, selectedBranchId }) => {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
+  const [newEntries, setNewEntries] = useState<any[]>([]);
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const fetchNews = async () => {
+    let query = supabase.from('news').select('*').order('created_at', { ascending: false });
+    if (selectedBranchId !== 'all') {
+      query = query.eq('branch_id', selectedBranchId);
+    }
+    const { data } = await query;
+    if (data) setNewEntries(data);
+  };
+
+  React.useEffect(() => {
+    fetchNews();
+  }, [selectedBranchId]);
+
+  const handlePost = async () => {
+    if (!content.trim() || selectedBranchId === 'all') return;
+    setLoading(true);
+    const { error } = await supabase.from('news').insert([{
+      branch_id: selectedBranchId,
+      title: `Bitácora - ${new Date().toLocaleDateString()}`,
+      content: content.toUpperCase(),
+      importance: 'normal'
+    }]);
+
+    if (!error) {
+      setContent('');
+      fetchNews();
+    }
+    setLoading(false);
+  };
 
   return (
     <motion.div 
@@ -121,7 +154,7 @@ export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }
     >
       <div className="text-center space-y-2">
          <h2 className="text-2xl font-bold text-text-main tracking-tight uppercase">
-           Bitácora de Novedades {activeBranch ? `• ${activeBranch.name}` : '(TODAS)'}
+           Bitácora de Novedades {activeBranch ? `• ${activeBranch.name}` : '(Todas las sucursales)'}
          </h2>
          <p className="text-text-dim text-[11px] font-bold uppercase tracking-widest opacity-60">Registro diario de incidencias operativas</p>
       </div>
@@ -135,40 +168,69 @@ export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }
               <Plus size={16} /> NUEVA ENTRADA DE BITÁCORA ({activeBranch?.name})
            </h4>
            <textarea 
+              value={content}
+              onChange={e => setContent(e.target.value)}
               placeholder="DESCRIBE LOS EVENTOS DEL DÍA... (EJ: INSPECCIONES, REVISIONES TÉCNICAS, NOVEDADES DE PERSONAL)"
               className="w-full h-32 bg-bg-accent border border-border-dim rounded p-4 text-[11px] outline-none focus:border-brand-500 transition-all font-bold uppercase tracking-widest placeholder:text-text-dim/30 placeholder:italic"
            />
            <div className="mt-6 flex justify-end">
-              <button className="bg-brand-500 text-black px-10 py-2.5 rounded text-[11px] font-black uppercase tracking-widest shadow-lg shadow-brand-500/10">PUBLICAR REGISTRO</button>
+              <button 
+                onClick={handlePost}
+                disabled={loading}
+                className="bg-brand-500 text-black px-10 py-2.5 rounded text-[11px] font-black uppercase tracking-widest shadow-lg shadow-brand-500/10 flex items-center gap-2"
+              >
+                {loading && <Loader2 size={14} className="animate-spin" />}
+                PUBLICAR REGISTRO
+              </button>
            </div>
         </div>
       )}
 
       <div className="space-y-4 relative">
          <div className="absolute left-[31px] top-6 bottom-6 w-px bg-border-dim border-dashed border-r opacity-30" />
-         {[1, 2, 3].map(i => (
-            <div key={i} className="flex gap-8 items-start relative bg-bg-sidebar border border-border-dim p-6 rounded group hover:border-brand-500/30 transition-colors">
-               <div className="w-16 h-16 rounded bg-bg-accent border border-border-dim flex flex-col items-center justify-center text-text-main flex-shrink-0 z-10">
-                  <span className="text-[9px] font-black uppercase leading-none opacity-40 mb-1">MAY</span>
-                  <span className="text-xl font-mono font-bold leading-none">{14 - i}</span>
-               </div>
-               <div className="space-y-3 pt-1">
-                  <div className="flex items-center gap-4">
-                     <p className="text-[11px] font-black text-text-main uppercase tracking-tight">Sucursal Barrio Norte</p>
-                     <span className="text-[9px] text-brand-500 font-bold uppercase tracking-widest flex items-center gap-1 opacity-80">
-                        <Calendar size={12} /> MARTES, 19:42HS
+         {newEntries.length === 0 ? (
+           <div className="text-center py-10 opacity-30 italic text-[10px] uppercase">No hay novedades registradas</div>
+         ) : (
+           newEntries.map(entry => {
+             const date = new Date(entry.created_at);
+             const branch = branches.find(b => b.id === entry.branch_id);
+             return (
+               <div key={entry.id} className="flex gap-8 items-start relative bg-bg-sidebar border border-border-dim p-6 rounded group hover:border-brand-500/30 transition-colors">
+                  <div className="w-16 h-16 rounded bg-bg-accent border border-border-dim flex flex-col items-center justify-center text-text-main flex-shrink-0 z-10">
+                     <span className="text-[9px] font-black uppercase leading-none opacity-40 mb-1">
+                       {date.toLocaleString('es-AR', { month: 'short' }).toUpperCase()}
                      </span>
+                     <span className="text-xl font-mono font-bold leading-none">{date.getDate()}</span>
                   </div>
-                  <p className="text-[11px] text-text-dim leading-relaxed font-medium uppercase tracking-tight opacity-70">
-                     Hoy recibimos la inspección de bromatología. Se realizaron ajustes menores en el etiquetado de la cámara 2. El técnico de A/C pasó a revisar el equipo del salón, falta repuesto de compresor.
-                  </p>
-                  <div className="flex items-center gap-2 border-t border-border-dim pt-3 mt-4">
-                     <div className="w-6 h-6 rounded bg-brand-500/20 flex items-center justify-center text-brand-500 text-[8px] font-black">CH</div>
-                     <span className="text-[9px] text-text-dim uppercase font-bold tracking-widest opacity-50">Carlos Herrera • Encargado Operativo</span>
+                  <div className="space-y-3 pt-1 flex-1">
+                     <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                           <p className="text-[11px] font-black text-text-main uppercase tracking-tight">{branch?.name || 'Sistema'}</p>
+                           <span className="text-[9px] text-brand-500 font-bold uppercase tracking-widest flex items-center gap-1 opacity-80">
+                              <Loader2 size={12} className="hidden" /> {/* Placeholder for icon */}
+                              {date.toLocaleDateString('es-AR', { weekday: 'long' }).toUpperCase()}, {date.getHours()}:{date.getMinutes().toString().padStart(2, '0')}HS
+                           </span>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if(confirm('¿Eliminar novedad?')) {
+                              await supabase.from('news').delete().eq('id', entry.id);
+                              fetchNews();
+                            }
+                          }}
+                          className="p-1 text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                     </div>
+                     <p className="text-[11px] text-text-dim leading-relaxed font-medium uppercase tracking-tight opacity-70">
+                        {entry.content}
+                     </p>
                   </div>
                </div>
-            </div>
-         ))}
+             );
+           })
+         )}
       </div>
     </motion.div>
   );

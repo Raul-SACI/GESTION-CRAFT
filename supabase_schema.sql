@@ -41,8 +41,245 @@ CREATE TABLE sales (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Enable Realtime for these tables
+-- 5. Sucursales (Branches)
+CREATE TABLE branches (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  location TEXT,
+  is_active BOOLEAN DEFAULT true,
+  google_maps_url TEXT,
+  google_review_url TEXT,
+  google_place_id TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6. Inventario Sucursal (Stock Inventory)
+CREATE TABLE inventory_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  item_id UUID REFERENCES stock_items(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  ei NUMERIC DEFAULT 0,
+  ef NUMERIC DEFAULT 0,
+  prestamos NUMERIC DEFAULT 0,
+  consumo_personal NUMERIC DEFAULT 0,
+  ventas_teorico NUMERIC DEFAULT 0,
+  decomisos NUMERIC DEFAULT 0,
+  compras NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, item_id, date)
+);
+
+CREATE TABLE inventory_purchases (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  item_id UUID REFERENCES stock_items(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  type TEXT NOT NULL, -- 'compra', 'movimiento'
+  quantity NUMERIC NOT NULL DEFAULT 0,
+  note TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 7. Horas y Sueldos (Payroll)
+CREATE TABLE employees (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  position TEXT NOT NULL,
+  hourly_rate NUMERIC DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE hour_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  employee_name TEXT NOT NULL,
+  position TEXT NOT NULL,
+  date DATE NOT NULL,
+  hours_planned NUMERIC DEFAULT 0,
+  hours_actual NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 8. Finanzas (Finance)
+CREATE TABLE finance_projections (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  month TEXT NOT NULL, -- YYYY-MM
+  category TEXT NOT NULL,
+  estimated_amount NUMERIC DEFAULT 0,
+  actual_amount NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE payment_schedule (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  date DATE NOT NULL,
+  provider TEXT NOT NULL,
+  amount NUMERIC DEFAULT 0,
+  status TEXT DEFAULT 'pendiente', -- 'pendiente', 'pagado'
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 9. Supervisión y Calidad
+CREATE TABLE supervision_checklists (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE supervision_responses (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  checklist_id UUID REFERENCES supervision_checklists(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  scores JSONB NOT NULL DEFAULT '{}'::jsonb,
+  total_score NUMERIC DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 10. Vajilla
+CREATE TABLE tableware_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  category TEXT NOT NULL,
+  name TEXT NOT NULL,
+  ideal_stock INTEGER DEFAULT 0,
+  critical_stock INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE tableware_inventory (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  item_id UUID REFERENCES tableware_items(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  initial_stock INTEGER DEFAULT 0,
+  final_stock INTEGER DEFAULT 0,
+  breakages INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, item_id, date)
+);
+
+-- 11. Centro de Producción
+CREATE TABLE production_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  category TEXT DEFAULT 'GENERAL',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE production_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  item_id UUID REFERENCES production_items(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  quantity NUMERIC NOT NULL DEFAULT 0,
+  batch_number TEXT,
+  notes TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(item_id, date)
+);
+
+-- 12. Control de Stock Producción (Deposito Central)
+CREATE TABLE production_supplies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE production_stock_control (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  supply_id UUID REFERENCES production_supplies(id) ON DELETE CASCADE,
+  week_range TEXT NOT NULL, -- '1 al 7', '8 al 14', etc.
+  month TEXT NOT NULL,      -- YYYY-MM
+  initial_existence NUMERIC DEFAULT 0,
+  production_purchases NUMERIC DEFAULT 0,
+  internal_movements NUMERIC DEFAULT 0,
+  wastage NUMERIC DEFAULT 0,
+  personal_consumption NUMERIC DEFAULT 0,
+  recovery NUMERIC DEFAULT 0,
+  staff_purchases NUMERIC DEFAULT 0,
+  final_existence NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(supply_id, week_range, month)
+);
+
+-- 13. Otros (Documents, News, Passwords, Recipes etc)
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT, -- Nullable for global docs
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  url TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE news (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  importance TEXT DEFAULT 'normal',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE passwords (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  service TEXT NOT NULL,
+  username TEXT NOT NULL,
+  password TEXT NOT NULL,
+  category TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE menu_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  menu_type TEXT NOT NULL, -- 'salon', 'celiacos', 'pedidosya'
+  category TEXT NOT NULL,
+  name TEXT NOT NULL,
+  price NUMERIC DEFAULT 0,
+  last_update DATE DEFAULT CURRENT_DATE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 15. Perfiles (Users)
+CREATE TABLE profiles (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name TEXT NOT NULL,
+  role TEXT NOT NULL, -- 'encargado', 'supervisor', 'administrativo', 'dueño'
+  branch_name TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Realtime for everything
+ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE stock_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE products;
 ALTER PUBLICATION supabase_realtime ADD TABLE recipes;
 ALTER PUBLICATION supabase_realtime ADD TABLE sales;
+ALTER PUBLICATION supabase_realtime ADD TABLE branches;
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory_purchases;
+ALTER PUBLICATION supabase_realtime ADD TABLE hour_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE employees;
+ALTER PUBLICATION supabase_realtime ADD TABLE finance_projections;
+ALTER PUBLICATION supabase_realtime ADD TABLE payment_schedule;
+ALTER PUBLICATION supabase_realtime ADD TABLE supervision_checklists;
+ALTER PUBLICATION supabase_realtime ADD TABLE supervision_responses;
+ALTER PUBLICATION supabase_realtime ADD TABLE tableware_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE tableware_inventory;
+ALTER PUBLICATION supabase_realtime ADD TABLE production_items;
+ALTER PUBLICATION supabase_realtime ADD TABLE production_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE production_supplies;
+ALTER PUBLICATION supabase_realtime ADD TABLE production_stock_control;
+ALTER PUBLICATION supabase_realtime ADD TABLE documents;
+ALTER PUBLICATION supabase_realtime ADD TABLE news;
+ALTER PUBLICATION supabase_realtime ADD TABLE passwords;

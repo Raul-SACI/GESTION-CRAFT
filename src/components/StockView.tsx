@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Package, 
@@ -19,10 +19,12 @@ import {
   ArrowRightLeft,
   ShoppingBag,
   CalendarDays,
-  FileText
+  FileText,
+  Loader2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch, StockItem } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface PartialEntry {
   id: string;
@@ -52,6 +54,7 @@ export default function StockView({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState<'dia' | 'semana' | 'mes'>('dia');
+  const [loading, setLoading] = useState(true);
   
   // Data state stored by Date and then by Item ID
   const [dailyData, setDailyData] = useState<Record<string, Record<string, {
@@ -62,20 +65,11 @@ export default function StockView({
     ventasTeorico: number;
     decomisos: number;
     compras: number;
-  }>>>({
-    [new Date().toISOString().split('T')[0]]: {
-      '1': { ei: 100, prestamos: 0, consumoPersonal: 2, ef: 30, ventasTeorico: 65, decomisos: 3, compras: 50 },
-      '2': { ei: 50, prestamos: 5, consumoPersonal: 1, ef: 15, ventasTeorico: 32, decomisos: 2, compras: 0 },
-    }
-  });
+  }>>>({});
 
   // Partial entries management (for COMPRAS / MOV INTERNOS)
   const [showPartialModal, setShowPartialModal] = useState<string | null>(null); // item ID
-  const [partialEntries, setPartialEntries] = useState<Record<string, PartialEntry[]>>({
-    '1': [
-      { id: '1', date: '2024-06-05', type: 'compra', quantity: 50, note: 'Factura #123' },
-    ]
-  });
+  const [partialEntries, setPartialEntries] = useState<Record<string, PartialEntry[]>>({});
 
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -84,16 +78,107 @@ export default function StockView({
     note: ''
   });
 
-  const handleAddEntry = (itemId: string) => {
-    if (newEntry.quantity <= 0) return;
-    const entry: PartialEntry = {
-      id: Math.random().toString(36).substr(2, 9),
-      ...newEntry
+  // Fetch data
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!selectedBranchId) return;
+      setLoading(true);
+
+      const dates = getDatesInRange(viewMode, selectedDate);
+      const startDate = dates[0];
+      const endDate = dates[dates.length - 1];
+
+      // Fetch logs
+      const { data: logsData } = await supabase
+        .from('inventory_logs')
+        .select('*')
+        .eq('branch_id', selectedBranchId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (logsData) {
+        const formatted: Record<string, any> = {};
+        logsData.forEach(log => {
+          if (!formatted[log.date]) formatted[log.date] = {};
+          formatted[log.date][log.item_id] = {
+            ei: log.ei,
+            prestamos: log.prestamos,
+            consumoPersonal: log.consumo_personal,
+            ef: log.ef,
+            ventasTeorico: log.ventas_teorico,
+            decomisos: log.decomisos,
+            compras: log.compras
+          };
+        });
+        setDailyData(formatted);
+      }
+
+      // Fetch purchases
+      const { data: purchasesData } = await supabase
+        .from('inventory_purchases')
+        .select('*')
+        .eq('branch_id', selectedBranchId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (purchasesData) {
+        const formattedPurchases: Record<string, PartialEntry[]> = {};
+        purchasesData.forEach(p => {
+          if (!formattedPurchases[p.item_id]) formattedPurchases[p.item_id] = [];
+          formattedPurchases[p.item_id].push({
+            id: p.id,
+            date: p.date,
+            type: p.type as any,
+            quantity: p.quantity,
+            note: p.note
+          });
+        });
+        setPartialEntries(formattedPurchases);
+      }
+
+      setLoading(false);
     };
-    setPartialEntries(prev => ({
-      ...prev,
-      [itemId]: [...(prev[itemId] || []), entry]
-    }));
+
+    fetchData();
+  }, [selectedBranchId, selectedDate, viewMode]);
+
+  const handleAddEntry = async (itemId: string) => {
+    if (newEntry.quantity <= 0) return;
+    
+    const { data, error } = await supabase
+      .from('inventory_purchases')
+      .insert({
+        branch_id: selectedBranchId,
+        item_id: itemId,
+        date: newEntry.date,
+        type: newEntry.type,
+        quantity: newEntry.quantity,
+        note: newEntry.note
+      })
+      .select()
+      .single();
+
+    if (data) {
+      const entry: PartialEntry = {
+        id: data.id,
+        date: data.date,
+        type: data.type,
+        quantity: data.quantity,
+        note: data.note
+      };
+      setPartialEntries(prev => ({
+        ...prev,
+        [itemId]: [...(prev[itemId] || []), entry]
+      }));
+
+      // Update the sum in dailyData for that day if it's currently selected
+      const dayEntries = [...(partialEntries[itemId] || []), entry]
+        .filter(e => e.date === newEntry.date);
+      const totalPurchases = dayEntries.reduce((sum, e) => sum + e.quantity, 0);
+
+      await updateItemData(itemId, 'compras', totalPurchases, newEntry.date);
+    }
+
     setNewEntry({
       date: new Date().toISOString().split('T')[0],
       type: 'compra',
@@ -102,17 +187,41 @@ export default function StockView({
     });
   };
 
-  const updateItemData = (id: string, field: string, value: number) => {
+  const updateItemData = async (id: string, field: string, value: number, targetDate: string = selectedDate) => {
+    // Optimistic update
     setDailyData(prev => ({
       ...prev,
-      [selectedDate]: {
-        ...(prev[selectedDate] || {}),
+      [targetDate]: {
+        ...(prev[targetDate] || {}),
         [id]: {
-          ...(prev[selectedDate]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+          ...(prev[targetDate]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
           [field]: value
         }
       }
     }));
+
+    // Map frontend field to DB column
+    const columnMap: Record<string, string> = {
+      ei: 'ei',
+      prestamos: 'prestamos',
+      consumoPersonal: 'consumo_personal',
+      ef: 'ef',
+      ventasTeorico: 'ventas_teorico',
+      decomisos: 'decomisos',
+      compras: 'compras'
+    };
+
+    const dbField = columnMap[field];
+    if (!dbField) return;
+
+    await supabase
+      .from('inventory_logs')
+      .upsert({
+        branch_id: selectedBranchId,
+        item_id: id,
+        date: targetDate,
+        [dbField]: value
+      }, { onConflict: 'branch_id, item_id, date' });
   };
 
   // Helper to get dates for a week or month
@@ -234,7 +343,12 @@ export default function StockView({
         </div>
       </div>
 
-      <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl">
+      <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl relative">
+        {loading && (
+          <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-50 flex items-center justify-center">
+            <Loader2 className="text-brand-500 animate-spin" size={32} />
+          </div>
+        )}
         <div className="overflow-x-auto pb-4 custom-scrollbar">
           <table className="w-full border-collapse min-w-[1400px] text-[10px]">
             <thead>

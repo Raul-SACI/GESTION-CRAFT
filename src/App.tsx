@@ -38,7 +38,8 @@ import {
   Sun,
   Moon,
   Calculator,
-  Factory
+  Factory,
+  ClipboardCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -85,6 +86,7 @@ const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsEx
 const DocumentsView = lazy(() => import('./components/DocumentsView'));
 const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
+const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
 
 import { PerformanceView, NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
@@ -540,6 +542,21 @@ function AppContent() {
             )} />
             Producción del mes
           </button>
+          <button
+            onClick={() => setActiveTab('produccion_stock_control')}
+            className={cn(
+              "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+              activeTab === 'produccion_stock_control' 
+                ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+            )}
+          >
+            <ClipboardCheck size={16} className={cn(
+              "transition-colors",
+              activeTab === 'produccion_stock_control' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+            )} />
+            Control de Stock
+          </button>
 
           {currentUser.role === 'dueño' && (
             <>
@@ -925,6 +942,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
+              {activeTab === 'produccion_stock_control' && <ProductionStockControlView key="produccion_stock_control" />}
               {activeTab === 'papeles_administracion' && (
                 <DocumentsView 
                   key="papeles_administracion" 

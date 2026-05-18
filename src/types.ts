@@ -261,3 +261,25 @@ export interface ProductionLog {
   batchNumber?: string;
   notes?: string;
 }
+
+export interface ProductionSupply {
+  id: string;
+  name: string;
+  unit: string;
+  isActive: boolean;
+}
+
+export interface ProductionStockControl {
+  id: string;
+  supplyId: string;
+  weekRange: '1 al 7' | '8 al 14' | '15 al 21' | '22 al 31';
+  month: string; // YYYY-MM
+  initialExistence: number;
+  productionPurchases: number;
+  internalMovements: number;
+  wastage: number;
+  personalConsumption: number;
+  recovery: number;
+  staffPurchases: number;
+  finalExistence: number;
+}
