@@ -334,6 +334,7 @@ function AppContent() {
 
     if (error) {
       console.error('Error adding branch to Supabase:', error);
+      alert(`Error al agregar sucursal: ${error.message}`);
       // Fallback update state anyway if it's just a local run
       setBranches(prev => [...prev, newBranch]);
     } else {
@@ -358,15 +359,15 @@ function AppContent() {
         google_maps_url: updated.googleMapsUrl,
         google_review_url: updated.googleReviewUrl,
         google_place_id: updated.googlePlaceId
-      });
+      }, { onConflict: 'id' });
 
     if (error) {
       console.error('Error upserting branch in Supabase:', error);
-      alert('Error al guardar los cambios en la base de datos.');
+      alert(`Error al guardar los cambios: ${error.message || 'Error desconocido'}`);
+    } else {
+      // Update local state ONLY if success or no real DB configured
+      setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
     }
-    
-    // Update local state
-    setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
   };
 
   // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
