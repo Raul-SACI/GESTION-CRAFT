@@ -14,7 +14,9 @@ import {
   MoreVertical,
   Trash2,
   Edit2,
-  Loader2
+  Loader2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { User, UserRole, Branch } from '../types';
 import { cn } from '../lib/utils';
@@ -44,6 +46,7 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
   const [users, setUsers] = useState<User[]>([]);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState<Partial<User>>({
@@ -328,11 +331,18 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
                   <div className="relative">
                     <Shield className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
                     <input 
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={formData.password}
                       onChange={(e) => setFormData({...formData, password: e.target.value})}
-                      className="w-full pl-10 pr-4 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-bold font-mono"
+                      className="w-full pl-10 pr-10 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-bold font-mono"
                     />
+                    <button 
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
                   </div>
                 </div>
 

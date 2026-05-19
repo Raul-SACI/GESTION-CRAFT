@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Lock, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Mail, Lock, Loader2, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { User, UserRole } from '../types';
 
@@ -11,6 +11,7 @@ interface LoginProps {
 export default function LoginView({ onLogin }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,10 +44,12 @@ export default function LoginView({ onLogin }: LoginProps) {
           branchId: data.branch_id
         });
       } else {
-        setError('Contraseña incorrecta');
+        // Log to console for debugging if helpful
+        console.warn('Password mismatch or login error');
+        setError('Acceso denegado. Verifique email y contraseña.');
       }
-    } catch (err) {
-      setError('Error al conectar con el servidor');
+    } catch (err: any) {
+      setError('Error al conectar con el servidor: ' + (err.message || 'Error desconocido'));
     } finally {
       setLoading(false);
     }
@@ -87,13 +90,20 @@ export default function LoginView({ onLogin }: LoginProps) {
                 <div className="relative">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-text-dim" size={18} />
                   <input 
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-bg-accent border border-border-dim rounded-xl px-12 py-3.5 text-text-main text-sm outline-none focus:border-brand-500 transition-all font-mono"
                     placeholder="••••••••"
                   />
+                  <button 
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main transition-colors"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
               </div>
             </div>
