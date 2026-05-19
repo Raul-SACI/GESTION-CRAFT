@@ -15,26 +15,43 @@ export default function LoginView({ onLogin }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isSupabaseConfigured = !supabase.storage.from('test').getPublicUrl('test').data.publicUrl.includes('placeholder');
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSupabaseConfigured) {
+      setError('Configuración de Supabase faltante. Configure VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.');
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
+      const trimmedEmail = email.trim().toLowerCase();
+      const trimmedPassword = password.trim();
+
       const { data, error: fetchError } = await supabase
         .from('profiles')
         .select('*')
-        .eq('email', email.toLowerCase())
-        .single();
+        .eq('email', trimmedEmail)
+        .maybeSingle(); // Better for checking existance without throwing error
 
-      if (fetchError || !data) {
-        setError('Usuario no encontrado');
+      if (fetchError) {
+        console.error('Supabase fetch error:', fetchError);
+        setError(`Error de Base de Datos: ${fetchError.message} (${fetchError.code})`);
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        console.warn('User not found in profiles table for email:', trimmedEmail);
+        setError('Usuario no encontrado. Asegúrese de haber ejecutado el SQL de inicialización.');
         setLoading(false);
         return;
       }
 
       // Simple password check (In a real app, use Supabase Auth or proper hashing)
-      if (data.password === password) {
+      if (data.password === trimmedPassword) {
         onLogin({
           id: data.id,
           firstName: data.first_name,

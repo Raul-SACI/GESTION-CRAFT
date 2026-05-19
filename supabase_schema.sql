@@ -1,6 +1,9 @@
 -- SQL Schema for Supabase Setup
 -- Run this in the SQL Editor of your Supabase project
 
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- 1. Insumos (Stock Items)
 CREATE TABLE stock_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
