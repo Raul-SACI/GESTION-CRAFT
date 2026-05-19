@@ -126,13 +126,19 @@ export default function DeviationControlView({
   };
 
   // 3. Comparison State (Mock data for deviations)
-  const deviations = [
-    { itemId: '1', real: 450, theo: 440 },
-    { itemId: '2', real: 310, theo: 300 },
-    { itemId: '3', real: 120, theo: 100 },
-    { itemId: '5', real: 45, theo: 44 },
-    { itemId: '6', real: 28, theo: 20 },
-  ];
+  const deviations = controlledItemIds.map(id => {
+    const mockData: Record<string, { real: number, theo: number }> = {
+      '1': { real: 450, theo: 440 },
+      '2': { real: 310, theo: 300 },
+      '3': { real: 120, theo: 100 },
+      '5': { real: 45, theo: 44 },
+      '6': { real: 28, theo: 20 },
+    };
+    return { 
+      itemId: id, 
+      ...(mockData[id] || { real: Math.floor(Math.random() * 500) + 100, theo: Math.floor(Math.random() * 500) + 100 }) 
+    };
+  });
 
   const getSemaphoreColor = (diffPercent: number) => {
     if (diffPercent < 3) return 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20';
@@ -160,7 +166,7 @@ export default function DeviationControlView({
         
         <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm self-start md:self-center">
           <TabButton active={activeTab === 'comparativo'} onClick={() => setActiveTab('comparativo')} icon={<BarChart3 size={14} />} label="Resultados" />
-          <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector 6 Insumos" />
+          <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector de Insumos" />
           <TabButton active={activeTab === 'recetas'} onClick={() => setActiveTab('recetas')} icon={<BookOpen size={14} />} label="Recetas" />
           <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
         </div>
@@ -231,10 +237,10 @@ export default function DeviationControlView({
               <div className="flex justify-between items-center mb-6">
                 <div>
                   <h3 className="text-base font-black uppercase text-brand-500 tracking-widest italic">Selector de Insumos</h3>
-                  <p className="text-[10px] text-text-dim font-bold uppercase mt-1">Defina los 6 insumos para el control del mes</p>
+                  <p className="text-[10px] text-text-dim font-bold uppercase mt-1">Defina los insumos para el control del mes</p>
                 </div>
                 <div className="px-4 py-1.5 bg-bg-accent border border-border-dim rounded text-brand-500 font-mono font-black text-xs">
-                  {controlledItemIds.length} / 6 SELECCIONADOS
+                  {controlledItemIds.length} SELECCIONADOS
                 </div>
               </div>
 
@@ -245,7 +251,7 @@ export default function DeviationControlView({
                     onClick={() => {
                         if (controlledItemIds.includes(item.id)) {
                           setControlledItemIds(prev => prev.filter(id => id !== item.id));
-                        } else if (controlledItemIds.length < 6) {
+                        } else {
                           setControlledItemIds(prev => [...prev, item.id]);
                         }
                     }}
@@ -470,7 +476,12 @@ export default function DeviationControlView({
                         </button>
                         <button 
                           onClick={async () => {
-                            await supabase.from('stock_items').delete().eq('id', item.id);
+                            if (window.confirm('¿Está seguro de eliminar este insumo? Se eliminará de todas las recetas y del control de desvíos.')) {
+                              const { error } = await supabase.from('stock_items').delete().eq('id', item.id);
+                              if (!error) {
+                                setControlledItemIds(prev => prev.filter(id => id !== item.id));
+                              }
+                            }
                           }}
                           className="p-2 text-text-dim hover:text-red-500 transition-colors"
                         >
@@ -548,9 +559,11 @@ export default function DeviationControlView({
                         </button>
                         <button 
                           onClick={async () => {
-                            await supabase.from('products').delete().eq('id', p.id);
-                            if (selectedProductId === p.id) {
-                              setSelectedProductId(null);
+                            if (window.confirm('¿Está seguro de eliminar este producto?')) {
+                              const { error } = await supabase.from('products').delete().eq('id', p.id);
+                              if (!error && selectedProductId === p.id) {
+                                setSelectedProductId(null);
+                              }
                             }
                           }}
                           className="p-2 text-text-dim hover:text-red-500 transition-colors"
