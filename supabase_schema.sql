@@ -309,3 +309,33 @@ ALTER TABLE news DISABLE ROW LEVEL SECURITY;
 ALTER TABLE passwords DISABLE ROW LEVEL SECURITY;
 ALTER TABLE menu_items DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+
+-- 17. Monthly Controlled Items for Deviations
+CREATE TABLE monthly_controlled_items (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  month TEXT NOT NULL, -- YYYY-MM
+  item_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, month)
+);
+
+-- 18. Daily Stock Logs for granular control
+CREATE TABLE daily_stock_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  date DATE NOT NULL,
+  initial_stock DECIMAL DEFAULT 0,
+  purchases DECIMAL DEFAULT 0,
+  waste DECIMAL DEFAULT 0, -- Decomisos
+  loans DECIMAL DEFAULT 0, -- Préstamos (negativo si presta out, positivo si recibe in)
+  staff_consumption DECIMAL DEFAULT 0,
+  theoretical_sales DECIMAL DEFAULT 0,
+  final_stock DECIMAL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, item_id, date)
+);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE daily_stock_logs;
+ALTER TABLE daily_stock_logs DISABLE ROW LEVEL SECURITY;

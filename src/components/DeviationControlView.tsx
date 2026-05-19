@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart3, 
   Settings2, 
@@ -12,7 +12,10 @@ import {
   BookOpen,
   Info,
   Trash2,
-  Edit2
+  Edit2,
+  Calendar as CalendarIcon,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -22,8 +25,8 @@ import { supabase } from '../lib/supabase';
 export default function DeviationControlView({ 
   branches, 
   selectedBranchId,
-  controlledItemIds,
-  setControlledItemIds,
+  controlledItemIds: initialControlledItemIds,
+  setControlledItemIds: setInitialControlledItemIds,
   items,
   setItems,
   products,
@@ -38,7 +41,90 @@ export default function DeviationControlView({
   products: Product[],
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>
 }) {
-  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion'>('comparativo');
+  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla'>('comparativo');
+  
+  // Persistence State
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [controlledIds, setControlledIds] = useState<string[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // Daily Logs State
+  const [dailyLogs, setDailyLogs] = useState<any[]>([]);
+  const [isSavingDaily, setIsSavingDaily] = useState(false);
+
+  // Fetch Daily Logs
+  useEffect(() => {
+    const fetchDailyLogs = async () => {
+      const { data, error } = await supabase
+        .from('inventory_logs')
+        .select('*')
+        .match({ branch_id: selectedBranchId })
+        .gte('date', `${selectedMonth}-01`)
+        .lte('date', `${selectedMonth}-31`);
+
+      if (data) {
+        setDailyLogs(data.map(d => ({
+          ...d,
+          itemId: d.item_id,
+          purchases: d.compras,
+          waste: d.decomisos,
+          theoretical_sales: d.ventas_teorico,
+          staff_consumption: d.consumo_personal,
+          loans: d.prestamos
+        })));
+      }
+    };
+    if (selectedBranchId && selectedMonth) {
+      fetchDailyLogs();
+    }
+  }, [selectedBranchId, selectedMonth]);
+
+  const updateDailyLog = async (date: string, itemId: string, field: string, value: number) => {
+    // Map field to DB column
+    const columnMap: Record<string, string> = {
+      purchases: 'compras',
+      waste: 'decomisos',
+      theoretical_sales: 'ventas_teorico'
+    };
+
+    const dbField = columnMap[field];
+    if (!dbField) return;
+
+    const { data, error } = await supabase
+      .from('inventory_logs')
+      .upsert({
+        branch_id: selectedBranchId,
+        item_id: itemId,
+        date,
+        [dbField]: value
+      }, { onConflict: 'branch_id,item_id,date' })
+      .select()
+      .single();
+
+    if (data) {
+      setDailyLogs(prev => {
+        const otherLogs = prev.filter(l => !(l.date === date && l.item_id === itemId));
+        return [...otherLogs, {
+          ...data,
+          itemId: data.item_id,
+          purchases: data.compras,
+          waste: data.decomisos,
+          theoretical_sales: data.ventas_teorico,
+          staff_consumption: data.consumo_personal,
+          loans: data.prestamos
+        }];
+      });
+    }
+  };
+
+  const daysInMonth = () => {
+    const year = parseInt(selectedMonth.split('-')[0]);
+    const month = parseInt(selectedMonth.split('-')[1]);
+    return new Date(year, month, 0).getDate();
+  };
 
   // New CRUD state
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
@@ -52,6 +138,47 @@ export default function DeviationControlView({
 
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState('');
+
+  // Fetch Controlled Items for Month/Branch
+  useEffect(() => {
+    const fetchMonthlyControls = async () => {
+      setIsLoadingHistory(true);
+      const { data, error } = await supabase
+        .from('monthly_controlled_items')
+        .select('item_ids')
+        .match({ branch_id: selectedBranchId, month: selectedMonth })
+        .maybeSingle();
+
+      if (data) {
+        setControlledIds(data.item_ids || []);
+      } else {
+        // If no specific month found, default to the current active selection
+        setControlledIds(initialControlledItemIds || []);
+      }
+      setIsLoadingHistory(false);
+    };
+
+    if (selectedBranchId && selectedMonth) {
+      fetchMonthlyControls();
+    }
+  }, [selectedMonth, selectedBranchId, initialControlledItemIds]);
+
+  const saveMonthlyControl = async () => {
+    const { error } = await supabase
+      .from('monthly_controlled_items')
+      .upsert({
+        branch_id: selectedBranchId,
+        month: selectedMonth,
+        item_ids: controlledIds
+      }, { onConflict: 'branch_id,month' });
+
+    if (!error) {
+      alert(`Control de desvíos para ${selectedMonth} confirmado exitosamente. Ahora puede cargar la planilla diaria.`);
+    } else {
+      console.error('Error saving monthly control:', error);
+      alert('Error al guardar el control mensual.');
+    }
+  };
 
   const getSubUnit = (unit: string) => {
     if (unit?.toLowerCase() === 'kg') return 'gr';
@@ -143,21 +270,31 @@ export default function DeviationControlView({
     }
   };
 
-  // Filter controlledItemIds to only include items that actually exist in the master list
-  const validControlledIds = controlledItemIds.filter(id => items.some(item => item.id === id));
+  const validControlledIds = controlledIds.filter(id => items.some(item => item.id === id));
 
-  // 3. Comparison State (Mock data for deviations)
+  // 3. Comparison State (Aggregated data from dailyLogs)
   const deviations = validControlledIds.map(id => {
-    const mockData: Record<string, { real: number, theo: number }> = {
-      '1': { real: 450, theo: 440 },
-      '2': { real: 310, theo: 300 },
-      '3': { real: 120, theo: 100 },
-      '5': { real: 45, theo: 44 },
-      '6': { real: 28, theo: 20 },
-    };
+    const itemLogs = dailyLogs.filter(l => l.itemId === id);
+    
+    // EI is the first available EI of the month
+    const sortedLogs = [...itemLogs].sort((a, b) => a.date.localeCompare(b.date));
+    const ei = sortedLogs[0]?.ei || 0;
+    const ef = sortedLogs[sortedLogs.length - 1]?.ef || 0;
+    
+    const totals = itemLogs.reduce((acc, log) => ({
+      purchases: acc.purchases + (log.purchases || 0),
+      loans: acc.loans + (log.loans || 0),
+      waste: acc.waste + (log.waste || 0),
+      staff_consumption: acc.staff_consumption + (log.staff_consumption || 0),
+      theoretical_sales: acc.theoretical_sales + (log.theoretical_sales || 0)
+    }), { purchases: 0, loans: 0, waste: 0, staff_consumption: 0, theoretical_sales: 0 });
+
+    const realConsumption = ei + totals.purchases + totals.loans - totals.waste - totals.staff_consumption - ef;
+    
     return { 
       itemId: id, 
-      ...(mockData[id] || { real: Math.floor(Math.random() * 500) + 100, theo: Math.floor(Math.random() * 500) + 100 }) 
+      real: realConsumption, 
+      theo: totals.theoretical_sales 
     };
   });
 
@@ -184,9 +321,20 @@ export default function DeviationControlView({
             <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">Consola de Control de Administración</p>
           </div>
         </div>
+
+        <div className="flex items-center gap-3 bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 shadow-sm">
+           <CalendarIcon size={14} className="text-brand-500" />
+           <input 
+             type="month" 
+             value={selectedMonth}
+             onChange={(e) => setSelectedMonth(e.target.value)}
+             className="bg-transparent text-[11px] font-black uppercase text-text-main outline-none cursor-pointer"
+           />
+        </div>
         
         <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm self-start md:self-center">
           <TabButton active={activeTab === 'comparativo'} onClick={() => setActiveTab('comparativo')} icon={<BarChart3 size={14} />} label="Resultados" />
+          <TabButton active={activeTab === 'planilla'} onClick={() => setActiveTab('planilla')} icon={<Table2 size={14} />} label="Planilla Diaria" />
           <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector de Insumos" />
           <TabButton active={activeTab === 'recetas'} onClick={() => setActiveTab('recetas')} icon={<BookOpen size={14} />} label="Recetas" />
           <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
@@ -197,9 +345,28 @@ export default function DeviationControlView({
         {activeTab === 'comparativo' && (
           <motion.div key="comp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <SummaryCard label="Desvíos Críticos (>5%)" value="2" color="text-red-500" icon={<AlertTriangle size={18} />} />
-                <SummaryCard label="Bajo Control" value={`${validControlledIds.length}`} color="text-brand-500" icon={<CheckCircle2 size={18} />} />
-                <SummaryCard label="Gap Real vs Teo" value="4.2%" color="text-orange-500" icon={<BarChart3 size={18} />} />
+                <SummaryCard 
+                  label="Desvíos Críticos (>5%)" 
+                  value={deviations.filter(d => d.theo > 0 && Math.abs((d.real - d.theo) / d.theo) > 0.05).length.toString()} 
+                  color="text-red-500" 
+                  icon={<AlertTriangle size={18} />} 
+                />
+                <SummaryCard 
+                  label="Bajo Control" 
+                  value={`${validControlledIds.length}`} 
+                  color="text-brand-500" 
+                  icon={<CheckCircle2 size={18} />} 
+                />
+                <SummaryCard 
+                  label="Gap Real vs Teo" 
+                  value={`${(() => {
+                    const totalReal = deviations.reduce((acc, d) => acc + d.real, 0);
+                    const totalTheo = deviations.reduce((acc, d) => acc + d.theo, 0);
+                    if (totalTheo === 0) return "0%";
+                    return ((Math.abs(totalReal - totalTheo) / totalTheo) * 100).toFixed(1) + "%";
+                  })()}`} 
+                  color="text-orange-500" icon={<BarChart3 size={18} />} 
+                />
               </div>
 
             <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-xl">
@@ -252,6 +419,137 @@ export default function DeviationControlView({
           </motion.div>
         )}
 
+        {activeTab === 'planilla' && (
+          <motion.div key="planilla" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+             <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
+               <div className="p-4 bg-bg-accent border-b border-border-dim flex justify-between items-center whitespace-nowrap">
+                  <div>
+                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest italic">Planilla de Carga Administrativa - {selectedMonth}</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Compras, Decomisos y Ventas Teóricas (Admin) | EF, Préstamos y Consumo (Sucursal)</p>
+                  </div>
+                  <div className="flex gap-4 items-center">
+                    <div className="flex items-center gap-2">
+                       <span className="w-3 h-3 bg-brand-500/20 border border-brand-500 rounded"></span>
+                       <span className="text-[9px] font-black text-text-dim uppercase">Admin (Editable)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <span className="w-3 h-3 bg-bg-accent/50 border border-border-dim rounded"></span>
+                       <span className="text-[9px] font-black text-text-dim uppercase">Sucursal (Lectura)</span>
+                    </div>
+                  </div>
+               </div>
+               
+               <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
+                 <table className="w-full border-collapse">
+                   <thead className="sticky top-0 z-20 bg-bg-sidebar">
+                     <tr className="bg-bg-sidebar border-b border-border-dim text-[9px] font-black uppercase text-text-dim">
+                       <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim w-32 min-w-[120px]">Fecha</th>
+                       {validControlledIds.map(id => {
+                         const item = items.find(i => i.id === id);
+                         return (
+                           <th key={id} colSpan={6} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[450px]">
+                             {item?.name}
+                           </th>
+                         );
+                       })}
+                     </tr>
+                     <tr className="bg-bg-sidebar border-b border-border-dim text-[8px] font-black uppercase text-text-dim">
+                        <th className="px-4 py-2 sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim"></th>
+                        {validControlledIds.map(id => (
+                          <React.Fragment key={id}>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">Comp.</th>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">Deco.</th>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">V.Teo</th>
+                            <th className="px-2 py-2 text-center opacity-60">EF</th>
+                            <th className="px-2 py-2 text-center opacity-60">Prést.</th>
+                            <th className="px-2 py-2 text-center border-r border-border-dim opacity-60">C.Per</th>
+                          </React.Fragment>
+                        ))}
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-border-dim">
+                     {Array.from({ length: daysInMonth() }).map((_, i) => {
+                       const dayNum = i + 1;
+                       const dateStr = `${selectedMonth}-${String(dayNum).padStart(2, '0')}`;
+                       return (
+                         <tr key={dateStr} className="hover:bg-bg-accent/30 transition-colors text-[10px]">
+                           <td className="px-4 py-2 font-mono font-bold text-text-dim sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim">
+                             {String(dayNum).padStart(2, '0')} / {selectedMonth.split('-')[1]}
+                           </td>
+                           {validControlledIds.map(id => {
+                             const log = dailyLogs.find(l => l.date === dateStr && l.itemId === id) || { 
+                               purchases: 0, waste: 0, theoretical_sales: 0, ef: 0, loans: 0, staff_consumption: 0 
+                             };
+                             return (
+                               <React.Fragment key={id}>
+                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                                   <input 
+                                     type="number"
+                                     value={log.purchases || ''}
+                                     placeholder="0"
+                                     onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                   />
+                                 </td>
+                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                                   <input 
+                                     type="number"
+                                     value={log.waste || ''}
+                                     placeholder="0"
+                                     onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                   />
+                                 </td>
+                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                                   <input 
+                                     type="number"
+                                     value={log.theoretical_sales || ''}
+                                     placeholder="0"
+                                     onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                   />
+                                 </td>
+                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
+                                      {log.ef || 0}
+                                   </div>
+                                 </td>
+                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
+                                      {log.loans || 0}
+                                   </div>
+                                 </td>
+                                 <td className="p-0 border-r border-border-dim bg-bg-accent/20">
+                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
+                                      {log.staff_consumption || 0}
+                                   </div>
+                                 </td>
+                               </React.Fragment>
+                             );
+                           })}
+                         </tr>
+                       );
+                     })}
+                   </tbody>
+                 </table>
+               </div>
+
+               {validControlledIds.length === 0 && (
+                 <div className="p-12 text-center">
+                    <Table2 size={48} className="mx-auto text-text-dim/20 mb-4" />
+                    <p className="text-sm font-bold text-text-dim uppercase">No hay insumos seleccionados para este mes</p>
+                    <button 
+                      onClick={() => setActiveTab('selector')}
+                      className="mt-4 text-brand-500 text-[10px] font-black uppercase hover:underline"
+                    >
+                      Ir al Selector de Insumos
+                    </button>
+                 </div>
+               )}
+             </div>
+          </motion.div>
+        )}
+
         {activeTab === 'selector' && (
           <motion.div key="selector" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
             <div className="bg-bg-sidebar border border-border-dim p-8 rounded-lg max-w-2xl mx-auto shadow-2xl">
@@ -270,15 +568,15 @@ export default function DeviationControlView({
                   <button
                     key={item.id}
                     onClick={() => {
-                        if (controlledItemIds.includes(item.id)) {
-                          setControlledItemIds(prev => prev.filter(id => id !== item.id));
+                        if (controlledIds.includes(item.id)) {
+                          setControlledIds(prev => prev.filter(id => id !== item.id));
                         } else {
-                          setControlledItemIds(prev => [...prev, item.id]);
+                          setControlledIds(prev => [...prev, item.id]);
                         }
                     }}
                     className={cn(
                       "flex items-center justify-between p-4 rounded border transition-all text-left uppercase tracking-widest text-[10px] font-black group",
-                      controlledItemIds.includes(item.id) 
+                      controlledIds.includes(item.id) 
                         ? "bg-brand-500/10 border-brand-500 text-brand-500 shadow-lg shadow-brand-500/5" 
                         : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
                     )}
@@ -286,16 +584,19 @@ export default function DeviationControlView({
                     <span>{item.name}</span>
                     <div className={cn(
                       "w-4 h-4 rounded flex items-center justify-center border",
-                      controlledItemIds.includes(item.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                      controlledIds.includes(item.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
                     )}>
-                       {controlledItemIds.includes(item.id) && <X size={10} className="text-black rotate-45" />}
+                       {controlledIds.includes(item.id) && <X size={10} className="text-black rotate-45" />}
                     </div>
                   </button>
                 ))}
               </div>
 
-              <button className="w-full mt-8 bg-brand-500 text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 font-bold">
-                CONFIRMAR CONTROL MENSUAL
+              <button 
+                onClick={saveMonthlyControl}
+                className="w-full mt-8 bg-brand-500 text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 font-bold"
+              >
+                CONFIRMAR CONTROL MENSUAL PARA {selectedMonth}
               </button>
             </div>
           </motion.div>
@@ -514,7 +815,7 @@ export default function DeviationControlView({
                             if (window.confirm('¿Está seguro de eliminar este insumo? Se eliminará de todas las recetas y del control de desvíos.')) {
                               const { error } = await supabase.from('stock_items').delete().eq('id', item.id);
                               if (!error) {
-                                setControlledItemIds(prev => prev.filter(id => id !== item.id));
+                                setControlledIds(prev => prev.filter(id => id !== item.id));
                               }
                             }
                           }}

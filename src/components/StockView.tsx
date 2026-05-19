@@ -188,17 +188,39 @@ export default function StockView({
   };
 
   const updateItemData = async (id: string, field: string, value: number, targetDate: string = selectedDate) => {
+    // Determine the next day to update its EI
+    const nextDay = new Date(targetDate + 'T12:00:00');
+    nextDay.setDate(nextDay.getDate() + 1);
+    const nextDayStr = nextDay.toISOString().split('T')[0];
+
     // Optimistic update
-    setDailyData(prev => ({
-      ...prev,
-      [targetDate]: {
-        ...(prev[targetDate] || {}),
-        [id]: {
-          ...(prev[targetDate]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
-          [field]: value
+    setDailyData(prev => {
+      const currentDayData = {
+        ...(prev[targetDate]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+        [field]: value
+      };
+
+      const newState = {
+        ...prev,
+        [targetDate]: {
+          ...(prev[targetDate] || {}),
+          [id]: currentDayData
         }
+      };
+
+      // If we updated EF, update EI of next day
+      if (field === 'ef') {
+        newState[nextDayStr] = {
+          ...(newState[nextDayStr] || {}),
+          [id]: {
+            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+            ei: value
+          }
+        };
       }
-    }));
+
+      return newState;
+    });
 
     // Map frontend field to DB column
     const columnMap: Record<string, string> = {
@@ -214,6 +236,7 @@ export default function StockView({
     const dbField = columnMap[field];
     if (!dbField) return;
 
+    // Save current field
     await supabase
       .from('inventory_logs')
       .upsert({
@@ -221,7 +244,19 @@ export default function StockView({
         item_id: id,
         date: targetDate,
         [dbField]: value
-      }, { onConflict: 'branch_id, item_id, date' });
+      }, { onConflict: 'branch_id,item_id,date' });
+
+    // If EF was updated, also update EI of next day in DB
+    if (field === 'ef') {
+       await supabase
+         .from('inventory_logs')
+         .upsert({
+           branch_id: selectedBranchId,
+           item_id: id,
+           date: nextDayStr,
+           ei: value
+         }, { onConflict: 'branch_id,item_id,date' });
+    }
   };
 
   // Helper to get dates for a week or month
@@ -394,70 +429,50 @@ export default function StockView({
                       </div>
                     </td>
                     
-                    {/* EI (Encargado) */}
+                    {/* EI (Encargado) - Automatic/Read-only */}
                     <StockInputCell 
                       value={data.ei} 
                       onChange={val => updateItemData(item.id, 'ei', val)}
-                      disabled={isAdmin || isSummary} 
+                      disabled={true} 
                     />
 
-                    {/* Compras */}
-                    <td className={cn("px-2 py-4 border-x border-emerald-500/10", isSummary ? "bg-emerald-500/10" : "bg-emerald-500/5")}>
-                       {isSummary ? (
-                         <div className="w-16 mx-auto bg-transparent py-1 text-center text-[10px] text-text-main font-mono font-black">
-                            {data.compras.toFixed(1)}
-                         </div>
-                       ) : (
-                        <div className="flex items-center justify-center gap-2">
-                           <input 
-                              type="number"
-                              value={data.compras || ''}
-                              onChange={e => updateItemData(item.id, 'compras', parseFloat(e.target.value) || 0)}
-                              placeholder="0.0"
-                              disabled={isAdmin}
-                              className="w-16 bg-bg-accent border border-emerald-500/30 rounded py-1 px-1 text-center text-[10px] text-text-main font-mono outline-none focus:border-emerald-500"
-                           />
-                           {!isAdmin && (
-                              <button 
-                                onClick={() => setShowPartialModal(item.id)}
-                                className="p-1 bg-emerald-500/10 text-emerald-500 rounded hover:bg-emerald-500/20"
-                              >
-                                <Plus size={10} />
-                              </button>
-                           )}
-                        </div>
-                       )}
-                    </td>
+                    {/* Compras (Admin) */}
+                    <StockInputCell 
+                      value={data.compras} 
+                      onChange={val => updateItemData(item.id, 'compras', val)}
+                      disabled={isEncargado || isSummary} 
+                      className="bg-emerald-500/5"
+                    />
 
-                    {/* Prestamos */}
+                    {/* Prestamos (Encargado) */}
                     <StockInputCell 
                       value={data.prestamos} 
                       onChange={val => updateItemData(item.id, 'prestamos', val)}
                       disabled={isAdmin || isSummary}
                     />
 
-                    {/* Consumo Pers. */}
+                    {/* Consumo Pers. (Encargado) */}
                     <StockInputCell 
                       value={data.consumoPersonal} 
                       onChange={val => updateItemData(item.id, 'consumoPersonal', val)}
                       disabled={isAdmin || isSummary}
                     />
 
-                    {/* EF */}
+                    {/* EF (Encargado) */}
                     <StockInputCell 
                       value={data.ef} 
                       onChange={val => updateItemData(item.id, 'ef', val)}
                       disabled={isAdmin || isSummary}
                     />
 
-                    {/* Ventas Teo */}
+                    {/* Ventas Teo (Admin) */}
                     <StockInputCell 
                       value={data.ventasTeorico} 
                       onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
                       disabled={isEncargado || isSummary}
                     />
 
-                    {/* Decomisos */}
+                    {/* Decomisos (Admin) */}
                     <StockInputCell 
                       value={data.decomisos} 
                       onChange={val => updateItemData(item.id, 'decomisos', val)}
@@ -658,9 +673,9 @@ export default function StockView({
   );
 }
 
-function StockInputCell({ value, onChange, disabled }: { value: number, onChange: (val: number) => void, disabled?: boolean }) {
+function StockInputCell({ value, onChange, disabled, className }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string }) {
   return (
-    <td className={cn("px-2 py-4", disabled ? "bg-bg-accent/30" : "bg-bg-sidebar")}>
+    <td className={cn("px-2 py-4", disabled ? "bg-bg-accent/30" : "bg-bg-sidebar", className)}>
       <input 
         type="number"
         value={value || ''}
