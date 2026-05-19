@@ -320,7 +320,10 @@ CREATE TABLE monthly_controlled_items (
   UNIQUE(branch_id, month)
 );
 
--- 18. Daily Stock Logs for granular control
+ALTER PUBLICATION supabase_realtime ADD TABLE monthly_controlled_items;
+ALTER TABLE monthly_controlled_items DISABLE ROW LEVEL SECURITY;
+
+-- 18. Daily Stock Logs for granular control (Optional, keeping as legacy or extra)
 CREATE TABLE daily_stock_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,

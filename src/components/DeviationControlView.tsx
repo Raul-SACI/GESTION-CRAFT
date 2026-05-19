@@ -149,6 +149,10 @@ export default function DeviationControlView({
         .match({ branch_id: selectedBranchId, month: selectedMonth })
         .maybeSingle();
 
+      if (error) {
+        console.error('Error fetching monthly controls:', error);
+      }
+      
       if (data) {
         setControlledIds(data.item_ids || []);
       } else {
@@ -164,6 +168,11 @@ export default function DeviationControlView({
   }, [selectedMonth, selectedBranchId, initialControlledItemIds]);
 
   const saveMonthlyControl = async () => {
+    if (!selectedBranchId || selectedBranchId === 'all') {
+      alert('Por favor, seleccione una sucursal específica para confirmar el control mensual.');
+      return;
+    }
+
     const { error } = await supabase
       .from('monthly_controlled_items')
       .upsert({
@@ -176,7 +185,7 @@ export default function DeviationControlView({
       alert(`Control de desvíos para ${selectedMonth} confirmado exitosamente. Ahora puede cargar la planilla diaria.`);
     } else {
       console.error('Error saving monthly control:', error);
-      alert('Error al guardar el control mensual.');
+      alert(`Error al guardar el control mensual: ${error.message || 'Error desconocido'}. Verifique que la tabla 'monthly_controlled_items' existe en Supabase y que no haya restricciones de RLS bloqueando la operación.`);
     }
   };
 
