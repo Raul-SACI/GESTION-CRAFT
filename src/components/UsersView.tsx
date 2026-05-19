@@ -22,6 +22,18 @@ import { supabase } from '../lib/supabase';
 
 const ROLES: UserRole[] = ['encargado', 'supervisor', 'administrativo', 'dueño'];
 
+const MODULES = [
+  { id: 'dashboard', label: 'DASHBOARD' },
+  { id: 'stock', label: 'CONTROL STOCK' },
+  { id: 'desempeño', label: 'DESEMPEÑO' },
+  { id: 'vajilla', label: 'VAJILLA' },
+  { id: 'horas', label: 'CARGA DE HORAS' },
+  { id: 'novedades', label: 'NOVEDADES' },
+  { id: 'ventas', label: 'VENTAS' },
+  { id: 'control_desvios', label: 'CONTROL DESVÍOS' },
+  { id: 'usuarios', label: 'USUARIOS/ROLES' },
+];
+
 export default function UsersView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const [users, setUsers] = useState<User[]>([]);
@@ -31,7 +43,8 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
   const [formData, setFormData] = useState<Partial<User>>({
     name: '',
     role: 'encargado',
-    branch: ''
+    branch: '',
+    permissions: ['dashboard', 'stock']
   });
 
   const fetchData = async () => {
@@ -42,7 +55,8 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
         id: u.id,
         name: u.name,
         role: u.role as UserRole,
-        branch: u.branch_name
+        branch: u.branch_name,
+        permissions: u.permissions || []
       })));
     }
     setLoading(false);
@@ -57,7 +71,8 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
     const { data, error } = await supabase.from('profiles').insert([{
       name: formData.name.toUpperCase(),
       role: formData.role,
-      branch_name: formData.branch?.toUpperCase()
+      branch_name: formData.branch?.toUpperCase(),
+      permissions: formData.permissions
     }]).select().single();
 
     if (data) {
@@ -65,11 +80,21 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
         id: data.id,
         name: data.name,
         role: data.role as UserRole,
-        branch: data.branch_name
+        branch: data.branch_name,
+        permissions: data.permissions || []
       }]);
       setIsAdding(false);
-      setFormData({ name: '', role: 'encargado', branch: '' });
+      setFormData({ name: '', role: 'encargado', branch: '', permissions: ['dashboard', 'stock'] });
     }
+  };
+
+  const togglePermission = (moduleId: string) => {
+    setFormData(prev => ({
+      ...prev,
+      permissions: prev.permissions?.includes(moduleId)
+        ? prev.permissions.filter(id => id !== moduleId)
+        : [...(prev.permissions || []), moduleId]
+    }));
   };
 
   const deleteUser = async (id: string) => {
@@ -228,6 +253,33 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
                   className="w-full px-4 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 uppercase font-bold"
                   placeholder="Ejem: Barrio Norte"
                 />
+              </div>
+
+              {/* Permissions Section */}
+              <div className="space-y-3 pt-2">
+                <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider block border-b border-border-dim pb-1">Permisos de Módulos</label>
+                <div className="grid grid-cols-1 gap-2 max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                  {MODULES.map(module => (
+                    <button
+                      key={module.id}
+                      onClick={() => togglePermission(module.id)}
+                      className={cn(
+                        "flex items-center justify-between px-3 py-2 rounded border text-[9px] font-bold uppercase transition-all",
+                        formData.permissions?.includes(module.id)
+                          ? "bg-brand-500/10 border-brand-500/50 text-brand-500"
+                          : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/30"
+                      )}
+                    >
+                      {module.label}
+                      <div className={cn(
+                        "w-3 h-3 rounded-full border flex items-center justify-center",
+                        formData.permissions?.includes(module.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                      )}>
+                        {formData.permissions?.includes(module.id) && <div className="w-1.5 h-1.5 bg-black rounded-full" />}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="pt-4 flex gap-2">

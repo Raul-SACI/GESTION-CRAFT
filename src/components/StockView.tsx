@@ -112,6 +112,25 @@ export default function StockView({
         .gte('date', startDate)
         .lte('date', endDate);
 
+      // Also fetch previous day EF to default EI if needed (only in daily view)
+      let prevDayEFs: Record<string, number> = {};
+      if (viewMode === 'dia') {
+        const prevDate = new Date(selectedDate + 'T12:00:00');
+        prevDate.setDate(prevDate.getDate() - 1);
+        const prevDateStr = prevDate.toISOString().split('T')[0];
+        
+        const { data: prevLogs } = await supabase
+          .from('inventory_logs')
+          .select('item_id, ef')
+          .match({ branch_id: selectedBranchId, date: prevDateStr });
+        
+        if (prevLogs) {
+          prevLogs.forEach(log => {
+            prevDayEFs[log.item_id] = log.ef;
+          });
+        }
+      }
+
       if (logsData) {
         const formatted: Record<string, any> = {};
         logsData.forEach(log => {
@@ -126,6 +145,29 @@ export default function StockView({
             compras: log.compras
           };
         });
+
+        // Apply defaults for current day if EI is 0
+        if (viewMode === 'dia' && formatted[selectedDate]) {
+          Object.keys(prevDayEFs).forEach(itemId => {
+            if (formatted[selectedDate][itemId] && formatted[selectedDate][itemId].ei === 0) {
+              formatted[selectedDate][itemId].ei = prevDayEFs[itemId];
+            }
+          });
+        } else if (viewMode === 'dia' && !formatted[selectedDate]) {
+          formatted[selectedDate] = {};
+          Object.keys(prevDayEFs).forEach(itemId => {
+            formatted[selectedDate][itemId] = {
+              ei: prevDayEFs[itemId],
+              prestamos: 0,
+              consumoPersonal: 0,
+              ef: 0,
+              ventasTeorico: 0,
+              decomisos: 0,
+              compras: 0
+            };
+          });
+        }
+
         setDailyData(formatted);
       }
 
@@ -445,18 +487,19 @@ export default function StockView({
                       </div>
                     </td>
                     
-                    {/* EI (Encargado) - Automatic/Read-only */}
+                    {/* EI (Editable with default) */}
                     <StockInputCell 
                       value={data.ei} 
                       onChange={val => updateItemData(item.id, 'ei', val)}
-                      disabled={true} 
+                      disabled={isSummary} 
+                      className="bg-brand-500/5 font-bold"
                     />
 
-                    {/* Compras (Admin) */}
+                    {/* Compras (Read-only in this view) */}
                     <StockInputCell 
                       value={data.compras} 
                       onChange={val => updateItemData(item.id, 'compras', val)}
-                      disabled={isEncargado || isSummary} 
+                      disabled={true} 
                       className="bg-emerald-500/5"
                     />
 
@@ -464,35 +507,35 @@ export default function StockView({
                     <StockInputCell 
                       value={data.prestamos} 
                       onChange={val => updateItemData(item.id, 'prestamos', val)}
-                      disabled={isAdmin || isSummary}
+                      disabled={isSummary}
                     />
 
                     {/* Consumo Pers. (Encargado) */}
                     <StockInputCell 
                       value={data.consumoPersonal} 
                       onChange={val => updateItemData(item.id, 'consumoPersonal', val)}
-                      disabled={isAdmin || isSummary}
+                      disabled={isSummary}
                     />
 
                     {/* EF (Encargado) */}
                     <StockInputCell 
                       value={data.ef} 
                       onChange={val => updateItemData(item.id, 'ef', val)}
-                      disabled={isAdmin || isSummary}
+                      disabled={isSummary}
                     />
 
-                    {/* Ventas Teo (Admin) */}
+                    {/* Ventas Teo (Read-only in this view) */}
                     <StockInputCell 
                       value={data.ventasTeorico} 
                       onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
-                      disabled={isEncargado || isSummary}
+                      disabled={true}
                     />
 
-                    {/* Decomisos (Admin) */}
+                    {/* Decomisos (Read-only in this view) */}
                     <StockInputCell 
                       value={data.decomisos} 
                       onChange={val => updateItemData(item.id, 'decomisos', val)}
-                      disabled={isEncargado || isSummary}
+                      disabled={true}
                     />
                     
                     {/* CMV REAL Result */}

@@ -12,6 +12,7 @@ export interface User {
   name: string;
   role: UserRole;
   branch?: string;
+  permissions?: string[];
 }
 
 export interface Branch {

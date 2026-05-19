@@ -304,7 +304,12 @@ function AppContent() {
   }, []);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [currentUser] = useState({ name: 'Administrador', role: 'dueño' as UserRole, branch: 'Todas las Sucursales' });
+  const [currentUser] = useState({ 
+    name: 'Administrador', 
+    role: 'dueño' as UserRole, 
+    branch: 'Todas las Sucursales',
+    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios']
+  });
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchUrl, setNewBranchUrl] = useState('');
   const [newBranchLocation, setNewBranchLocation] = useState('');
@@ -421,7 +426,7 @@ function AppContent() {
               </button>
             )}
           </div>
-          {navItems.map((item) => (
+          {navItems.filter(item => currentUser.role === 'dueño' || currentUser.permissions?.includes(item.id)).map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
@@ -441,22 +446,24 @@ function AppContent() {
           ))}
 
           <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Recursos Humanos</div>
-          <button
-            onClick={() => setActiveTab('control_horas')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-              activeTab === 'control_horas' 
-                ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-            )}
-          >
-            <ShieldCheck size={16} className={cn(
-              "transition-colors",
-              activeTab === 'control_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-            )} />
-            Control de Horas
-          </button>
-          {currentUser.role === 'dueño' && (
+          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('control_horas')) && (
+            <button
+              onClick={() => setActiveTab('control_horas')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                activeTab === 'control_horas' 
+                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+              )}
+            >
+              <ShieldCheck size={16} className={cn(
+                "transition-colors",
+                activeTab === 'control_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+              )} />
+              Control de Horas
+            </button>
+          )}
+          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('gestion_sueldos')) && (
             <button
               onClick={() => setActiveTab('gestion_sueldos')}
               className={cn(
@@ -474,90 +481,100 @@ function AppContent() {
             </button>
           )}
 
-          {(currentUser.role === 'dueño' || currentUser.role === 'supervisor') && (
+          {(currentUser.role === 'dueño' || currentUser.role === 'supervisor' || currentUser.permissions?.some(p => ['presupuesto_horas', 'agenda', 'supervisiones_operativas'].includes(p))) && (
             <>
               <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Gestión Líderes Operativos</div>
-              <button
-                onClick={() => setActiveTab('presupuesto_horas')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'presupuesto_horas' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Calendar size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'presupuesto_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Presupuestador de horas
-              </button>
-              <button
-                onClick={() => setActiveTab('agenda')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'agenda' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <ClipboardList size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'agenda' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Agenda Supervisores
-              </button>
-              <button
-                onClick={() => setActiveTab('supervisiones_operativas')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'supervisiones_operativas' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Flag size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'supervisiones_operativas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Supervisiones
-              </button>
+              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('presupuesto_horas')) && (
+                <button
+                  onClick={() => setActiveTab('presupuesto_horas')}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                    activeTab === 'presupuesto_horas' 
+                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                  )}
+                >
+                  <Calendar size={16} className={cn(
+                    "transition-colors",
+                    activeTab === 'presupuesto_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                  )} />
+                  Presupuestador de horas
+                </button>
+              )}
+              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('agenda')) && (
+                <button
+                  onClick={() => setActiveTab('agenda')}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                    activeTab === 'agenda' 
+                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                  )}
+                >
+                  <ClipboardList size={16} className={cn(
+                    "transition-colors",
+                    activeTab === 'agenda' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                  )} />
+                  Agenda Supervisores
+                </button>
+              )}
+              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('supervisiones_operativas')) && (
+                <button
+                  onClick={() => setActiveTab('supervisiones_operativas')}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                    activeTab === 'supervisiones_operativas' 
+                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                  )}
+                >
+                  <Flag size={16} className={cn(
+                    "transition-colors",
+                    activeTab === 'supervisiones_operativas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                  )} />
+                  Supervisiones
+                </button>
+              )}
             </>
           )}
 
           <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Mantenimiento</div>
 
           <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Centro de Producción</div>
-          <button
-            onClick={() => setActiveTab('produccion_mes')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-              activeTab === 'produccion_mes' 
-                ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-            )}
-          >
-            <Factory size={16} className={cn(
-              "transition-colors",
-              activeTab === 'produccion_mes' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-            )} />
-            Producción del mes
-          </button>
-          <button
-            onClick={() => setActiveTab('produccion_stock_control')}
-            className={cn(
-              "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-              activeTab === 'produccion_stock_control' 
-                ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-            )}
-          >
-            <ClipboardCheck size={16} className={cn(
-              "transition-colors",
-              activeTab === 'produccion_stock_control' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-            )} />
-            Control de Stock
-          </button>
+          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('produccion_mes')) && (
+            <button
+              onClick={() => setActiveTab('produccion_mes')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                activeTab === 'produccion_mes' 
+                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+              )}
+            >
+              <Factory size={16} className={cn(
+                "transition-colors",
+                activeTab === 'produccion_mes' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+              )} />
+              Producción del mes
+            </button>
+          )}
+          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('produccion_stock_control')) && (
+            <button
+              onClick={() => setActiveTab('produccion_stock_control')}
+              className={cn(
+                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                activeTab === 'produccion_stock_control' 
+                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+              )}
+            >
+              <ClipboardCheck size={16} className={cn(
+                "transition-colors",
+                activeTab === 'produccion_stock_control' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+              )} />
+              Control de Stock
+            </button>
+          )}
 
           {currentUser.role === 'dueño' && (
             <>
