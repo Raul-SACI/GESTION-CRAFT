@@ -321,7 +321,8 @@ CREATE TABLE monthly_controlled_items (
 );
 
 ALTER PUBLICATION supabase_realtime ADD TABLE monthly_controlled_items;
-ALTER TABLE monthly_controlled_items DISABLE ROW LEVEL SECURITY;
+ALTER TABLE monthly_controlled_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for monthly_controlled_items" ON monthly_controlled_items FOR ALL USING (true) WITH CHECK (true);
 
 -- 18. Daily Stock Logs for granular control (Optional, keeping as legacy or extra)
 CREATE TABLE daily_stock_logs (
@@ -341,4 +342,9 @@ CREATE TABLE daily_stock_logs (
 );
 
 ALTER PUBLICATION supabase_realtime ADD TABLE daily_stock_logs;
-ALTER TABLE daily_stock_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_stock_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for daily_stock_logs" ON daily_stock_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- also Ensure inventory_logs has public policy
+ALTER TABLE inventory_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for inventory_logs" ON inventory_logs FOR ALL USING (true) WITH CHECK (true);

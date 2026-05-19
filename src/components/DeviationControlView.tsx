@@ -185,7 +185,11 @@ export default function DeviationControlView({
       alert(`Control de desvíos para ${selectedMonth} confirmado exitosamente. Ahora puede cargar la planilla diaria.`);
     } else {
       console.error('Error saving monthly control:', error);
-      alert(`Error al guardar el control mensual: ${error.message || 'Error desconocido'}. Verifique que la tabla 'monthly_controlled_items' existe en Supabase y que no haya restricciones de RLS bloqueando la operación.`);
+      alert(`Error de validación (RLS) en Supabase: ${error.message}. 
+      
+Para solucionar esto, copie y ejecute el siguiente comando en el SQL Editor de Supabase:
+ALTER TABLE monthly_controlled_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) WITH CHECK (true);`);
     }
   };
 
