@@ -48,9 +48,23 @@ export default function DeviationControlView({
 
   // 2. Recipes State
   const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({});
+  const [recipeDisplayUnits, setRecipeDisplayUnits] = useState<Record<string, string>>({}); // key: productId-itemId
 
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState('');
+
+  const getSubUnit = (unit: string) => {
+    if (unit?.toLowerCase() === 'kg') return 'gr';
+    if (unit?.toLowerCase() === 'l') return 'ml';
+    return null;
+  };
+
+  const getDisplayQuantity = (itemId: string, quantity: number, productId: string) => {
+    const item = items.find(i => i.id === itemId);
+    const unit = recipeDisplayUnits[`${productId}-${itemId}`] || item?.unit || '';
+    if (unit === 'gr' || unit === 'ml') return quantity * 1000;
+    return quantity;
+  };
 
   // Fetch Recipes
   React.useEffect(() => {
@@ -97,7 +111,11 @@ export default function DeviationControlView({
     }
   };
 
-  const updateIngredientQuantity = async (productId: string, itemId: string, quantity: number) => {
+  const updateIngredientQuantity = async (productId: string, itemId: string, displayVal: number) => {
+    const item = items.find(i => i.id === itemId);
+    const unit = recipeDisplayUnits[`${productId}-${itemId}`] || item?.unit || '';
+    const quantity = (unit === 'gr' || unit === 'ml') ? displayVal / 1000 : displayVal;
+
     const { error } = await supabase
       .from('recipes')
       .update({ quantity })
@@ -352,13 +370,27 @@ export default function DeviationControlView({
                                  <div className="flex items-center bg-bg-sidebar border border-border-dim rounded overflow-hidden">
                                     <input 
                                       type="number" 
-                                      value={line.quantity} 
+                                      value={getDisplayQuantity(line.itemId, line.quantity, selectedProductId)} 
                                       onChange={(e) => updateIngredientQuantity(selectedProductId, line.itemId, parseFloat(e.target.value) || 0)}
-                                      className="w-20 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none" 
+                                      className="w-24 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none" 
                                     />
-                                    <div className="bg-bg-accent px-3 py-2 border-l border-border-dim text-[10px] font-bold text-text-dim">
-                                       {item?.unit}
-                                    </div>
+                                    <button 
+                                       onClick={() => {
+                                         const sub = getSubUnit(item?.unit || '');
+                                         if (sub) {
+                                           setRecipeDisplayUnits(prev => ({
+                                             ...prev,
+                                             [`${selectedProductId}-${line.itemId}`]: (recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit) === sub ? (item?.unit || '') : sub
+                                           }));
+                                         }
+                                       }}
+                                       className={cn(
+                                         "bg-bg-accent px-3 py-2 border-l border-border-dim text-[10px] font-bold transition-colors",
+                                         getSubUnit(item?.unit || '') ? "cursor-pointer hover:bg-brand-500 hover:text-black" : "cursor-default text-text-dim"
+                                       )}
+                                    >
+                                       {recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit}
+                                    </button>
                                  </div>
                                  <button 
                                   onClick={() => removeIngredientFromRecipe(selectedProductId, line.itemId)}
