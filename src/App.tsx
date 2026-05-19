@@ -170,52 +170,9 @@ const ApiKeySplash = () => (
   </div>
 );
 
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-}
-
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
-}
-
-class ErrorBoundary extends Component<any, any> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: any) {
-    console.error("ErrorBoundary caught an error", error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-bg-main flex items-center justify-center p-8">
-          <div className="max-w-md w-full glass-card p-8 text-center border-2 border-red-500/20 shadow-2xl">
-            <AlertCircle className="text-red-500 mx-auto mb-4" size={48} />
-            <h2 className="text-xl font-black text-text-main uppercase tracking-tighter mb-4">Algo salió mal</h2>
-            <p className="text-text-dim text-sm mb-6">La aplicación experimentó un error inesperado al intentar renderizar.</p>
-            <div className="bg-bg-accent p-4 rounded text-left mb-6 overflow-auto max-h-40">
-              <code className="text-[10px] text-red-400 font-mono break-all">{this.state.error?.toString()}</code>
-            </div>
-            <button 
-              onClick={() => window.location.reload()}
-              className="w-full bg-brand-500 text-black py-3 rounded font-black uppercase text-xs tracking-widest hover:bg-brand-600"
-            >
-              Recargar Aplicación
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
 }
 
 export default function App() {
@@ -224,11 +181,9 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <APIProvider apiKey={API_KEY} version="weekly">
-        <AppContent />
-      </APIProvider>
-    </ErrorBoundary>
+    <APIProvider apiKey={API_KEY} version="weekly">
+      <AppContent />
+    </APIProvider>
   );
 }
 
@@ -251,6 +206,16 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [isBranchesLoading, setIsBranchesLoading] = useState(true);
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchUrl, setNewBranchUrl] = useState('');
+  const [newBranchLocation, setNewBranchLocation] = useState('');
+  const [showAddBranch, setShowAddBranch] = useState(false);
+  const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
 
   useEffect(() => {
     if (currentUser) {
@@ -285,11 +250,6 @@ function AppContent() {
       document.documentElement.classList.remove('light-mode');
     }
   }, [isDarkMode]);
-
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [isBranchesLoading, setIsBranchesLoading] = useState(true);
-  const [items, setItems] = useState<StockItem[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
 
   // Fetch items, products and branches from Supabase
   React.useEffect(() => {
@@ -384,19 +344,34 @@ function AppContent() {
     };
   }, []);
 
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-
   useEffect(() => {
     if (currentUser && currentUser.branchId) {
       setSelectedBranchId(currentUser.branchId);
     }
   }, [currentUser]);
 
-  const [newBranchName, setNewBranchName] = useState('');
-  const [newBranchUrl, setNewBranchUrl] = useState('');
-  const [newBranchLocation, setNewBranchLocation] = useState('');
-  const [showAddBranch, setShowAddBranch] = useState(false);
-  const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
+  // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
+  const salesComparison = useMemo(() => {
+    const week1April = MOCK_SALES.find(s => s.date === '2024-04-01')?.pesos || 1;
+    const week1May = MOCK_SALES.find(s => s.date === '2024-05-01')?.pesos || 1;
+    const diff = ((week1May - week1April) / week1April) * 100;
+    return {
+      current: week1May,
+      previous: week1April,
+      diff: diff.toFixed(1),
+      isUp: diff > 0
+    };
+  }, []);
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard' },
+    { id: 'ventas', label: 'Ventas', icon: TrendingUp, permission: 'ventas' },
+    { id: 'balance', label: 'Estado Resultado', icon: BarChart3, permission: 'balance' },
+    { id: 'cmv', label: 'CMV Mensual', icon: Package, permission: 'cmv' },
+    { id: 'desvios', label: 'Control Desvíos', icon: AlertCircle, permission: 'desvios' },
+    { id: 'supervision', label: 'Supervisión', icon: ClipboardCheck, permission: 'supervision' },
+    { id: 'horas', label: 'Carga de Horas', icon: Clock, permission: 'horas' },
+  ].filter(item => hasPermission(item.permission));
 
   if (!currentUser) {
     return <LoginView onLogin={setCurrentUser} />;
@@ -460,29 +435,6 @@ function AppContent() {
       setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
     }
   };
-
-  // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
-  const salesComparison = useMemo(() => {
-    const week1April = MOCK_SALES.find(s => s.date === '2024-04-01')?.pesos || 1;
-    const week1May = MOCK_SALES.find(s => s.date === '2024-05-01')?.pesos || 1;
-    const diff = ((week1May - week1April) / week1April) * 100;
-    return {
-      current: week1May,
-      previous: week1April,
-      diff: diff.toFixed(1),
-      isUp: diff > 0
-    };
-  }, []);
-
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard' },
-    { id: 'ventas', label: 'Ventas', icon: TrendingUp, permission: 'ventas' },
-    { id: 'balance', label: 'Estado Resultado', icon: BarChart3, permission: 'balance' },
-    { id: 'cmv', label: 'CMV Mensual', icon: Package, permission: 'cmv' },
-    { id: 'desvios', label: 'Control Desvíos', icon: AlertCircle, permission: 'desvios' },
-    { id: 'supervision', label: 'Supervisión', icon: ClipboardCheck, permission: 'supervision' },
-    { id: 'horas', label: 'Carga de Horas', icon: Clock, permission: 'horas' },
-  ].filter(item => hasPermission(item.permission));
 
   return (
     <div className="flex min-h-screen bg-bg-main font-sans text-text-main">
