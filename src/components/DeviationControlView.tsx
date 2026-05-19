@@ -69,6 +69,7 @@ export default function DeviationControlView({
         setDailyLogs(data.map(d => ({
           ...d,
           itemId: d.item_id,
+          ei: d.ei,
           purchases: d.compras,
           waste: d.decomisos,
           theoretical_sales: d.ventas_teorico,
@@ -460,7 +461,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        {validControlledIds.map(id => {
                          const item = items.find(i => i.id === id);
                          return (
-                           <th key={id} colSpan={6} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[450px]">
+                           <th key={id} colSpan={7} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[520px]">
                              {item?.name}
                            </th>
                          );
@@ -470,9 +471,10 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         <th className="px-4 py-2 sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim"></th>
                         {validControlledIds.map(id => (
                           <React.Fragment key={id}>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">Comp.</th>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">Deco.</th>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">V.Teo</th>
+                            <th className="px-2 py-2 text-center opacity-60">EI</th>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">COMPRAS</th>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">DECOMISOS</th>
+                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">VENTAS</th>
                             <th className="px-2 py-2 text-center opacity-60">EF</th>
                             <th className="px-2 py-2 text-center opacity-60">Prést.</th>
                             <th className="px-2 py-2 text-center border-r border-border-dim opacity-60">C.Per</th>
@@ -491,10 +493,15 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                            </td>
                            {validControlledIds.map(id => {
                              const log = dailyLogs.find(l => l.date === dateStr && l.itemId === id) || { 
-                               purchases: 0, waste: 0, theoretical_sales: 0, ef: 0, loans: 0, staff_consumption: 0 
+                               ei: 0, purchases: 0, waste: 0, theoretical_sales: 0, ef: 0, loans: 0, staff_consumption: 0 
                              };
                              return (
                                <React.Fragment key={id}>
+                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
+                                      {log.ei || 0}
+                                   </div>
+                                 </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
                                    <input 
                                      type="number"
