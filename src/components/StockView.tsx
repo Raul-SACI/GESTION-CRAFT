@@ -78,6 +78,8 @@ export default function StockView({
     note: ''
   });
 
+  const [localControlledItemIds, setLocalControlledItemIds] = useState<string[]>(controlledItemIds);
+
   // Fetch data
   useEffect(() => {
     const fetchData = async () => {
@@ -87,6 +89,20 @@ export default function StockView({
       const dates = getDatesInRange(viewMode, selectedDate);
       const startDate = dates[0];
       const endDate = dates[dates.length - 1];
+
+      // Fetch monthly controlled items first
+      const currentMonth = selectedDate.substring(0, 7);
+      const { data: monthlyData } = await supabase
+        .from('monthly_controlled_items')
+        .select('item_ids')
+        .match({ branch_id: selectedBranchId, month: currentMonth })
+        .maybeSingle();
+
+      if (monthlyData && monthlyData.item_ids) {
+        setLocalControlledItemIds(monthlyData.item_ids);
+      } else {
+        setLocalControlledItemIds(controlledItemIds);
+      }
 
       // Fetch logs
       const { data: logsData } = await supabase
@@ -309,7 +325,7 @@ export default function StockView({
     }
   };
 
-  const controlledItems = items.filter(item => controlledItemIds.includes(item.id));
+  const controlledItems = items.filter(item => localControlledItemIds.includes(item.id));
 
   const getPurchasesSum = (itemId: string) => {
     return (partialEntries[itemId] || []).reduce((acc, curr) => acc + curr.quantity, 0);

@@ -3,11 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI } from "@google/genai";
-import { APIProvider, useMapsLibrary } from '@vis.gl/react-google-maps';
-
 // Vercel deployment trigger
-import React, { useState, useMemo, useEffect, lazy, Suspense, Component } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { 
   LayoutDashboard, 
   TrendingUp, 
@@ -57,7 +54,6 @@ import {
 import { cn } from '@/src/lib/utils';
 import { 
   UserRole, 
-  User,
   SalesData, 
   PerformanceData,
   Branch,
@@ -91,7 +87,6 @@ const DocumentsView = lazy(() => import('./components/DocumentsView'));
 const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
-import LoginView from './components/LoginView';
 
 import { PerformanceView, NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
@@ -134,6 +129,8 @@ const MOCK_PERFORMANCE: PerformanceData = {
   }
 };
 
+import { APIProvider } from '@vis.gl/react-google-maps';
+
 const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
 
@@ -170,11 +167,6 @@ const ApiKeySplash = () => (
   </div>
 );
 
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-}
-
 export default function App() {
   if (!hasValidKey) {
     return <ApiKeySplash />;
@@ -201,47 +193,9 @@ const LoadingState = () => (
 );
 
 function AppContent() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [isBranchesLoading, setIsBranchesLoading] = useState(true);
-  const [items, setItems] = useState<StockItem[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [newBranchName, setNewBranchName] = useState('');
-  const [newBranchUrl, setNewBranchUrl] = useState('');
-  const [newBranchLocation, setNewBranchLocation] = useState('');
-  const [showAddBranch, setShowAddBranch] = useState(false);
-  const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
-
-  useEffect(() => {
-    if (currentUser) {
-      const fetchPermissions = async () => {
-        const { data } = await supabase
-          .from('role_permissions')
-          .select('modules')
-          .eq('role', currentUser.role)
-          .single();
-        
-        if (data) {
-          setUserPermissions(data.modules || []);
-        } else if (currentUser.role === 'dueño') {
-          // Grant all access to owner by default
-          setUserPermissions(['dashboard', 'ventas', 'balance', 'cmv', 'desvios', 'supervision', 'documentos', 'precios', 'sucursales', 'usuarios', 'finanzas', 'sueldos', 'produccion', 'vajilla', 'horas', 'novedades', 'papeles_sucursal', 'cuentas']);
-        }
-      };
-      fetchPermissions();
-    }
-  }, [currentUser]);
-
-  const hasPermission = (moduleId: string) => {
-    if (!currentUser) return false;
-    if (currentUser.role === 'dueño') return true;
-    return userPermissions.includes(moduleId);
-  };
 
   React.useEffect(() => {
     if (!isDarkMode) {
@@ -251,12 +205,17 @@ function AppContent() {
     }
   }, [isDarkMode]);
 
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [isBranchesLoading, setIsBranchesLoading] = useState(true);
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
   // Fetch items, products and branches from Supabase
   React.useEffect(() => {
     const fetchData = async () => {
+      // Fetch Branches
+      setIsBranchesLoading(true);
       try {
-        // Fetch Branches
-        setIsBranchesLoading(true);
         const { data: branchesData, error: branchesError } = await supabase
           .from('branches')
           .select('*');
@@ -284,41 +243,41 @@ function AppContent() {
           ];
           setBranches(defaults);
         }
-
-        // Fetch Items
-        const { data: itemsData, error: itemsError } = await supabase
-          .from('stock_items')
-          .select('*')
-          .order('name');
-        
-        if (itemsError) console.error('Error fetching items:', itemsError);
-        if (itemsData) {
-          setItems(itemsData.map(i => ({
-            id: i.id,
-            name: i.name,
-            unit: i.unit,
-            cost: i.cost
-          })));
-        }
-
-        // Fetch Products
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*')
-          .order('name');
-        
-        if (productsError) console.error('Error fetching products:', productsError);
-        if (productsData) {
-          setProducts(productsData.map(p => ({
-            id: p.id,
-            name: p.name,
-            category: p.category
-          })));
-        }
       } catch (err) {
-        console.error('Global data fetch catch:', err);
+        console.error('Branches fetch catch:', err);
       } finally {
         setIsBranchesLoading(false);
+      }
+
+      // Fetch Items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('stock_items')
+        .select('*')
+        .order('name');
+      
+      if (itemsError) console.error('Error fetching items:', itemsError);
+      if (itemsData) {
+        setItems(itemsData.map(i => ({
+          id: i.id,
+          name: i.name,
+          unit: i.unit,
+          cost: i.cost
+        })));
+      }
+
+      // Fetch Products
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .order('name');
+      
+      if (productsError) console.error('Error fetching products:', productsError);
+      if (productsData) {
+        setProducts(productsData.map(p => ({
+          id: p.id,
+          name: p.name,
+          category: p.category
+        })));
       }
     };
 
@@ -344,38 +303,13 @@ function AppContent() {
     };
   }, []);
 
-  useEffect(() => {
-    if (currentUser && currentUser.branchId) {
-      setSelectedBranchId(currentUser.branchId);
-    }
-  }, [currentUser]);
-
-  // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
-  const salesComparison = useMemo(() => {
-    const week1April = MOCK_SALES.find(s => s.date === '2024-04-01')?.pesos || 1;
-    const week1May = MOCK_SALES.find(s => s.date === '2024-05-01')?.pesos || 1;
-    const diff = ((week1May - week1April) / week1April) * 100;
-    return {
-      current: week1May,
-      previous: week1April,
-      diff: diff.toFixed(1),
-      isUp: diff > 0
-    };
-  }, []);
-
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard' },
-    { id: 'ventas', label: 'Ventas', icon: TrendingUp, permission: 'ventas' },
-    { id: 'balance', label: 'Estado Resultado', icon: BarChart3, permission: 'balance' },
-    { id: 'cmv', label: 'CMV Mensual', icon: Package, permission: 'cmv' },
-    { id: 'desvios', label: 'Control Desvíos', icon: AlertCircle, permission: 'desvios' },
-    { id: 'supervision', label: 'Supervisión', icon: ClipboardCheck, permission: 'supervision' },
-    { id: 'horas', label: 'Carga de Horas', icon: Clock, permission: 'horas' },
-  ].filter(item => hasPermission(item.permission));
-
-  if (!currentUser) {
-    return <LoginView onLogin={setCurrentUser} />;
-  }
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+  const [currentUser] = useState({ name: 'Administrador', role: 'dueño' as UserRole, branch: 'Todas las Sucursales' });
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchUrl, setNewBranchUrl] = useState('');
+  const [newBranchLocation, setNewBranchLocation] = useState('');
+  const [showAddBranch, setShowAddBranch] = useState(false);
+  const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
 
   const handleAddBranch = async () => {
     if (!newBranchName.trim()) return;
@@ -435,6 +369,30 @@ function AppContent() {
       setBranches(prev => prev.map(b => b.id === updated.id ? updated : b));
     }
   };
+
+  // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
+  const salesComparison = useMemo(() => {
+    const week1April = MOCK_SALES.find(s => s.date === '2024-04-01')?.pesos || 1;
+    const week1May = MOCK_SALES.find(s => s.date === '2024-05-01')?.pesos || 1;
+    const diff = ((week1May - week1April) / week1April) * 100;
+    return {
+      current: week1May,
+      previous: week1April,
+      diff: diff.toFixed(1),
+      isUp: diff > 0
+    };
+  }, []);
+
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'stock', label: 'Control Stock', icon: Package },
+    { id: 'desempeño', label: 'Desempeño', icon: Star },
+    { id: 'vajilla', label: 'Vajilla', icon: Utensils },
+    { id: 'horas', label: 'Carga de Horas', icon: Clock },
+    { id: 'novedades', label: 'Novedades', icon: ClipboardList },
+    { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
+    { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
+  ];
 
   return (
     <div className="flex min-h-screen bg-bg-main font-sans text-text-main">
@@ -826,23 +784,15 @@ function AppContent() {
 
         <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-black font-bold text-xs uppercase shadow-lg shadow-brand-500/20">
-              {currentUser.firstName[0]}{currentUser.lastName[0]}
+            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-black font-bold text-xs">
+              AD
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-sidebar-text leading-tight uppercase tracking-tight">
-                {currentUser.firstName} {currentUser.lastName}
-              </p>
-              <p className="text-[10px] text-sidebar-dim font-bold uppercase tracking-wider mt-0.5 opacity-60">
-                {branches.find(b => b.id === currentUser.branchId)?.name || 'Global / Dueño'}
-              </p>
+              <p className="text-xs font-bold truncate text-sidebar-text leading-tight">{currentUser.name}</p>
+              <p className="text-[10px] text-sidebar-dim font-medium uppercase tracking-wider mt-0.5">{currentUser.branch}</p>
             </div>
-            <button 
-              onClick={() => setCurrentUser(null)}
-              className="text-sidebar-dim hover:text-red-500 transition-colors p-1"
-              title="Cerrar Sesión"
-            >
-              <LogOut size={16} />
+            <button className="text-sidebar-dim hover:text-red-500 transition-colors">
+              <LogOut size={14} />
             </button>
           </div>
         </div>
@@ -873,12 +823,8 @@ function AppContent() {
                   <div className="flex items-center gap-3 mt-0.5">
                     <select 
                       value={selectedBranchId}
-                      disabled={!!currentUser.branchId && currentUser.role !== 'dueño'}
                       onChange={(e) => setSelectedBranchId(e.target.value)}
-                      className={cn(
-                        "bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[11px] font-black uppercase text-brand-500 outline-none focus:border-brand-500/50 shadow-inner",
-                        !!currentUser.branchId && currentUser.role !== 'dueño' && "opacity-50 cursor-not-allowed"
-                      )}
+                      className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[11px] font-black uppercase text-brand-500 outline-none focus:border-brand-500/50 shadow-inner"
                     >
                       <option value="all">CONSOLIDADO (TODAS)</option>
                       {branches.map(b => (
@@ -1101,6 +1047,8 @@ function AppContent() {
 
 // --- SUB-VIEWS ---
 
+import { useMapsLibrary } from '@vis.gl/react-google-maps';
+
 const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
@@ -1117,7 +1065,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const placesLib = useMapsLibrary('places');
 
   useEffect(() => {
-    if (!placesLib || !branch?.googlePlaceId) return;
+    if (!placesLib || !branch.googlePlaceId) return;
 
     const fetchData = async () => {
       setData(prev => ({ ...prev, loading: true, error: undefined }));
@@ -1167,9 +1115,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     };
 
     fetchData();
-  }, [placesLib, branch?.googlePlaceId]);
+  }, [placesLib, branch.googlePlaceId]);
 
-  if (!branch?.googlePlaceId) return null;
+  if (!branch.googlePlaceId) return null;
 
   const renderStars = (rating: number, size = 8, colorClass = "text-yellow-500 fill-yellow-500") => (
     <div className="flex gap-0.5">
@@ -1391,7 +1339,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
              <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
           </Card>
         ) : (
-          branches.length > 0 && <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
         )}
       </div>
 
@@ -1407,7 +1355,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
           ))
         ) : (
           <div className="col-span-full">
-            {branches.length > 0 && <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />}
+            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
           </div>
         )}
         {branches.filter(b => b.googlePlaceId).length === 0 && (

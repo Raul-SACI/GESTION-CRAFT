@@ -1,9 +1,6 @@
 -- SQL Schema for Supabase Setup
 -- Run this in the SQL Editor of your Supabase project
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- 1. Insumos (Stock Items)
 CREATE TABLE stock_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -255,27 +252,15 @@ CREATE TABLE menu_items (
 -- 15. Perfiles (Users)
 CREATE TABLE profiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  password TEXT, -- For simple systems or if using custom auth
+  name TEXT NOT NULL,
   role TEXT NOT NULL, -- 'encargado', 'supervisor', 'administrativo', 'dueño'
-  branch_id TEXT REFERENCES branches(id),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- 15b. Permisos por Rol
-CREATE TABLE role_permissions (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  role TEXT NOT NULL UNIQUE,
-  modules JSONB NOT NULL DEFAULT '[]'::jsonb, -- List of module keys: ['ventas', 'stock', 'finanzas', etc]
+  branch_name TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Realtime for everything
 ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
-ALTER PUBLICATION supabase_realtime ADD TABLE role_permissions;
 ALTER PUBLICATION supabase_realtime ADD TABLE stock_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE products;
 ALTER PUBLICATION supabase_realtime ADD TABLE recipes;
@@ -324,12 +309,8 @@ ALTER TABLE news DISABLE ROW LEVEL SECURITY;
 ALTER TABLE passwords DISABLE ROW LEVEL SECURITY;
 ALTER TABLE menu_items DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
-ALTER TABLE role_permissions DISABLE ROW LEVEL SECURITY;
 
--- 18. Default Admin User
-INSERT INTO profiles (first_name, last_name, email, password, role)
-VALUES ('ADMIN', 'SISTEMA', 'admin@craft.com', 'admin123', 'dueño')
-ON CONFLICT (email) DO UPDATE SET password = 'admin123';
+-- 17. Monthly Controlled Items for Deviations
 CREATE TABLE monthly_controlled_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,
