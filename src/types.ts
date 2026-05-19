@@ -9,9 +9,18 @@ export type SaleType = 'Turno Mañana' | 'Turno Tarde' | 'Pedidos Ya Restó' | '
 
 export interface User {
   id: string;
-  name: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  password?: string;
   role: UserRole;
-  branch?: string;
+  branchId?: string;
+}
+
+export interface RolePermission {
+  id: string;
+  role: UserRole;
+  modules: string[];
 }
 
 export interface Branch {

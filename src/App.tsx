@@ -87,6 +87,7 @@ const DocumentsView = lazy(() => import('./components/DocumentsView'));
 const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
+import LoginView from './components/LoginView';
 
 import { PerformanceView, NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
@@ -193,9 +194,37 @@ const LoadingState = () => (
 );
 
 function AppContent() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    if (currentUser) {
+      const fetchPermissions = async () => {
+        const { data } = await supabase
+          .from('role_permissions')
+          .select('modules')
+          .eq('role', currentUser.role)
+          .single();
+        
+        if (data) {
+          setUserPermissions(data.modules || []);
+        } else if (currentUser.role === 'dueño') {
+          // Grant all access to owner by default
+          setUserPermissions(['dashboard', 'ventas', 'balance', 'cmv', 'desvios', 'supervision', 'documentos', 'precios', 'sucursales', 'usuarios', 'finanzas', 'sueldos', 'produccion', 'vajilla', 'horas', 'novedades', 'papeles_sucursal', 'cuentas']);
+        }
+      };
+      fetchPermissions();
+    }
+  }, [currentUser]);
+
+  const hasPermission = (moduleId: string) => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'dueño') return true;
+    return userPermissions.includes(moduleId);
+  };
 
   React.useEffect(() => {
     if (!isDarkMode) {
@@ -304,12 +333,22 @@ function AppContent() {
   }, []);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [currentUser] = useState({ name: 'Administrador', role: 'dueño' as UserRole, branch: 'Todas las Sucursales' });
+
+  useEffect(() => {
+    if (currentUser && currentUser.branchId) {
+      setSelectedBranchId(currentUser.branchId);
+    }
+  }, [currentUser]);
+
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchUrl, setNewBranchUrl] = useState('');
   const [newBranchLocation, setNewBranchLocation] = useState('');
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [controlledItemIds, setControlledItemIds] = useState<string[]>(['1', '2', '3', '4']);
+
+  if (!currentUser) {
+    return <LoginView onLogin={setCurrentUser} />;
+  }
 
   const handleAddBranch = async () => {
     if (!newBranchName.trim()) return;
@@ -384,15 +423,14 @@ function AppContent() {
   }, []);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'stock', label: 'Control Stock', icon: Package },
-    { id: 'desempeño', label: 'Desempeño', icon: Star },
-    { id: 'vajilla', label: 'Vajilla', icon: Utensils },
-    { id: 'horas', label: 'Carga de Horas', icon: Clock },
-    { id: 'novedades', label: 'Novedades', icon: ClipboardList },
-    { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
-    { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
-  ];
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard' },
+    { id: 'ventas', label: 'Ventas', icon: TrendingUp, permission: 'ventas' },
+    { id: 'balance', label: 'Estado Resultado', icon: BarChart3, permission: 'balance' },
+    { id: 'cmv', label: 'CMV Mensual', icon: Package, permission: 'cmv' },
+    { id: 'desvios', label: 'Control Desvíos', icon: AlertCircle, permission: 'desvios' },
+    { id: 'supervision', label: 'Supervisión', icon: ClipboardCheck, permission: 'supervision' },
+    { id: 'horas', label: 'Carga de Horas', icon: Clock, permission: 'horas' },
+  ].filter(item => hasPermission(item.permission));
 
   return (
     <div className="flex min-h-screen bg-bg-main font-sans text-text-main">
@@ -784,15 +822,23 @@ function AppContent() {
 
         <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-black font-bold text-xs">
-              AD
+            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-black font-bold text-xs uppercase shadow-lg shadow-brand-500/20">
+              {currentUser.firstName[0]}{currentUser.lastName[0]}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-sidebar-text leading-tight">{currentUser.name}</p>
-              <p className="text-[10px] text-sidebar-dim font-medium uppercase tracking-wider mt-0.5">{currentUser.branch}</p>
+              <p className="text-xs font-bold truncate text-sidebar-text leading-tight uppercase tracking-tight">
+                {currentUser.firstName} {currentUser.lastName}
+              </p>
+              <p className="text-[10px] text-sidebar-dim font-bold uppercase tracking-wider mt-0.5 opacity-60">
+                {branches.find(b => b.id === currentUser.branchId)?.name || 'Global / Dueño'}
+              </p>
             </div>
-            <button className="text-sidebar-dim hover:text-red-500 transition-colors">
-              <LogOut size={14} />
+            <button 
+              onClick={() => setCurrentUser(null)}
+              className="text-sidebar-dim hover:text-red-500 transition-colors p-1"
+              title="Cerrar Sesión"
+            >
+              <LogOut size={16} />
             </button>
           </div>
         </div>
@@ -823,8 +869,12 @@ function AppContent() {
                   <div className="flex items-center gap-3 mt-0.5">
                     <select 
                       value={selectedBranchId}
+                      disabled={!!currentUser.branchId && currentUser.role !== 'dueño'}
                       onChange={(e) => setSelectedBranchId(e.target.value)}
-                      className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[11px] font-black uppercase text-brand-500 outline-none focus:border-brand-500/50 shadow-inner"
+                      className={cn(
+                        "bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[11px] font-black uppercase text-brand-500 outline-none focus:border-brand-500/50 shadow-inner",
+                        !!currentUser.branchId && currentUser.role !== 'dueño' && "opacity-50 cursor-not-allowed"
+                      )}
                     >
                       <option value="all">CONSOLIDADO (TODAS)</option>
                       {branches.map(b => (

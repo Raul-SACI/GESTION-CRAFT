@@ -252,15 +252,27 @@ CREATE TABLE menu_items (
 -- 15. Perfiles (Users)
 CREATE TABLE profiles (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name TEXT NOT NULL,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password TEXT, -- For simple systems or if using custom auth
   role TEXT NOT NULL, -- 'encargado', 'supervisor', 'administrativo', 'dueño'
-  branch_name TEXT,
+  branch_id TEXT REFERENCES branches(id),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 15b. Permisos por Rol
+CREATE TABLE role_permissions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  role TEXT NOT NULL UNIQUE,
+  modules JSONB NOT NULL DEFAULT '[]'::jsonb, -- List of module keys: ['ventas', 'stock', 'finanzas', etc]
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 -- Realtime for everything
 ALTER PUBLICATION supabase_realtime ADD TABLE menu_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE profiles;
+ALTER PUBLICATION supabase_realtime ADD TABLE role_permissions;
 ALTER PUBLICATION supabase_realtime ADD TABLE stock_items;
 ALTER PUBLICATION supabase_realtime ADD TABLE products;
 ALTER PUBLICATION supabase_realtime ADD TABLE recipes;
@@ -309,8 +321,12 @@ ALTER TABLE news DISABLE ROW LEVEL SECURITY;
 ALTER TABLE passwords DISABLE ROW LEVEL SECURITY;
 ALTER TABLE menu_items DISABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+ALTER TABLE role_permissions DISABLE ROW LEVEL SECURITY;
 
--- 17. Monthly Controlled Items for Deviations
+-- 18. Default Admin User
+INSERT INTO profiles (first_name, last_name, email, password, role)
+VALUES ('ADMIN', 'SISTEMA', 'admin@craft.com', 'admin123', 'dueño')
+ON CONFLICT (email) DO NOTHING;
 CREATE TABLE monthly_controlled_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,
