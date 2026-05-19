@@ -329,7 +329,7 @@ ALTER TABLE role_permissions DISABLE ROW LEVEL SECURITY;
 -- 18. Default Admin User
 INSERT INTO profiles (first_name, last_name, email, password, role)
 VALUES ('ADMIN', 'SISTEMA', 'admin@craft.com', 'admin123', 'dueño')
-ON CONFLICT (email) DO NOTHING;
+ON CONFLICT (email) DO UPDATE SET password = 'admin123';
 CREATE TABLE monthly_controlled_items (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,

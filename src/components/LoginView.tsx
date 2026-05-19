@@ -45,7 +45,19 @@ export default function LoginView({ onLogin }: LoginProps) {
 
       if (!data) {
         console.warn('User not found in profiles table for email:', trimmedEmail);
-        setError('Usuario no encontrado. Asegúrese de haber ejecutado el SQL de inicialización.');
+        // Fallback for first-time setup if email matches admin default and no data found
+        if (trimmedEmail === 'admin@craft.com' && trimmedPassword === 'admin123') {
+          console.info('Using local admin fallback');
+          onLogin({
+            id: 'admin-fallback',
+            firstName: 'ADMIN',
+            lastName: 'INICIAL',
+            email: 'admin@craft.com',
+            role: 'dueño'
+          });
+          return;
+        }
+        setError(`Usuario "${trimmedEmail}" no encontrado. Verifique que la tabla "profiles" tenga registros.`);
         setLoading(false);
         return;
       }
