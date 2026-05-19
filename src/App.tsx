@@ -3,8 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { GoogleGenAI } from "@google/genai";
+import { APIProvider, useMapsLibrary } from '@vis.gl/react-google-maps';
+
 // Vercel deployment trigger
-import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense, Component } from 'react';
 import { 
   LayoutDashboard, 
   TrendingUp, 
@@ -54,6 +57,7 @@ import {
 import { cn } from '@/src/lib/utils';
 import { 
   UserRole, 
+  User,
   SalesData, 
   PerformanceData,
   Branch,
@@ -130,8 +134,6 @@ const MOCK_PERFORMANCE: PerformanceData = {
   }
 };
 
-import { APIProvider } from '@vis.gl/react-google-maps';
-
 const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
 
@@ -168,15 +170,65 @@ const ApiKeySplash = () => (
   </div>
 );
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<any, any> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-bg-main flex items-center justify-center p-8">
+          <div className="max-w-md w-full glass-card p-8 text-center border-2 border-red-500/20 shadow-2xl">
+            <AlertCircle className="text-red-500 mx-auto mb-4" size={48} />
+            <h2 className="text-xl font-black text-text-main uppercase tracking-tighter mb-4">Algo salió mal</h2>
+            <p className="text-text-dim text-sm mb-6">La aplicación experimentó un error inesperado al intentar renderizar.</p>
+            <div className="bg-bg-accent p-4 rounded text-left mb-6 overflow-auto max-h-40">
+              <code className="text-[10px] text-red-400 font-mono break-all">{this.state.error?.toString()}</code>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full bg-brand-500 text-black py-3 rounded font-black uppercase text-xs tracking-widest hover:bg-brand-600"
+            >
+              Recargar Aplicación
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   if (!hasValidKey) {
     return <ApiKeySplash />;
   }
 
   return (
-    <APIProvider apiKey={API_KEY} version="weekly">
-      <AppContent />
-    </APIProvider>
+    <ErrorBoundary>
+      <APIProvider apiKey={API_KEY} version="weekly">
+        <AppContent />
+      </APIProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -242,9 +294,9 @@ function AppContent() {
   // Fetch items, products and branches from Supabase
   React.useEffect(() => {
     const fetchData = async () => {
-      // Fetch Branches
-      setIsBranchesLoading(true);
       try {
+        // Fetch Branches
+        setIsBranchesLoading(true);
         const { data: branchesData, error: branchesError } = await supabase
           .from('branches')
           .select('*');
@@ -272,41 +324,41 @@ function AppContent() {
           ];
           setBranches(defaults);
         }
+
+        // Fetch Items
+        const { data: itemsData, error: itemsError } = await supabase
+          .from('stock_items')
+          .select('*')
+          .order('name');
+        
+        if (itemsError) console.error('Error fetching items:', itemsError);
+        if (itemsData) {
+          setItems(itemsData.map(i => ({
+            id: i.id,
+            name: i.name,
+            unit: i.unit,
+            cost: i.cost
+          })));
+        }
+
+        // Fetch Products
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('*')
+          .order('name');
+        
+        if (productsError) console.error('Error fetching products:', productsError);
+        if (productsData) {
+          setProducts(productsData.map(p => ({
+            id: p.id,
+            name: p.name,
+            category: p.category
+          })));
+        }
       } catch (err) {
-        console.error('Branches fetch catch:', err);
+        console.error('Global data fetch catch:', err);
       } finally {
         setIsBranchesLoading(false);
-      }
-
-      // Fetch Items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('stock_items')
-        .select('*')
-        .order('name');
-      
-      if (itemsError) console.error('Error fetching items:', itemsError);
-      if (itemsData) {
-        setItems(itemsData.map(i => ({
-          id: i.id,
-          name: i.name,
-          unit: i.unit,
-          cost: i.cost
-        })));
-      }
-
-      // Fetch Products
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .order('name');
-      
-      if (productsError) console.error('Error fetching products:', productsError);
-      if (productsData) {
-        setProducts(productsData.map(p => ({
-          id: p.id,
-          name: p.name,
-          category: p.category
-        })));
       }
     };
 
@@ -1097,8 +1149,6 @@ function AppContent() {
 
 // --- SUB-VIEWS ---
 
-import { useMapsLibrary } from '@vis.gl/react-google-maps';
-
 const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
@@ -1115,7 +1165,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const placesLib = useMapsLibrary('places');
 
   useEffect(() => {
-    if (!placesLib || !branch.googlePlaceId) return;
+    if (!placesLib || !branch?.googlePlaceId) return;
 
     const fetchData = async () => {
       setData(prev => ({ ...prev, loading: true, error: undefined }));
@@ -1165,9 +1215,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     };
 
     fetchData();
-  }, [placesLib, branch.googlePlaceId]);
+  }, [placesLib, branch?.googlePlaceId]);
 
-  if (!branch.googlePlaceId) return null;
+  if (!branch?.googlePlaceId) return null;
 
   const renderStars = (rating: number, size = 8, colorClass = "text-yellow-500 fill-yellow-500") => (
     <div className="flex gap-0.5">
@@ -1389,7 +1439,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
              <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
           </Card>
         ) : (
-          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+          branches.length > 0 && <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
         )}
       </div>
 
@@ -1405,7 +1455,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
           ))
         ) : (
           <div className="col-span-full">
-            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+            {branches.length > 0 && <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />}
           </div>
         )}
         {branches.filter(b => b.googlePlaceId).length === 0 && (

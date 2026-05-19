@@ -18,7 +18,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { User, UserRole, Branch } from '../types';
+import { User, UserRole, Branch, RolePermission } from '../types';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 

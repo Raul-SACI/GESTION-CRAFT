@@ -57,7 +57,7 @@ export default function LoginView({ onLogin }: LoginProps) {
           });
           return;
         }
-        setError(`Usuario "${trimmedEmail}" no encontrado. Verifique que la tabla "profiles" tenga registros.`);
+        setError(`[v2.1] Usuario "${trimmedEmail}" no encontrado. Verifique que la tabla "profiles" tenga registros.`);
         setLoading(false);
         return;
       }
