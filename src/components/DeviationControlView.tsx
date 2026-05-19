@@ -125,8 +125,11 @@ export default function DeviationControlView({
     }
   };
 
+  // Filter controlledItemIds to only include items that actually exist in the master list
+  const validControlledIds = controlledItemIds.filter(id => items.some(item => item.id === id));
+
   // 3. Comparison State (Mock data for deviations)
-  const deviations = controlledItemIds.map(id => {
+  const deviations = validControlledIds.map(id => {
     const mockData: Record<string, { real: number, theo: number }> = {
       '1': { real: 450, theo: 440 },
       '2': { real: 310, theo: 300 },
@@ -175,11 +178,11 @@ export default function DeviationControlView({
       <AnimatePresence mode="wait">
         {activeTab === 'comparativo' && (
           <motion.div key="comp" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <SummaryCard label="Desvíos Críticos (>5%)" value="2" color="text-red-500" icon={<AlertTriangle size={18} />} />
-              <SummaryCard label="Bajo Control" value={`${controlledItemIds.length}`} color="text-brand-500" icon={<CheckCircle2 size={18} />} />
-              <SummaryCard label="Gap Real vs Teo" value="4.2%" color="text-orange-500" icon={<BarChart3 size={18} />} />
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <SummaryCard label="Desvíos Críticos (>5%)" value="2" color="text-red-500" icon={<AlertTriangle size={18} />} />
+                <SummaryCard label="Bajo Control" value={`${validControlledIds.length}`} color="text-brand-500" icon={<CheckCircle2 size={18} />} />
+                <SummaryCard label="Gap Real vs Teo" value="4.2%" color="text-orange-500" icon={<BarChart3 size={18} />} />
+              </div>
 
             <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-xl">
               <table className="w-full border-collapse text-[11px]">
@@ -240,7 +243,7 @@ export default function DeviationControlView({
                   <p className="text-[10px] text-text-dim font-bold uppercase mt-1">Defina los insumos para el control del mes</p>
                 </div>
                 <div className="px-4 py-1.5 bg-bg-accent border border-border-dim rounded text-brand-500 font-mono font-black text-xs">
-                  {controlledItemIds.length} SELECCIONADOS
+                  {validControlledIds.length} SELECCIONADOS
                 </div>
               </div>
 
