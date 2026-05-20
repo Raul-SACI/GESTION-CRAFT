@@ -345,6 +345,36 @@ ALTER PUBLICATION supabase_realtime ADD TABLE daily_stock_logs;
 ALTER TABLE daily_stock_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public access for daily_stock_logs" ON daily_stock_logs FOR ALL USING (true) WITH CHECK (true);
 
+-- 19. Inventory Week Closures
+CREATE TABLE inventory_week_closures (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+  month TEXT NOT NULL, -- YYYY-MM
+  week_number INTEGER NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(branch_id, month, week_number)
+);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE inventory_week_closures;
+ALTER TABLE inventory_week_closures ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for inventory_week_closures" ON inventory_week_closures FOR ALL USING (true) WITH CHECK (true);
+
+-- 20. Product Rankings
+CREATE TABLE product_rankings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  product_code TEXT,
+  product_name TEXT NOT NULL,
+  quantity NUMERIC DEFAULT 0,
+  amount NUMERIC DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE product_rankings;
+ALTER TABLE product_rankings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for product_rankings" ON product_rankings FOR ALL USING (true) WITH CHECK (true);
+
 -- also Ensure inventory_logs has public policy
 ALTER TABLE inventory_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public access for inventory_logs" ON inventory_logs FOR ALL USING (true) WITH CHECK (true);
