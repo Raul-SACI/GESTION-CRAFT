@@ -16,7 +16,8 @@ import {
   Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Upload
+  Upload,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -142,6 +143,32 @@ export default function DeviationControlView({
   const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0 });
   const [productForm, setProductForm] = useState({ name: '', category: '' });
 
+  const downloadTemplate = (type: 'items' | 'products' | 'recipes') => {
+    let data = [];
+    let filename = '';
+
+    if (type === 'items') {
+      data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Costo': 100 }];
+      filename = 'modelo_insumos.xlsx';
+    } else if (type === 'products') {
+      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS' }];
+      filename = 'modelo_productos.xlsx';
+    } else if (type === 'recipes') {
+      data = [{ 
+        'Nombre del Producto': 'CLASSIC BURGER', 
+        'Nombre del insumo': 'CARNE', 
+        'Unidad de medida del insumo': 'KG', 
+        'Consumo por producto': 0.150 
+      }];
+      filename = 'modelo_recetas.xlsx';
+    }
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Modelo");
+    XLSX.writeFile(wb, filename);
+  };
+
   const handleImportItems = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -222,9 +249,9 @@ export default function DeviationControlView({
 
         const newRecipes: any[] = [];
         data.forEach((row: any) => {
-          const prodName = String(row.Producto || row.product || '').toUpperCase();
-          const itemName = String(row.Insumo || row.item || '').toUpperCase();
-          const quantity = parseFloat(row.Cantidad || row.quantity || 0);
+          const prodName = String(row['Nombre del Producto'] || row.Producto || row.product || '').toUpperCase();
+          const itemName = String(row['Nombre del insumo'] || row.Insumo || row.item || '').toUpperCase();
+          const quantity = parseFloat(row['Consumo por producto'] || row.Cantidad || row.quantity || 0);
 
           const product = products.find(p => p.name.toUpperCase() === prodName);
           const item = items.find(i => i.name.toUpperCase() === itemName);
@@ -781,7 +808,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               </div>
 
               <div className="col-span-12 lg:col-span-8 bg-bg-sidebar border border-border-dim rounded-lg p-8 space-y-6 shadow-xl border-t-4 border-t-brand-500">
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => downloadTemplate('recipes')}
+                    className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[10px] font-black uppercase"
+                  >
+                    <Download size={14} />
+                    Modelo
+                  </button>
                   <label className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[10px] font-black uppercase">
                     <Upload size={14} />
                     Importar Recetas
@@ -894,11 +928,20 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Maestro de Insumos</h3>
-                  <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[9px] font-black uppercase">
-                    <Upload size={14} />
-                    Importar
-                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportItems} />
-                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => downloadTemplate('items')}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[9px] font-black uppercase"
+                    >
+                      <Download size={14} />
+                      Modelo
+                    </button>
+                    <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[9px] font-black uppercase">
+                      <Upload size={14} />
+                      Importar
+                      <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportItems} />
+                    </label>
+                  </div>
                 </div>
                 
                 {/* Item Form */}
@@ -988,11 +1031,20 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-teal-500 tracking-widest">Maestro de Productos</h3>
-                  <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-teal-500/20 rounded cursor-pointer hover:border-teal-500 transition-all text-teal-500 text-[9px] font-black uppercase">
-                    <Upload size={14} />
-                    Importar
-                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportProducts} />
-                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => downloadTemplate('products')}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-teal-500 transition-all text-text-dim hover:text-teal-500 text-[9px] font-black uppercase"
+                    >
+                      <Download size={14} />
+                      Modelo
+                    </button>
+                    <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-teal-500/20 rounded cursor-pointer hover:border-teal-500 transition-all text-teal-500 text-[9px] font-black uppercase">
+                      <Upload size={14} />
+                      Importar
+                      <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportProducts} />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Product Form */}
