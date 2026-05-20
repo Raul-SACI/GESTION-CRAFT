@@ -967,7 +967,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Row 2: Operational Stats per Type */}
         <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded group hover:border-brand-500/50 transition-all">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-brand-500">Turno Mañana</p>
@@ -1004,6 +1004,13 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-500">Ordenes Pedidos Ya Café</p>
           <p className="text-xl font-mono font-black text-text-main italic">
             {totals.ordersByType['Pedidos Ya Café']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
+          </p>
+        </div>
+
+        <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded group hover:border-brand-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-brand-500">Ordenes Locales (M+T)</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            {totals.ordersByType['Turno Mañana'] + totals.ordersByType['Turno Tarde']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
           </p>
         </div>
       </div>
@@ -1093,7 +1100,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                      />
                      <Tooltip 
                       cursor={{ fill: 'rgba(255,255,255,0.02)' }}
-                      contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                      contentStyle={{ 
+                        backgroundColor: '#000', 
+                        border: '1px solid #444', 
+                        borderRadius: '4px',
+                        padding: '12px',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)'
+                      }}
+                      itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                      labelStyle={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
                       formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
                      />
                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
@@ -1138,7 +1153,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                      />
                      <Tooltip 
                       cursor={{ fill: 'rgba(255,255,255,0.02)' }}
-                      contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                      contentStyle={{ 
+                        backgroundColor: '#000', 
+                        border: '1px solid #444', 
+                        borderRadius: '4px',
+                        padding: '12px',
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.5)'
+                      }}
+                      itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
+                      labelStyle={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
                       formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
                      />
                      <Bar dataKey="value" radius={[4, 4, 0, 0]} fill={
