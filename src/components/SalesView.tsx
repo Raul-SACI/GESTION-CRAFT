@@ -56,6 +56,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   
+  // Dashboard Filters
+  const [filterMonth, setFilterMonth] = useState<string>('all');
+  const [filterWeek, setFilterWeek] = useState<string>('all');
+  
   // Rankings State
   const [rankings, setRankings] = useState<any[]>([]);
   const [isImportingRanking, setIsImportingRanking] = useState(false);
@@ -221,9 +225,27 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   // Calculate totals and group for table
   const filteredSales = useMemo(() => {
-    if (selectedBranchId === 'all') return salesRecords;
-    return salesRecords.filter(r => r.branchId === selectedBranchId);
-  }, [salesRecords, selectedBranchId]);
+    let base = salesRecords;
+    if (selectedBranchId !== 'all') {
+      base = base.filter(r => r.branchId === selectedBranchId);
+    }
+
+    if (filterMonth !== 'all') {
+      base = base.filter(r => {
+        const d = new Date(r.date);
+        return (d.getUTCMonth() + 1).toString() === filterMonth;
+      });
+    }
+
+    if (filterWeek !== 'all') {
+      base = base.filter(r => {
+        const weekNum = r.week?.match(/\d+/)?.[0];
+        return weekNum === filterWeek;
+      });
+    }
+
+    return base;
+  }, [salesRecords, selectedBranchId, filterMonth, filterWeek]);
 
   const groupedDailySales = useMemo(() => {
     const groups: Record<string, any> = {};
@@ -971,6 +993,72 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               CANCELAR
             </button>
           </div>
+        </div>
+      )}
+
+      {activeSubTab === 'daily' && (
+        <div className="bg-bg-sidebar border border-border-dim p-4 rounded flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px] space-y-1.5">
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
+              <Building2 size={10} className="text-brand-500" /> Sucursal Activa
+            </label>
+            <div className="px-3 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-bold uppercase truncate">
+              {branches.find(b => b.id === selectedBranchId)?.name || 'CONSOLIDADO (TODAS)'}
+            </div>
+          </div>
+
+          <div className="w-40 space-y-1.5">
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
+              <Calendar size={10} className="text-teal-500" /> Mes
+            </label>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="w-full px-3 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-bold uppercase outline-none focus:border-teal-500"
+            >
+              <option value="all">TODOS LOS MESES</option>
+              <option value="1">ENERO</option>
+              <option value="2">FEBRERO</option>
+              <option value="3">MARZO</option>
+              <option value="4">ABRIL</option>
+              <option value="5">MAYO</option>
+              <option value="6">JUNIO</option>
+              <option value="7">JULIO</option>
+              <option value="8">AGOSTO</option>
+              <option value="9">SEPTIEMBRE</option>
+              <option value="10">OCTUBRE</option>
+              <option value="11">NOVIEMBRE</option>
+              <option value="12">DICIEMBRE</option>
+            </select>
+          </div>
+
+          <div className="w-40 space-y-1.5">
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
+              <Filter size={10} className="text-brand-500" /> Semana
+            </label>
+            <select
+              value={filterWeek}
+              onChange={(e) => setFilterWeek(e.target.value)}
+              className="w-full px-3 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-bold uppercase outline-none focus:border-brand-500"
+            >
+              <option value="all">TODAS</option>
+              <option value="1">SEMANA 1</option>
+              <option value="2">SEMANA 2</option>
+              <option value="3">SEMANA 3</option>
+              <option value="4">SEMANA 4</option>
+              <option value="5">SEMANA 5</option>
+            </select>
+          </div>
+
+          <button 
+            onClick={() => {
+              setFilterMonth('all');
+              setFilterWeek('all');
+            }}
+            className="px-4 py-2 border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-red-500 hover:border-red-500 transition-colors"
+          >
+            LIMPIAR
+          </button>
         </div>
       )}
 
