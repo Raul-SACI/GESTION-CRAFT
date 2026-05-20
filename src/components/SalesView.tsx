@@ -369,6 +369,36 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     }, init);
   }, [filteredSales]);
 
+  const monthlyProjection = useMemo(() => {
+    const today = new Date();
+    const currentMonth = today.getUTCMonth();
+    const currentYear = today.getUTCFullYear();
+    
+    const thisMonthRecords = groupedDailySales.filter(day => {
+      const d = new Date(day.date);
+      return d.getUTCMonth() === currentMonth && d.getUTCFullYear() === currentYear;
+    });
+    
+    if (thisMonthRecords.length === 0) return 0;
+    
+    const totalNetMonth = thisMonthRecords.reduce((sum, day) => sum + day.net, 0);
+    const uniqueDays = new Set(thisMonthRecords.map(r => r.date)).size;
+    
+    if (uniqueDays === 0) return 0;
+    
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    return (totalNetMonth / uniqueDays) * daysInMonth;
+  }, [groupedDailySales]);
+
+  const paymentPercentages = useMemo(() => {
+    if (totals.totalGross === 0) return { cash: 0, card: 0, qr: 0 };
+    return {
+      cash: (totals.cash / totals.totalGross) * 100,
+      card: (totals.card / totals.totalGross) * 100,
+      qr: (totals.qr / totals.totalGross) * 100
+    };
+  }, [totals]);
+
   const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
 
   // Chart Data: Weekday Sales
@@ -947,23 +977,56 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       {/* Stats Summary - New Layout according to mappings */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Row 1: Payment Methods */}
-        <div className="bg-bg-sidebar border border-emerald-500/20 p-5 rounded group hover:border-emerald-500/50 transition-all">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-emerald-500">Venta Total en Efectivo</p>
-          <p className="text-xl font-mono font-black text-text-main italic">
-            ${totals.cash.toLocaleString()}
-          </p>
+        <div className="bg-bg-sidebar border border-emerald-500/20 p-5 rounded group hover:border-emerald-500/50 transition-all flex flex-col justify-between">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-emerald-500">Venta Total en Efectivo</p>
+            <p className="text-xl font-mono font-black text-text-main italic">
+              ${totals.cash.toLocaleString()}
+            </p>
+          </div>
+          <div className="mt-4 pt-4 border-t border-border-dim">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[8px] font-black uppercase text-text-dim">Porcentaje</span>
+              <span className="text-[10px] font-mono font-black text-emerald-500">{paymentPercentages.cash.toFixed(1)}%</span>
+            </div>
+            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+               <div className="h-full bg-emerald-500 transition-all duration-1000" style={{ width: `${paymentPercentages.cash}%` }} />
+            </div>
+          </div>
         </div>
-        <div className="bg-bg-sidebar border border-blue-500/20 p-5 rounded group hover:border-blue-500/50 transition-all">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-blue-500">Venta Total con Tarjetas</p>
-          <p className="text-xl font-mono font-black text-text-main italic">
-            ${totals.card.toLocaleString()}
-          </p>
+        <div className="bg-bg-sidebar border border-blue-500/20 p-5 rounded group hover:border-blue-500/50 transition-all flex flex-col justify-between">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-blue-500">Venta Total con Tarjetas</p>
+            <p className="text-xl font-mono font-black text-text-main italic">
+              ${totals.card.toLocaleString()}
+            </p>
+          </div>
+          <div className="mt-4 pt-4 border-t border-border-dim">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[8px] font-black uppercase text-text-dim">Porcentaje</span>
+              <span className="text-[10px] font-mono font-black text-blue-500">{paymentPercentages.card.toFixed(1)}%</span>
+            </div>
+            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+               <div className="h-full bg-blue-500 transition-all duration-1000" style={{ width: `${paymentPercentages.card}%` }} />
+            </div>
+          </div>
         </div>
-        <div className="bg-bg-sidebar border border-indigo-500/20 p-5 rounded group hover:border-indigo-500/50 transition-all">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-indigo-500">Venta Total con Otros Medios</p>
-          <p className="text-xl font-mono font-black text-text-main italic">
-            ${totals.qr.toLocaleString()}
-          </p>
+        <div className="bg-bg-sidebar border border-indigo-500/20 p-5 rounded group hover:border-indigo-500/50 transition-all flex flex-col justify-between">
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-indigo-500">Venta Total con Otros Medios</p>
+            <p className="text-xl font-mono font-black text-text-main italic">
+              ${totals.qr.toLocaleString()}
+            </p>
+          </div>
+          <div className="mt-4 pt-4 border-t border-border-dim">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[8px] font-black uppercase text-text-dim">Porcentaje</span>
+              <span className="text-[10px] font-mono font-black text-indigo-500">{paymentPercentages.qr.toFixed(1)}%</span>
+            </div>
+            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+               <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${paymentPercentages.qr}%` }} />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1016,7 +1079,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Row 3: Financial Totals */}
+        {/* Row 3: Totals & Projection */}
         <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded relative overflow-hidden group">
           <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
             <TrendingUp size={80} className="text-brand-500" />
@@ -1035,9 +1098,14 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             <p className="text-2xl font-mono font-black text-teal-400">${totals.totalNet.toLocaleString()}</p>
           </div>
         </div>
-        <div className="bg-bg-sidebar border border-border-dim p-5 rounded">
-          <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Tickets Globales</p>
-          <p className="text-3xl font-mono font-black text-text-main">{totals.orders.toLocaleString()}</p>
+        <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded relative overflow-hidden group">
+          <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
+            <TrendingUp size={80} className="text-brand-500" />
+          </div>
+          <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Proyección Neta Mensual</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-2xl font-mono font-black text-brand-500">${monthlyProjection.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+          </div>
         </div>
         <div className="bg-bg-sidebar border border-border-dim p-5 rounded">
           <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Cubiertos Totales</p>
