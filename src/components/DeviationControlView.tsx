@@ -15,12 +15,14 @@ import {
   Edit2,
   Calendar as CalendarIcon,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch, StockItem, Product } from '../types';
 import { supabase } from '../lib/supabase';
+import * as XLSX from 'xlsx';
 
 export default function DeviationControlView({ 
   branches, 
@@ -50,6 +52,7 @@ export default function DeviationControlView({
   });
   const [controlledIds, setControlledIds] = useState<string[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Daily Logs State
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
@@ -138,6 +141,118 @@ export default function DeviationControlView({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0 });
   const [productForm, setProductForm] = useState({ name: '', category: '' });
+
+  const handleImportItems = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const newItems = data.map((row: any) => ({
+          name: String(row.Nombre || row.name || '').toUpperCase(),
+          unit: String(row.Unidad || row.unit || '').toLowerCase(),
+          cost: parseFloat(row.Costo || row.cost || 0)
+        })).filter(i => i.name && i.unit);
+
+        if (newItems.length > 0) {
+          const { error } = await supabase.from('stock_items').insert(newItems);
+          if (error) throw error;
+          alert(`Éxito: ${newItems.length} insumos importados.`);
+        }
+      } catch (err: any) {
+        alert('Error al importar insumos: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleImportProducts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const newProducts = data.map((row: any) => ({
+          name: String(row.Nombre || row.name || '').toUpperCase(),
+          category: String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase()
+        })).filter(p => p.name);
+
+        if (newProducts.length > 0) {
+          const { error } = await supabase.from('products').insert(newProducts);
+          if (error) throw error;
+          alert(`Éxito: ${newProducts.length} productos importados.`);
+        }
+      } catch (err: any) {
+        alert('Error al importar productos: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handleImportRecipes = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const newRecipes: any[] = [];
+        data.forEach((row: any) => {
+          const prodName = String(row.Producto || row.product || '').toUpperCase();
+          const itemName = String(row.Insumo || row.item || '').toUpperCase();
+          const quantity = parseFloat(row.Cantidad || row.quantity || 0);
+
+          const product = products.find(p => p.name.toUpperCase() === prodName);
+          const item = items.find(i => i.name.toUpperCase() === itemName);
+
+          if (product && item && quantity > 0) {
+            newRecipes.push({
+              product_id: product.id,
+              item_id: item.id,
+              quantity
+            });
+          }
+        });
+
+        if (newRecipes.length > 0) {
+          // Use upsert or delete current and insert? 
+          // For simplicity, let's insert and on conflict do nothing or update if we have PK
+          const { error } = await supabase.from('recipes').upsert(newRecipes, { onConflict: 'product_id,item_id' });
+          if (error) throw error;
+          alert(`Éxito: ${newRecipes.length} líneas de receta importadas.`);
+        }
+      } catch (err: any) {
+        alert('Error al importar recetas: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   // 2. Recipes State
   const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({});
@@ -666,6 +781,13 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               </div>
 
               <div className="col-span-12 lg:col-span-8 bg-bg-sidebar border border-border-dim rounded-lg p-8 space-y-6 shadow-xl border-t-4 border-t-brand-500">
+                <div className="flex justify-end">
+                  <label className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[10px] font-black uppercase">
+                    <Upload size={14} />
+                    Importar Recetas
+                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportRecipes} />
+                  </label>
+                </div>
                 {selectedProductId ? (
                   <>
                     <div className="flex justify-between items-start">
@@ -772,6 +894,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Maestro de Insumos</h3>
+                  <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[9px] font-black uppercase">
+                    <Upload size={14} />
+                    Importar
+                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportItems} />
+                  </label>
                 </div>
                 
                 {/* Item Form */}
@@ -861,6 +988,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-teal-500 tracking-widest">Maestro de Productos</h3>
+                  <label className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-teal-500/20 rounded cursor-pointer hover:border-teal-500 transition-all text-teal-500 text-[9px] font-black uppercase">
+                    <Upload size={14} />
+                    Importar
+                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportProducts} />
+                  </label>
                 </div>
 
                 {/* Product Form */}
