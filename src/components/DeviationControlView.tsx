@@ -234,6 +234,35 @@ export default function DeviationControlView({
     reader.readAsBinaryString(file);
   };
 
+  const fetchRecipes = async () => {
+    const { data, error } = await supabase
+      .from('recipes')
+      .select('*');
+    
+    if (data) {
+      const grouped: Record<string, any[]> = {};
+      data.forEach(r => {
+        if (!grouped[r.product_id]) grouped[r.product_id] = [];
+        grouped[r.product_id].push({
+          productId: r.product_id,
+          itemId: r.item_id,
+          quantity: r.quantity
+        });
+      });
+      setRecipes(grouped);
+    }
+  };
+
+  // Fetch Recipes
+  React.useEffect(() => {
+    fetchRecipes();
+    
+    // Default selection
+    if (!selectedProductId && products.length > 0) {
+      setSelectedProductId(products[0].id);
+    }
+  }, [products]);
+
   const handleImportRecipes = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -249,12 +278,19 @@ export default function DeviationControlView({
 
         const newRecipes: any[] = [];
         data.forEach((row: any) => {
-          const prodName = String(row['Nombre del Producto'] || row.Producto || row.product || '').toUpperCase();
-          const itemName = String(row['Nombre del insumo'] || row.Insumo || row.item || '').toUpperCase();
-          const quantity = parseFloat(row['Consumo por producto'] || row.Cantidad || row.quantity || 0);
+          const prodName = String(row['Nombre del Producto'] || row.Producto || row.product || '').trim().toUpperCase();
+          const itemName = String(row['Nombre del insumo'] || row.Insumo || row.item || '').trim().toUpperCase();
+          
+          let quantityRaw = row['Consumo por producto'] || row.Cantidad || row.quantity || 0;
+          let quantity = 0;
+          if (typeof quantityRaw === 'number') {
+            quantity = quantityRaw;
+          } else if (typeof quantityRaw === 'string') {
+            quantity = parseFloat(quantityRaw.replace(',', '.'));
+          }
 
-          const product = products.find(p => p.name.toUpperCase() === prodName);
-          const item = items.find(i => i.name.toUpperCase() === itemName);
+          const product = products.find(p => p.name.trim().toUpperCase() === prodName);
+          const item = items.find(i => i.name.trim().toUpperCase() === itemName);
 
           if (product && item && quantity > 0) {
             newRecipes.push({
@@ -268,18 +304,21 @@ export default function DeviationControlView({
         if (newRecipes.length > 0) {
           const { error } = await supabase.from('recipes').insert(newRecipes);
           if (error) throw error;
+          await fetchRecipes();
           alert(`Éxito: ${newRecipes.length} líneas de receta importadas.`);
+        } else {
+          alert('No se encontraron coincidencias para importar. Verifique que los nombres de productos e insumos coincidan exactamente con los maestros.');
         }
       } catch (err: any) {
         alert('Error al importar recetas: ' + err.message);
       } finally {
         setLoading(false);
+        if (e.target) e.target.value = '';
       }
     };
     reader.readAsBinaryString(file);
   };
 
-  // 2. Recipes State
   const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({});
   const [recipeDisplayUnits, setRecipeDisplayUnits] = useState<Record<string, string>>({}); // key: productId-itemId
 
@@ -352,35 +391,6 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
     if (unit === 'gr' || unit === 'ml') return quantity * 1000;
     return quantity;
   };
-
-  // Fetch Recipes
-  React.useEffect(() => {
-    const fetchRecipes = async () => {
-      const { data, error } = await supabase
-        .from('recipes')
-        .select('*');
-      
-      if (data) {
-        const grouped: Record<string, any[]> = {};
-        data.forEach(r => {
-          if (!grouped[r.product_id]) grouped[r.product_id] = [];
-          grouped[r.product_id].push({
-            productId: r.product_id,
-            itemId: r.item_id,
-            quantity: r.quantity
-          });
-        });
-        setRecipes(grouped);
-      }
-    };
-
-    fetchRecipes();
-    
-    // Default selection
-    if (!selectedProductId && products.length > 0) {
-      setSelectedProductId(products[0].id);
-    }
-  }, [products]);
 
   const addIngredientToRecipe = async (productId: string, itemId: string) => {
     const currentRecipe = recipes[productId] || [];
