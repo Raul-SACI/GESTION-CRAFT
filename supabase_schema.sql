@@ -352,12 +352,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE daily_stock_logs;
 ALTER TABLE daily_stock_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public access for daily_stock_logs" ON daily_stock_logs FOR ALL USING (true) WITH CHECK (true);
 
--- Asegurar que la tabla sales tiene todas las columnas necesarias
+-- Ensure all columns exist in the sales table
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS projection NUMERIC DEFAULT 0;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS cash NUMERIC DEFAULT 0;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS card NUMERIC DEFAULT 0;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS qr NUMERIC DEFAULT 0;
 ALTER TABLE sales ADD COLUMN IF NOT EXISTS iva NUMERIC DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS week TEXT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS day_name TEXT;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS product_ranking JSONB DEFAULT '[]'::jsonb;
 
 -- 19. Inventory Week Closures (Fijar tipos)
 CREATE TABLE IF NOT EXISTS inventory_week_closures (

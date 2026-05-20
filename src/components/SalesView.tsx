@@ -23,8 +23,19 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  X
+  X,
+  ChevronRight
 } from 'lucide-react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import * as XLSX from 'xlsx';
 import { SalesData, Branch, SaleType, Product, ProductRankingEntry } from '../types';
 import { cn } from '../lib/utils';
@@ -327,10 +338,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       acc.orders += curr.orders;
       acc.covers += curr.covers;
 
-      // Sum payments (only stored in Turno Mañana records to avoid duplication)
-      acc.cash += curr.cash || 0;
-      acc.card += curr.card || 0;
-      acc.qr += curr.qr || 0;
+      // Sum payments (specifically from Mañana shift to avoid dupes)
+      if (curr.type === 'Turno Mañana') {
+        acc.cash += curr.cash || 0;
+        acc.card += curr.card || 0;
+        acc.qr += curr.qr || 0;
+      }
 
       acc.ordersByType[curr.type] += curr.orders;
       if (curr.type === 'Turno Mañana' || curr.type === 'Turno Tarde') {
@@ -340,6 +353,48 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       return acc;
     }, init);
   }, [filteredSales]);
+
+  // Chart Data: Weekday Sales
+  const weekdayChartData = useMemo(() => {
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const dataMap: Record<string, number> = {};
+    days.forEach(d => dataMap[d] = 0);
+
+    groupedDailySales.forEach(day => {
+      if (day.dayName) {
+        // Map common inputs to full names
+        const normalized = day.dayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        let target = '';
+        if (normalized.startsWith('lun')) target = 'Lunes';
+        else if (normalized.startsWith('mar')) target = 'Martes';
+        else if (normalized.startsWith('mie')) target = 'Miércoles';
+        else if (normalized.startsWith('jue')) target = 'Jueves';
+        else if (normalized.startsWith('vie')) target = 'Viernes';
+        else if (normalized.startsWith('sab')) target = 'Sábado';
+        else if (normalized.startsWith('dom')) target = 'Domingo';
+        
+        if (target) dataMap[target] += day.net;
+      }
+    });
+
+    return days.map(name => ({ name, value: dataMap[name] }));
+  }, [groupedDailySales]);
+
+  // Chart Data: Weekly Sales
+  const weeklyChartData = useMemo(() => {
+    const weekMap: Record<string, number> = {};
+    
+    groupedDailySales.forEach(day => {
+      if (day.week) {
+        const week = day.week.trim();
+        weekMap[week] = (weekMap[week] || 0) + day.net;
+      }
+    });
+
+    return Object.entries(weekMap)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }, [groupedDailySales]);
 
   const handleImportRankingExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -447,7 +502,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
       data.forEach(row => {
         // Find branch mapping - be more flexible with names (e.g. "Barrio Norte" -> "CRAFT BARRIO NORTE")
-        const excelBranch = getValue(row, 'Sucursal');
+        const excelBranch = getValue(row, 'Sucursal') || getValue(row, 'Branch');
         let targetBranchId = selectedBranchId;
         if (excelBranch) {
           const normalizedExcel = String(excelBranch).toLowerCase().trim();
@@ -466,7 +521,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
 
         // Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
-        let date = getValue(row, 'Fecha');
+        let date = getValue(row, 'Fecha') || getValue(row, 'Date');
         if (typeof date === 'number') {
           // Excel date serial
           const dt = new Date((date - (25567 + 2)) * 86400 * 1000);
@@ -497,17 +552,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           return Number(cleaned) || 0;
         };
 
-        const totalGross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || 0);
-        const totalNet = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || 0);
+        const totalGross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
+        const totalNet = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
         
-        const ordersMañana = Number(getValue(row, 'Ordenes Turno Mañana') || 0);
-        const ordersTarde = Number(getValue(row, 'Ordenes Turno Tarde') || 0);
-        const ordersPYResto = Number(getValue(row, 'Ordenes Pedidos Ya Resto') || 0);
-        const ordersPYCafe = Number(getValue(row, 'Ordenes Pedidos Ya Café') || 0);
+        const ordersMañana = Number(getValue(row, 'Ordenes Turno Mañana') || getValue(row, 'Orders Morning') || 0);
+        const ordersTarde = Number(getValue(row, 'Ordenes Turno Tarde') || getValue(row, 'Orders Afternoon') || 0);
+        const ordersPYResto = Number(getValue(row, 'Ordenes Pedidos Ya Resto') || getValue(row, 'PY Resto Orders') || 0);
+        const ordersPYCafe = Number(getValue(row, 'Ordenes Pedidos Ya Café') || getValue(row, 'PY Cafe Orders') || 0);
         const totalOrders = ordersMañana + ordersTarde + ordersPYResto + ordersPYCafe;
 
-        const coversMañana = Number(getValue(row, 'Cubiertos Turno Mañana') || 0);
-        const coversTarde = Number(getValue(row, 'Cubiertos Turno Tarde') || 0);
+        const coversMañana = Number(getValue(row, 'Cubiertos Turno Mañana') || getValue(row, 'Covers Morning') || 0);
+        const coversTarde = Number(getValue(row, 'Cubiertos Turno Tarde') || getValue(row, 'Covers Afternoon') || 0);
 
         const types: { type: SaleType, orders: number, covers: number }[] = [
           { type: 'Turno Mañana', orders: ordersMañana, covers: coversMañana },
@@ -537,12 +592,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               orders: t.orders,
               covers: t.covers,
               projection: totalGross * 30,
-              week: String(getValue(row, 'Semana') || ''),
-              day_name: String(getValue(row, 'Día') || ''),
-              cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo')) : 0,
-              card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas')) : 0,
-              qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros')) : 0,
-              iva: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'IVA')) : 0,
+              week: String(getValue(row, 'Semana') || getValue(row, 'Week') || ''),
+              day_name: String(getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día') || ''),
+              cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo') || getValue(row, 'Cash')) : 0,
+              card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas') || getValue(row, 'Card')) : 0,
+              qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros') || getValue(row, 'QR')) : 0,
+              iva: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax')) : 0,
               product_ranking: []
             });
           }
@@ -948,6 +1003,79 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         <div className="bg-bg-sidebar border border-border-dim p-5 rounded">
           <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Cubiertos Totales</p>
           <p className="text-3xl font-mono font-black text-text-main">{totals.covers.toLocaleString()}</p>
+        </div>
+      </div>
+
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+          <div className="bg-bg-accent p-4 border-b border-border-dim flex items-center justify-between">
+             <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Venta Neta por Día</h3>
+             <BarChart3 size={14} className="text-brand-500" />
+          </div>
+          <div className="p-6 h-[250px]">
+             <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weekdayChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                   <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
+                    dy={10}
+                   />
+                   <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#888', fontSize: 9 }}
+                    tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
+                   />
+                   <Tooltip 
+                    cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Venta Neta']}
+                   />
+                   <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                      {weekdayChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={index === 0 ? '#ff4d4d' : '#f59e0b'} />
+                      ))}
+                   </Bar>
+                </BarChart>
+             </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+          <div className="bg-bg-accent p-4 border-b border-border-dim flex items-center justify-between">
+             <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Venta Neta por Semana</h3>
+             <TrendingUp size={14} className="text-teal-400" />
+          </div>
+          <div className="p-6 h-[250px]">
+             <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={weeklyChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                   <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
+                    dy={10}
+                   />
+                   <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#888', fontSize: 9 }}
+                    tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`}
+                   />
+                   <Tooltip 
+                    cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Venta Neta']}
+                   />
+                   <Bar dataKey="value" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
+                </BarChart>
+             </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
