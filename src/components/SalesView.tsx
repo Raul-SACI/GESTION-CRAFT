@@ -358,6 +358,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     }, init);
   }, [filteredSales]);
 
+  const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
+
   // Chart Data: Weekday Sales
   const weekdayChartData = useMemo(() => {
     const weekdayLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -365,21 +367,22 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     weekdayLabels.forEach(d => dataMap[d] = 0);
 
     groupedDailySales.forEach(day => {
-      // Always calculate day name from date to be 100% correct
       const dateObj = new Date(day.date);
-      // getDay() is 0 (Sun) to 6 (Sat)
       const dayIndex = dateObj.getUTCDay(); 
-      // Map to our weekdayLabels (index 0 is Monday)
-      // dayIndex: 0(Sun), 1(Mon), 2(Tue), 3(Wed), 4(Thu), 5(Fri), 6(Sat)
-      // targetIndex: 6, 0, 1, 2, 3, 4, 5
       const targetIndex = (dayIndex === 0) ? 6 : dayIndex - 1;
       const target = weekdayLabels[targetIndex];
       
-      if (target) dataMap[target] += day.net;
+      const val = chartMetric === 'net' ? day.net 
+                : chartMetric === 'gross' ? day.gross
+                : chartMetric === 'cash' ? day.cash
+                : chartMetric === 'card' ? day.card
+                : day.qr;
+      
+      if (target) dataMap[target] += val;
     });
 
     return weekdayLabels.map(name => ({ name, value: dataMap[name] }));
-  }, [groupedDailySales]);
+  }, [groupedDailySales, chartMetric]);
 
   // Chart Data: Weekly Sales
   const weeklyChartData = useMemo(() => {
@@ -388,14 +391,20 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     groupedDailySales.forEach(day => {
       if (day.week) {
         const week = day.week.trim();
-        weekMap[week] = (weekMap[week] || 0) + day.net;
+        const val = chartMetric === 'net' ? day.net 
+                  : chartMetric === 'gross' ? day.gross
+                  : chartMetric === 'cash' ? day.cash
+                  : chartMetric === 'card' ? day.card
+                  : day.qr;
+        
+        weekMap[week] = (weekMap[week] || 0) + val;
       }
     });
 
     return Object.entries(weekMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  }, [groupedDailySales]);
+  }, [groupedDailySales, chartMetric]);
 
   const handleImportRankingExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1008,74 +1017,118 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
-          <div className="bg-bg-accent p-4 border-b border-border-dim flex items-center justify-between">
-             <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Venta Neta por Día</h3>
-             <BarChart3 size={14} className="text-brand-500" />
+      <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+        <div className="bg-bg-accent px-4 py-3 border-b border-border-dim flex flex-wrap gap-2 items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BarChart3 size={14} className="text-brand-500" />
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Analítica de Ventas</h3>
           </div>
-          <div className="p-6 h-[250px]">
-             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weekdayChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                   <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
-                    dy={10}
-                   />
-                   <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#888', fontSize: 9 }}
-                    tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
-                   />
-                   <Tooltip 
-                    cursor={{ fill: 'rgba(255,255,255,0.02)' }}
-                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
-                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Venta Neta']}
-                   />
-                   <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                      {weekdayChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index === 0 ? '#ff4d4d' : '#f59e0b'} />
-                      ))}
-                   </Bar>
-                </BarChart>
-             </ResponsiveContainer>
+          <div className="flex gap-1">
+            {[
+              { id: 'net', label: 'Ventas Netas', color: 'teal' },
+              { id: 'gross', label: 'Ventas Brutas', color: 'brand' },
+              { id: 'cash', label: 'Efectivo', color: 'emerald' },
+              { id: 'card', label: 'Tarjetas', color: 'blue' },
+              { id: 'qr', label: 'QR y Otros', color: 'indigo' }
+            ].map((m) => (
+              <button
+                key={m.id}
+                onClick={() => setChartMetric(m.id as any)}
+                className={cn(
+                  "px-3 py-1.5 rounded-[2px] text-[9px] font-bold uppercase transition-all tracking-tighter border",
+                  chartMetric === m.id 
+                    ? "bg-text-main text-bg-sidebar border-text-main shadow-lg"
+                    : "bg-bg-accent text-text-dim border-border-dim hover:border-text-dim"
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
         </div>
-
-        <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
-          <div className="bg-bg-accent p-4 border-b border-border-dim flex items-center justify-between">
-             <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Venta Neta por Semana</h3>
-             <TrendingUp size={14} className="text-teal-400" />
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6">
+          <div className="space-y-4">
+             <div className="flex items-center justify-between">
+                <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Por Día de la Semana</span>
+             </div>
+             <div className="h-[250px]">
+               <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weekdayChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
+                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                     <XAxis 
+                      dataKey="name" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
+                      dy={10}
+                     />
+                     <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#888', fontSize: 9 }}
+                      tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
+                     />
+                     <Tooltip 
+                      cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                      contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                      formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
+                     />
+                     <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        {weekdayChartData.map((entry, index) => (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={
+                              chartMetric === 'net' ? '#2dd4bf' :
+                              chartMetric === 'gross' ? '#f59e0b' :
+                              chartMetric === 'cash' ? '#10b981' :
+                              chartMetric === 'card' ? '#3b82f6' :
+                              '#6366f1'
+                            } 
+                          />
+                        ))}
+                     </Bar>
+                  </BarChart>
+               </ResponsiveContainer>
+             </div>
           </div>
-          <div className="p-6 h-[250px]">
-             <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weeklyChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                   <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
-                    dy={10}
-                   />
-                   <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#888', fontSize: 9 }}
-                    tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`}
-                   />
-                   <Tooltip 
-                    cursor={{ fill: 'rgba(255,255,255,0.02)' }}
-                    contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
-                    formatter={(val: number) => [`$${val.toLocaleString()}`, 'Venta Neta']}
-                   />
-                   <Bar dataKey="value" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
-                </BarChart>
-             </ResponsiveContainer>
+
+          <div className="space-y-4">
+             <div className="flex items-center justify-between">
+                <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Por Número de Semana</span>
+             </div>
+             <div className="h-[250px]">
+               <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weeklyChartData} margin={{ top: 10, right: 10, left: 20, bottom: 20 }}>
+                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
+                     <XAxis 
+                      dataKey="name" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#888', fontSize: 9, fontWeight: 700 }}
+                      dy={10}
+                     />
+                     <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#888', fontSize: 9 }}
+                      tickFormatter={(val) => `$${(val / 1000).toFixed(0)}k`}
+                     />
+                     <Tooltip 
+                      cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                      contentStyle={{ backgroundColor: '#111', border: '1px solid #333', fontSize: '10px' }}
+                      formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
+                     />
+                     <Bar dataKey="value" radius={[4, 4, 0, 0]} fill={
+                        chartMetric === 'net' ? '#2dd4bf' :
+                        chartMetric === 'gross' ? '#f59e0b' :
+                        chartMetric === 'cash' ? '#10b981' :
+                        chartMetric === 'card' ? '#3b82f6' :
+                        '#6366f1'
+                     } />
+                  </BarChart>
+               </ResponsiveContainer>
+             </div>
           </div>
         </div>
       </div>
