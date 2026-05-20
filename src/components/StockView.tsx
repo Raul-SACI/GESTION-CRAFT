@@ -55,7 +55,7 @@ export default function StockView({
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState<'semana' | 'mes'>('semana');
   const [loading, setLoading] = useState(true);
-  const [closedWeeks, setClosedWeeks] = useState<Record<string, boolean>>({});
+  const [closedWeeks, setClosedWeeks] = useState<Record<string, boolean>>({}); // key: branchId-month-weekNum-itemId
 
   const getWeekNumber = (dateStr: string) => {
     const day = parseInt(dateStr.split('-')[2]);
@@ -172,13 +172,13 @@ export default function StockView({
       // Fetch week closures
       const { data: closures } = await supabase
         .from('inventory_week_closures')
-        .select('week_number')
+        .select('week_number, item_id')
         .match({ branch_id: selectedBranchId, month: currentMonth });
       
       if (closures) {
         const closureMap: Record<string, boolean> = {};
         closures.forEach(c => {
-          closureMap[`${selectedBranchId}-${currentMonth}-${c.week_number}`] = true;
+          closureMap[`${selectedBranchId}-${currentMonth}-${c.week_number}-${c.item_id}`] = true;
         });
         setClosedWeeks(closureMap);
       }
@@ -192,9 +192,9 @@ export default function StockView({
   const updateItemData = async (id: string, field: string, value: number, targetDate: string = selectedDate) => {
     // Check if week is closed
     const currentWeekNum = getWeekNumber(targetDate);
-    const closureKey = `${selectedBranchId}-${targetDate.substring(0, 7)}-${currentWeekNum}`;
+    const closureKey = `${selectedBranchId}-${targetDate.substring(0, 7)}-${currentWeekNum}-${id}`;
     if (closedWeeks[closureKey]) {
-      alert("Esta semana ya está cerrada y no puede ser modificada.");
+      alert("Este insumo ya está cerrado para esta semana y no puede ser modificado.");
       return;
     }
 
@@ -338,34 +338,40 @@ export default function StockView({
     }, { compras: 0, prestamos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
   };
 
-  const isCurrentWeekClosed = () => {
+  const isCurrentWeekClosed = (itemId: string) => {
     if (viewMode !== 'semana') return false;
     const currentWeekNum = getWeekNumber(selectedDate);
-    const closureKey = `${selectedBranchId}-${selectedDate.substring(0, 7)}-${currentWeekNum}`;
+    const closureKey = `${selectedBranchId}-${selectedDate.substring(0, 7)}-${currentWeekNum}-${itemId}`;
     return closedWeeks[closureKey] || false;
   };
 
-  const handleCloseWeek = async () => {
+  const handleCloseWeek = async (itemId: string, itemName: string) => {
     if (!selectedBranchId) return;
     const currentMonth = selectedDate.substring(0, 7);
     const currentWeekNum = getWeekNumber(selectedDate);
-    const closureKey = `${selectedBranchId}-${currentMonth}-${currentWeekNum}`;
+    const closureKey = `${selectedBranchId}-${currentMonth}-${currentWeekNum}-${itemId}`;
 
-    if (window.confirm(`¿Está seguro de que desea cerrar la SEMANA ${currentWeekNum} de ${currentMonth}? Una vez cerrada, los datos no podrán ser modificados.`)) {
+    if (window.confirm(`¿Está seguro de que desea cerrar el stock de ${itemName} para la SEMANA ${currentWeekNum} de ${currentMonth}? Una vez cerrado, los datos no podrán ser modificados.`)) {
       const { error } = await supabase
         .from('inventory_week_closures')
         .upsert({
           branch_id: selectedBranchId,
           month: currentMonth,
-          week_number: currentWeekNum
-        }, { onConflict: 'branch_id,month,week_number' });
+          week_number: currentWeekNum,
+          item_id: itemId
+        }, { onConflict: 'branch_id,month,week_number,item_id' });
 
       if (!error) {
         setClosedWeeks(prev => ({ ...prev, [closureKey]: true }));
-        alert(`Semana ${currentWeekNum} cerrada exitosamente.`);
+        alert(`Stock de ${itemName} cerrado exitosamente para la semana ${currentWeekNum}.`);
       } else {
         console.error('Error closing week:', error);
-        alert('Error al cerrar la semana. Verifique su conexión y permisos.');
+        alert(`Error al cerrar el insumo. Es posible que falte la columna 'item_id' en la tabla 'inventory_week_closures'. 
+        
+Para solucionar esto, ejecute:
+ALTER TABLE inventory_week_closures ADD COLUMN item_id TEXT;
+ALTER TABLE inventory_week_closures DROP CONSTRAINT IF EXISTS inventory_week_closures_branch_id_month_week_number_key;
+ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, item_id);`);
       }
     }
   };
@@ -386,11 +392,6 @@ export default function StockView({
               <h2 className="text-xl font-bold text-text-main uppercase tracking-tight">
                 Control Stock {viewMode === 'semana' ? 'Semanal' : 'Mensual'} {activeBranch ? `• ${activeBranch.name}` : '(CONSOLIDADO)'}
               </h2>
-              {isCurrentWeekClosed() && (
-                <span className="px-2 py-0.5 bg-red-500/10 text-red-500 text-[8px] font-black uppercase tracking-widest border border-red-500/20 rounded">
-                  CERRADO
-                </span>
-              )}
             </div>
             <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest">
               {isAdmin ? "PANEL DE ADMINISTRACIÓN" : "PANEL DE ENCARGADO: CARGA OPERATIVA"}
@@ -484,7 +485,7 @@ export default function StockView({
                 const cmvReal = calculateCMVReal(item.id);
                 const desvio = cmvReal - data.ventasTeorico;
                 const isSummary = viewMode === 'mes';
-                const isItemLocked = isCurrentWeekClosed();
+                const isItemLocked = isCurrentWeekClosed(item.id);
 
                 return (
                   <tr key={item.id} className="hover:bg-bg-accent/50 transition-colors group text-[11px]">
@@ -564,14 +565,14 @@ export default function StockView({
                     {/* Week Closure Action */}
                     <td className="px-6 py-4 text-right sticky right-0 bg-bg-sidebar group-hover:bg-bg-accent/50 z-10 border-l border-border-dim/20">
                       {viewMode === 'semana' && (
-                        isCurrentWeekClosed() ? (
+                        isCurrentWeekClosed(item.id) ? (
                           <div className="flex flex-col items-end opacity-50">
-                            <span className="text-[8px] font-black uppercase text-red-500">SEMANA</span>
-                            <span className="text-[10px] font-black uppercase text-red-500">CERRADA</span>
+                            <span className="text-[8px] font-black uppercase text-red-500">INSUMO</span>
+                            <span className="text-[10px] font-black uppercase text-red-500">CERRADO</span>
                           </div>
                         ) : (
                           <button 
-                            onClick={handleCloseWeek}
+                            onClick={() => handleCloseWeek(item.id, item.name)}
                             className="bg-brand-500 text-black px-3 py-1.5 rounded text-[8px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/10 whitespace-nowrap"
                           >
                             Cerrar Semana
@@ -606,7 +607,7 @@ export default function StockView({
               {viewMode === 'semana' ? `Estado Cierre Semana ${getWeekNumber(selectedDate)}` : 'Estado del Cierre'}
             </p>
             <p className="text-xs font-bold text-text-main mt-1 uppercase">
-              {isCurrentWeekClosed() ? "SEMANA CERRADA Y BLOQUEADA" : "PENDIENTE DE VALIDACIÓN Y CIERRE"}
+              {viewMode === 'semana' ? "CIERRES INDIVIDUALES POR INSUMO" : "ESTADO DEL CONTROL MENSUAL"}
             </p>
           </div>
           {isAdmin && viewMode === 'mes' && (
