@@ -393,24 +393,30 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   const monthlyProjection = useMemo(() => {
     const today = new Date();
-    const currentMonth = today.getUTCMonth();
-    const currentYear = today.getUTCFullYear();
+    // Use selected month if filter is active, otherwise default to current month
+    const targetMonth = filterMonth !== 'all' ? parseInt(filterMonth) - 1 : today.getUTCMonth();
+    const targetYear = today.getUTCFullYear();
     
-    const thisMonthRecords = groupedDailySales.filter(day => {
-      const d = new Date(day.date);
-      return d.getUTCMonth() === currentMonth && d.getUTCFullYear() === currentYear;
-    });
+    let targetRecords = groupedDailySales;
     
-    if (thisMonthRecords.length === 0) return 0;
+    // If no month filter is active, we specifically target current month for the projection
+    if (filterMonth === 'all') {
+      targetRecords = groupedDailySales.filter(day => {
+        const d = new Date(day.date);
+        return d.getUTCMonth() === today.getUTCMonth() && d.getUTCFullYear() === today.getUTCFullYear();
+      });
+    }
     
-    const totalNetMonth = thisMonthRecords.reduce((sum, day) => sum + day.net, 0);
-    const uniqueDays = new Set(thisMonthRecords.map(r => r.date)).size;
+    if (targetRecords.length === 0) return 0;
+    
+    const totalNetMonth = targetRecords.reduce((sum, day) => sum + day.net, 0);
+    const uniqueDays = new Set(targetRecords.map(r => r.date)).size;
     
     if (uniqueDays === 0) return 0;
     
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const daysInMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
     return (totalNetMonth / uniqueDays) * daysInMonth;
-  }, [groupedDailySales]);
+  }, [groupedDailySales, filterMonth]);
 
   const paymentPercentages = useMemo(() => {
     if (totals.totalGross === 0) return { cash: 0, card: 0, qr: 0 };
