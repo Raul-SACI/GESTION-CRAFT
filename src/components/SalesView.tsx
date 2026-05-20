@@ -101,8 +101,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           orders: s.orders,
           covers: s.covers,
           projection: Number(s.projection || 0),
-          week: s.week || '',
-          dayName: s.day_name || '',
+          // Calculate these frontend-side to avoid schema dependency
+          week: s.week || `Semana ${Math.ceil(new Date(s.date).getUTCDate() / 7)}`,
+          dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
           cash: Number(s.cash || 0),
           card: Number(s.card || 0),
           qr: Number(s.qr || 0),
@@ -156,7 +157,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           orders: v.orders,
           covers: v.covers,
           projection: v.pesos * 30,
-          cash: 0, // Manual entries could eventually have fields for these too
+          week: `Semana ${Math.ceil(new Date(entryDate).getUTCDate() / 7)}`,
+          day_name: new Date(entryDate).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
+          cash: 0, 
           card: 0,
           qr: 0,
           iva: 0,
@@ -214,52 +217,53 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const groupedDailySales = useMemo(() => {
     const groups: Record<string, any> = {};
     
-    filteredSales.forEach(record => {
-      const key = `${record.branchId}-${record.date}`;
-      if (!groups[key]) {
-        groups[key] = {
-          id: key,
-          branchId: record.branchId,
-          date: record.date,
-          week: record.week || '',
-          dayName: record.dayName || '',
-          cash: 0,
-          card: 0,
-          qr: 0,
-          iva: 0,
-          gross: 0,
-          net: 0,
-          orders: {
-            'Turno Mañana': 0,
-            'Turno Tarde': 0,
-            'Pedidos Ya Restó': 0,
-            'Pedidos Ya Café': 0
-          },
-          covers: {
-            'Turno Mañana': 0,
-            'Turno Tarde': 0
-          }
-        };
-      }
-      
-      const g = groups[key];
-      g.gross += record.pesos;
-      g.net += record.netSales;
-      
-      if (record.cash) g.cash += record.cash;
-      if (record.card) g.card += record.card;
-      if (record.qr) g.qr += record.qr;
-      if (record.iva) g.iva += record.iva;
-      if (record.week) g.week = record.week;
-      if (record.dayName) g.dayName = record.dayName;
-      
-      if (g.orders.hasOwnProperty(record.type)) {
-        g.orders[record.type] = record.orders;
-      }
-      if (g.covers.hasOwnProperty(record.type)) {
-        g.covers[record.type] = record.covers;
-      }
-    });
+      filteredSales.forEach(record => {
+        const key = `${record.branchId}-${record.date}`;
+        const dateObj = new Date(record.date);
+        
+        if (!groups[key]) {
+          groups[key] = {
+            id: key,
+            branchId: record.branchId,
+            date: record.date,
+            // Calculate derive values from date
+            week: record.week || `Semana ${Math.ceil(dateObj.getUTCDate() / 7)}`,
+            dayName: record.dayName || dateObj.toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
+            cash: 0,
+            card: 0,
+            qr: 0,
+            iva: 0,
+            gross: 0,
+            net: 0,
+            orders: {
+              'Turno Mañana': 0,
+              'Turno Tarde': 0,
+              'Pedidos Ya Restó': 0,
+              'Pedidos Ya Café': 0
+            },
+            covers: {
+              'Turno Mañana': 0,
+              'Turno Tarde': 0
+            }
+          };
+        }
+        
+        const g = groups[key];
+        g.gross += record.pesos;
+        g.net += record.netSales;
+        
+        if (record.cash) g.cash += record.cash;
+        if (record.card) g.card += record.card;
+        if (record.qr) g.qr += record.qr;
+        if (record.iva) g.iva += record.iva;
+        
+        if (g.orders.hasOwnProperty(record.type)) {
+          g.orders[record.type] = record.orders;
+        }
+        if (g.covers.hasOwnProperty(record.type)) {
+          g.covers[record.type] = record.covers;
+        }
+      });
 
     return Object.values(groups).sort((a, b) => b.date.localeCompare(a.date));
   }, [filteredSales]);
@@ -356,28 +360,25 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   // Chart Data: Weekday Sales
   const weekdayChartData = useMemo(() => {
-    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const weekdayLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const dataMap: Record<string, number> = {};
-    days.forEach(d => dataMap[d] = 0);
+    weekdayLabels.forEach(d => dataMap[d] = 0);
 
     groupedDailySales.forEach(day => {
-      if (day.dayName) {
-        // Map common inputs to full names
-        const normalized = day.dayName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        let target = '';
-        if (normalized.startsWith('lun')) target = 'Lunes';
-        else if (normalized.startsWith('mar')) target = 'Martes';
-        else if (normalized.startsWith('mie')) target = 'Miércoles';
-        else if (normalized.startsWith('jue')) target = 'Jueves';
-        else if (normalized.startsWith('vie')) target = 'Viernes';
-        else if (normalized.startsWith('sab')) target = 'Sábado';
-        else if (normalized.startsWith('dom')) target = 'Domingo';
-        
-        if (target) dataMap[target] += day.net;
-      }
+      // Always calculate day name from date to be 100% correct
+      const dateObj = new Date(day.date);
+      // getDay() is 0 (Sun) to 6 (Sat)
+      const dayIndex = dateObj.getUTCDay(); 
+      // Map to our weekdayLabels (index 0 is Monday)
+      // dayIndex: 0(Sun), 1(Mon), 2(Tue), 3(Wed), 4(Thu), 5(Fri), 6(Sat)
+      // targetIndex: 6, 0, 1, 2, 3, 4, 5
+      const targetIndex = (dayIndex === 0) ? 6 : dayIndex - 1;
+      const target = weekdayLabels[targetIndex];
+      
+      if (target) dataMap[target] += day.net;
     });
 
-    return days.map(name => ({ name, value: dataMap[name] }));
+    return weekdayLabels.map(name => ({ name, value: dataMap[name] }));
   }, [groupedDailySales]);
 
   // Chart Data: Weekly Sales
@@ -592,8 +593,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               orders: t.orders,
               covers: t.covers,
               projection: totalGross * 30,
-              week: String(getValue(row, 'Semana') || getValue(row, 'Week') || ''),
-              day_name: String(getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día') || ''),
+              week: String(getValue(row, 'Semana') || getValue(row, 'Week') || `Semana ${Math.ceil(new Date(date).getUTCDate() / 7)}`),
+              day_name: String(getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día') || new Date(date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' })),
               cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo') || getValue(row, 'Cash')) : 0,
               card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas') || getValue(row, 'Card')) : 0,
               qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros') || getValue(row, 'QR')) : 0,
