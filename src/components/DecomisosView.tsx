@@ -224,6 +224,16 @@ export default function DecomisosView({
     };
   }, [decomisos]);
 
+  const selectedItemUnit = useMemo(() => {
+    if (!referenceId) return '-';
+    if (type === 'insumo') {
+      return items.find(i => i.id === referenceId)?.unit || '-';
+    } else {
+      const product = products.find(p => p.id === referenceId);
+      return product ? 'UN' : '-';
+    }
+  }, [referenceId, type, items, products]);
+
   return (
     <div className="space-y-6">
       {/* Header & Stats */}
@@ -301,19 +311,19 @@ export default function DecomisosView({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-text-dim uppercase ml-1">Tipo</label>
                 <div className="flex bg-bg-accent border border-border-dim rounded p-1">
                   <button 
-                    onClick={() => { setType('insumo'); setReferenceId(''); }}
+                    onClick={() => { setType('insumo'); setReferenceId(''); setSearchTerm(''); }}
                     className={cn(
                       "flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all",
                       type === 'insumo' ? "bg-brand-500 text-black shadow-sm" : "text-text-dim hover:text-text-main"
                     )}
                   >Insumo</button>
                   <button 
-                    onClick={() => { setType('producto'); setReferenceId(''); }}
+                    onClick={() => { setType('producto'); setReferenceId(''); setSearchTerm(''); }}
                     className={cn(
                       "flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all",
                       type === 'producto' ? "bg-brand-500 text-black shadow-sm" : "text-text-dim hover:text-text-main"
@@ -363,6 +373,13 @@ export default function DecomisosView({
                   onChange={(e) => setQuantity(e.target.value === '' ? '' : parseFloat(e.target.value))}
                   className="w-full px-4 py-2 bg-bg-accent border border-border-dim rounded text-[12px] font-black text-brand-500 outline-none focus:border-brand-500"
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-text-dim uppercase ml-1">Unidad</label>
+                <div className="w-full px-4 py-2 bg-bg-accent/40 border border-border-dim/50 rounded text-[11px] font-black text-text-dim uppercase flex items-center justify-center min-h-[38px]">
+                  {selectedItemUnit}
+                </div>
               </div>
 
               <div className="space-y-1.5">

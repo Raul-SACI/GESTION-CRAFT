@@ -40,7 +40,11 @@ import {
   Calculator,
   Factory,
   ClipboardCheck,
-  Trash2
+  Trash2,
+  ListOrdered,
+  Settings,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -135,6 +139,8 @@ import { APIProvider } from '@vis.gl/react-google-maps';
 
 const API_KEY = process.env.GOOGLE_MAPS_PLATFORM_KEY || '';
 const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
+
+interface MenuItem { id: string; label: string; icon: any; }
 
 // --- COMPONENTS ---
 
@@ -312,6 +318,135 @@ function AppContent() {
     branch: 'Todas las Sucursales',
     permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios']
   });
+
+  // Sidebar Customization State
+  const [isReorderingMode, setIsReorderingMode] = useState(false);
+  const [menuConfig, setMenuConfig] = useState<Record<string, MenuItem[]>>({
+    'Gestión Sucursal': [
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'stock', label: 'Control Stock', icon: Package },
+      { id: 'desempeño', label: 'Desempeño', icon: Star },
+      { id: 'vajilla', label: 'Vajilla', icon: Utensils },
+      { id: 'horas', label: 'Carga de Horas', icon: Clock },
+      { id: 'novedades', label: 'Novedades', icon: ClipboardList },
+      { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
+      { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
+      { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
+    ],
+    'Recursos Humanos': [
+      { id: 'control_horas', label: 'Control de Horas', icon: ShieldCheck },
+      { id: 'gestion_sueldos', label: 'Sueldos', icon: Users },
+    ],
+    'Gestión Líderes Operativos': [
+      { id: 'presupuesto_horas', label: 'Presupuestador de horas', icon: Calendar },
+      { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
+      { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
+    ],
+    'Centro de Producción': [
+      { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
+      { id: 'produccion_stock_control', label: 'Control de Stock', icon: ClipboardCheck },
+    ],
+    'Finanzas': [
+      { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
+      { id: 'bank_liabilities', label: 'Pasivos Bancarios', icon: Building2 },
+      { id: 'tax_liabilities', label: 'Pasivos Fiscales', icon: Calculator },
+      { id: 'cronograma_pagos', label: 'Cronograma de Pagos', icon: Calendar },
+      { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', icon: BarChart3 },
+    ],
+    'Administración': [
+      { id: 'ventas', label: 'Ventas', icon: TrendingUp },
+      { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
+      { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
+      { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
+      { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
+      { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
+      { id: 'precios', label: 'Lista de Precios', icon: Tag },
+    ],
+    'Configuración': [
+      { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
+      { id: 'usuarios', label: 'Usuarios/Roles', icon: Users },
+    ]
+  });
+
+  // Load menu config from Supabase or LocalStorage
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('craft_sidebar_order');
+    if (savedConfig) {
+      try {
+        const parsed = JSON.parse(savedConfig);
+        // Map icons back because they are not serializable
+        const iconMap: Record<string, any> = {
+          dashboard: LayoutDashboard,
+          stock: Package,
+          desempeño: Star,
+          vajilla: Utensils,
+          horas: Clock,
+          novedades: ClipboardList,
+          decomisos: Trash2,
+          papeles_sucursal: FileText,
+          cuentas: Key,
+          control_horas: ShieldCheck,
+          gestion_sueldos: Users,
+          presupuesto_horas: Calendar,
+          agenda: ClipboardList,
+          supervisiones_operativas: Flag,
+          produccion_mes: Factory,
+          produccion_stock_control: ClipboardCheck,
+          finanzas_estimado: TrendingUp,
+          bank_liabilities: Building2,
+          tax_liabilities: Calculator,
+          cronograma_pagos: Calendar,
+          finanzas_mensual: BarChart3,
+          ventas: TrendingUp,
+          'p&l': BarChart3,
+          consumo: Calculator,
+          control_desvios: ShieldCheck,
+          supervision_banderas: Flag,
+          papeles_administracion: FileText,
+          precios: Tag,
+          sucursales: Building2,
+          usuarios: Users
+        };
+
+        const rehydrated: Record<string, MenuItem[]> = {};
+        Object.entries(parsed as Record<string, {id: string, label: string}[]>).forEach(([section, items]) => {
+          rehydrated[section] = items.map((item) => ({
+            ...item,
+            icon: iconMap[item.id] || ListOrdered
+          }));
+        });
+        setMenuConfig(rehydrated);
+      } catch (e) {
+        console.error('Error loading menu config', e);
+      }
+    }
+  }, []);
+
+  const saveMenuConfig = (newConfig: Record<string, MenuItem[]>) => {
+    setMenuConfig(newConfig);
+    // Persist only IDs and labels (non-serializable icons are excluded)
+    const serializable = Object.fromEntries(
+      Object.entries(newConfig).map(([section, items]) => [
+        section,
+        (items as MenuItem[]).map(({ id, label }) => ({ id, label }))
+      ])
+    );
+    localStorage.setItem('craft_sidebar_order', JSON.stringify(serializable));
+  };
+
+  const moveModule = (section: string, index: number, direction: 'up' | 'down') => {
+    const newItems = [...menuConfig[section]];
+    const newIndex = direction === 'up' ? index - 1 : index + 1;
+    
+    if (newIndex < 0 || newIndex >= newItems.length) return;
+
+    [newItems[index], newItems[newIndex]] = [newItems[newIndex], newItems[index]];
+    
+    saveMenuConfig({
+      ...menuConfig,
+      [section]: newItems
+    });
+  };
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchUrl, setNewBranchUrl] = useState('');
   const [newBranchLocation, setNewBranchLocation] = useState('');
@@ -418,389 +553,86 @@ function AppContent() {
 
         <nav className="flex-1 py-4 space-y-0.5 overflow-y-auto custom-scrollbar">
           <div className="px-4 mb-2 flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Gestión Sucursal</span>
+            <span className="text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Navegación</span>
             {!isSidebarCollapsed && (
-              <button 
-                onClick={() => setIsSidebarCollapsed(true)}
-                className="p-1 hover:bg-bg-accent rounded text-sidebar-dim hover:text-brand-500 transition-all"
-                title="Esconder Menú"
-              >
-                <PanelLeftClose size={14} />
-              </button>
+              <div className="flex gap-1">
+                {currentUser.role === 'dueño' && (
+                  <button 
+                    onClick={() => setIsReorderingMode(!isReorderingMode)}
+                    className={cn(
+                      "p-1 rounded transition-all",
+                      isReorderingMode ? "bg-brand-500 text-black" : "hover:bg-bg-accent text-sidebar-dim hover:text-brand-500"
+                    )}
+                    title="Configurar Orden de Sidebar"
+                  >
+                    <ListOrdered size={14} />
+                  </button>
+                )}
+                <button 
+                  onClick={() => setIsSidebarCollapsed(true)}
+                  className="p-1 hover:bg-bg-accent rounded text-sidebar-dim hover:text-brand-500 transition-all"
+                  title="Esconder Menú"
+                >
+                  <PanelLeftClose size={14} />
+                </button>
+              </div>
             )}
           </div>
-          {navItems.filter(item => currentUser.role === 'dueño' || currentUser.permissions?.includes(item.id)).map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                activeTab === item.id 
-                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-              )}
-            >
-              <item.icon size={16} className={cn(
-                "transition-colors",
-                activeTab === item.id ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-              )} />
-              {item.label}
-            </button>
-          ))}
 
-          <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Recursos Humanos</div>
-          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('control_horas')) && (
-            <button
-              onClick={() => setActiveTab('control_horas')}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                activeTab === 'control_horas' 
-                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-              )}
-            >
-              <ShieldCheck size={16} className={cn(
-                "transition-colors",
-                activeTab === 'control_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-              )} />
-              Control de Horas
-            </button>
-          )}
-          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('gestion_sueldos')) && (
-            <button
-              onClick={() => setActiveTab('gestion_sueldos')}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                activeTab === 'gestion_sueldos' 
-                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-              )}
-            >
-              <Users size={16} className={cn(
-                "transition-colors",
-                activeTab === 'gestion_sueldos' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-              )} />
-              Sueldos
-            </button>
-          )}
+          {Object.entries(menuConfig).map(([sectionName, items]) => {
+            const typedItems = items as MenuItem[];
+            const filteredItems = typedItems.filter(item => 
+              currentUser.role === 'dueño' || currentUser.permissions?.includes(item.id)
+            );
 
-          {(currentUser.role === 'dueño' || currentUser.role === 'supervisor' || currentUser.permissions?.some(p => ['presupuesto_horas', 'agenda', 'supervisiones_operativas'].includes(p))) && (
-            <>
-              <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Gestión Líderes Operativos</div>
-              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('presupuesto_horas')) && (
-                <button
-                  onClick={() => setActiveTab('presupuesto_horas')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'presupuesto_horas' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <Calendar size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'presupuesto_horas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Presupuestador de horas
-                </button>
-              )}
-              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('agenda')) && (
-                <button
-                  onClick={() => setActiveTab('agenda')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'agenda' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <ClipboardList size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'agenda' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Agenda Supervisores
-                </button>
-              )}
-              {(currentUser.role === 'dueño' || currentUser.permissions?.includes('supervisiones_operativas')) && (
-                <button
-                  onClick={() => setActiveTab('supervisiones_operativas')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'supervisiones_operativas' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <Flag size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'supervisiones_operativas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Supervisiones
-                </button>
-              )}
-            </>
-          )}
+            if (filteredItems.length === 0) return null;
 
-          <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Mantenimiento</div>
-
-          <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Centro de Producción</div>
-          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('produccion_mes')) && (
-            <button
-              onClick={() => setActiveTab('produccion_mes')}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                activeTab === 'produccion_mes' 
-                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-              )}
-            >
-              <Factory size={16} className={cn(
-                "transition-colors",
-                activeTab === 'produccion_mes' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-              )} />
-              Producción del mes
-            </button>
-          )}
-          {(currentUser.role === 'dueño' || currentUser.permissions?.includes('produccion_stock_control')) && (
-            <button
-              onClick={() => setActiveTab('produccion_stock_control')}
-              className={cn(
-                "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                activeTab === 'produccion_stock_control' 
-                  ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                  : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-              )}
-            >
-              <ClipboardCheck size={16} className={cn(
-                "transition-colors",
-                activeTab === 'produccion_stock_control' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-              )} />
-              Control de Stock
-            </button>
-          )}
-
-          {currentUser.role === 'dueño' && (
-            <>
-              <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Finanzas</div>
-              <button
-                onClick={() => setActiveTab('finanzas_estimado')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'finanzas_estimado' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <TrendingUp size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'finanzas_estimado' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Flujo de Caja Estimado
-              </button>
-              <button
-                onClick={() => setActiveTab('bank_liabilities')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'bank_liabilities' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Building2 size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'bank_liabilities' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Pasivos Bancarios
-              </button>
-              <button
-                onClick={() => setActiveTab('tax_liabilities')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'tax_liabilities' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Calculator size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'tax_liabilities' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Pasivos Fiscales
-              </button>
-              <button
-                onClick={() => setActiveTab('cronograma_pagos')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'cronograma_pagos' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Calendar size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'cronograma_pagos' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Cronograma de Pagos
-              </button>
-              <button
-                onClick={() => setActiveTab('finanzas_mensual')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'finanzas_mensual' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <BarChart3 size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'finanzas_mensual' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Flujo de Caja Mensual
-              </button>
-
-              <div className="mt-4 pt-4 border-t border-sidebar-border/30">
-                <div className="px-4 mb-2 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Administración</div>
-                <button
-                  onClick={() => setActiveTab('ventas')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'ventas' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <TrendingUp size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'ventas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Ventas
-                </button>
-                <button
-                  onClick={() => setActiveTab('p&l')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'p&l' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <BarChart3 size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'p&l' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Estado de Resultado
-                </button>
-                <button
-                  onClick={() => setActiveTab('consumo')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'consumo' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <Calculator size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'consumo' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  CMV Mensual Sucursal
-                </button>
-                <button
-                  onClick={() => setActiveTab('control_desvios')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'control_desvios' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <ShieldCheck size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'control_desvios' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Control de Desvíos
-                </button>
-                <button
-                  onClick={() => setActiveTab('supervision_banderas')}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                    activeTab === 'supervision_banderas' 
-                      ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                      : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                  )}
-                >
-                  <Flag size={16} className={cn(
-                    "transition-colors",
-                    activeTab === 'supervision_banderas' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                  )} />
-                  Supervisiones y Banderas
-                </button>
-                <button
-                onClick={() => setActiveTab('papeles_administracion')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'papeles_administracion' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <FileText size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'papeles_administracion' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Papeles Importantes
-              </button>
-              <button
-                onClick={() => setActiveTab('precios')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'precios' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Tag size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'precios' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Lista de Precios
-              </button>
-
-              <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider">Configuración</div>
-              <button
-                onClick={() => setActiveTab('sucursales')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'sucursales' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Building2 size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'sucursales' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Gestión Sucursales
-              </button>
-              <button
-                onClick={() => setActiveTab('usuarios')}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
-                  activeTab === 'usuarios' 
-                    ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
-                    : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
-                )}
-              >
-                <Users size={16} className={cn(
-                  "transition-colors",
-                  activeTab === 'usuarios' ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
-                )} />
-                Usuarios/Roles
-              </button>
-            </div>
-          </>
-        )}
-      </nav>
+            return (
+              <React.Fragment key={sectionName}>
+                <div className="px-4 mb-2 mt-6 text-[10px] font-semibold text-sidebar-dim uppercase tracking-wider flex justify-between items-center group">
+                  {sectionName}
+                </div>
+                {filteredItems.map((item, index) => (
+                  <div key={item.id} className="relative group/item">
+                    <button
+                      onClick={() => setActiveTab(item.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-4 py-2 text-sm font-medium transition-all group relative text-left",
+                        activeTab === item.id 
+                          ? "bg-brand-500/10 text-brand-500 border-r-2 border-brand-500" 
+                          : "text-sidebar-dim hover:bg-bg-accent hover:text-sidebar-text"
+                      )}
+                    >
+                      <item.icon size={16} className={cn(
+                        "transition-colors",
+                        activeTab === item.id ? "text-brand-500" : "text-sidebar-dim group-hover:text-sidebar-text"
+                      )} />
+                      {item.label}
+                    </button>
+                    {isReorderingMode && currentUser.role === 'dueño' && (
+                      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                        <button 
+                          disabled={index === 0}
+                          onClick={(e) => { e.stopPropagation(); moveModule(sectionName, index, 'up'); }}
+                          className="p-1 bg-bg-sidebar border border-border-dim rounded text-text-dim hover:text-brand-500 hover:border-brand-500 disabled:opacity-0"
+                        >
+                          <ArrowUp size={10} />
+                        </button>
+                        <button 
+                          disabled={index === filteredItems.length - 1}
+                          onClick={(e) => { e.stopPropagation(); moveModule(sectionName, index, 'down'); }}
+                          className="p-1 bg-bg-sidebar border border-border-dim rounded text-text-dim hover:text-brand-500 hover:border-brand-500 disabled:opacity-0"
+                        >
+                          <ArrowDown size={10} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </React.Fragment>
+            );
+          })}
+        </nav>
 
         <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10">
           <div className="flex items-center gap-3">
