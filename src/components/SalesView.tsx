@@ -296,38 +296,58 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
+      const dataBuffer = evt.target?.result;
+      const wb = XLSX.read(dataBuffer, { type: 'array' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
       const recordsToInsert: any[] = [];
 
+      // Helper to find a value by key ignoring case and multiple spaces
+      const getValue = (row: any, keyPattern: string) => {
+        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        const target = normalize(keyPattern);
+        const rowKey = Object.keys(row).find(k => normalize(k) === target);
+        return rowKey ? row[rowKey] : undefined;
+      };
+
       data.forEach(row => {
         // Find branch mapping
+        const excelBranch = getValue(row, 'Sucursal');
         let targetBranchId = selectedBranchId;
-        if (row.Sucursal) {
-          const foundBranch = branches.find(b => b.name.toLowerCase().trim() === String(row.Sucursal).toLowerCase().trim());
+        if (excelBranch) {
+          const foundBranch = branches.find(b => 
+            b.name.toLowerCase().trim() === String(excelBranch).toLowerCase().trim()
+          );
           if (foundBranch) targetBranchId = foundBranch.id;
         }
 
         if (targetBranchId === 'all') {
-          console.warn('Skipping row: Branch not identified', row.Sucursal);
+          console.warn('Skipping row: Branch not identified', excelBranch);
           return;
         }
 
         // Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
-        let date = row.Fecha || row.Date;
+        let date = getValue(row, 'Fecha');
         if (typeof date === 'number') {
           // Excel date serial
           const dt = new Date((date - (25567 + 2)) * 86400 * 1000);
           date = dt.toISOString().split('T')[0];
-        } else if (typeof date === 'string' && date.includes('-')) {
-          const parts = date.split('-');
-          if (parts[0].length === 2) {
-             // DD-MM-YYYY -> YYYY-MM-DD
-             date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        } else if (typeof date === 'string') {
+          date = date.trim();
+          if (date.includes('-')) {
+            const parts = date.split('-');
+            if (parts[0].length === 2 && parts[2].length === 4) {
+               // DD-MM-YYYY -> YYYY-MM-DD
+               date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+          } else if (date.includes('/')) {
+            const parts = date.split('/');
+            if (parts[0].length === 2 && parts[2].length === 4) {
+               // DD/MM/YYYY -> YYYY-MM-DD
+               date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
           }
         }
 
@@ -335,27 +355,22 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const parseCurrency = (val: any) => {
           if (typeof val === 'number') return val;
           if (typeof val !== 'string') return 0;
-          return Number(val.replace(/[$\s.]/g, '').replace(',', '.'));
+          // Handles cases like " $  1.513.209,04 "
+          const cleaned = val.replace(/[$\s.]/g, '').replace(',', '.');
+          return Number(cleaned) || 0;
         };
 
-        const totalGross = parseCurrency(row['Ventas Brutas'] || row.Bruto || row.pesos || 0);
-        const totalNet = parseCurrency(row['Ventas Netas'] || row.Neto || row.netSales || 0);
+        const totalGross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || 0);
+        const totalNet = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || 0);
         
-        const ordersMañana = Number(row['Ordenes Turno Mañana'] || 0);
-        const ordersTarde = Number(row['Ordenes Turno Tarde'] || 0);
-        const ordersPYResto = Number(row['Ordenes Pedidos Ya Resto'] || 0);
-        const ordersPYCafe = Number(row['Ordenes Pedidos Ya Café'] || 0);
+        const ordersMañana = Number(getValue(row, 'Ordenes Turno Mañana') || 0);
+        const ordersTarde = Number(getValue(row, 'Ordenes Turno Tarde') || 0);
+        const ordersPYResto = Number(getValue(row, 'Ordenes Pedidos Ya Resto') || 0);
+        const ordersPYCafe = Number(getValue(row, 'Ordenes Pedidos Ya Café') || 0);
         const totalOrders = ordersMañana + ordersTarde + ordersPYResto + ordersPYCafe;
 
-        const coversMañana = Number(row['Cubiertos Turno Mañana'] || 0);
-        const coversTarde = Number(row['Cubiertos Turno Tarde'] || 0);
-
-        // If we have total money but it's not split per shift in Excel,
-        // we split it proportionally based on orders to maintain consistency.
-        const splitMoney = (total: number, shiftOrders: number) => {
-          if (totalOrders === 0) return 0;
-          return (total / totalOrders) * shiftOrders;
-        };
+        const coversMañana = Number(getValue(row, 'Cubiertos Turno Mañana') || 0);
+        const coversTarde = Number(getValue(row, 'Cubiertos Turno Tarde') || 0);
 
         const types: { type: SaleType, orders: number, covers: number }[] = [
           { type: 'Turno Mañana', orders: ordersMañana, covers: coversMañana },
@@ -364,20 +379,31 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           { type: 'Pedidos Ya Café', orders: ordersPYCafe, covers: 0 }
         ];
 
+        // If we have total money but it's not split per shift in Excel,
+        // we split it proportionally based on orders to maintain consistency.
+        const splitMoney = (total: number, shiftOrders: number) => {
+          if (totalOrders === 0) return 0;
+          return (total / totalOrders) * shiftOrders;
+        };
+
         types.forEach(t => {
-          if (t.orders > 0 || totalGross > 0) {
-            const shiftGross = splitMoney(totalGross, t.orders);
-            const shiftNet = splitMoney(totalNet, t.orders);
+          if (t.orders > 0 || (t.type === 'Turno Mañana' && totalGross > 0 && totalOrders === 0)) {
+            const shiftGross = totalOrders > 0 ? splitMoney(totalGross, t.orders) : totalGross;
+            const shiftNet = totalOrders > 0 ? splitMoney(totalNet, t.orders) : totalNet;
 
             recordsToInsert.push({
               branch_id: targetBranchId,
               date: date,
               type: t.type,
-              pesos: t.orders === 0 && t.type === 'Turno Mañana' ? totalGross : shiftGross, // Fallback to first shift if no orders specified
-              net_sales: t.orders === 0 && t.type === 'Turno Mañana' ? totalNet : shiftNet,
+              pesos: shiftGross,
+              net_sales: shiftNet,
               orders: t.orders,
               covers: t.covers,
-              projection: totalGross * 30, // Monthly projection logic
+              projection: totalGross * 30,
+              cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo')) : 0,
+              card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas')) : 0,
+              qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros')) : 0,
+              iva: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'IVA')) : 0,
               product_ranking: []
             });
           }
@@ -386,9 +412,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
       if (recordsToInsert.length > 0) {
         confirmManualImport(recordsToInsert);
+      } else {
+        alert("No se encontraron registros válidos en la planilla. Verifique los nombres de las sucursales y las columnas.");
       }
     };
-    reader.readAsBinaryString(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const confirmManualImport = async (records: any[]) => {

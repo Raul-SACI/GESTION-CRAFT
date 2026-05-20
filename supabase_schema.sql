@@ -37,6 +37,11 @@ CREATE TABLE sales (
   net_sales NUMERIC NOT NULL DEFAULT 0,
   orders INTEGER DEFAULT 0,
   covers INTEGER DEFAULT 0,
+  projection NUMERIC DEFAULT 0,
+  cash NUMERIC DEFAULT 0,
+  card NUMERIC DEFAULT 0,
+  qr NUMERIC DEFAULT 0,
+  iva NUMERIC DEFAULT 0,
   product_ranking JSONB DEFAULT '[]'::jsonb,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -348,7 +353,7 @@ CREATE POLICY "Allow public access for daily_stock_logs" ON daily_stock_logs FOR
 -- 19. Inventory Week Closures
 CREATE TABLE inventory_week_closures (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL,
   month TEXT NOT NULL, -- YYYY-MM
   week_number INTEGER NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -362,7 +367,7 @@ CREATE POLICY "Allow public access for inventory_week_closures" ON inventory_wee
 -- 20. Product Rankings
 CREATE TABLE product_rankings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  branch_id TEXT REFERENCES branches(id) ON DELETE CASCADE,
+  branch_id TEXT NOT NULL,
   date DATE NOT NULL,
   product_code TEXT,
   product_name TEXT NOT NULL,
