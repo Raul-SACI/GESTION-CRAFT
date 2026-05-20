@@ -17,7 +17,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
-  Download
+  Download,
+  LayoutDashboard
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -54,6 +55,8 @@ export default function DeviationControlView({
   const [controlledIds, setControlledIds] = useState<string[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [recipeViewMode, setRecipeViewMode] = useState<'individual' | 'table'>('individual');
+  const [recipeTableSearch, setRecipeTableSearch] = useState('');
 
   // Daily Logs State
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
@@ -337,6 +340,16 @@ export default function DeviationControlView({
   };
 
   const [recipes, setRecipes] = useState<Record<string, { productId: string, itemId: string, quantity: number }[]>>({});
+  
+  const flattenedRecipes = React.useMemo(() => {
+    const list: { productId: string, itemId: string, quantity: number }[] = [];
+    Object.entries(recipes).forEach(([_, lines]) => {
+      (lines as any[]).forEach(line => {
+        list.push(line);
+      });
+    });
+    return list;
+  }, [recipes]);
   const [recipeDisplayUnits, setRecipeDisplayUnits] = useState<Record<string, string>>({}); // key: productId-itemId
 
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -799,173 +812,297 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
 
         {activeTab === 'recetas' && (
           <motion.div key="recetas" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-            <div className="grid grid-cols-12 gap-6">
-              <div className="col-span-12 lg:col-span-4 bg-bg-sidebar border border-border-dim rounded-lg p-6 space-y-4 shadow-xl">
-                 <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest border-l-2 border-brand-500 pl-3">Productos Vendidos</h3>
-                 <div className="relative">
-                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
-                   <input 
-                    className="w-full pl-9 pr-4 py-2.5 bg-bg-accent border border-border-dim rounded text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-500" 
-                    placeholder="BUSCAR PRODUCTO..." 
-                    onChange={(e) => setRecipeSearch(e.target.value)}
-                   />
-                 </div>
-                 <div className="space-y-1 max-h-[450px] overflow-y-auto custom-scrollbar">
-                   {products.filter(p => !recipeSearch || p.name.toLowerCase().includes(recipeSearch.toLowerCase())).map(p => {
-                     const hasRecipe = (recipes[p.id]?.length || 0) > 0;
-                     return (
-                       <button 
-                        key={p.id} 
-                        onClick={() => setSelectedProductId(p.id)}
-                        className={cn(
-                          "w-full text-left p-3 rounded transition-colors border-l-2 group relative",
-                          selectedProductId === p.id 
-                            ? "bg-brand-500/10 border-brand-500" 
-                            : "hover:bg-bg-accent border-transparent hover:border-brand-500/50"
-                        )}
-                       >
-                          <div className="flex justify-between items-center">
-                             <div className="flex-1 truncate pr-2">
-                                <p className={cn(
-                                  "text-[10px] font-black transition-colors uppercase tracking-tight truncate",
-                                  selectedProductId === p.id ? "text-brand-500" : "text-text-main group-hover:text-brand-500"
-                                )}>{p.name}</p>
-                                <p className="text-[8px] text-text-dim uppercase font-bold opacity-60 truncate">{p.category}</p>
-                             </div>
-                             {hasRecipe && (
-                                <div className="shrink-0 flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-brand-500/10 border border-brand-500/20">
-                                   <div className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
-                                   <span className="text-[7px] font-black text-brand-500 uppercase">{recipes[p.id].length}</span>
-                                </div>
-                             )}
-                          </div>
-                       </button>
-                     );
-                   })}
-                 </div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setRecipeViewMode('individual')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase transition-all",
+                    recipeViewMode === 'individual' ? "bg-brand-500 text-black shadow-lg" : "bg-bg-sidebar border border-border-dim text-text-dim hover:border-brand-500/50"
+                  )}
+                >
+                  <LayoutDashboard size={14} />
+                  Editor Individual
+                </button>
+                <button 
+                  onClick={() => setRecipeViewMode('table')}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase transition-all",
+                    recipeViewMode === 'table' ? "bg-brand-500 text-black shadow-lg" : "bg-bg-sidebar border border-border-dim text-text-dim hover:border-brand-500/50"
+                  )}
+                >
+                  <Table2 size={14} />
+                  Tabla de Recetas
+                </button>
               </div>
 
-              <div className="col-span-12 lg:col-span-8 bg-bg-sidebar border border-border-dim rounded-lg p-8 space-y-6 shadow-xl border-t-4 border-t-brand-500">
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => downloadTemplate('recipes')}
-                    className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[10px] font-black uppercase"
-                  >
-                    <Download size={14} />
-                    Modelo
-                  </button>
-                  <label className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[10px] font-black uppercase">
-                    <Upload size={14} />
-                    Importar Recetas
-                    <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportRecipes} />
-                  </label>
-                </div>
-                {selectedProductId ? (
-                  <>
-                    <div className="flex justify-between items-start">
-                       <div>
-                         <h3 className="text-xl font-black uppercase text-text-main tracking-tight italic">
-                           {products.find(p => p.id === selectedProductId)?.name}
-                         </h3>
-                         <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1">Configuración de Insumos por Unidad Vendida</p>
-                       </div>
-                       <button className="p-2.5 bg-bg-accent border border-border-dim rounded text-text-dim hover:text-brand-500 hover:border-brand-500 transition-all">
-                          <Settings2 size={16} />
-                       </button>
-                    </div>
-
-                    <div className="space-y-3">
-                       <div className="flex items-center justify-between text-[10px] font-black uppercase text-text-dim tracking-widest pb-3 border-b border-border-dim/50">
-                          <span>Insumo Componente</span>
-                          <span>Gramos / Unidades</span>
-                       </div>
-                       {(recipes[selectedProductId] || []).map((line, index) => {
-                         const item = items.find(i => i.id === line.itemId);
-                         return (
-                           <div key={`${line.itemId}-${index}`} className="flex items-center justify-between bg-bg-accent/40 p-4 rounded border border-border-dim group hover:border-brand-500/30 transition-all">
-                              <div className="flex items-center gap-3">
-                                 <div className="w-10 h-10 rounded bg-bg-sidebar flex items-center justify-center border border-border-dim text-brand-500 shadow-inner">
-                                    <Table2 size={18} />
-                                 </div>
-                                 <div className="flex flex-col">
-                                    <span className="text-[11px] font-black text-text-main uppercase tracking-tight">{item?.name}</span>
-                                    <span className="text-[8px] text-text-dim uppercase font-bold">Unidad base: {item?.unit}</span>
-                                 </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                 <div className="flex flex-col items-end gap-1">
-                                    <span className="text-[8px] font-black text-text-dim uppercase">Cantidad</span>
-                                    <div className="flex items-center bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-sm">
-                                       <input 
-                                         type="number" 
-                                         step="0.001"
-                                         value={getDisplayQuantity(line.itemId, line.quantity, selectedProductId)} 
-                                         onChange={(e) => updateIngredientQuantity(selectedProductId, line.itemId, parseFloat(e.target.value) || 0)}
-                                         className="w-24 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none focus:bg-brand-500/5 transition-colors" 
-                                       />
-                                       <button 
-                                          onClick={() => {
-                                            const sub = getSubUnit(item?.unit || '');
-                                            if (sub) {
-                                              setRecipeDisplayUnits(prev => ({
-                                                ...prev,
-                                                [`${selectedProductId}-${line.itemId}`]: (recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit) === sub ? (item?.unit || '') : sub
-                                              }));
-                                            }
-                                          }}
-                                          className={cn(
-                                            "bg-bg-accent px-3 py-2 border-l border-border-dim text-[10px] font-bold transition-colors min-w-[40px]",
-                                            getSubUnit(item?.unit || '') ? "cursor-pointer hover:bg-brand-500 hover:text-black" : "cursor-default text-text-dim"
-                                          )}
-                                       >
-                                          {recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit}
-                                       </button>
-                                    </div>
-                                 </div>
-                                 <div className="pt-5">
-                                   <button 
-                                     onClick={() => removeIngredientFromRecipe(selectedProductId, line.itemId)}
-                                     className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-red-500/10 rounded"
-                                     title="Eliminar insumo de receta"
-                                   >
-                                      <X size={16} />
-                                   </button>
-                                 </div>
-                              </div>
-                           </div>
-                         );
-                       })}
-                       
-                       <div className="pt-4 space-y-4">
-                          <div className="relative">
-                            <Plus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-500" />
-                            <select 
-                              onChange={(e) => {
-                                if (e.target.value) {
-                                  addIngredientToRecipe(selectedProductId, e.target.value);
-                                  e.target.value = '';
-                                }
-                              }}
-                              className="w-full pl-9 pr-4 py-3 bg-bg-accent border-2 border-dashed border-border-dim rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 outline-none transition-all appearance-none cursor-pointer"
-                            >
-                               <option value="">VINCULAR NUEVO INSUMO A ESTE PRODUCTO...</option>
-                               {items.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
-                                 <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
-                               ))}
-                            </select>
-                          </div>
-                       </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-12">
-                     <BookOpen size={48} className="text-border-dim mb-4" />
-                     <h3 className="text-lg font-black uppercase text-text-dim tracking-widest">Seleccione un producto</h3>
-                     <p className="text-[10px] text-text-dim/60 font-bold uppercase mt-2">Para ver y editar su receta</p>
-                  </div>
-                )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => downloadTemplate('recipes')}
+                  className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[10px] font-black uppercase"
+                >
+                  <Download size={14} />
+                  Modelo
+                </button>
+                <label className="flex items-center gap-2 px-4 py-2 bg-bg-accent border border-brand-500/20 rounded cursor-pointer hover:border-brand-500 transition-all text-brand-500 text-[10px] font-black uppercase">
+                  <Upload size={14} />
+                  Importar Recetas
+                  <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportRecipes} />
+                </label>
               </div>
             </div>
+
+            {recipeViewMode === 'individual' ? (
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-12 lg:col-span-4 bg-bg-sidebar border border-border-dim rounded-lg p-6 space-y-4 shadow-xl">
+                   <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest border-l-2 border-brand-500 pl-3">Productos Vendidos</h3>
+                   <div className="relative">
+                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+                     <input 
+                      className="w-full pl-9 pr-4 py-2.5 bg-bg-accent border border-border-dim rounded text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-500" 
+                      placeholder="BUSCAR PRODUCTO..." 
+                      onChange={(e) => setRecipeSearch(e.target.value)}
+                     />
+                   </div>
+                   <div className="space-y-1 max-h-[450px] overflow-y-auto custom-scrollbar">
+                     {products.filter(p => !recipeSearch || p.name.toLowerCase().includes(recipeSearch.toLowerCase())).map(p => {
+                       const hasRecipe = (recipes[p.id]?.length || 0) > 0;
+                       return (
+                         <button 
+                          key={p.id} 
+                          onClick={() => setSelectedProductId(p.id)}
+                          className={cn(
+                            "w-full text-left p-3 rounded transition-colors border-l-2 group relative",
+                            selectedProductId === p.id 
+                              ? "bg-brand-500/10 border-brand-500" 
+                              : "hover:bg-bg-accent border-transparent hover:border-brand-500/50"
+                          )}
+                         >
+                            <div className="flex justify-between items-center">
+                               <div className="flex-1 truncate pr-2">
+                                  <p className={cn(
+                                    "text-[10px] font-black transition-colors uppercase tracking-tight truncate",
+                                    selectedProductId === p.id ? "text-brand-500" : "text-text-main group-hover:text-brand-500"
+                                  )}>{p.name}</p>
+                                  <p className="text-[8px] text-text-dim uppercase font-bold opacity-60 truncate">{p.category}</p>
+                               </div>
+                               {hasRecipe && (
+                                  <div className="shrink-0 flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-brand-500/10 border border-brand-500/20">
+                                     <div className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+                                     <span className="text-[7px] font-black text-brand-500 uppercase">{recipes[p.id].length}</span>
+                                  </div>
+                               )}
+                            </div>
+                         </button>
+                       );
+                     })}
+                   </div>
+                </div>
+
+                <div className="col-span-12 lg:col-span-8 bg-bg-sidebar border border-border-dim rounded-lg p-8 space-y-6 shadow-xl border-t-4 border-t-brand-500">
+                  {selectedProductId ? (
+                    <>
+                      <div className="flex justify-between items-start">
+                         <div>
+                           <h3 className="text-xl font-black uppercase text-text-main tracking-tight italic">
+                             {products.find(p => p.id === selectedProductId)?.name}
+                           </h3>
+                           <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1">Configuración de Insumos por Unidad Vendida</p>
+                         </div>
+                         <button className="p-2.5 bg-bg-accent border border-border-dim rounded text-text-dim hover:text-brand-500 hover:border-brand-500 transition-all">
+                            <Settings2 size={16} />
+                         </button>
+                      </div>
+
+                      <div className="space-y-3">
+                         <div className="flex items-center justify-between text-[10px] font-black uppercase text-text-dim tracking-widest pb-3 border-b border-border-dim/50">
+                            <span>Insumo Componente</span>
+                            <span>Gramos / Unidades</span>
+                         </div>
+                         {(recipes[selectedProductId] || []).map((line, index) => {
+                           const item = items.find(i => i.id === line.itemId);
+                           return (
+                             <div key={`${line.itemId}-${index}`} className="flex items-center justify-between bg-bg-accent/40 p-4 rounded border border-border-dim group hover:border-brand-500/30 transition-all">
+                                <div className="flex items-center gap-3">
+                                   <div className="w-10 h-10 rounded bg-bg-sidebar flex items-center justify-center border border-border-dim text-brand-500 shadow-inner">
+                                      <Table2 size={18} />
+                                   </div>
+                                   <div className="flex flex-col">
+                                      <span className="text-[11px] font-black text-text-main uppercase tracking-tight">{item?.name}</span>
+                                      <span className="text-[8px] text-text-dim uppercase font-bold">Unidad base: {item?.unit}</span>
+                                   </div>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                   <div className="flex flex-col items-end gap-1">
+                                      <span className="text-[8px] font-black text-text-dim uppercase">Cantidad</span>
+                                      <div className="flex items-center bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-sm">
+                                         <input 
+                                           type="number" 
+                                           step="0.001"
+                                           value={getDisplayQuantity(line.itemId, line.quantity, selectedProductId)} 
+                                           onChange={(e) => updateIngredientQuantity(selectedProductId, line.itemId, parseFloat(e.target.value) || 0)}
+                                           className="w-24 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none focus:bg-brand-500/5 transition-colors" 
+                                         />
+                                         <button 
+                                            onClick={() => {
+                                              const sub = getSubUnit(item?.unit || '');
+                                              if (sub) {
+                                                setRecipeDisplayUnits(prev => ({
+                                                  ...prev,
+                                                  [`${selectedProductId}-${line.itemId}`]: (recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit) === sub ? (item?.unit || '') : sub
+                                                }));
+                                              }
+                                            }}
+                                            className={cn(
+                                              "bg-bg-accent px-3 py-2 border-l border-border-dim text-[10px] font-bold transition-colors min-w-[40px]",
+                                              getSubUnit(item?.unit || '') ? "cursor-pointer hover:bg-brand-500 hover:text-black" : "cursor-default text-text-dim"
+                                            )}
+                                         >
+                                            {recipeDisplayUnits[`${selectedProductId}-${line.itemId}`] || item?.unit}
+                                         </button>
+                                      </div>
+                                   </div>
+                                   <div className="pt-5">
+                                     <button 
+                                       onClick={() => removeIngredientFromRecipe(selectedProductId, line.itemId)}
+                                       className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-red-500/10 rounded"
+                                       title="Eliminar insumo de receta"
+                                     >
+                                        <X size={16} />
+                                     </button>
+                                   </div>
+                                </div>
+                             </div>
+                           );
+                         })}
+                         
+                         <div className="pt-4 space-y-4">
+                            <div className="relative">
+                              <Plus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-500" />
+                              <select 
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    addIngredientToRecipe(selectedProductId, e.target.value);
+                                    e.target.value = '';
+                                  }
+                                }}
+                                className="w-full pl-9 pr-4 py-3 bg-bg-accent border-2 border-dashed border-border-dim rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 outline-none transition-all appearance-none cursor-pointer"
+                              >
+                                 <option value="">VINCULAR NUEVO INSUMO A ESTE PRODUCTO...</option>
+                                 {items.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
+                                   <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
+                                 ))}
+                              </select>
+                            </div>
+                         </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-12">
+                       <BookOpen size={48} className="text-border-dim mb-4" />
+                       <h3 className="text-lg font-black uppercase text-text-dim tracking-widest">Seleccione un producto</h3>
+                       <p className="text-[10px] text-text-dim/60 font-bold uppercase mt-2">Para ver y editar su receta</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-bg-sidebar border border-border-dim rounded-lg shadow-xl overflow-hidden flex flex-col h-[600px]">
+                <div className="p-4 border-b border-border-dim bg-bg-accent/20 flex justify-between items-center">
+                  <div className="relative w-64">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+                    <input 
+                      className="w-full pl-9 pr-4 py-2 bg-bg-sidebar border border-border-dim rounded text-[10px] font-black uppercase outline-none focus:border-brand-500" 
+                      placeholder="BUSCAR EN TODAS LAS RECETAS..." 
+                      onChange={(e) => setRecipeTableSearch(e.target.value)}
+                      value={recipeTableSearch}
+                    />
+                  </div>
+                  <div className="text-[10px] font-black text-brand-500 uppercase">
+                    {flattenedRecipes.length} INGREDIENTES CARGADOS
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto custom-scrollbar">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-bg-sidebar border-b border-border-dim">
+                      <tr>
+                        <th className="p-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Producto</th>
+                        <th className="p-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Insumo</th>
+                        <th className="p-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Cantidad</th>
+                        <th className="p-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Unidad</th>
+                        <th className="p-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim/50">
+                      {flattenedRecipes
+                        .filter(r => {
+                          if (!recipeTableSearch) return true;
+                          const p = products.find(prod => prod.id === r.productId);
+                          const i = items.find(item => item.id === r.itemId);
+                          const search = recipeTableSearch.toLowerCase();
+                          return p?.name.toLowerCase().includes(search) || i?.name.toLowerCase().includes(search);
+                        })
+                        .map((line, idx) => {
+                          const product = products.find(p => p.id === line.productId);
+                          const item = items.find(i => i.id === line.itemId);
+                          return (
+                            <tr key={`${line.productId}-${line.itemId}-${idx}`} className="hover:bg-bg-accent/40 transition-colors group">
+                              <td className="p-4">
+                                <p className="text-[10px] font-black uppercase text-text-main">{product?.name}</p>
+                                <p className="text-[8px] text-text-dim uppercase font-bold">{product?.category}</p>
+                              </td>
+                              <td className="p-4">
+                                <p className="text-[10px] font-black uppercase text-brand-500">{item?.name}</p>
+                              </td>
+                              <td className="p-4 text-center">
+                                <input 
+                                  type="number" 
+                                  step="0.001"
+                                  value={getDisplayQuantity(line.itemId, line.quantity, line.productId)} 
+                                  onChange={(e) => updateIngredientQuantity(line.productId, line.itemId, parseFloat(e.target.value) || 0)}
+                                  className="w-20 py-1 px-2 text-center text-[11px] font-mono font-black text-brand-500 bg-bg-sidebar border border-border-dim rounded outline-none focus:border-brand-500 transition-colors" 
+                                />
+                              </td>
+                              <td className="p-4 text-center">
+                                <button 
+                                  onClick={() => {
+                                    const sub = getSubUnit(item?.unit || '');
+                                    if (sub) {
+                                      setRecipeDisplayUnits(prev => ({
+                                        ...prev,
+                                        [`${line.productId}-${line.itemId}`]: (recipeDisplayUnits[`${line.productId}-${line.itemId}`] || item?.unit) === sub ? (item?.unit || '') : sub
+                                      }));
+                                    }
+                                  }}
+                                  className={cn(
+                                    "px-2 py-1 rounded text-[9px] font-black uppercase transition-all",
+                                    getSubUnit(item?.unit || '') ? "bg-bg-accent hover:bg-brand-500 hover:text-black cursor-pointer" : "text-text-dim cursor-default"
+                                  )}
+                                >
+                                  {recipeDisplayUnits[`${line.productId}-${line.itemId}`] || item?.unit}
+                                </button>
+                              </td>
+                              <td className="p-4 text-right">
+                                <button 
+                                  onClick={() => removeIngredientFromRecipe(line.productId, line.itemId)}
+                                  className="text-text-dim hover:text-red-500 transition-all p-2 hover:bg-red-500/10 rounded"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                  {flattenedRecipes.length === 0 && (
+                    <div className="p-12 text-center">
+                      <p className="text-[10px] text-text-dim font-black uppercase">No hay recetas cargadas aún.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 
