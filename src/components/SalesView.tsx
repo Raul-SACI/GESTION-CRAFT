@@ -313,13 +313,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       };
 
       data.forEach(row => {
-        // Find branch mapping
+        // Find branch mapping - be more flexible with names (e.g. "Barrio Norte" -> "CRAFT BARRIO NORTE")
         const excelBranch = getValue(row, 'Sucursal');
         let targetBranchId = selectedBranchId;
         if (excelBranch) {
-          const foundBranch = branches.find(b => 
-            b.name.toLowerCase().trim() === String(excelBranch).toLowerCase().trim()
-          );
+          const normalizedExcel = String(excelBranch).toLowerCase().trim();
+          const foundBranch = branches.find(b => {
+            const normalizedName = b.name.toLowerCase().trim();
+            return normalizedName === normalizedExcel || 
+                   normalizedName.includes(normalizedExcel) || 
+                   normalizedExcel.includes(normalizedName);
+          });
           if (foundBranch) targetBranchId = foundBranch.id;
         }
 
@@ -421,14 +425,18 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   const confirmManualImport = async (records: any[]) => {
     setLoading(true);
+    console.log('Inserting records:', records);
     try {
       const { error } = await supabase.from('sales').insert(records);
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase Error details:', error);
+        throw error;
+      }
       alert(`Importación exitosa: ${records.length} registros cargados.`);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error in manual import:', err);
-      alert('Error al guardar los registros importados.');
+      alert(`Error al guardar los registros importados: ${err.message || 'Error desconocido'}`);
     } finally {
       setLoading(false);
     }
