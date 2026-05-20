@@ -291,3 +291,14 @@ export interface ProductionStockControl {
   staffPurchases: number;
   finalExistence: number;
 }
+
+export interface DailyWastage {
+  id: string;
+  branchId: string;
+  date: string;
+  type: 'insumo' | 'producto';
+  referenceId: string;
+  quantity: number;
+  reason?: string;
+  cost?: number;
+}

@@ -39,7 +39,8 @@ import {
   Moon,
   Calculator,
   Factory,
-  ClipboardCheck
+  ClipboardCheck,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -81,6 +82,7 @@ const EstimatedCashFlowView = lazy(() => import('./components/EstimatedCashFlowV
 const PaymentScheduleView = lazy(() => import('./components/PaymentScheduleView'));
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
+const DecomisosView = lazy(() => import('./components/DecomisosView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
 const DocumentsView = lazy(() => import('./components/DocumentsView'));
@@ -395,6 +397,7 @@ function AppContent() {
     { id: 'vajilla', label: 'Vajilla', icon: Utensils },
     { id: 'horas', label: 'Carga de Horas', icon: Clock },
     { id: 'novedades', label: 'Novedades', icon: ClipboardList },
+    { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
     { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
     { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
   ];
@@ -944,6 +947,15 @@ function AppContent() {
               {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}
+              {activeTab === 'decomisos' && (
+                <DecomisosView 
+                  key="decomisos" 
+                  branches={branches} 
+                  selectedBranchId={selectedBranchId}
+                  items={items}
+                  products={products}
+                />
+              )}
               {activeTab === 'precios' && <PriceListView key="precios" />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
