@@ -319,7 +319,7 @@ function AppContent() {
     name: 'Administrador', 
     role: 'dueño' as UserRole, 
     branch: 'Todas las Sucursales',
-    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios']
+    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin']
   });
 
   // Sidebar Customization State
@@ -408,6 +408,7 @@ function AppContent() {
           supervision_banderas: Flag,
           papeles_administracion: FileText,
           precios: Tag,
+          performance_admin: Trophy,
           sucursales: Building2,
           usuarios: Users
         };
@@ -419,7 +420,27 @@ function AppContent() {
             icon: iconMap[item.id] || ListOrdered
           }));
         });
-        setMenuConfig(rehydrated);
+
+        // Merge with defaults to ensure new modules are visible even if a custom order was saved
+        const merged = { ...menuConfig };
+        Object.keys(rehydrated).forEach(section => {
+          if (merged[section]) {
+            // Start with rehydrated items
+            const newItems = [...rehydrated[section]];
+            // Find items in default config that are NOT in rehydrated
+            const defaultSectionItems = menuConfig[section];
+            defaultSectionItems.forEach(defItem => {
+              if (!newItems.find(ni => ni.id === defItem.id)) {
+                newItems.push(defItem);
+              }
+            });
+            merged[section] = newItems;
+          } else {
+            merged[section] = rehydrated[section];
+          }
+        });
+
+        setMenuConfig(merged);
       } catch (e) {
         console.error('Error loading menu config', e);
       }
