@@ -38,6 +38,8 @@ CREATE TABLE sales (
   orders INTEGER DEFAULT 0,
   covers INTEGER DEFAULT 0,
   projection NUMERIC DEFAULT 0,
+  week TEXT,
+  day_name TEXT,
   cash NUMERIC DEFAULT 0,
   card NUMERIC DEFAULT 0,
   qr NUMERIC DEFAULT 0,

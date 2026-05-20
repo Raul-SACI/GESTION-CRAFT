@@ -90,6 +90,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           orders: s.orders,
           covers: s.covers,
           projection: Number(s.projection || 0),
+          week: s.week || '',
+          dayName: s.day_name || '',
           cash: Number(s.cash || 0),
           card: Number(s.card || 0),
           qr: Number(s.qr || 0),
@@ -189,11 +191,64 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     }));
   };
 
-  // Calculate totals
+  // Calculate totals and group for table
   const filteredSales = useMemo(() => {
     if (selectedBranchId === 'all') return salesRecords;
     return salesRecords.filter(r => r.branchId === selectedBranchId);
   }, [salesRecords, selectedBranchId]);
+
+  const groupedDailySales = useMemo(() => {
+    const groups: Record<string, any> = {};
+    
+    filteredSales.forEach(record => {
+      const key = `${record.branchId}-${record.date}`;
+      if (!groups[key]) {
+        groups[key] = {
+          id: key,
+          branchId: record.branchId,
+          date: record.date,
+          week: record.week || '',
+          dayName: record.dayName || '',
+          cash: 0,
+          card: 0,
+          qr: 0,
+          iva: 0,
+          gross: 0,
+          net: 0,
+          orders: {
+            'Turno Mañana': 0,
+            'Turno Tarde': 0,
+            'Pedidos Ya Restó': 0,
+            'Pedidos Ya Café': 0
+          },
+          covers: {
+            'Turno Mañana': 0,
+            'Turno Tarde': 0
+          }
+        };
+      }
+      
+      const g = groups[key];
+      g.gross += record.pesos;
+      g.net += record.netSales;
+      
+      if (record.cash) g.cash += record.cash;
+      if (record.card) g.card += record.card;
+      if (record.qr) g.qr += record.qr;
+      if (record.iva) g.iva += record.iva;
+      if (record.week) g.week = record.week;
+      if (record.dayName) g.dayName = record.dayName;
+      
+      if (g.orders.hasOwnProperty(record.type)) {
+        g.orders[record.type] = record.orders;
+      }
+      if (g.covers.hasOwnProperty(record.type)) {
+        g.covers[record.type] = record.covers;
+      }
+    });
+
+    return Object.values(groups).sort((a, b) => b.date.localeCompare(a.date));
+  }, [filteredSales]);
 
   const totals = useMemo(() => {
     const init = {
@@ -412,6 +467,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               orders: t.orders,
               covers: t.covers,
               projection: totalGross * 30,
+              week: String(getValue(row, 'Semana') || ''),
+              day_name: String(getValue(row, 'Día') || ''),
               cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo')) : 0,
               card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas')) : 0,
               qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros')) : 0,
@@ -780,93 +837,77 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         <div className="lg:col-span-3">
           <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
             <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
-               <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas</h3>
+               <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas Diario</h3>
                {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
             </div>
-            <table className="w-full border-collapse text-[10px]">
-              <thead>
-                <tr className="bg-bg-accent border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
-                  <th className="px-6 py-3">Fecha / Sucursal</th>
-                  <th className="px-4 py-3">Canal</th>
-                  <th className="px-4 py-3 text-right">Bruto</th>
-                  <th className="px-4 py-3 text-right">Neto</th>
-                  <th className="px-4 py-3 text-center">Tickets</th>
-                  <th className="px-4 py-3 text-center">Cubiertos</th>
-                  <th className="px-4 py-3 text-right text-brand-500">Proyección</th>
-                  <th className="px-6 py-3"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-dim">
-                {filteredSales.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
-                      No hay registros cargados para este periodo
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-[9px]">
+                <thead>
+                  <tr className="bg-bg-accent border-b border-border-dim text-left text-text-dim font-black uppercase tracking-widest">
+                    <th className="px-4 py-3 min-w-[120px]">Sucursal</th>
+                    <th className="px-2 py-3">Semana</th>
+                    <th className="px-2 py-3">Día</th>
+                    <th className="px-4 py-3">Fecha</th>
+                    <th className="px-3 py-3 text-right">Efectivo</th>
+                    <th className="px-3 py-3 text-right">Tarjetas</th>
+                    <th className="px-3 py-3 text-right">QR/Otros</th>
+                    <th className="px-3 py-3 text-right">V. Brutas</th>
+                    <th className="px-3 py-3 text-right">V. Netas</th>
+                    <th className="px-3 py-3 text-right">IVA</th>
+                    <th className="px-3 py-3 text-center">Ord. Mañana</th>
+                    <th className="px-3 py-3 text-center">Ord. Tarde</th>
+                    <th className="px-3 py-3 text-center">PY Resto</th>
+                    <th className="px-3 py-3 text-center">PY Café</th>
+                    <th className="px-2 py-3 text-center">Cub.M</th>
+                    <th className="px-2 py-3 text-center">Cub.T</th>
+                    <th className="px-4 py-3"></th>
                   </tr>
-                ) : (
-                  filteredSales.map((item) => (
-                    <tr key={item.id} className="hover:bg-bg-accent/50 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-text-main uppercase">{item.date}</span>
-                          <span className="text-[9px] text-text-dim font-black uppercase tracking-tighter">
-                            {branches.find(b => b.id === item.branchId)?.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-[2px] font-bold text-[9px] uppercase tracking-tighter border",
-                          item.type.includes('Pedidos Ya') 
-                            ? "bg-red-500/10 text-red-400 border-red-500/20" 
-                            : "bg-brand-500/10 text-brand-500 border-brand-500/20"
-                        )}>
-                          {item.type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono font-bold text-text-main">
-                        ${item.pesos.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono font-bold text-teal-400">
-                        ${item.netSales?.toLocaleString() || 0}
-                      </td>
-                      <td className="px-4 py-4 text-center font-mono text-text-dim">
-                        {item.orders}
-                      </td>
-                      <td className="px-4 py-4 text-center font-mono text-text-dim">
-                        {item.type.includes('Pedidos Ya') ? (
-                          <span className="opacity-20">-</span>
-                        ) : (
-                          item.covers
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono font-bold text-brand-500">
-                        ${item.projection?.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2 text-text-dim/40">
-                          {item.productRanking && item.productRanking.length > 0 && (
-                             <button 
-                               title="Ver Ranking de Productos"
-                               className="hover:text-brand-500 transition-colors"
-                               onClick={() => alert(`Ranking para ${item.date}:\n${item.productRanking?.map(r => {
-                                 const p = products.find(prod => prod.id === r.productId);
-                                 return `${p?.name}: ${r.quantity}u - $${r.amount}`;
-                               }).join('\n')}`)}
-                             >
-                                <BarChart3 size={14} />
-                             </button>
-                          )}
-                          <button className="hover:text-text-main transition-colors">
-                            <MoreVertical size={14} />
-                          </button>
-                        </div>
+                </thead>
+                <tbody className="divide-y divide-border-dim font-medium">
+                  {groupedDailySales.length === 0 ? (
+                    <tr>
+                      <td colSpan={17} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                        No hay registros cargados para este periodo
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    groupedDailySales.map((day) => (
+                      <tr key={day.id} className="hover:bg-bg-accent/50 transition-colors group">
+                        <td className="px-4 py-3 font-black text-brand-500 uppercase">
+                          {branches.find(b => b.id === day.branchId)?.name}
+                        </td>
+                        <td className="px-2 py-3 text-text-dim uppercase">{day.week}</td>
+                        <td className="px-2 py-3 text-text-dim uppercase">{day.dayName}</td>
+                        <td className="px-4 py-3 font-mono text-text-main">{day.date}</td>
+                        <td className="px-3 py-3 text-right font-mono">${day.cash.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right font-mono">${day.card.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right font-mono">${day.qr.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right font-mono font-black text-text-main">
+                          ${day.gross.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-black text-teal-400">
+                          ${day.net.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-text-dim/70">
+                          ${day.iva.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-center font-mono">{day.orders['Turno Mañana']}</td>
+                        <td className="px-3 py-3 text-center font-mono">{day.orders['Turno Tarde']}</td>
+                        <td className="px-3 py-3 text-center font-mono text-red-400">{day.orders['Pedidos Ya Restó']}</td>
+                        <td className="px-3 py-3 text-center font-mono text-red-500">{day.orders['Pedidos Ya Café']}</td>
+                        <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Mañana']}</td>
+                        <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Tarde']}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button className="text-text-dim/40 hover:text-text-main transition-colors">
+                            <MoreVertical size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 

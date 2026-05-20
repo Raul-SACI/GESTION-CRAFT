@@ -57,6 +57,8 @@ export interface SalesData {
   covers: number; // Cubiertos
   type: SaleType;
   projection?: number; // Monthly projection calculated on entry
+  week?: string; // Week number/name from import
+  dayName?: string; // Day name (Mie, Jue, etc)
   productRanking?: ProductRankingEntry[];
   // Payment Breakdown (Optional, specifically for imports)
   cash?: number;
