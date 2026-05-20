@@ -302,59 +302,136 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-      const newRecordsFromExcel: SalesData[] = data.map(row => {
-        const type = row.Canal || row.Type || 'Turno Mañana';
-        // Try to find branch by name if provided in Excel
+      const recordsToInsert: any[] = [];
+
+      data.forEach(row => {
+        // Find branch mapping
         let targetBranchId = selectedBranchId;
         if (row.Sucursal) {
-          const foundBranch = branches.find(b => b.name.toLowerCase() === String(row.Sucursal).toLowerCase());
+          const foundBranch = branches.find(b => b.name.toLowerCase().trim() === String(row.Sucursal).toLowerCase().trim());
           if (foundBranch) targetBranchId = foundBranch.id;
         }
 
-        return {
-          id: Math.random().toString(36).substr(2, 9),
-          branchId: targetBranchId,
-          date: row.Fecha || row.Date || entryDate,
-          type: type as SaleType,
-          pesos: Number(row.Bruto || row.Pesos || row.Amount || 0),
-          netSales: Number(row.Neto || row.NetSales || 0),
-          orders: Number(row.Tickets || row.Orders || 0),
-          covers: type.includes('Pedidos Ya') ? 0 : Number(row.Cubiertos || row.Covers || 0),
-          projection: Number(row.Bruto || row.Pesos || row.Amount || 0) * 30
+        if (targetBranchId === 'all') {
+          console.warn('Skipping row: Branch not identified', row.Sucursal);
+          return;
+        }
+
+        // Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
+        let date = row.Fecha || row.Date;
+        if (typeof date === 'number') {
+          // Excel date serial
+          const dt = new Date((date - (25567 + 2)) * 86400 * 1000);
+          date = dt.toISOString().split('T')[0];
+        } else if (typeof date === 'string' && date.includes('-')) {
+          const parts = date.split('-');
+          if (parts[0].length === 2) {
+             // DD-MM-YYYY -> YYYY-MM-DD
+             date = `${parts[2]}-${parts[1]}-${parts[0]}`;
+          }
+        }
+
+        // Clean currency values
+        const parseCurrency = (val: any) => {
+          if (typeof val === 'number') return val;
+          if (typeof val !== 'string') return 0;
+          return Number(val.replace(/[$\s.]/g, '').replace(',', '.'));
         };
+
+        const totalGross = parseCurrency(row['Ventas Brutas'] || row.Bruto || row.pesos || 0);
+        const totalNet = parseCurrency(row['Ventas Netas'] || row.Neto || row.netSales || 0);
+        
+        const ordersMañana = Number(row['Ordenes Turno Mañana'] || 0);
+        const ordersTarde = Number(row['Ordenes Turno Tarde'] || 0);
+        const ordersPYResto = Number(row['Ordenes Pedidos Ya Resto'] || 0);
+        const ordersPYCafe = Number(row['Ordenes Pedidos Ya Café'] || 0);
+        const totalOrders = ordersMañana + ordersTarde + ordersPYResto + ordersPYCafe;
+
+        const coversMañana = Number(row['Cubiertos Turno Mañana'] || 0);
+        const coversTarde = Number(row['Cubiertos Turno Tarde'] || 0);
+
+        // If we have total money but it's not split per shift in Excel,
+        // we split it proportionally based on orders to maintain consistency.
+        const splitMoney = (total: number, shiftOrders: number) => {
+          if (totalOrders === 0) return 0;
+          return (total / totalOrders) * shiftOrders;
+        };
+
+        const types: { type: SaleType, orders: number, covers: number }[] = [
+          { type: 'Turno Mañana', orders: ordersMañana, covers: coversMañana },
+          { type: 'Turno Tarde', orders: ordersTarde, covers: coversTarde },
+          { type: 'Pedidos Ya Restó', orders: ordersPYResto, covers: 0 },
+          { type: 'Pedidos Ya Café', orders: ordersPYCafe, covers: 0 }
+        ];
+
+        types.forEach(t => {
+          if (t.orders > 0 || totalGross > 0) {
+            const shiftGross = splitMoney(totalGross, t.orders);
+            const shiftNet = splitMoney(totalNet, t.orders);
+
+            recordsToInsert.push({
+              branch_id: targetBranchId,
+              date: date,
+              type: t.type,
+              pesos: t.orders === 0 && t.type === 'Turno Mañana' ? totalGross : shiftGross, // Fallback to first shift if no orders specified
+              net_sales: t.orders === 0 && t.type === 'Turno Mañana' ? totalNet : shiftNet,
+              orders: t.orders,
+              covers: t.covers,
+              projection: totalGross * 30, // Monthly projection logic
+              product_ranking: []
+            });
+          }
+        });
       });
 
-      setSalesRecords(prev => [...newRecordsFromExcel, ...prev]);
+      if (recordsToInsert.length > 0) {
+        confirmManualImport(recordsToInsert);
+      }
     };
     reader.readAsBinaryString(file);
+  };
+
+  const confirmManualImport = async (records: any[]) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('sales').insert(records);
+      if (error) throw error;
+      alert(`Importación exitosa: ${records.length} registros cargados.`);
+      fetchData();
+    } catch (err) {
+      console.error('Error in manual import:', err);
+      alert('Error al guardar los registros importados.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExportTemplate = () => {
     const templateData = [
       {
-        Fecha: new Date().toISOString().split('T')[0],
-        Sucursal: branches.find(b => b.id === selectedBranchId)?.name || 'NOMBRE SUCURSAL',
-        Canal: 'Turno Mañana',
-        Bruto: 150000,
-        Neto: 135000,
-        Tickets: 45,
-        Cubiertos: 80
-      },
-      {
-        Fecha: new Date().toISOString().split('T')[0],
-        Sucursal: branches.find(b => b.id === selectedBranchId)?.name || 'NOMBRE SUCURSAL',
-        Canal: 'Pedidos Ya Restó',
-        Bruto: 45000,
-        Neto: 38000,
-        Tickets: 12,
-        Cubiertos: 0
+        Sucursal: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
+        Semana: 'Semana 1',
+        Día: 'Mie',
+        Fecha: '01-04-2026',
+        Efectivo: 1513209.04,
+        Tarjetas: 2744115.00,
+        'QR y Otros': 1744190.00,
+        'Ventas Brutas': 6001514.04,
+        'Ventas Netas': 5218317.30,
+        IVA: 783196.74,
+        'Ordenes Turno Mañana': 10,
+        'Ordenes Turno Tarde': 15,
+        'Ordenes Pedidos Ya Resto': 2,
+        'Ordenes Pedidos Ya Café': 1,
+        'Cubiertos Turno Mañana': 100,
+        'Cubiertos Turno Tarde': 150
       }
     ];
 
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Modelo Ventas");
-    XLSX.writeFile(wb, "Modelo_Carga_Ventas.xlsx");
+    XLSX.utils.book_append_sheet(wb, ws, "Modelo Carga Mensual");
+    XLSX.writeFile(wb, "Modelo_Carga_Ventas_Completo.xlsx");
   };
 
   return (

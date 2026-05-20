@@ -58,6 +58,11 @@ export interface SalesData {
   type: SaleType;
   projection?: number; // Monthly projection calculated on entry
   productRanking?: ProductRankingEntry[];
+  // Payment Breakdown (Optional, specifically for imports)
+  cash?: number;
+  card?: number;
+  qr?: number;
+  iva?: number;
 }
 
 // 2. Consumo (CMV Mensual)
