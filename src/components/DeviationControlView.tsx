@@ -121,10 +121,16 @@ export default function DeviationControlView({
     }
   };
 
-  const daysInMonth = () => {
+  const getWeeks = () => {
     const year = parseInt(selectedMonth.split('-')[0]);
     const month = parseInt(selectedMonth.split('-')[1]);
-    return new Date(year, month, 0).getDate();
+    const lastDay = new Date(year, month, 0).getDate();
+    return [
+      { id: 1, label: 'Semana 1', range: '(01-07)', date: `${selectedMonth}-01` },
+      { id: 2, label: 'Semana 2', range: '(08-14)', date: `${selectedMonth}-08` },
+      { id: 3, label: 'Semana 3', range: '(15-21)', date: `${selectedMonth}-15` },
+      { id: 4, label: 'Semana 4', range: '(22-Fin)', date: `${selectedMonth}-22` },
+    ];
   };
 
   // New CRUD state
@@ -183,7 +189,7 @@ export default function DeviationControlView({
       }, { onConflict: 'branch_id,month' });
 
     if (!error) {
-      alert(`Control de desvíos para ${selectedMonth} confirmado exitosamente. Ahora puede cargar la planilla diaria.`);
+      alert(`Control de desvíos para ${selectedMonth} confirmado exitosamente. Ahora puede cargar la planilla semanal.`);
     } else {
       console.error('Error saving monthly control:', error);
       alert(`Error de validación (RLS) en Supabase: ${error.message}. 
@@ -348,7 +354,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
         
         <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm self-start md:self-center">
           <TabButton active={activeTab === 'comparativo'} onClick={() => setActiveTab('comparativo')} icon={<BarChart3 size={14} />} label="Resultados" />
-          <TabButton active={activeTab === 'planilla'} onClick={() => setActiveTab('planilla')} icon={<Table2 size={14} />} label="Planilla Diaria" />
+          <TabButton active={activeTab === 'planilla'} onClick={() => setActiveTab('planilla')} icon={<Table2 size={14} />} label="Planilla Semanal" />
           <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector de Insumos" />
           <TabButton active={activeTab === 'recetas'} onClick={() => setActiveTab('recetas')} icon={<BookOpen size={14} />} label="Recetas" />
           <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
@@ -438,8 +444,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
              <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
                <div className="p-4 bg-bg-accent border-b border-border-dim flex justify-between items-center whitespace-nowrap">
                   <div>
-                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest italic">Planilla de Carga Administrativa - {selectedMonth}</h3>
-                    <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Compras, Decomisos y Ventas Teóricas (Admin) | EF, Préstamos y Consumo (Sucursal)</p>
+                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest italic">Planilla de Carga Administrativa (Semanal) - {selectedMonth}</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Semanas: S1 (1-7), S2 (8-14), S3 (15-21), S4 (22-Fin)</p>
                   </div>
                   <div className="flex gap-4 items-center">
                     <div className="flex items-center gap-2">
@@ -457,7 +463,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                  <table className="w-full border-collapse">
                    <thead className="sticky top-0 z-20 bg-bg-sidebar">
                      <tr className="bg-bg-sidebar border-b border-border-dim text-[9px] font-black uppercase text-text-dim">
-                       <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim w-32 min-w-[120px]">Fecha</th>
+                       <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim w-32 min-w-[120px]">Semana</th>
                        {validControlledIds.map(id => {
                          const item = items.find(i => i.id === id);
                          return (
@@ -483,13 +489,15 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-border-dim">
-                     {Array.from({ length: daysInMonth() }).map((_, i) => {
-                       const dayNum = i + 1;
-                       const dateStr = `${selectedMonth}-${String(dayNum).padStart(2, '0')}`;
+                     {getWeeks().map((week) => {
+                       const dateStr = week.date;
                        return (
                          <tr key={dateStr} className="hover:bg-bg-accent/30 transition-colors text-[10px]">
-                           <td className="px-4 py-2 font-mono font-bold text-text-dim sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim">
-                             {String(dayNum).padStart(2, '0')} / {selectedMonth.split('-')[1]}
+                           <td className="px-4 py-6 font-mono font-bold text-text-dim sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim text-center">
+                              <div className="flex flex-col items-center">
+                                <span className="text-brand-500 font-black uppercase text-[11px]">{week.label}</span>
+                                <span className="text-[8px] opacity-60 font-black">{week.range}</span>
+                              </div>
                            </td>
                            {validControlledIds.map(id => {
                              const log = dailyLogs.find(l => l.date === dateStr && l.itemId === id) || { 
