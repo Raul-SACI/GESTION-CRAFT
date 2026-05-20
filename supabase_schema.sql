@@ -350,8 +350,15 @@ ALTER PUBLICATION supabase_realtime ADD TABLE daily_stock_logs;
 ALTER TABLE daily_stock_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public access for daily_stock_logs" ON daily_stock_logs FOR ALL USING (true) WITH CHECK (true);
 
--- 19. Inventory Week Closures
-CREATE TABLE inventory_week_closures (
+-- Asegurar que la tabla sales tiene todas las columnas necesarias
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS projection NUMERIC DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS cash NUMERIC DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS card NUMERIC DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS qr NUMERIC DEFAULT 0;
+ALTER TABLE sales ADD COLUMN IF NOT EXISTS iva NUMERIC DEFAULT 0;
+
+-- 19. Inventory Week Closures (Fijar tipos)
+CREATE TABLE IF NOT EXISTS inventory_week_closures (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,
   month TEXT NOT NULL, -- YYYY-MM
@@ -360,12 +367,20 @@ CREATE TABLE inventory_week_closures (
   UNIQUE(branch_id, month, week_number)
 );
 
-ALTER PUBLICATION supabase_realtime ADD TABLE inventory_week_closures;
+-- Publicación (Seguro)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'inventory_week_closures') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE inventory_week_closures;
+    END IF;
+END $$;
+
 ALTER TABLE inventory_week_closures ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public access for inventory_week_closures" ON inventory_week_closures;
 CREATE POLICY "Allow public access for inventory_week_closures" ON inventory_week_closures FOR ALL USING (true) WITH CHECK (true);
 
 -- 20. Product Rankings
-CREATE TABLE product_rankings (
+CREATE TABLE IF NOT EXISTS product_rankings (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   branch_id TEXT NOT NULL,
   date DATE NOT NULL,
@@ -376,9 +391,12 @@ CREATE TABLE product_rankings (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-ALTER PUBLICATION supabase_realtime ADD TABLE product_rankings;
-ALTER TABLE product_rankings ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow public access for product_rankings" ON product_rankings FOR ALL USING (true) WITH CHECK (true);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'product_rankings') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE product_rankings;
+    END IF;
+END $$;
 
 -- also Ensure inventory_logs has public policy
 ALTER TABLE inventory_logs ENABLE ROW LEVEL SECURITY;

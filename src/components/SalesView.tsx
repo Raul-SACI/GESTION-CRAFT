@@ -85,12 +85,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           branchId: s.branch_id,
           date: s.date,
           type: s.type as SaleType,
-          pesos: s.pesos,
-          netSales: s.net_sales,
+          pesos: Number(s.pesos),
+          netSales: Number(s.net_sales),
           orders: s.orders,
           covers: s.covers,
-          projection: s.projection,
-          productRanking: s.product_ranking
+          projection: Number(s.projection || 0),
+          cash: Number(s.cash || 0),
+          card: Number(s.card || 0),
+          qr: Number(s.qr || 0),
+          iva: Number(s.iva || 0),
+          productRanking: s.product_ranking || []
         })));
       }
 
@@ -136,6 +140,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           orders: v.orders,
           covers: v.covers,
           projection: v.pesos * 30,
+          cash: 0, // Manual entries could eventually have fields for these too
+          card: 0,
+          qr: 0,
+          iva: 0,
           product_ranking: type === 'Turno Mañana' ? productRanking : []
         };
       }).filter(r => r.pesos > 0 || r.orders > 0);
