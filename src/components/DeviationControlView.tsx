@@ -266,9 +266,7 @@ export default function DeviationControlView({
         });
 
         if (newRecipes.length > 0) {
-          // Use upsert or delete current and insert? 
-          // For simplicity, let's insert and on conflict do nothing or update if we have PK
-          const { error } = await supabase.from('recipes').upsert(newRecipes, { onConflict: 'product_id,item_id' });
+          const { error } = await supabase.from('recipes').insert(newRecipes);
           if (error) throw error;
           alert(`Éxito: ${newRecipes.length} líneas de receta importadas.`);
         }
