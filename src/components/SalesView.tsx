@@ -131,6 +131,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const handleSave = async () => {
     setLoading(true);
     try {
+      // Delete existing records for this branch/date to avoid duplicates when editing
+      await supabase.from('sales').delete().eq('branch_id', branchId).eq('date', entryDate);
+
       const newRecords = SALE_TYPES.map(type => {
         const v = values[type];
         return {
@@ -250,6 +253,46 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     return Object.values(groups).sort((a, b) => b.date.localeCompare(a.date));
   }, [filteredSales]);
 
+  const handleEditGroup = (day: any) => {
+    setEntryDate(day.date);
+    setBranchId(day.branchId);
+    setValues({
+      'Turno Mañana': { 
+        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana')?.pesos || 0,
+        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana')?.netSales || 0,
+        orders: day.orders['Turno Mañana'],
+        covers: day.covers['Turno Mañana']
+      },
+      'Turno Tarde': { 
+        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Tarde')?.pesos || 0,
+        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Tarde')?.netSales || 0,
+        orders: day.orders['Turno Tarde'],
+        covers: day.covers['Turno Tarde']
+      },
+      'Pedidos Ya Restó': { 
+        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Restó')?.pesos || 0,
+        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Restó')?.netSales || 0,
+        orders: day.orders['Pedidos Ya Restó'],
+        covers: 0
+      },
+      'Pedidos Ya Café': { 
+        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Café')?.pesos || 0,
+        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Café')?.netSales || 0,
+        orders: day.orders['Pedidos Ya Café'],
+        covers: 0
+      }
+    });
+    // For ranking, we take it from the morning shift if available
+    const morningShift = filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana');
+    if (morningShift?.productRanking) {
+      setProductRanking(morningShift.productRanking);
+    }
+    setIsAdding(true);
+    // Note: handleSave currently uses .insert(). We should probably delete old ones first in handleSave if we are "editing"
+    // but the simplest is to let the user delete manually or update the logic.
+    // I'll make handleSave use a unique constraint or delete before insert.
+  };
+
   const totals = useMemo(() => {
     const init = {
       'Turno Mañana': 0,
@@ -259,17 +302,41 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       totalGross: 0,
       totalNet: 0,
       orders: 0,
-      covers: 0
+      covers: 0,
+      cash: 0,
+      card: 0,
+      qr: 0,
+      ordersByType: {
+        'Turno Mañana': 0,
+        'Turno Tarde': 0,
+        'Pedidos Ya Restó': 0,
+        'Pedidos Ya Café': 0
+      },
+      coversByType: {
+        'Turno Mañana': 0,
+        'Turno Tarde': 0
+      }
     };
     
     return filteredSales.reduce((acc, curr) => {
       acc[curr.type] += curr.pesos;
-      if (curr.type === 'Turno Mañana' || curr.type === 'Turno Tarde') {
-        acc.totalGross += curr.pesos;
-        acc.totalNet += curr.netSales || 0;
-      }
+      // All records contribute to gross/net totals
+      acc.totalGross += curr.pesos;
+      acc.totalNet += curr.netSales || 0;
+      
       acc.orders += curr.orders;
       acc.covers += curr.covers;
+
+      // Sum payments (only stored in Turno Mañana records to avoid duplication)
+      acc.cash += curr.cash || 0;
+      acc.card += curr.card || 0;
+      acc.qr += curr.qr || 0;
+
+      acc.ordersByType[curr.type] += curr.orders;
+      if (curr.type === 'Turno Mañana' || curr.type === 'Turno Tarde') {
+        acc.coversByType[curr.type] += curr.covers;
+      }
+
       return acc;
     }, init);
   }, [filteredSales]);
@@ -369,7 +436,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
       // Helper to find a value by key ignoring case and multiple spaces
       const getValue = (row: any, keyPattern: string) => {
-        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+        const normalize = (s: string) => s.toLowerCase()
+          .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // Remove accents
+          .replace(/\s+/g, ' ')
+          .trim();
         const target = normalize(keyPattern);
         const rowKey = Object.keys(row).find(k => normalize(k) === target);
         return rowKey ? row[rowKey] : undefined;
@@ -787,26 +857,74 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         </div>
       )}
 
-      {/* Stats Summary - Totales por Canal */}
+      {/* Stats Summary - New Layout according to mappings */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Row 1: Payment Methods */}
+        <div className="bg-bg-sidebar border border-emerald-500/20 p-5 rounded group hover:border-emerald-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-emerald-500">Venta Total en Efectivo</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            ${totals.cash.toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-bg-sidebar border border-blue-500/20 p-5 rounded group hover:border-blue-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-blue-500">Venta Total con Tarjetas</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            ${totals.card.toLocaleString()}
+          </p>
+        </div>
+        <div className="bg-bg-sidebar border border-indigo-500/20 p-5 rounded group hover:border-indigo-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-indigo-500">Venta Total con Otros Medios</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            ${totals.qr.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {SALE_TYPES.map(type => (
-          <div key={type} className="bg-bg-sidebar border border-border-dim p-5 rounded group hover:border-brand-500/50 transition-all">
-            <p className={cn(
-              "text-[9px] font-black uppercase tracking-[0.2em] mb-2",
-              type.includes('Pedidos Ya') ? "text-red-400" : "text-brand-500"
-            )}>
-              {type}
+        {/* Row 2: Operational Stats per Type */}
+        <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded group hover:border-brand-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-brand-500">Turno Mañana</p>
+          <div className="flex flex-col">
+            <p className="text-lg font-mono font-black text-text-main leading-tight italic">
+              {totals.ordersByType['Turno Mañana']} <span className="text-[9px] opacity-40 not-italic uppercase">Ordenes</span>
             </p>
-            <p className="text-xl font-mono font-black text-text-main italic">
-              ${totals[type].toLocaleString()}
+            <p className="text-[10px] font-mono text-text-dim/70">
+              {totals.coversByType['Turno Mañana']} <span className="opacity-40 uppercase">Cubiertos</span>
             </p>
           </div>
-        ))}
+        </div>
+
+        <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded group hover:border-brand-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-brand-500">Turno Tarde</p>
+          <div className="flex flex-col">
+            <p className="text-lg font-mono font-black text-text-main leading-tight italic">
+              {totals.ordersByType['Turno Tarde']} <span className="text-[9px] opacity-40 not-italic uppercase">Ordenes</span>
+            </p>
+            <p className="text-[10px] font-mono text-text-dim/70">
+              {totals.coversByType['Turno Tarde']} <span className="opacity-40 uppercase">Cubiertos</span>
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-bg-sidebar border border-red-500/20 p-5 rounded group hover:border-red-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-400">Ordenes Pedidos Ya Resto</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            {totals.ordersByType['Pedidos Ya Restó']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
+          </p>
+        </div>
+
+        <div className="bg-bg-sidebar border border-red-500/20 p-5 rounded group hover:border-red-500/50 transition-all">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-500">Ordenes Pedidos Ya Café</p>
+          <p className="text-xl font-mono font-black text-text-main italic">
+            {totals.ordersByType['Pedidos Ya Café']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Row 3: Financial Totals */}
         <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded relative overflow-hidden group">
-          <div className="absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform">
+          <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
             <TrendingUp size={80} className="text-brand-500" />
           </div>
           <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Ventas Brutas Totales</p>
@@ -815,12 +933,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           </div>
         </div>
         <div className="bg-bg-sidebar border border-teal-500/20 p-5 rounded relative overflow-hidden group">
-          <div className="absolute -right-2 -bottom-2 opacity-10 group-hover:scale-110 transition-transform">
+          <div className="absolute -right-2 -bottom-2 opacity-5 group-hover:scale-110 transition-transform">
             <Calculator size={80} className="text-teal-500" />
           </div>
           <p className="text-[9px] font-black text-text-dim uppercase tracking-[0.2em] mb-2">Ventas Netas Totales</p>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-mono font-black text-teal-500">${totals.totalNet.toLocaleString()}</p>
+            <p className="text-2xl font-mono font-black text-teal-400">${totals.totalNet.toLocaleString()}</p>
           </div>
         </div>
         <div className="bg-bg-sidebar border border-border-dim p-5 rounded">
@@ -898,9 +1016,37 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                         <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Mañana']}</td>
                         <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Tarde']}</td>
                         <td className="px-4 py-3 text-right">
-                          <button className="text-text-dim/40 hover:text-text-main transition-colors">
-                            <MoreVertical size={14} />
-                          </button>
+                          <div className="flex items-center justify-end gap-1">
+                            <button 
+                              onClick={() => handleEditGroup(day)}
+                              className="text-text-dim/40 hover:text-brand-500 transition-colors p-1"
+                              title="Editar"
+                            >
+                              <FileUp size={14} />
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                if (confirm('¿Está seguro de eliminar toda la carga para esta fecha y sucursal?')) {
+                                  try {
+                                    const { error } = await supabase
+                                      .from('sales')
+                                      .delete()
+                                      .eq('branch_id', day.branchId)
+                                      .eq('date', day.date);
+                                    if (error) throw error;
+                                    fetchData();
+                                  } catch (err) {
+                                    console.error('Error deleting record:', err);
+                                    alert('Error al eliminar los registros.');
+                                  }
+                                }
+                              }}
+                              className="text-text-dim/40 hover:text-red-500 transition-colors p-1"
+                              title="Eliminar"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
