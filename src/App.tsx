@@ -14,6 +14,7 @@ import {
   Star, 
   ClipboardList, 
   Tag,
+  Trophy,
   Bell,
   Search,
   ChevronRight,
@@ -87,6 +88,8 @@ const PaymentScheduleView = lazy(() => import('./components/PaymentScheduleView'
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
+const PerformanceView = lazy(() => import('./components/PerformanceView'));
+const PerformanceAdminView = lazy(() => import('./components/PerformanceAdminView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
 const DocumentsView = lazy(() => import('./components/DocumentsView'));
@@ -94,7 +97,7 @@ const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
 
-import { PerformanceView, NewsView } from './components/ExtraViews';
+import { NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
 
 // --- MOCK DATA ---
@@ -357,6 +360,7 @@ function AppContent() {
       { id: 'ventas', label: 'Ventas', icon: TrendingUp },
       { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
+      { id: 'performance_admin', label: 'Configuración de Premios', icon: Trophy },
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
       { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
@@ -741,6 +745,12 @@ function AppContent() {
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                 />
+              )}
+              {activeTab === 'desempeño' && (
+                <PerformanceView key="desempeño" branches={branches} selectedBranchId={selectedBranchId} />
+              )}
+              {activeTab === 'performance_admin' && (
+                <PerformanceAdminView branches={branches} selectedBranchId={selectedBranchId} />
               )}
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} />}

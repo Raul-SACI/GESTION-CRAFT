@@ -126,6 +126,42 @@ export interface StockItemControl {
 }
 
 // 5. Desempeño
+export interface PerformanceTargets {
+  id: string;
+  branchId: string;
+  month: string; // YYYY-MM
+  targetCmv: number; // e.g. 28.5 (percent)
+  targetStockDeviation: number; // e.g. 1.5 (percent)
+  targetHourDeviation: number; // e.g. 5 (hours)
+  targetGoogleScore: number; // e.g. 4.5
+  targetPedidosYaScore: number; // e.g. 4.7
+  salesGoal: number; // in pesos
+  bonusPercentage: number; // % over sales if goal met
+  redFlagPenalty: number; // amount to deduct per red flag
+}
+
+export interface PerformanceResult {
+  id: string;
+  branchId: string;
+  month: string;
+  actualCmv: number;
+  actualStockDeviation: number;
+  actualHourDeviation: number;
+  actualGoogleScore: number;
+  actualPedidosYaScore: number;
+  actualSales: number;
+  redFlagsCount: number;
+  calculatedBonus: number;
+  isAchieved: {
+    cmv: boolean;
+    stock: boolean;
+    hours: boolean;
+    google: boolean;
+    pedidosYa: boolean;
+    sales: boolean;
+  };
+}
+
 export interface PerformanceData {
   id: string;
   branchId: string;
