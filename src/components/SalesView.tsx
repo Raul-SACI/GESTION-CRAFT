@@ -167,7 +167,18 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         };
       }).filter(r => r.pesos > 0 || r.orders > 0);
 
-      const { error } = await supabase.from('sales').insert(newRecords);
+      let { error } = await supabase.from('sales').insert(newRecords);
+
+      if (error && (error.message.includes('day_name') || error.message.includes('week'))) {
+        console.warn('Retrying save without day_name/week columns due to schema cache error...');
+        const cleaned = newRecords.map(r => {
+          const { day_name, week, ...rest } = r;
+          return rest;
+        });
+        const result = await supabase.from('sales').insert(cleaned);
+        error = result.error;
+      }
+
       if (error) throw error;
 
       setIsAdding(false);
@@ -625,9 +636,20 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   const confirmManualImport = async (records: any[]) => {
     setLoading(true);
-    console.log('Inserting records:', records);
     try {
-      const { error } = await supabase.from('sales').insert(records);
+      // Use tolerant insert to handle potential schema cache issues with new columns
+      let { error } = await supabase.from('sales').insert(records);
+      
+      if (error && (error.message.includes('day_name') || error.message.includes('week'))) {
+        console.warn('Retrying insert without day_name/week columns due to schema cache error...');
+        const cleaned = records.map(r => {
+          const { day_name, week, ...rest } = r;
+          return rest;
+        });
+        const result = await supabase.from('sales').insert(cleaned);
+        error = result.error;
+      }
+
       if (error) {
         console.error('Supabase Error details:', error);
         throw error;
