@@ -368,8 +368,9 @@ CREATE TABLE IF NOT EXISTS inventory_week_closures (
   branch_id TEXT NOT NULL,
   month TEXT NOT NULL, -- YYYY-MM
   week_number INTEGER NOT NULL,
+  item_id TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  UNIQUE(branch_id, month, week_number)
+  UNIQUE(branch_id, month, week_number, item_id)
 );
 
 -- Publicación (Seguro)
