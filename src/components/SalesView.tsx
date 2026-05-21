@@ -597,7 +597,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     const reader = new FileReader();
     reader.onload = (evt) => {
       const dataBuffer = evt.target?.result;
-      const wb = XLSX.read(dataBuffer, { type: 'array' });
+      const wb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
       // Set raw: false to retrieve cellular formatted string values, preserving Spanish currency layout
@@ -665,15 +665,42 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         return Math.round(num);
       };
 
-      const parseSafeDate = (val: any): string => {
+      const parseSafeDate = (val: any, rowContext?: any): string => {
         if (!val) return '';
+        
+        const getRowDayName = (r: any): string => {
+          if (!r) return '';
+          const dVal = getValue(r, 'Dia') || getValue(r, 'Day') || getValue(r, 'Día') || '';
+          return String(dVal).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        };
+
+        const getWeekdayFromParsedDate = (yyyy: number, mm: number, dd: number): number => {
+          // mm is 1-indexed
+          return new Date(yyyy, mm - 1, dd).getDay();
+        };
+
+        const weekdayMatches = (dayNum: number, dayNameStr: string): boolean => {
+          if (!dayNameStr) return false;
+          const esDays = ['dom', 'lun', 'mar', 'mie', 'jue', 'vie', 'sab'];
+          const esFullDays = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+          const enDays = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+          const target = dayNameStr.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          
+          return target.includes(esDays[dayNum]) || 
+                 target.includes(esFullDays[dayNum]) || 
+                 target.includes(enDays[dayNum]);
+        };
+
+        // 1. If it's a JS Date object (thanks to cellDates: true)
         if (val instanceof Date) {
-          const yyyy = val.getFullYear();
-          const mm = String(val.getMonth() + 1).padStart(2, '0');
-          const dd = String(val.getDate()).padStart(2, '0');
+          // Standardise UTC extraction
+          const yyyy = val.getUTCFullYear();
+          const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(val.getUTCDate()).padStart(2, '0');
           return `${yyyy}-${mm}-${dd}`;
         }
         
+        // 2. If it's a number
         if (typeof val === 'number') {
           const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
           const yyyy = dateObj.getUTCFullYear();
@@ -682,28 +709,65 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           return `${yyyy}-${mm}-${dd}`;
         }
         
+        // 3. If it's a string
         if (typeof val === 'string') {
-          // Remove any time component if present, e.g., "1/4/26 08:28" -> "1/4/26"
           const s = val.trim().split(/\s+/)[0];
           
-          // Matches D/M/Y, DD/MM/YYYY, D-M-YY, etc. (Standard Spanish / Argentine Excel format)
-          const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})$/);
-          if (dmyMatch) {
-            const day = dmyMatch[1].padStart(2, '0');
-            const month = dmyMatch[2].padStart(2, '0');
-            let year = dmyMatch[3];
-            if (year.length === 2) {
-              year = '20' + year;
-            }
-            return `${year}-${month}-${day}`;
-          }
-          
+          // Match standard YYYY-MM-DD
           const ymdMatch = s.match(/^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$/);
           if (ymdMatch) {
-            const year = ymdMatch[1];
-            const month = ymdMatch[2].padStart(2, '0');
-            const day = ymdMatch[3].padStart(2, '0');
-            return `${year}-${month}-${day}`;
+            return `${ymdMatch[1]}-${ymdMatch[2].padStart(2, '0')}-${ymdMatch[3].padStart(2, '0')}`;
+          }
+          
+          // Match D/M/Y or M/D/Y (with 2 or 4 digit year)
+          const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})$/);
+          if (dmyMatch) {
+            const part1 = parseInt(dmyMatch[1]);
+            const part2 = parseInt(dmyMatch[2]);
+            let yearStr = dmyMatch[3];
+            if (yearStr.length === 2) {
+              yearStr = '20' + yearStr;
+            }
+            const year = parseInt(yearStr);
+            
+            // Check if one parts is > 12, resolving ambiguity immediately
+            if (part1 > 12) {
+              // part1 is Day, part2 is Month (DD/MM/YYYY)
+              return `${year}-${String(part2).padStart(2, '0')}-${String(part1).padStart(2, '0')}`;
+            }
+            if (part2 > 12) {
+              // part2 is Day, part1 is Month (MM/DD/YYYY)
+              return `${year}-${String(part1).padStart(2, '0')}-${String(part2).padStart(2, '0')}`;
+            }
+            
+            // Ambiguous date (both <= 12, e.g. 1/4/2026 or 4/1/2026)
+            // Let's use row context (weekday) to resolve
+            if (rowContext) {
+              const rowDayVal = getRowDayName(rowContext);
+              if (rowDayVal) {
+                // Interpretation A: DD/MM/YYYY (first part is day, second is month)
+                const dayA = part1;
+                const monthA = part2;
+                const weekdayA = getWeekdayFromParsedDate(year, monthA, dayA);
+                const matchA = weekdayMatches(weekdayA, rowDayVal);
+                
+                // Interpretation B: MM/DD/YYYY (first part is month, second is day)
+                const dayB = part2;
+                const monthB = part1;
+                const weekdayB = getWeekdayFromParsedDate(year, monthB, dayB);
+                const matchB = weekdayMatches(weekdayB, rowDayVal);
+                
+                if (matchA && !matchB) {
+                  return `${year}-${String(monthA).padStart(2, '0')}-${String(dayA).padStart(2, '0')}`;
+                }
+                if (matchB && !matchA) {
+                  return `${year}-${String(monthB).padStart(2, '0')}-${String(dayB).padStart(2, '0')}`;
+                }
+              }
+            }
+            
+            // Default to standard Spanish/Argentine format: DD/MM/YYYY
+            return `${year}-${String(part2).padStart(2, '0')}-${String(part1).padStart(2, '0')}`;
           }
         }
         
@@ -741,7 +805,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
         // 2. Parse Date (D/M/YYYY or DD/MM/YYYY standard Spanish format)
         const dateInput = getValue(row, 'Fecha') || getValue(row, 'Date');
-        let date = parseSafeDate(dateInput);
+        let date = parseSafeDate(dateInput, row);
 
         if (!date) {
           date = new Date().toISOString().split('T')[0];
