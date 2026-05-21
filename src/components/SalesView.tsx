@@ -566,7 +566,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-      const recordsToInsert: any[] = [];
+      const aggregated: Record<string, any> = {};
 
       // Helper to find a value by key ignoring case and multiple spaces
       const getValue = (row: any, keyPattern: string) => {
@@ -579,8 +579,25 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         return rowKey ? row[rowKey] : undefined;
       };
 
+      const mapTurno = (turnoStr: string): SaleType => {
+        const norm = String(turnoStr || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (norm.includes('manana') || norm === 'm' || norm.includes('morning')) return 'Turno Mañana';
+        if (norm.includes('tarde') || norm === 't' || norm.includes('afternoon')) return 'Turno Tarde';
+        if (norm.includes('resto') || norm.includes('pedidos ya resto') || norm.includes('py resto')) return 'Pedidos Ya Restó';
+        if (norm.includes('cafe') || norm.includes('pedidos ya cafe') || norm.includes('py cafe')) return 'Pedidos Ya Café';
+        return 'Turno Mañana'; // Fallback
+      };
+
+      // Clean currency values
+      const parseCurrency = (val: any) => {
+        if (typeof val === 'number') return val;
+        if (typeof val !== 'string') return 0;
+        const cleaned = val.replace(/[$\s.]/g, '').replace(',', '.');
+        return Number(cleaned) || 0;
+      };
+
       data.forEach(row => {
-        // Find branch mapping - be more flexible with names (e.g. "Barrio Norte" -> "CRAFT BARRIO NORTE")
+        // 1. Find branch mapping - be more flexible with names (e.g. "Barrio Norte" -> "CRAFT BARRIO NORTE")
         const excelBranch = getValue(row, 'Sucursal') || getValue(row, 'Branch');
         let targetBranchId = selectedBranchId;
         if (excelBranch) {
@@ -595,11 +612,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
 
         if (targetBranchId === 'all') {
-          console.warn('Skipping row: Branch not identified', excelBranch);
-          return;
+          // If no specific branch was matched, fallback to first branch to avoid empty ID
+          targetBranchId = branches[0]?.id || 'bn';
         }
 
-        // Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
+        // 2. Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
         let date = getValue(row, 'Fecha') || getValue(row, 'Date');
         if (typeof date === 'number') {
           // Excel date serial
@@ -622,66 +639,72 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           }
         }
 
-        // Clean currency values
-        const parseCurrency = (val: any) => {
-          if (typeof val === 'number') return val;
-          if (typeof val !== 'string') return 0;
-          // Handles cases like " $  1.513.209,04 "
-          const cleaned = val.replace(/[$\s.]/g, '').replace(',', '.');
-          return Number(cleaned) || 0;
-        };
+        if (!date) {
+          date = new Date().toISOString().split('T')[0];
+        }
 
-        const totalGross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
-        const totalNet = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
-        
-        const ordersMañana = Number(getValue(row, 'Ordenes Turno Mañana') || getValue(row, 'Orders Morning') || 0);
-        const ordersTarde = Number(getValue(row, 'Ordenes Turno Tarde') || getValue(row, 'Orders Afternoon') || 0);
-        const ordersPYResto = Number(getValue(row, 'Ordenes Pedidos Ya Resto') || getValue(row, 'PY Resto Orders') || 0);
-        const ordersPYCafe = Number(getValue(row, 'Ordenes Pedidos Ya Café') || getValue(row, 'PY Cafe Orders') || 0);
-        const totalOrders = ordersMañana + ordersTarde + ordersPYResto + ordersPYCafe;
+        // 3. Turno mapping
+        const rawTurno = getValue(row, 'Turno') || getValue(row, 'Shift') || 'Turno Mañana';
+        const type = mapTurno(String(rawTurno));
 
-        const coversMañana = Number(getValue(row, 'Cubiertos Turno Mañana') || getValue(row, 'Covers Morning') || 0);
-        const coversTarde = Number(getValue(row, 'Cubiertos Turno Tarde') || getValue(row, 'Covers Afternoon') || 0);
+        const key = `${targetBranchId}_${date}_${type}`;
 
-        const types: { type: SaleType, orders: number, covers: number }[] = [
-          { type: 'Turno Mañana', orders: ordersMañana, covers: coversMañana },
-          { type: 'Turno Tarde', orders: ordersTarde, covers: coversTarde },
-          { type: 'Pedidos Ya Restó', orders: ordersPYResto, covers: 0 },
-          { type: 'Pedidos Ya Café', orders: ordersPYCafe, covers: 0 }
-        ];
+        const gross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
+        const net = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
+        const tax = parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax') || 0);
+        const orders = Number(getValue(row, 'Ordenes') || getValue(row, 'Orders') || getValue(row, 'Tickets') || 0);
+        const covers = Number(getValue(row, 'Cubiertos') || getValue(row, 'Covers') || 0);
 
-        // If we have total money but it's not split per shift in Excel,
-        // we split it proportionally based on orders to maintain consistency.
-        const splitMoney = (total: number, shiftOrders: number) => {
-          if (totalOrders === 0) return 0;
-          return (total / totalOrders) * shiftOrders;
-        };
+        const rowWeek = getValue(row, 'Semana') || getValue(row, 'Week');
+        const weekVal = rowWeek ? String(rowWeek) : `Semana ${Math.ceil(new Date(date).getUTCDate() / 7)}`;
 
-        types.forEach(t => {
-          if (t.orders > 0 || (t.type === 'Turno Mañana' && totalGross > 0 && totalOrders === 0)) {
-            const shiftGross = totalOrders > 0 ? splitMoney(totalGross, t.orders) : totalGross;
-            const shiftNet = totalOrders > 0 ? splitMoney(totalNet, t.orders) : totalNet;
+        const rowDay = getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día');
+        const dayVal = rowDay ? String(rowDay) : new Date(date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' });
 
-            recordsToInsert.push({
-              branch_id: targetBranchId,
-              date: date,
-              type: t.type,
-              pesos: shiftGross,
-              net_sales: shiftNet,
-              orders: t.orders,
-              covers: t.covers,
-              projection: totalGross * 30,
-              week: String(getValue(row, 'Semana') || getValue(row, 'Week') || `Semana ${Math.ceil(new Date(date).getUTCDate() / 7)}`),
-              day_name: String(getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día') || new Date(date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' })),
-              cash: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Efectivo') || getValue(row, 'Cash')) : 0,
-              card: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'Tarjetas') || getValue(row, 'Card')) : 0,
-              qr: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'QR y Otros') || getValue(row, 'QR')) : 0,
-              iva: t.type === 'Turno Mañana' ? parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax')) : 0,
-              product_ranking: []
-            });
-          }
-        });
+        const rawMedio = getValue(row, 'Medio Cobro') || getValue(row, 'MedioPago') || getValue(row, 'Payment') || '';
+        const normMedio = String(rawMedio).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+        if (!aggregated[key]) {
+          aggregated[key] = {
+            branch_id: targetBranchId,
+            date: date,
+            type: type,
+            pesos: 0,
+            net_sales: 0,
+            orders: 0,
+            covers: 0,
+            projection: 0,
+            week: weekVal,
+            day_name: dayVal,
+            cash: 0,
+            card: 0,
+            qr: 0,
+            iva: 0,
+            product_ranking: []
+          };
+        }
+
+        const agg = aggregated[key];
+        agg.pesos += gross;
+        agg.net_sales += net;
+        agg.iva += tax;
+        agg.orders += orders;
+        agg.covers += covers;
+        agg.projection = agg.pesos * 30;
+
+        // Bucket by payment medium
+        if (normMedio.includes('efectivo') || normMedio === 'cash') {
+          agg.cash += gross;
+        } else if (normMedio.includes('tarjeta') || normMedio.includes('debito') || normMedio.includes('credito') || normMedio === 'card') {
+          agg.card += gross;
+        } else if (normMedio.includes('qr') || normMedio.includes('transferencia') || normMedio.includes('mercadopago') || normMedio === 'mp') {
+          agg.qr += gross;
+        } else {
+          agg.cash += gross; // Fallback
+        }
       });
+
+      const recordsToInsert = Object.values(aggregated).filter(r => r.pesos > 0 || r.orders > 0);
 
       if (recordsToInsert.length > 0) {
         confirmManualImport(recordsToInsert);
@@ -695,6 +718,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const confirmManualImport = async (records: any[]) => {
     setLoading(true);
     try {
+      // Prevent duplicates by deleting existing records for standard branch and dates in our list
+      const uniqueBranchDates = Array.from(
+        new Set(records.map(r => `${r.branch_id}|${r.date}`))
+      );
+
+      for (const item of uniqueBranchDates) {
+        const [bId, dVal] = item.split('|');
+        await supabase.from('sales').delete().eq('branch_id', bId).eq('date', dVal);
+      }
+
       // Use tolerant insert to handle potential schema cache issues with new columns
       let { error } = await supabase.from('sales').insert(records);
       
@@ -725,22 +758,32 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const handleExportTemplate = () => {
     const templateData = [
       {
-        Sucursal: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
-        Semana: 'Semana 1',
-        Día: 'Mie',
-        Fecha: '01-04-2026',
-        Efectivo: 1513209.04,
-        Tarjetas: 2744115.00,
-        'QR y Otros': 1744190.00,
-        'Ventas Brutas': 6001514.04,
-        'Ventas Netas': 5218317.30,
-        IVA: 783196.74,
-        'Ordenes Turno Mañana': 10,
-        'Ordenes Turno Tarde': 15,
-        'Ordenes Pedidos Ya Resto': 2,
-        'Ordenes Pedidos Ya Café': 1,
-        'Cubiertos Turno Mañana': 100,
-        'Cubiertos Turno Tarde': 150
+        SUCURSAL: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
+        FECHA: '01-04-2026',
+        SEMANA: 'Semana 1',
+        DIA: 'Mie',
+        TURNO: 'Turno Mañana',
+        HORA: '08:00',
+        ORDENES: 10,
+        CUBIERTOS: 100,
+        'MEDIO COBRO': 'Efectivo',
+        'VENTAS BRUTAS': 2143397.87,
+        'VENTAS NETAS': 1863684.75,
+        IVA: 279713.12
+      },
+      {
+        SUCURSAL: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
+        FECHA: '01-04-2026',
+        SEMANA: 'Semana 1',
+        DIA: 'Mie',
+        TURNO: 'Turno Mañana',
+        HORA: '12:00',
+        ORDENES: 15,
+        CUBIERTOS: 150,
+        'MEDIO COBRO': 'Tarjeta',
+        'VENTAS BRUTAS': 3215096.81,
+        'VENTAS NETAS': 2795527.13,
+        IVA: 419569.68
       }
     ];
 
