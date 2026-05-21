@@ -298,11 +298,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     if (window.confirm(`¿Está seguro de que desea eliminar los ${selectedIdsInFilter.length} registros seleccionados? Esta acción es irreversible.`)) {
       try {
         setLoading(true);
-        const { error } = await supabase
-          .from('sales')
-          .delete()
-          .in('id', selectedIdsInFilter);
-        if (error) throw error;
+        
+        // Chunk the deletion to avoid 414 Request-URI Too Large errors due to URL length limits API / Kong
+        const chunkSize = 100;
+        for (let i = 0; i < selectedIdsInFilter.length; i += chunkSize) {
+          const chunk = selectedIdsInFilter.slice(i, i + chunkSize);
+          const { error } = await supabase
+            .from('sales')
+            .delete()
+            .in('id', chunk);
+          if (error) throw error;
+        }
         
         setSelectedRowIds(prev => prev.filter(id => !selectedIdsInFilter.includes(id)));
         await fetchData();
