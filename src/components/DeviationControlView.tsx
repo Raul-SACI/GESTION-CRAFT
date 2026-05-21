@@ -140,6 +140,23 @@ export default function DeviationControlView({
     ];
   };
 
+  const getDatesForWeek = (weekId: number) => {
+    const year = parseInt(selectedMonth.split('-')[0]);
+    const month = parseInt(selectedMonth.split('-')[1]);
+    const lastDay = new Date(year, month, 0).getDate();
+    
+    let start = 1, end = 7;
+    if (weekId === 2) { start = 8; end = 14; }
+    else if (weekId === 3) { start = 15; end = 21; }
+    else if (weekId === 4) { start = 22; end = lastDay; }
+
+    const dates: string[] = [];
+    for (let i = start; i <= end; i++) {
+      dates.push(`${selectedMonth}-${String(i).padStart(2, '0')}`);
+    }
+    return dates;
+  };
+
   // New CRUD state
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -680,8 +697,30 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                               </div>
                            </td>
                            {validControlledIds.map(id => {
-                             const log = dailyLogs.find(l => l.date === dateStr && l.itemId === id) || { 
-                               ei: 0, purchases: 0, waste: 0, theoretical_sales: 0, ef: 0, loans: 0, staff_consumption: 0 
+                             const weekDates = getDatesForWeek(week.id);
+                             const itemWeekLogs = dailyLogs.filter(l => l.itemId === id && weekDates.includes(l.date));
+                             const sortedWeekLogs = [...itemWeekLogs].sort((a, b) => a.date.localeCompare(b.date));
+                             
+                             const firstDayLog = itemWeekLogs.find(l => l.date === weekDates[0]);
+                             const ei = firstDayLog ? (firstDayLog.ei || 0) : (sortedWeekLogs[0]?.ei || 0);
+                             
+                             const lastDayLog = itemWeekLogs.find(l => l.date === weekDates[weekDates.length - 1]);
+                             const ef = lastDayLog ? (lastDayLog.ef || 0) : (sortedWeekLogs[sortedWeekLogs.length - 1]?.ef || 0);
+                             
+                             const purchases = itemWeekLogs.reduce((sum, l) => sum + (l.purchases || 0), 0);
+                             const waste = itemWeekLogs.reduce((sum, l) => sum + (l.waste || 0), 0);
+                             const theoretical_sales = itemWeekLogs.reduce((sum, l) => sum + (l.theoretical_sales || 0), 0);
+                             const loans = itemWeekLogs.reduce((sum, l) => sum + (l.loans || 0), 0);
+                             const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
+
+                             const log = {
+                               ei,
+                               ef,
+                               purchases,
+                               waste,
+                               theoretical_sales,
+                               loans,
+                               staff_consumption
                              };
                              return (
                                <React.Fragment key={id}>
