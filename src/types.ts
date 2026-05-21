@@ -60,6 +60,8 @@ export interface SalesData {
   week?: string; // Week number/name from import
   dayName?: string; // Day name (Mie, Jue, etc)
   productRanking?: ProductRankingEntry[];
+  hora?: string;
+  medioCobro?: string;
   // Payment Breakdown (Optional, specifically for imports)
   cash?: number;
   card?: number;

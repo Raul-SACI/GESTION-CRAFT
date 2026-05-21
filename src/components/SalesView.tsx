@@ -112,7 +112,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           card: Number(s.card || 0),
           qr: Number(s.qr || 0),
           iva: Number(s.iva || 0),
-          productRanking: s.product_ranking || []
+          hora: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+            ? (s.product_ranking as any).hora || '08:00'
+            : '08:00',
+          medioCobro: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+            ? (s.product_ranking as any).medio_cobro || 'Efectivo'
+            : 'Efectivo',
+          productRanking: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+            ? (s.product_ranking as any).items || []
+            : (Array.isArray(s.product_ranking) ? s.product_ranking : [])
         })));
       }
 
@@ -304,41 +312,43 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const handleEditGroup = (day: any) => {
     setEntryDate(day.date);
     setBranchId(day.branchId);
+
+    const findRecord = (type: SaleType) => {
+      return filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === type);
+    };
+
     setValues({
       'Turno Mañana': { 
-        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana')?.pesos || 0,
-        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana')?.netSales || 0,
-        orders: day.orders['Turno Mañana'],
-        covers: day.covers['Turno Mañana']
+        pesos: findRecord('Turno Mañana')?.pesos || 0,
+        netSales: findRecord('Turno Mañana')?.netSales || 0,
+        orders: findRecord('Turno Mañana')?.orders || 0,
+        covers: findRecord('Turno Mañana')?.covers || 0
       },
       'Turno Tarde': { 
-        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Tarde')?.pesos || 0,
-        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Tarde')?.netSales || 0,
-        orders: day.orders['Turno Tarde'],
-        covers: day.covers['Turno Tarde']
+        pesos: findRecord('Turno Tarde')?.pesos || 0,
+        netSales: findRecord('Turno Tarde')?.netSales || 0,
+        orders: findRecord('Turno Tarde')?.orders || 0,
+        covers: findRecord('Turno Tarde')?.covers || 0
       },
       'Pedidos Ya Restó': { 
-        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Restó')?.pesos || 0,
-        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Restó')?.netSales || 0,
-        orders: day.orders['Pedidos Ya Restó'],
+        pesos: findRecord('Pedidos Ya Restó')?.pesos || 0,
+        netSales: findRecord('Pedidos Ya Restó')?.netSales || 0,
+        orders: findRecord('Pedidos Ya Restó')?.orders || 0,
         covers: 0
       },
       'Pedidos Ya Café': { 
-        pesos: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Café')?.pesos || 0,
-        netSales: filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Pedidos Ya Café')?.netSales || 0,
-        orders: day.orders['Pedidos Ya Café'],
+        pesos: findRecord('Pedidos Ya Café')?.pesos || 0,
+        netSales: findRecord('Pedidos Ya Café')?.netSales || 0,
+        orders: findRecord('Pedidos Ya Café')?.orders || 0,
         covers: 0
       }
     });
     // For ranking, we take it from the morning shift if available
-    const morningShift = filteredSales.find(s => s.branchId === day.branchId && s.date === day.date && s.type === 'Turno Mañana');
+    const morningShift = findRecord('Turno Mañana');
     if (morningShift?.productRanking) {
       setProductRanking(morningShift.productRanking);
     }
     setIsAdding(true);
-    // Note: handleSave currently uses .insert(). We should probably delete old ones first in handleSave if we are "editing"
-    // but the simplest is to let the user delete manually or update the logic.
-    // I'll make handleSave use a unique constraint or delete before insert.
   };
 
   const totals = useMemo(() => {
@@ -566,7 +576,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-      const aggregated: Record<string, any> = {};
+      const recordsToInsert: any[] = [];
 
       // Helper to find a value by key ignoring case and multiple spaces
       const getValue = (row: any, keyPattern: string) => {
@@ -647,8 +657,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const rawTurno = getValue(row, 'Turno') || getValue(row, 'Shift') || 'Turno Mañana';
         const type = mapTurno(String(rawTurno));
 
-        const key = `${targetBranchId}_${date}_${type}`;
-
         const gross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
         const net = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
         const tax = parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax') || 0);
@@ -661,50 +669,48 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const rowDay = getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día');
         const dayVal = rowDay ? String(rowDay) : new Date(date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' });
 
-        const rawMedio = getValue(row, 'Medio Cobro') || getValue(row, 'MedioPago') || getValue(row, 'Payment') || '';
-        const normMedio = String(rawMedio).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const rawHora = getValue(row, 'Hora') || getValue(row, 'Hour') || '08:00';
+        const horaVal = String(rawHora).trim();
 
-        if (!aggregated[key]) {
-          aggregated[key] = {
-            branch_id: targetBranchId,
-            date: date,
-            type: type,
-            pesos: 0,
-            net_sales: 0,
-            orders: 0,
-            covers: 0,
-            projection: 0,
-            week: weekVal,
-            day_name: dayVal,
-            cash: 0,
-            card: 0,
-            qr: 0,
-            iva: 0,
-            product_ranking: []
-          };
-        }
+        const rawMedio = getValue(row, 'Medio Cobro') || getValue(row, 'MedioPago') || getValue(row, 'Payment') || 'Efectivo';
+        const medioCobroVal = String(rawMedio).trim();
+        const normMedio = medioCobroVal.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-        const agg = aggregated[key];
-        agg.pesos += gross;
-        agg.net_sales += net;
-        agg.iva += tax;
-        agg.orders += orders;
-        agg.covers += covers;
-        agg.projection = agg.pesos * 30;
-
-        // Bucket by payment medium
+        let cash = 0;
+        let card = 0;
+        let qr = 0;
         if (normMedio.includes('efectivo') || normMedio === 'cash') {
-          agg.cash += gross;
+          cash = gross;
         } else if (normMedio.includes('tarjeta') || normMedio.includes('debito') || normMedio.includes('credito') || normMedio === 'card') {
-          agg.card += gross;
+          card = gross;
         } else if (normMedio.includes('qr') || normMedio.includes('transferencia') || normMedio.includes('mercadopago') || normMedio === 'mp') {
-          agg.qr += gross;
+          qr = gross;
         } else {
-          agg.cash += gross; // Fallback
+          cash = gross; // Fallback
         }
-      });
 
-      const recordsToInsert = Object.values(aggregated).filter(r => r.pesos > 0 || r.orders > 0);
+        recordsToInsert.push({
+          branch_id: targetBranchId,
+          date: date,
+          type: type,
+          pesos: gross,
+          net_sales: net,
+          orders: orders,
+          covers: covers,
+          projection: gross * 30,
+          week: weekVal,
+          day_name: dayVal,
+          cash: cash,
+          card: card,
+          qr: qr,
+          iva: tax,
+          product_ranking: {
+            hora: horaVal,
+            medio_cobro: medioCobroVal,
+            items: []
+          }
+        });
+      });
 
       if (recordsToInsert.length > 0) {
         confirmManualImport(recordsToInsert);
@@ -1395,62 +1401,54 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                 <thead>
                   <tr className="bg-bg-accent border-b border-border-dim text-left text-text-dim font-black uppercase tracking-widest">
                     <th className="px-4 py-3 min-w-[120px]">Sucursal</th>
+                    <th className="px-4 py-3">Fecha</th>
                     <th className="px-2 py-3">Semana</th>
                     <th className="px-2 py-3">Día</th>
-                    <th className="px-4 py-3">Fecha</th>
-                    <th className="px-3 py-3 text-right">Efectivo</th>
-                    <th className="px-3 py-3 text-right">Tarjetas</th>
-                    <th className="px-3 py-3 text-right">QR/Otros</th>
+                    <th className="px-3 py-3">Turno</th>
+                    <th className="px-2 py-3 text-center">Hora</th>
+                    <th className="px-3 py-3 text-right">Ordenes</th>
+                    <th className="px-3 py-3 text-right">Cubiertos</th>
+                    <th className="px-3 py-3 text-left">Medio Cobro</th>
                     <th className="px-3 py-3 text-right">V. Brutas</th>
                     <th className="px-3 py-3 text-right">V. Netas</th>
                     <th className="px-3 py-3 text-right">IVA</th>
-                    <th className="px-3 py-3 text-center">Ord. Mañana</th>
-                    <th className="px-3 py-3 text-center">Ord. Tarde</th>
-                    <th className="px-3 py-3 text-center">PY Resto</th>
-                    <th className="px-3 py-3 text-center">PY Café</th>
-                    <th className="px-2 py-3 text-center">Cub.M</th>
-                    <th className="px-2 py-3 text-center">Cub.T</th>
                     <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim font-medium">
-                  {groupedDailySales.length === 0 ? (
+                  {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={17} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                      <td colSpan={13} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                         No hay registros cargados para este periodo
                       </td>
                     </tr>
                   ) : (
-                    groupedDailySales.map((day) => (
-                      <tr key={day.id} className="hover:bg-bg-accent/50 transition-colors group">
+                    filteredSales.map((record) => (
+                      <tr key={record.id} className="hover:bg-bg-accent/50 transition-colors group">
                         <td className="px-4 py-3 font-black text-brand-500 uppercase">
-                          {branches.find(b => b.id === day.branchId)?.name}
+                          {branches.find(b => b.id === record.branchId)?.name || record.branchId}
                         </td>
-                        <td className="px-2 py-3 text-text-dim uppercase">{day.week}</td>
-                        <td className="px-2 py-3 text-text-dim uppercase">{day.dayName}</td>
-                        <td className="px-4 py-3 font-mono text-text-main">{day.date}</td>
-                        <td className="px-3 py-3 text-right font-mono">${day.cash.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right font-mono">${day.card.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right font-mono">${day.qr.toLocaleString()}</td>
+                        <td className="px-4 py-3 font-mono text-text-main">{record.date}</td>
+                        <td className="px-2 py-3 text-text-dim uppercase">{record.week}</td>
+                        <td className="px-2 py-3 text-text-dim uppercase">{record.dayName}</td>
+                        <td className="px-3 py-3 text-left text-text-dim/80">{record.type}</td>
+                        <td className="px-2 py-3 text-center font-mono">{record.hora || '08:00'}</td>
+                        <td className="px-3 py-3 text-right font-mono">{record.orders.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right font-mono">{record.covers.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-left font-mono font-bold text-indigo-400">{record.medioCobro || 'Efectivo'}</td>
                         <td className="px-3 py-3 text-right font-mono font-black text-text-main">
-                          ${day.gross.toLocaleString()}
+                          ${record.pesos.toLocaleString()}
                         </td>
                         <td className="px-3 py-3 text-right font-mono font-black text-teal-400">
-                          ${day.net.toLocaleString()}
+                          ${record.netSales.toLocaleString()}
                         </td>
                         <td className="px-3 py-3 text-right font-mono text-text-dim/70">
-                          ${day.iva.toLocaleString()}
+                          ${(record.iva || 0).toLocaleString()}
                         </td>
-                        <td className="px-3 py-3 text-center font-mono">{day.orders['Turno Mañana']}</td>
-                        <td className="px-3 py-3 text-center font-mono">{day.orders['Turno Tarde']}</td>
-                        <td className="px-3 py-3 text-center font-mono text-red-400">{day.orders['Pedidos Ya Restó']}</td>
-                        <td className="px-3 py-3 text-center font-mono text-red-500">{day.orders['Pedidos Ya Café']}</td>
-                        <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Mañana']}</td>
-                        <td className="px-2 py-3 text-center font-mono">{day.covers['Turno Tarde']}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button 
-                              onClick={() => handleEditGroup(day)}
+                              onClick={() => handleEditGroup({ branchId: record.branchId, date: record.date })}
                               className="text-text-dim/40 hover:text-brand-500 transition-colors p-1"
                               title="Editar"
                             >
@@ -1458,18 +1456,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                             </button>
                             <button 
                               onClick={async () => {
-                                if (confirm('¿Está seguro de eliminar toda la carga para esta fecha y sucursal?')) {
+                                if (confirm('¿Está seguro de eliminar esta venta?')) {
                                   try {
                                     const { error } = await supabase
                                       .from('sales')
                                       .delete()
-                                      .eq('branch_id', day.branchId)
-                                      .eq('date', day.date);
+                                      .eq('id', record.id);
                                     if (error) throw error;
                                     fetchData();
                                   } catch (err) {
                                     console.error('Error deleting record:', err);
-                                    alert('Error al eliminar los registros.');
+                                    alert('Error al eliminar el registro.');
                                   }
                                 }
                               }}
