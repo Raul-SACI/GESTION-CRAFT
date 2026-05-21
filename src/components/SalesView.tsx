@@ -293,9 +293,21 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         g.gross += record.pesos;
         g.net += record.netSales;
         
-        if (record.cash) g.cash += record.cash;
-        if (record.card) g.card += record.card;
-        if (record.qr) g.qr += record.qr;
+        // Dynamically classify payment attributes of sales for correct daily charts
+        const normMedio = String(record.medioCobro || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const normType = String(record.type || '').toLowerCase();
+        
+        const isEfectivo = normMedio.includes('efectivo') || normMedio === 'cash';
+        const isPedidosYa = normMedio.includes('pago online deb') || normMedio.includes('pedidos ya') || normType.includes('pedidos ya') || normMedio.includes('online');
+        
+        if (isEfectivo) {
+          g.cash += record.pesos;
+        } else if (isPedidosYa) {
+          g.qr += record.pesos;
+        } else {
+          g.card += record.pesos;
+        }
+
         if (record.iva) g.iva += record.iva;
         
         if (g.orders.hasOwnProperty(record.type)) {
@@ -364,6 +376,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       cash: 0,
       card: 0,
       qr: 0,
+      pedidosYaOrders: 0,
       ordersByType: {
         'Turno Mañana': 0,
         'Turno Tarde': 0,
@@ -385,11 +398,23 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       acc.orders += curr.orders;
       acc.covers += curr.covers;
 
-      // Sum payments (specifically from Mañana shift to avoid dupes)
-      if (curr.type === 'Turno Mañana') {
-        acc.cash += curr.cash || 0;
-        acc.card += curr.card || 0;
-        acc.qr += curr.qr || 0;
+      // Determine payment classification dynamically
+      const normMedio = String(curr.medioCobro || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const normType = String(curr.type || '').toLowerCase();
+      
+      const isEfectivo = normMedio.includes('efectivo') || normMedio === 'cash';
+      const isPedidosYa = normMedio.includes('pago online deb') || normMedio.includes('pedidos ya') || normType.includes('pedidos ya') || normMedio.includes('online');
+      
+      if (isEfectivo) {
+        acc.cash += curr.pesos;
+      } else if (isPedidosYa) {
+        acc.qr += curr.pesos; // qr column represents 'Pedidos Ya'
+      } else {
+        acc.card += curr.pesos; // card represents Tarjetas/Bancos (all remaining payment forms)
+      }
+
+      if (isPedidosYa) {
+        acc.pedidosYaOrders += curr.orders;
       }
 
       acc.ordersByType[curr.type] += curr.orders;
@@ -429,11 +454,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   }, [groupedDailySales, filterMonth]);
 
   const paymentPercentages = useMemo(() => {
-    if (totals.totalGross === 0) return { cash: 0, card: 0, qr: 0 };
+    const totalPayments = totals.cash + totals.card + totals.qr;
+    if (totalPayments === 0) return { cash: 0, card: 0, qr: 0 };
     return {
-      cash: (totals.cash / totals.totalGross) * 100,
-      card: (totals.card / totals.totalGross) * 100,
-      qr: (totals.qr / totals.totalGross) * 100
+      cash: (totals.cash / totalPayments) * 100,
+      card: (totals.card / totalPayments) * 100,
+      qr: (totals.qr / totalPayments) * 100
     };
   }, [totals]);
 
@@ -757,28 +783,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         let cash = 0;
         let card = 0;
         let qr = 0;
-        if (normMedio.includes('efectivo') || normMedio === 'cash') {
-          cash = gross;
-        } else if (
-          normMedio.includes('tarjeta') || 
-          normMedio.includes('deb') || 
-          normMedio.includes('cred') || 
-          normMedio.includes('card') || 
-          normMedio.includes('visa') || 
-          normMedio.includes('master') || 
-          normMedio.includes('posnet')
-        ) {
-          card = gross;
-        } else if (
-          normMedio.includes('qr') || 
-          normMedio.includes('transf') || 
-          normMedio.includes('mercadopago') || 
-          normMedio.includes('mp') || 
-          normMedio.includes('online')
-        ) {
+        let finalMedioStyle = "Tarjetas/Bancos";
+
+        if (normMedio.includes('pago online deb') || normMedio.includes('pedidos ya') || normMedio.includes('online')) {
+          finalMedioStyle = "Pedidos Ya";
           qr = gross;
+        } else if (normMedio.includes('efectivo') || normMedio === 'cash') {
+          finalMedioStyle = "EFECTIVO";
+          cash = gross;
         } else {
-          cash = gross; // Fallback
+          finalMedioStyle = "Tarjetas/Bancos";
+          card = gross;
         }
 
         recordsToInsert.push({
@@ -798,7 +813,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           iva: tax,
           product_ranking: {
             hora: horaVal,
-            medio_cobro: medioCobroVal,
+            medio_cobro: finalMedioStyle,
             items: []
           }
         });
@@ -1231,7 +1246,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         </div>
         <div className="bg-bg-sidebar border border-blue-500/20 p-5 rounded group hover:border-blue-500/50 transition-all flex flex-col justify-between">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-blue-500">Venta Total con Tarjetas</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-blue-500">Venta Total Tarjetas/Bancos</p>
             <p className="text-xl font-mono font-black text-text-main italic">
               ${totals.card.toLocaleString()}
             </p>
@@ -1246,9 +1261,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             </div>
           </div>
         </div>
-        <div className="bg-bg-sidebar border border-indigo-500/20 p-5 rounded group hover:border-indigo-500/50 transition-all flex flex-col justify-between">
+        <div className="bg-bg-sidebar border border-red-500/20 p-5 rounded group hover:border-red-500/50 transition-all flex flex-col justify-between">
           <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-indigo-500">Venta Total con Otros Medios</p>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-500">Venta Total Pedidos Ya</p>
             <p className="text-xl font-mono font-black text-text-main italic">
               ${totals.qr.toLocaleString()}
             </p>
@@ -1256,16 +1271,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           <div className="mt-4 pt-4 border-t border-border-dim">
             <div className="flex justify-between items-center mb-1">
               <span className="text-[8px] font-black uppercase text-text-dim">Porcentaje</span>
-              <span className="text-[10px] font-mono font-black text-indigo-500">{paymentPercentages.qr.toFixed(1)}%</span>
+              <span className="text-[10px] font-mono font-black text-red-500">{paymentPercentages.qr.toFixed(1)}%</span>
             </div>
             <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-               <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${paymentPercentages.qr}%` }} />
+               <div className="h-full bg-red-500 transition-all duration-1000" style={{ width: `${paymentPercentages.qr}%` }} />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Row 2: Operational Stats per Type */}
         <div className="bg-bg-sidebar border border-brand-500/20 p-5 rounded group hover:border-brand-500/50 transition-all">
           <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-brand-500">Turno Mañana</p>
@@ -1292,16 +1307,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         </div>
 
         <div className="bg-bg-sidebar border border-red-500/20 p-5 rounded group hover:border-red-500/50 transition-all">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-400">Ordenes Pedidos Ya Resto</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-500">Ordenes Pedidos Ya</p>
           <p className="text-xl font-mono font-black text-text-main italic">
-            {totals.ordersByType['Pedidos Ya Restó']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
-          </p>
-        </div>
-
-        <div className="bg-bg-sidebar border border-red-500/20 p-5 rounded group hover:border-red-500/50 transition-all">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] mb-2 text-red-500">Ordenes Pedidos Ya Café</p>
-          <p className="text-xl font-mono font-black text-text-main italic">
-            {totals.ordersByType['Pedidos Ya Café']} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
+            {totals.pedidosYaOrders} <span className="text-[9px] opacity-40 not-italic uppercase">Tickets</span>
           </p>
         </div>
 
@@ -1360,8 +1368,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               { id: 'net', label: 'Ventas Netas', color: 'teal' },
               { id: 'gross', label: 'Ventas Brutas', color: 'brand' },
               { id: 'cash', label: 'Efectivo', color: 'emerald' },
-              { id: 'card', label: 'Tarjetas', color: 'blue' },
-              { id: 'qr', label: 'QR y Otros', color: 'indigo' }
+              { id: 'card', label: 'Tarjetas/Bancos', color: 'blue' },
+              { id: 'qr', label: 'Pedidos Ya', color: 'indigo' }
             ].map((m) => (
               <button
                 key={m.id}
@@ -1423,7 +1431,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                               chartMetric === 'gross' ? '#f59e0b' :
                               chartMetric === 'cash' ? '#10b981' :
                               chartMetric === 'card' ? '#3b82f6' :
-                              '#6366f1'
+                              '#ef4444'
                             } 
                           />
                         ))}
@@ -1472,7 +1480,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                         chartMetric === 'gross' ? '#f59e0b' :
                         chartMetric === 'cash' ? '#10b981' :
                         chartMetric === 'card' ? '#3b82f6' :
-                        '#6366f1'
+                        '#ef4444'
                      } />
                   </BarChart>
                </ResponsiveContainer>
