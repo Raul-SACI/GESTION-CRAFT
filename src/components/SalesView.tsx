@@ -668,9 +668,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const parseSafeDate = (val: any): string => {
         if (!val) return '';
         if (val instanceof Date) {
-          const yyyy = val.getUTCFullYear();
-          const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
-          const dd = String(val.getUTCDate()).padStart(2, '0');
+          const yyyy = val.getFullYear();
+          const mm = String(val.getMonth() + 1).padStart(2, '0');
+          const dd = String(val.getDate()).padStart(2, '0');
           return `${yyyy}-${mm}-${dd}`;
         }
         
@@ -683,15 +683,21 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
         
         if (typeof val === 'string') {
-          const s = val.trim();
-          // Matches D/M/YYYY or DD/MM/YYYY or D-M-YYYY or DD-MM-YYYY
-          const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+          // Remove any time component if present, e.g., "1/4/26 08:28" -> "1/4/26"
+          const s = val.trim().split(/\s+/)[0];
+          
+          // Matches D/M/Y, DD/MM/YYYY, D-M-YY, etc. (Standard Spanish / Argentine Excel format)
+          const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{2,4})$/);
           if (dmyMatch) {
             const day = dmyMatch[1].padStart(2, '0');
             const month = dmyMatch[2].padStart(2, '0');
-            const year = dmyMatch[3];
+            let year = dmyMatch[3];
+            if (year.length === 2) {
+              year = '20' + year;
+            }
             return `${year}-${month}-${day}`;
           }
+          
           const ymdMatch = s.match(/^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$/);
           if (ymdMatch) {
             const year = ymdMatch[1];
@@ -699,17 +705,14 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             const day = ymdMatch[3].padStart(2, '0');
             return `${year}-${month}-${day}`;
           }
-          if (s.length >= 10 && s.slice(4, 5) === '-' && s.slice(7, 8) === '-') {
-            return s.slice(0, 10);
-          }
         }
         
         try {
           const parsed = new Date(val);
           if (!isNaN(parsed.getTime())) {
-            const yyyy = parsed.getUTCFullYear();
-            const mm = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-            const dd = String(parsed.getUTCDate()).padStart(2, '0');
+            const yyyy = parsed.getFullYear();
+            const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+            const dd = String(parsed.getDate()).padStart(2, '0');
             return `${yyyy}-${mm}-${dd}`;
           }
         } catch (e) {}
