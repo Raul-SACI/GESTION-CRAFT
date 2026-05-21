@@ -240,8 +240,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
     if (filterMonth !== 'all') {
       base = base.filter(r => {
-        const d = new Date(r.date);
-        return (d.getUTCMonth() + 1).toString() === filterMonth;
+        if (!r.date) return false;
+        const parts = r.date.split('-');
+        if (parts.length < 2) return false;
+        const monthNum = parseInt(parts[1], 10);
+        return monthNum.toString() === filterMonth;
       });
     }
 
@@ -437,8 +440,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     // If no month filter is active, we specifically target current month for the projection
     if (filterMonth === 'all') {
       targetRecords = groupedDailySales.filter(day => {
-        const d = new Date(day.date);
-        return d.getUTCMonth() === today.getUTCMonth() && d.getUTCFullYear() === today.getUTCFullYear();
+        if (!day.date) return false;
+        const parts = day.date.split('-');
+        if (parts.length < 2) return false;
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1; // 0-indexed month
+        return m === today.getUTCMonth() && y === today.getUTCFullYear();
       });
     }
     
@@ -693,11 +700,34 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
         // 1. If it's a JS Date object (thanks to cellDates: true)
         if (val instanceof Date) {
-          // Standardise UTC extraction
-          const yyyy = val.getUTCFullYear();
-          const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
-          const dd = String(val.getUTCDate()).padStart(2, '0');
-          return `${yyyy}-${mm}-${dd}`;
+          const yyyyUTC = val.getUTCFullYear();
+          const mmUTC = val.getUTCMonth() + 1;
+          const ddUTC = val.getUTCDate();
+          const weekdayUTC = val.getUTCDay();
+
+          const yyyyLoc = val.getFullYear();
+          const mmLoc = val.getMonth() + 1;
+          const ddLoc = val.getDate();
+          const weekdayLoc = val.getDay();
+
+          if (rowContext) {
+            const rowDayVal = getRowDayName(rowContext);
+            if (rowDayVal) {
+              const matchUTC = weekdayMatches(weekdayUTC, rowDayVal);
+              const matchLoc = weekdayMatches(weekdayLoc, rowDayVal);
+
+              if (matchUTC && !matchLoc) {
+                return `${yyyyUTC}-${String(mmUTC).padStart(2, '0')}-${String(ddUTC).padStart(2, '0')}`;
+              }
+              if (matchLoc && !matchUTC) {
+                return `${yyyyLoc}-${String(mmLoc).padStart(2, '0')}-${String(ddLoc).padStart(2, '0')}`;
+              }
+            }
+          }
+
+          // Default fallback: Local timezone is generally safest for SheetJS parsed cells
+          // as they are parsed with local timezone bias of the user's browser.
+          return `${yyyyLoc}-${String(mmLoc).padStart(2, '0')}-${String(ddLoc).padStart(2, '0')}`;
         }
         
         // 2. If it's a number
