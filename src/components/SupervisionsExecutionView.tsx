@@ -41,11 +41,34 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
   const [generalNotes, setGeneralNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Supervisors & Assignments State
+  const [supervisors, setSupervisors] = useState<any[]>([]);
+  const [selectedSupId, setSelectedSupId] = useState<string>('all');
+  const [showAllBranches, setShowAllBranches] = useState<boolean>(false);
+
   // Load templates and responses from Supabase
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch checklists
+      // 1. Fetch supervisor profiles
+      const { data: profiles, error: profErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'supervisor')
+        .order('name');
+      
+      if (!profErr && profiles && profiles.length > 0) {
+        setSupervisors(profiles);
+      } else {
+        // Fallback seed layout to avoid blank profiles lists
+        setSupervisors([
+          { id: '11c8f031-15b7-4b72-b5e0-47de31f24d91', name: 'LUCAS PERALTA', role: 'supervisor', branch_name: '' },
+          { id: '22c8f031-15b7-4b72-b5e0-47de31f24d92', name: 'ANDREA DOMÍNGUEZ', role: 'supervisor', branch_name: '' },
+          { id: '33c8f031-15b7-4b72-b5e0-47de31f24d93', name: 'MARTÍN ROSSI', role: 'supervisor', branch_name: '' },
+        ]);
+      }
+
+      // 2. Fetch checklists
       const { data: checklistsData, error: ckError } = await supabase
         .from('supervision_checklists')
         .select('*')
@@ -67,7 +90,7 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
         setSelectedTemplate(fetchedTemplates[0]);
       }
 
-      // 2. Fetch responses
+      // 3. Fetch responses
       const { data: responsesData, error: respError } = await supabase
         .from('supervision_responses')
         .select('*')
@@ -79,7 +102,7 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
         setDbResponses(responsesData);
       }
     } catch (err) {
-      console.warn("Using fallback local templates / answers due to connection limits:", err);
+      console.warn("Using fallback local templates / answers:", err);
       setTemplates(SEEDED_TEMPLATES);
       setSelectedTemplate(SEEDED_TEMPLATES[0]);
     } finally {
@@ -90,6 +113,14 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
   useEffect(() => {
     loadData();
   }, []);
+
+  // Filtered branches logic
+  const activeSupervisor = supervisors.find(s => s.id === selectedSupId);
+  const assignedBranchIds = activeSupervisor?.branch_name ? activeSupervisor.branch_name.split(',').filter(Boolean) : [];
+
+  const filteredBranches = (selectedSupId === 'all' || showAllBranches)
+    ? branches
+    : branches.filter(b => assignedBranchIds.includes(b.id));
 
   // Compute live KPIs per branch based on database responses
   const getBranchAuditResult = (branchId: string): AuditResult => {
@@ -118,14 +149,14 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
     };
   };
 
-  // Compile global KPI stats
-  const totalVerde = branches.filter(b => {
+  // Compile global KPI stats based on filtered list
+  const totalVerde = filteredBranches.filter(b => {
     const res = getBranchAuditResult(b.id);
     return res.status === 'completed' && res.flags.red === 0;
   }).length;
 
-  const totalAmarillo = branches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.yellow, 0);
-  const totalRojo = branches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.red, 0);
+  const totalAmarillo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.yellow, 0);
+  const totalRojo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.red, 0);
 
   const handleOpenAudit = (branch: Branch) => {
     setSelectedBranch(branch);
@@ -200,7 +231,11 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
-          flags: { red: redCount, yellow: yellowCount, green: greenCount }
+          flags: { red: redCount, yellow: yellowCount, green: greenCount },
+          supervisor: activeSupervisor ? {
+            id: activeSupervisor.id,
+            name: activeSupervisor.name
+          } : undefined
         },
         total_score: parseFloat(averageNormalizedScore.toFixed(2)),
         notes: generalNotes
@@ -303,6 +338,63 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
               />
           </div>
 
+          {/* Supervisor Selection Bar */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-6 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+             <div className="space-y-1">
+                <span className="text-[9px] font-black uppercase text-brand-500 tracking-widest">
+                   Perfil de Trabajo Activo (Registro de Visitas)
+                </span>
+                <p className="text-xs text-text-dim leading-relaxed italic opacity-85">
+                   Selecciona tu perfil de Líder Operativo para ver tus sucursales asignadas y realizar tus visitas agendadas.
+                </p>
+             </div>
+
+             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+                <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2 min-w-[220px]">
+                   <Building2 size={12} className="text-brand-500 flex-shrink-0" />
+                   <select
+                     value={selectedSupId}
+                     onChange={(e) => setSelectedSupId(e.target.value)}
+                     className="bg-transparent text-[10px] font-black uppercase text-brand-500 outline-none w-full cursor-pointer"
+                   >
+                     <option value="all" className="bg-bg-sidebar text-text-main">VER TODAS LAS SUCURSALES (ADMIN)</option>
+                     {supervisors.map(sup => (
+                       <option key={sup.id} value={sup.id} className="bg-bg-sidebar text-text-main">
+                         {sup.name}
+                       </option>
+                     ))}
+                   </select>
+                </div>
+
+                {selectedSupId !== 'all' && (
+                   <label className="flex items-center gap-2 text-[9px] font-black text-text-dim uppercase tracking-wider cursor-pointer">
+                     <input
+                       type="checkbox"
+                       checked={showAllBranches}
+                       onChange={(e) => setShowAllBranches(e.target.checked)}
+                       className="rounded border-border-dim text-brand-500 focus:ring-brand-500 bg-bg-sidebar w-3.5 h-3.5 cursor-pointer"
+                     />
+                     <span>Mostrar No Asignadas</span>
+                   </label>
+                )}
+             </div>
+          </div>
+
+          {/* Assigned Branches Alert Banner */}
+          {selectedSupId !== 'all' && assignedBranchIds.length === 0 && !showAllBranches && (
+             <div className="bg-orange-500/10 border border-orange-500/20 p-5 rounded-lg">
+                <div className="flex gap-3 text-orange-500">
+                   <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                   <div className="text-[10px] leading-relaxed font-bold uppercase tracking-wide">
+                      <p className="font-black text-orange-400">Sin sucursales asignadas</p>
+                      <p className="text-text-dim font-medium lowercase tracking-normal italic mt-1 leading-normal">
+                         Pídele a Administración que te asigne tus sucursales desde la pestaña "Asignación de Supervisores" en la sección de control general. O activa el check de "Mostrar No Asignadas" para pruebas de desarrollo.
+                      </p>
+                   </div>
+                </div>
+             </div>
+          )}
+
           {/* Main Grid: Branches Status */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="space-y-4">
@@ -313,7 +405,7 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
                     </h3>
                  </div>
                  <div className="grid gap-3">
-                    {branches.map(branch => {
+                    {filteredBranches.map(branch => {
                         const result = getBranchAuditResult(branch.id);
                         
                         return (
