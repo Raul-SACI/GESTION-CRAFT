@@ -53,12 +53,18 @@ const SALE_TYPES: SaleType[] = ['Turno Mañana', 'Turno Tarde', 'Pedidos Ya Rest
 export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   
   // Dashboard Filters
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterWeek, setFilterWeek] = useState<string>('all');
+  
+  // Clear selections when filters change
+  React.useEffect(() => {
+    setSelectedRowIds([]);
+  }, [selectedBranchId, filterMonth, filterWeek]);
   
   // Rankings State
   const [rankings, setRankings] = useState<any[]>([]);
@@ -257,6 +263,58 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
     return base;
   }, [salesRecords, selectedBranchId, filterMonth, filterWeek]);
+
+  const allFilteredIds = useMemo(() => filteredSales.map(r => r.id), [filteredSales]);
+  const isAllSelected = useMemo(() => {
+    if (allFilteredIds.length === 0) return false;
+    return allFilteredIds.every(id => selectedRowIds.includes(id));
+  }, [allFilteredIds, selectedRowIds]);
+
+  const selectedFilteredCount = useMemo(() => {
+    return filteredSales.filter(r => selectedRowIds.includes(r.id)).length;
+  }, [filteredSales, selectedRowIds]);
+
+  const handleSelectAllToggle = () => {
+    if (isAllSelected) {
+      setSelectedRowIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
+    } else {
+      setSelectedRowIds(prev => {
+        const otherIds = prev.filter(id => !allFilteredIds.includes(id));
+        return [...otherIds, ...allFilteredIds];
+      });
+    }
+  };
+
+  const handleRowSelectToggle = (id: string) => {
+    setSelectedRowIds(prev => 
+      prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
+    );
+  };
+
+  const handleDeleteSelected = async () => {
+    const selectedIdsInFilter = allFilteredIds.filter(id => selectedRowIds.includes(id));
+    if (selectedIdsInFilter.length === 0) return;
+
+    if (window.confirm(`¿Está seguro de que desea eliminar los ${selectedIdsInFilter.length} registros seleccionados? Esta acción es irreversible.`)) {
+      try {
+        setLoading(true);
+        const { error } = await supabase
+          .from('sales')
+          .delete()
+          .in('id', selectedIdsInFilter);
+        if (error) throw error;
+        
+        setSelectedRowIds(prev => prev.filter(id => !selectedIdsInFilter.includes(id)));
+        await fetchData();
+        alert('¡Registros eliminados con éxito!');
+      } catch (err) {
+        console.error('Error deleting records in batch:', err);
+        alert('Error al intentar eliminar los registros seleccionados.');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const groupedDailySales = useMemo(() => {
     const groups: Record<string, any> = {};
@@ -1589,14 +1647,40 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3">
           <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
-            <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
-               <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas Diario</h3>
+            <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center bg-zinc-950/20">
+               <div className="flex items-center gap-4">
+                  <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas Diario</h3>
+                  {selectedFilteredCount > 0 && (
+                     <div className="flex items-center gap-2">
+                       <span className="bg-red-500/10 text-red-500 border border-red-500/25 px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center gap-1">
+                         <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                         {selectedFilteredCount} Seleccionados
+                       </span>
+                       <button
+                         onClick={handleDeleteSelected}
+                         className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-black uppercase tracking-widest px-3 py-1.5 rounded text-[8px] border border-red-500/30 transition-all cursor-pointer shadow-sm active:scale-95"
+                         title="Eliminar todos los registros seleccionados"
+                       >
+                         <Trash2 size={10} /> Eliminar Seleccionados
+                       </button>
+                     </div>
+                  )}
+               </div>
                {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-[9px]">
                 <thead>
                   <tr className="bg-bg-accent border-b border-border-dim text-left text-text-dim font-black uppercase tracking-widest">
+                    <th className="px-4 py-3 w-10 text-center">
+                      <input 
+                        type="checkbox"
+                        checked={isAllSelected}
+                        onChange={handleSelectAllToggle}
+                        className="rounded border border-border-dim text-brand-500 focus:ring-brand-500 bg-bg-sidebar w-3.5 h-3.5 cursor-pointer"
+                        title="Seleccionar todo"
+                      />
+                    </th>
                     <th className="px-4 py-3 min-w-[120px]">Sucursal</th>
                     <th className="px-4 py-3">Fecha</th>
                     <th className="px-2 py-3">Semana</th>
@@ -1615,67 +1699,83 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                 <tbody className="divide-y divide-border-dim font-medium">
                   {filteredSales.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                      <td colSpan={14} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                         No hay registros cargados para este periodo
                       </td>
                     </tr>
                   ) : (
-                    filteredSales.map((record) => (
-                      <tr key={record.id} className="hover:bg-bg-accent/50 transition-colors group">
-                        <td className="px-4 py-3 font-black text-brand-500 uppercase">
-                          {branches.find(b => b.id === record.branchId)?.name || record.branchId}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-text-main">{record.date}</td>
-                        <td className="px-2 py-3 text-text-dim uppercase">{record.week}</td>
-                        <td className="px-2 py-3 text-text-dim uppercase">{record.dayName}</td>
-                        <td className="px-3 py-3 text-left text-text-dim/80">{record.type}</td>
-                        <td className="px-2 py-3 text-center font-mono">{record.hora || '08:00'}</td>
-                        <td className="px-3 py-3 text-right font-mono">{record.orders.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right font-mono">{record.covers.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-left font-mono font-bold text-indigo-400">{record.medioCobro || 'Efectivo'}</td>
-                        <td className="px-3 py-3 text-right font-mono font-black text-text-main">
-                          ${record.pesos.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono font-black text-teal-400">
-                          ${record.netSales.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-3 text-right font-mono text-text-dim/70">
-                          ${(record.iva || 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button 
-                              onClick={() => handleEditGroup({ branchId: record.branchId, date: record.date })}
-                              className="text-text-dim/40 hover:text-brand-500 transition-colors p-1"
-                              title="Editar"
-                            >
-                              <FileUp size={14} />
-                            </button>
-                            <button 
-                              onClick={async () => {
-                                if (confirm('¿Está seguro de eliminar esta venta?')) {
-                                  try {
-                                    const { error } = await supabase
-                                      .from('sales')
-                                      .delete()
-                                      .eq('id', record.id);
-                                    if (error) throw error;
-                                    fetchData();
-                                  } catch (err) {
-                                    console.error('Error deleting record:', err);
-                                    alert('Error al eliminar el registro.');
+                    filteredSales.map((record) => {
+                      const isSelected = selectedRowIds.includes(record.id);
+                      return (
+                        <tr key={record.id} className={cn(
+                          "hover:bg-bg-accent/50 transition-colors group",
+                          isSelected && "bg-brand-500/5 hover:bg-brand-500/10"
+                        )}>
+                          <td className="px-4 py-3 text-center w-10">
+                            <input 
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleRowSelectToggle(record.id)}
+                              className="rounded border border-border-dim text-brand-500 focus:ring-brand-500 bg-bg-sidebar w-3.5 h-3.5 cursor-pointer"
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-black text-brand-500 uppercase">
+                            {branches.find(b => b.id === record.branchId)?.name || record.branchId}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-text-main">{record.date}</td>
+                          <td className="px-2 py-3 text-text-dim uppercase">{record.week}</td>
+                          <td className="px-2 py-3 text-text-dim uppercase">{record.dayName}</td>
+                          <td className="px-3 py-3 text-left text-text-dim/80">{record.type}</td>
+                          <td className="px-2 py-3 text-center font-mono">{record.hora || '08:00'}</td>
+                          <td className="px-3 py-3 text-right font-mono">{record.orders.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-right font-mono">{record.covers.toLocaleString()}</td>
+                          <td className="px-3 py-3 text-left font-mono font-bold text-indigo-400">{record.medioCobro || 'Efectivo'}</td>
+                          <td className="px-3 py-3 text-right font-mono font-black text-text-main">
+                            ${record.pesos.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono font-black text-teal-400">
+                            ${record.netSales.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-3 text-right font-mono text-text-dim/70">
+                            ${(record.iva || 0).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button 
+                                onClick={() => handleEditGroup({ branchId: record.branchId, date: record.date })}
+                                className="text-text-dim/40 hover:text-brand-500 transition-colors p-1"
+                                title="Editar"
+                              >
+                                <FileUp size={14} />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (confirm('¿Está seguro de eliminar esta venta?')) {
+                                    try {
+                                      const { error } = await supabase
+                                        .from('sales')
+                                        .delete()
+                                        .eq('id', record.id);
+                                      if (error) throw error;
+                                      
+                                      setSelectedRowIds(prev => prev.filter(rowId => rowId !== record.id));
+                                      fetchData();
+                                    } catch (err) {
+                                      console.error('Error deleting record:', err);
+                                      alert('Error al eliminar el registro.');
+                                    }
                                   }
-                                }
-                              }}
-                              className="text-text-dim/40 hover:text-red-500 transition-colors p-1"
-                              title="Eliminar"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                                }}
+                                className="text-text-dim/40 hover:text-red-500 transition-colors p-1"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
