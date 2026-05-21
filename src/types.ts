@@ -125,7 +125,50 @@ export interface StockItemControl {
   deviationPercentage: number;
 }
 
-// 5. Desempeño
+// 5. Desempeño (Flexible Dynamic System)
+export interface PerformanceTier {
+  id: string;
+  threshold: number; // The boundary value (e.g. 31, 30, 4.5)
+  prize: number; // Money to award if achieved
+}
+
+export interface PerformanceVariable {
+  id: string;
+  name: string; // e.g. "CMV Definitivo", "Calificación Google"
+  unit: string; // e.g. "%", "★", "HS"
+  isLowerBetter: boolean; // true for CMV/Deviations, false for Scores/Sales
+  tiers: PerformanceTier[];
+}
+
+export interface PerformanceRoleConfig {
+  id: string;
+  branchId: string;
+  month: string; // YYYY-MM
+  role: 'encargado' | 'jefe_cocina';
+  variables: PerformanceVariable[];
+  salesGoal: number; // Required for some calculations
+  redFlagPenalty: number;
+}
+
+export interface PerformanceVariableResult {
+  variableId: string;
+  variableName: string;
+  actualValue: number;
+  achievedPrize: number;
+  achievedTierId?: string;
+}
+
+export interface PerformanceReport {
+  id: string;
+  branchId: string;
+  month: string;
+  role: 'encargado' | 'jefe_cocina';
+  results: PerformanceVariableResult[];
+  actualSales: number;
+  redFlagsCount: number;
+  totalCalculatedPrize: number;
+}
+
 export interface PerformanceTargets {
   id: string;
   branchId: string;
