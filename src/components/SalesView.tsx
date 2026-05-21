@@ -574,7 +574,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const wb = XLSX.read(dataBuffer, { type: 'array' });
       const wsname = wb.SheetNames[0];
       const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws) as any[];
+      // Set raw: false to retrieve cellular formatted string values, preserving Spanish currency layout
+      const data = XLSX.utils.sheet_to_json(ws, { raw: false }) as any[];
 
       const recordsToInsert: any[] = [];
 
@@ -591,23 +592,107 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
       const mapTurno = (turnoStr: string): SaleType => {
         const norm = String(turnoStr || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        if (norm.includes('manana') || norm === 'm' || norm.includes('morning')) return 'Turno Mañana';
-        if (norm.includes('tarde') || norm === 't' || norm.includes('afternoon')) return 'Turno Tarde';
+        if (norm.includes('manana') || norm === 'm' || norm === 'med' || norm.includes('morning') || norm.includes('mediodia') || norm.includes('medio')) return 'Turno Mañana';
+        if (norm.includes('tarde') || norm === 't' || norm.includes('afternoon') || norm.includes('noche') || norm === 'noc') return 'Turno Tarde';
         if (norm.includes('resto') || norm.includes('pedidos ya resto') || norm.includes('py resto')) return 'Pedidos Ya Restó';
         if (norm.includes('cafe') || norm.includes('pedidos ya cafe') || norm.includes('py cafe')) return 'Pedidos Ya Café';
         return 'Turno Mañana'; // Fallback
       };
 
-      // Clean currency values
-      const parseCurrency = (val: any) => {
-        if (typeof val === 'number') return val;
-        if (typeof val !== 'string') return 0;
-        const cleaned = val.replace(/[$\s.]/g, '').replace(',', '.');
-        return Number(cleaned) || 0;
+      // Robust currency parser for Spanish and English formatted strings
+      const parseCurrency = (val: any): number => {
+        if (val === undefined || val === null) return 0;
+        if (typeof val === 'number') {
+          return val;
+        }
+        
+        let str = String(val).trim().replace(/[$]/g, '').trim();
+        
+        // Handle BOTH dot and comma formats
+        if (str.includes('.') && str.includes(',')) {
+          // e.g. "20.371,90"
+          if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+            // Spanish style: 20.371,90 -> remove dots, replace comma with dot
+            str = str.replace(/\./g, '').replace(',', '.');
+          } else {
+            // English style: 20,371.90 -> remove commas
+            str = str.replace(/,/g, '');
+          }
+        } else if (str.includes(',')) {
+          // Only comma: "24650,50" -> change comma to dot
+          str = str.replace(',', '.');
+        } else if (str.includes('.')) {
+          // Only period: "24.650" or "110.000"
+          // If exactly 3 digits follow the dot, it is a Spanish thousands separator
+          const parts = str.split('.');
+          if (parts.length === 2 && parts[1].length === 3) {
+            str = str.replace(/\./g, '');
+          }
+        }
+        
+        const num = Number(str.replace(/\s/g, '')) || 0;
+        return num;
+      };
+
+      const parseInteger = (val: any): number => {
+        const num = parseCurrency(val);
+        return Math.round(num);
+      };
+
+      const parseSafeDate = (val: any): string => {
+        if (!val) return '';
+        if (val instanceof Date) {
+          const yyyy = val.getUTCFullYear();
+          const mm = String(val.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(val.getUTCDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        }
+        
+        if (typeof val === 'number') {
+          const dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
+          const yyyy = dateObj.getUTCFullYear();
+          const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        }
+        
+        if (typeof val === 'string') {
+          const s = val.trim();
+          // Matches D/M/YYYY or DD/MM/YYYY or D-M-YYYY or DD-MM-YYYY
+          const dmyMatch = s.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/);
+          if (dmyMatch) {
+            const day = dmyMatch[1].padStart(2, '0');
+            const month = dmyMatch[2].padStart(2, '0');
+            const year = dmyMatch[3];
+            return `${year}-${month}-${day}`;
+          }
+          const ymdMatch = s.match(/^(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})$/);
+          if (ymdMatch) {
+            const year = ymdMatch[1];
+            const month = ymdMatch[2].padStart(2, '0');
+            const day = ymdMatch[3].padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }
+          if (s.length >= 10 && s.slice(4, 5) === '-' && s.slice(7, 8) === '-') {
+            return s.slice(0, 10);
+          }
+        }
+        
+        try {
+          const parsed = new Date(val);
+          if (!isNaN(parsed.getTime())) {
+            const yyyy = parsed.getUTCFullYear();
+            const mm = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(parsed.getUTCDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+          }
+        } catch (e) {}
+        
+        return '';
       };
 
       data.forEach(row => {
-        // 1. Find branch mapping - be more flexible with names (e.g. "Barrio Norte" -> "CRAFT BARRIO NORTE")
+        // 1. Find branch mapping - be more flexible with names
         const excelBranch = getValue(row, 'Sucursal') || getValue(row, 'Branch');
         let targetBranchId = selectedBranchId;
         if (excelBranch) {
@@ -622,32 +707,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
 
         if (targetBranchId === 'all') {
-          // If no specific branch was matched, fallback to first branch to avoid empty ID
           targetBranchId = branches[0]?.id || 'bn';
         }
 
-        // 2. Parse Date (formats standard DD-MM-YYYY or MM-DD-YYYY or ISO)
-        let date = getValue(row, 'Fecha') || getValue(row, 'Date');
-        if (typeof date === 'number') {
-          // Excel date serial
-          const dt = new Date((date - (25567 + 2)) * 86400 * 1000);
-          date = dt.toISOString().split('T')[0];
-        } else if (typeof date === 'string') {
-          date = date.trim();
-          if (date.includes('-')) {
-            const parts = date.split('-');
-            if (parts[0].length === 2 && parts[2].length === 4) {
-               // DD-MM-YYYY -> YYYY-MM-DD
-               date = `${parts[2]}-${parts[1]}-${parts[0]}`;
-            }
-          } else if (date.includes('/')) {
-            const parts = date.split('/');
-            if (parts[0].length === 2 && parts[2].length === 4) {
-               // DD/MM/YYYY -> YYYY-MM-DD
-               date = `${parts[2]}-${parts[1]}-${parts[0]}`;
-            }
-          }
-        }
+        // 2. Parse Date (D/M/YYYY or DD/MM/YYYY standard Spanish format)
+        const dateInput = getValue(row, 'Fecha') || getValue(row, 'Date');
+        let date = parseSafeDate(dateInput);
 
         if (!date) {
           date = new Date().toISOString().split('T')[0];
@@ -657,11 +722,23 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const rawTurno = getValue(row, 'Turno') || getValue(row, 'Shift') || 'Turno Mañana';
         const type = mapTurno(String(rawTurno));
 
-        const gross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
-        const net = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
-        const tax = parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax') || 0);
-        const orders = Number(getValue(row, 'Ordenes') || getValue(row, 'Orders') || getValue(row, 'Tickets') || 0);
-        const covers = Number(getValue(row, 'Cubiertos') || getValue(row, 'Covers') || 0);
+        let gross = parseCurrency(getValue(row, 'Ventas Brutas') || getValue(row, 'Bruto') || getValue(row, 'Gross') || 0);
+        let net = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
+        let tax = parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax') || 0);
+
+        // Fail-safe protection against US/English decimal scaling slips (e.g. 24.65 instead of 24650.00)
+        if (gross > 0 && gross < 3000) {
+          gross = gross * 1000;
+        }
+        if (net > 0 && net < 3000) {
+          net = net * 1000;
+        }
+        if (tax > 0 && tax < 1000) {
+          tax = tax * 1000;
+        }
+
+        const orders = parseInteger(getValue(row, 'Ordenes') || getValue(row, 'Orders') || getValue(row, 'Tickets') || 0);
+        const covers = parseInteger(getValue(row, 'Cubiertos') || getValue(row, 'Covers') || 0);
 
         const rowWeek = getValue(row, 'Semana') || getValue(row, 'Week');
         const weekVal = rowWeek ? String(rowWeek) : `Semana ${Math.ceil(new Date(date).getUTCDate() / 7)}`;
@@ -672,7 +749,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const rawHora = getValue(row, 'Hora') || getValue(row, 'Hour') || '08:00';
         const horaVal = String(rawHora).trim();
 
-        const rawMedio = getValue(row, 'Medio Cobro') || getValue(row, 'MedioPago') || getValue(row, 'Payment') || 'Efectivo';
+        // Support 'Cobro' header as well as standard 'Medio Cobro'
+        const rawMedio = getValue(row, 'Cobro') || getValue(row, 'Medio Cobro') || getValue(row, 'MedioPago') || getValue(row, 'Payment') || 'Efectivo';
         const medioCobroVal = String(rawMedio).trim();
         const normMedio = medioCobroVal.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
@@ -681,9 +759,23 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         let qr = 0;
         if (normMedio.includes('efectivo') || normMedio === 'cash') {
           cash = gross;
-        } else if (normMedio.includes('tarjeta') || normMedio.includes('debito') || normMedio.includes('credito') || normMedio === 'card') {
+        } else if (
+          normMedio.includes('tarjeta') || 
+          normMedio.includes('deb') || 
+          normMedio.includes('cred') || 
+          normMedio.includes('card') || 
+          normMedio.includes('visa') || 
+          normMedio.includes('master') || 
+          normMedio.includes('posnet')
+        ) {
           card = gross;
-        } else if (normMedio.includes('qr') || normMedio.includes('transferencia') || normMedio.includes('mercadopago') || normMedio === 'mp') {
+        } else if (
+          normMedio.includes('qr') || 
+          normMedio.includes('transf') || 
+          normMedio.includes('mercadopago') || 
+          normMedio.includes('mp') || 
+          normMedio.includes('online')
+        ) {
           qr = gross;
         } else {
           cash = gross; // Fallback
