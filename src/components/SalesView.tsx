@@ -1087,16 +1087,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         let net = parseCurrency(getValue(row, 'Ventas Netas') || getValue(row, 'Neto') || getValue(row, 'Net') || 0);
         let tax = parseCurrency(getValue(row, 'IVA') || getValue(row, 'Tax') || 0);
 
-        // Fail-safe protection against US/English decimal scaling slips (e.g. 24.65 instead of 24650.00)
-        if (gross > 0 && gross < 3000) {
-          gross = gross * 1000;
-        }
-        if (net > 0 && net < 3000) {
-          net = net * 1000;
-        }
-        if (tax > 0 && tax < 1000) {
-          tax = tax * 1000;
-        }
+        // Do not scale real transaction figures under 3000 ARS/USD to prevent numeric corruption.
 
         const orders = parseInteger(getValue(row, 'Ordenes') || getValue(row, 'Orders') || getValue(row, 'Tickets') || 0);
         const covers = parseInteger(getValue(row, 'Cubiertos') || getValue(row, 'Covers') || 0);
