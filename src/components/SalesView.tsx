@@ -178,52 +178,109 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Fetch Sales
-      let salesQuery = supabase.from('sales').select('*').order('date', { ascending: false });
-      if (selectedBranchId !== 'all') {
-        salesQuery = salesQuery.eq('branch_id', selectedBranchId);
-      }
-      const { data: salesData } = await salesQuery;
-      if (salesData) {
-        setSalesRecords(salesData.map(s => ({
-          id: s.id,
-          branchId: s.branch_id,
-          date: s.date,
-          type: s.type as SaleType,
-          pesos: Number(s.pesos),
-          netSales: Number(s.net_sales),
-          orders: s.orders,
-          covers: s.covers,
-          projection: Number(s.projection || 0),
-          // Calculate these frontend-side to avoid schema dependency
-          week: s.week || calculateWeekFromDate(s.date),
-          dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
-          cash: Number(s.cash || 0),
-          card: Number(s.card || 0),
-          qr: Number(s.qr || 0),
-          iva: Number(s.iva || 0),
-          hora: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-            ? (s.product_ranking as any).hora || '08:00'
-            : '08:00',
-          medioCobro: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-            ? (s.product_ranking as any).medio_cobro || 'Efectivo'
-            : 'Efectivo',
-          productRanking: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-            ? (s.product_ranking as any).items || []
-            : (Array.isArray(s.product_ranking) ? s.product_ranking : [])
-        })));
+      // Fetch Sales with pagination to support unlimited rows beyond default 1000 limit
+      let allSalesData: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+      
+      while (hasMore) {
+        let salesQuery = supabase
+          .from('sales')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+          
+        if (selectedBranchId !== 'all') {
+          salesQuery = salesQuery.eq('branch_id', selectedBranchId);
+        }
+        
+        const { data: salesData, error: salesError } = await salesQuery;
+        if (salesError) throw salesError;
+        
+        if (salesData && salesData.length > 0) {
+          allSalesData = [...allSalesData, ...salesData];
+          if (salesData.length < pageSize) {
+            hasMore = false;
+          } else {
+            page++;
+          }
+        } else {
+          hasMore = false;
+        }
+        
+        // Safety lock to avoid infinite loops (supports up to 30,000 records)
+        if (page > 30) {
+          break;
+        }
       }
 
-      // Fetch Rankings Table (independent table if it exists, or from sales)
-      // For now we'll assume a dedicated table 'product_rankings' is better for large imports
-      let rankingQuery = supabase.from('product_rankings').select('*').order('date', { ascending: false });
-      if (selectedBranchId !== 'all') {
-        rankingQuery = rankingQuery.eq('branch_id', selectedBranchId);
+      setSalesRecords(allSalesData.map(s => ({
+        id: s.id,
+        branchId: s.branch_id,
+        date: s.date,
+        type: s.type as SaleType,
+        pesos: Number(s.pesos),
+        netSales: Number(s.net_sales),
+        orders: s.orders,
+        covers: s.covers,
+        projection: Number(s.projection || 0),
+        // Calculate these frontend-side to avoid schema dependency
+        week: s.week || calculateWeekFromDate(s.date),
+        dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
+        cash: Number(s.cash || 0),
+        card: Number(s.card || 0),
+        qr: Number(s.qr || 0),
+        iva: Number(s.iva || 0),
+        hora: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+          ? (s.product_ranking as any).hora || '08:00'
+          : '08:00',
+        medioCobro: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+          ? (s.product_ranking as any).medio_cobro || 'Efectivo'
+          : 'Efectivo',
+        productRanking: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
+          ? (s.product_ranking as any).items || []
+          : (Array.isArray(s.product_ranking) ? s.product_ranking : [])
+      })));
+
+      // Fetch Rankings Table with pagination to bypass PostgREST limit
+      let allRankingData: any[] = [];
+      let rankingPage = 0;
+      const rankingPageSize = 1000;
+      let rankingHasMore = true;
+      
+      while (rankingHasMore) {
+        let rankingQuery = supabase
+          .from('product_rankings')
+          .select('*')
+          .order('date', { ascending: false })
+          .range(rankingPage * rankingPageSize, (rankingPage + 1) * rankingPageSize - 1);
+          
+        if (selectedBranchId !== 'all') {
+          rankingQuery = rankingQuery.eq('branch_id', selectedBranchId);
+        }
+        
+        const { data: rankingData, error: rankingError } = await rankingQuery;
+        if (rankingError) throw rankingError;
+        
+        if (rankingData && rankingData.length > 0) {
+          allRankingData = [...allRankingData, ...rankingData];
+          if (rankingData.length < rankingPageSize) {
+            rankingHasMore = false;
+          } else {
+            rankingPage++;
+          }
+        } else {
+          rankingHasMore = false;
+        }
+        
+        // Safety lock, up to 30,000 records
+        if (rankingPage > 30) {
+          break;
+        }
       }
-      const { data: rankingData } = await rankingQuery;
-      if (rankingData) {
-        setRankings(rankingData);
-      }
+
+      setRankings(allRankingData);
     } catch (err) {
       console.error('Error fetching sales data:', err);
     } finally {
@@ -402,6 +459,41 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         alert('Error al intentar eliminar los registros seleccionados.');
       } finally {
         setLoading(false);
+      }
+    }
+  };
+
+  const handleClearAllSales = async () => {
+    if (window.confirm("⚠️ ADVERTENCIA DE CONTROL TOTAL ⚠️\n\n¿Está absolutamente seguro de que desea eliminar TODAS las ventas y rankings de artículos cargados en el sistema? Esto vaciará permanentemente las tablas de ventas para todos los locales sin poder recuperar los datos cargados. ¿Desea continuar?")) {
+      if (window.confirm("CONFIRME DE NUEVO:\n\nEsta acción eliminará TODO el historial inmediatamente de Supabase. Si está importando una planilla de 6000 filas de nuevo, esta es la acción recomendada para iniciar desde cero sin duplicados. ¿Proceder con el vaciado total?")) {
+        try {
+          setLoading(true);
+          
+          // Delete all records from sales table
+          const { error: salesError } = await supabase
+            .from('sales')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+          if (salesError) throw salesError;
+
+          // Delete all records from product_rankings table
+          const { error: rankingsError } = await supabase
+            .from('product_rankings')
+            .delete()
+            .neq('id', '00000000-0000-0000-0000-000000000000');
+          if (rankingsError) {
+            console.warn('Non-blocking ignore of product_rankings delete:', rankingsError);
+          }
+
+          setSelectedRowIds([]);
+          await fetchData();
+          alert('¡Base de datos limpiada con éxito! La tabla se encuentra vacía y lista para recibir la nueva carga de registros sin límites.');
+        } catch (err: any) {
+          console.error('Error vaciando base de datos:', err);
+          alert(`Error al vaciar los registros de ventas: ${err.message || 'Error desconocido'}`);
+        } finally {
+          setLoading(false);
+        }
       }
     }
   };
@@ -1079,28 +1171,36 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         new Set(records.map(r => `${r.branch_id}|${r.date}`))
       );
 
-      for (const item of uniqueBranchDates) {
+      // Perform deletions concurrently in parallel batches to prevent sequence bottlenecks
+      const deletePromises = uniqueBranchDates.map(async (item) => {
         const [bId, dVal] = item.split('|');
-        await supabase.from('sales').delete().eq('branch_id', bId).eq('date', dVal);
+        const { error } = await supabase.from('sales').delete().eq('branch_id', bId).eq('date', dVal);
+        if (error) throw error;
+      });
+      await Promise.all(deletePromises);
+
+      // Chunk the inserts to prevent HTTP payload size timeouts/PostgREST/Kong limits
+      const chunkSize = 400;
+      for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+        let { error } = await supabase.from('sales').insert(chunk);
+        
+        if (error && (error.message.includes('day_name') || error.message.includes('week'))) {
+          console.warn('Retrying insert without day_name/week columns due to schema cache error...');
+          const cleaned = chunk.map(r => {
+            const { day_name, week, ...rest } = r;
+            return rest;
+          });
+          const result = await supabase.from('sales').insert(cleaned);
+          error = result.error;
+        }
+
+        if (error) {
+          console.error('Supabase Error details in chunk:', error);
+          throw error;
+        }
       }
 
-      // Use tolerant insert to handle potential schema cache issues with new columns
-      let { error } = await supabase.from('sales').insert(records);
-      
-      if (error && (error.message.includes('day_name') || error.message.includes('week'))) {
-        console.warn('Retrying insert without day_name/week columns due to schema cache error...');
-        const cleaned = records.map(r => {
-          const { day_name, week, ...rest } = r;
-          return rest;
-        });
-        const result = await supabase.from('sales').insert(cleaned);
-        error = result.error;
-      }
-
-      if (error) {
-        console.error('Supabase Error details:', error);
-        throw error;
-      }
       alert(`Importación exitosa: ${records.length} registros cargados.`);
       fetchData();
     } catch (err: any) {
@@ -1196,15 +1296,24 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           </button>
           
           {activeSubTab === 'daily' ? (
-            <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
-              <FileUp size={16} /> IMPORTAR VENTAS
-              <input 
-                type="file" 
-                accept=".xlsx, .xls, .csv" 
-                className="hidden" 
-                onChange={handleImportExcel}
-              />
-            </label>
+            <>
+              <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
+                <FileUp size={16} /> IMPORTAR VENTAS
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls, .csv" 
+                  className="hidden" 
+                  onChange={handleImportExcel}
+                />
+              </label>
+              <button 
+                onClick={handleClearAllSales}
+                className="bg-red-950/40 hover:bg-red-900/50 border border-red-500/30 text-red-400 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-95"
+                title="Eliminar absolutamente todo el historial de ventas cargado"
+              >
+                <Trash2 size={16} /> VACIAR BASE DE VENTAS
+              </button>
+            </>
           ) : (
             <label className="bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/30 text-brand-500 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
               <FileUp size={16} /> IMPORTAR RANKING
@@ -1737,7 +1846,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center bg-zinc-950/20">
                <div className="flex items-center gap-4">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Historial de Ventas Diario</h3>
-                  {selectedFilteredCount > 0 && (
+                  {selectedFilteredCount > 0 ? (
                      <div className="flex items-center gap-2">
                        <span className="bg-red-500/10 text-red-500 border border-red-500/25 px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider flex items-center gap-1">
                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
@@ -1751,6 +1860,14 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                          <Trash2 size={10} /> Eliminar Seleccionados
                        </button>
                      </div>
+                  ) : (
+                    <button
+                      onClick={handleClearAllSales}
+                      className="flex items-center gap-1 bg-red-950/40 hover:bg-red-900/50 border border-red-500/20 text-red-400 font-bold uppercase tracking-widest px-2.5 py-1 rounded text-[8px] cursor-pointer transition-all active:scale-95 shadow-sm"
+                      title="Eliminar absolutamente todo el historial de ventas del sistema"
+                    >
+                      <Trash2 size={10} /> Vaciar Todo el Historial
+                    </button>
                   )}
                </div>
                {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
