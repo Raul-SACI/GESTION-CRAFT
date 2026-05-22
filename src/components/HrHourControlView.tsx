@@ -353,6 +353,31 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         </div>
       </div>
 
+      {localStorage.getItem(`hr_week_confirmed_by_branch_${selectedBranch}_${selectedMonth}_w${selectedWeek}`) === 'true' && (
+        <motion.div 
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 flex items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-3">
+            <span className="p-2 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center">
+              <CheckCircle2 size={16} className="stroke-[3.5]" />
+            </span>
+            <div>
+              <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                ¡Sincronizado con Sucursal en Tiempo Real!
+              </p>
+              <p className="text-[8.5px] text-text-dim font-bold uppercase tracking-wider mt-0.5">
+                Las horas reales de este período se importaron automáticamente de las planillas diarias enviadas y confirmadas por el Encargado.
+              </p>
+            </div>
+          </div>
+          <span className="text-[8px] font-black px-2 py-1 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 uppercase tracking-wider">
+            Integrado
+          </span>
+        </motion.div>
+      )}
+
       {/* Main Table Content */}
       <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">
