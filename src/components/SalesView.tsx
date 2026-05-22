@@ -50,6 +50,90 @@ interface SalesViewProps {
 
 const SALE_TYPES: SaleType[] = ['Turno Mañana', 'Turno Tarde', 'Pedidos Ya Restó', 'Pedidos Ya Café'];
 
+const calculateWeekFromDate = (dateStr: string): string => {
+  if (!dateStr) return 'Semana 1';
+  const parts = dateStr.split('-');
+  const day = parts.length >= 3 ? parseInt(parts[2], 10) : new Date(dateStr).getUTCDate();
+  
+  if (isNaN(day)) return 'Semana 1';
+  if (day >= 1 && day <= 7) return 'Semana 1';
+  if (day >= 8 && day <= 14) return 'Semana 2';
+  if (day >= 15 && day <= 20) return 'Semana 3';
+  return 'Semana 4'; // Days 21 onwards
+};
+
+const getExcelOrCalculatedWeek = (rowWeek: any, dateStr: string): string => {
+  if (rowWeek) {
+    const raw = String(rowWeek).trim();
+    const num = raw.match(/\d+/)?.[0];
+    if (num) {
+      const parsedNum = parseInt(num, 10);
+      if (parsedNum >= 5) {
+        return 'Semana 4'; // Coerce Week 5+ to Week 4
+      }
+      return `Semana ${parsedNum}`;
+    }
+    return raw;
+  }
+  return calculateWeekFromDate(dateStr);
+};
+
+const findBestBranchMatch = (excelBranch: any, branches: Branch[], selectedBranchId: string): string => {
+  if (!excelBranch) return selectedBranchId === 'all' ? (branches[0]?.id || 'bn') : selectedBranchId;
+  
+  const clean = String(excelBranch).toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, ""); // Keep only lowercase letters and numbers
+
+  if (clean.includes("bnorte") || clean.includes("barrionorte") || clean.includes("bbelgrano") || clean.includes("belgrano") || clean.includes("craftbn")) {
+    const found = branches.find(b => {
+      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      return b.id === 'bn' || bClean.includes("barrionorte") || bClean.includes("bnorte") || (bClean.includes("barrio") && bClean.includes("norte"));
+    });
+    if (found) return found.id;
+  }
+  
+  if (clean.includes("bsur") || clean.includes("barriosur") || clean.includes("craftbs")) {
+    const found = branches.find(b => {
+      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      return b.id === 'bs' || bClean.includes("barriosur") || bClean.includes("bsur") || (bClean.includes("barrio") && bClean.includes("sur"));
+    });
+    if (found) return found.id;
+  }
+  
+  if (clean.includes("casco") || clean.includes("viejo") || clean.includes("cascoviejo") || clean.includes("mt") || clean.includes("craftmt")) {
+    const found = branches.find(b => {
+      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      return b.id === 'mt' || bClean.includes("casco") || bClean.includes("viejo") || bClean.includes("cascoviejo");
+    });
+    if (found) return found.id;
+  }
+  
+  if (clean.includes("peron") || clean.includes("pn") || clean.includes("craftpn")) {
+    const found = branches.find(b => {
+      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      return b.id === 'pn' || bClean.includes("peron");
+    });
+    if (found) return found.id;
+  }
+  
+  if (clean.includes("matedeluna") || clean.includes("deluna") || clean.includes("ml") || clean.includes("craftml")) {
+    const found = branches.find(b => {
+      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+      return b.id === 'ml' || bClean.includes("matedeluna") || bClean.includes("mateluna") || (bClean.includes("mate") && bClean.includes("luna"));
+    });
+    if (found) return found.id;
+  }
+
+  const match = branches.find(b => {
+    const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    return bClean === clean || bClean.includes(clean) || clean.includes(bClean);
+  });
+  
+  if (match) return match.id;
+  return selectedBranchId === 'all' ? (branches[0]?.id || 'bn') : selectedBranchId;
+};
+
 export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
@@ -112,7 +196,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           covers: s.covers,
           projection: Number(s.projection || 0),
           // Calculate these frontend-side to avoid schema dependency
-          week: s.week || `Semana ${Math.ceil(new Date(s.date).getUTCDate() / 7)}`,
+          week: s.week || calculateWeekFromDate(s.date),
           dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
           cash: Number(s.cash || 0),
           card: Number(s.card || 0),
@@ -175,7 +259,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           orders: v.orders,
           covers: v.covers,
           projection: v.pesos * 30,
-          week: `Semana ${Math.ceil(new Date(entryDate).getUTCDate() / 7)}`,
+          week: calculateWeekFromDate(entryDate),
           day_name: new Date(entryDate).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
           cash: 0, 
           card: 0,
@@ -335,7 +419,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             branchId: record.branchId,
             date: record.date,
             // Calculate derive values from date
-            week: record.week || `Semana ${Math.ceil(dateObj.getUTCDate() / 7)}`,
+            week: record.week || calculateWeekFromDate(record.date),
             dayName: record.dayName || dateObj.toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
             cash: 0,
             card: 0,
@@ -786,6 +870,18 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               if (matchLoc && !matchUTC) {
                 return `${yyyyLoc}-${String(mmLoc).padStart(2, '0')}-${String(ddLoc).padStart(2, '0')}`;
               }
+
+              // Guard check for US vs Spanish / DD-MM vs MM-DD swap in SheetJS parsing
+              if (!matchLoc && !matchUTC) {
+                const swappedLocWeekday = getWeekdayFromParsedDate(yyyyLoc, ddLoc, mmLoc); // Swap dd and mm
+                if (weekdayMatches(swappedLocWeekday, rowDayVal)) {
+                  return `${yyyyLoc}-${String(ddLoc).padStart(2, '0')}-${String(mmLoc).padStart(2, '0')}`;
+                }
+                const swappedUTCWeekday = getWeekdayFromParsedDate(yyyyUTC, ddUTC, mmUTC); // Swap dd and mm
+                if (weekdayMatches(swappedUTCWeekday, rowDayVal)) {
+                  return `${yyyyUTC}-${String(ddUTC).padStart(2, '0')}-${String(mmUTC).padStart(2, '0')}`;
+                }
+              }
             }
           }
 
@@ -879,23 +975,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       };
 
       data.forEach(row => {
-        // 1. Find branch mapping - be more flexible with names
+        // 1. Find branch mapping - utilizing robust abbreviation and keyword matching helpers
         const excelBranch = getValue(row, 'Sucursal') || getValue(row, 'Branch');
-        let targetBranchId = selectedBranchId;
-        if (excelBranch) {
-          const normalizedExcel = String(excelBranch).toLowerCase().trim();
-          const foundBranch = branches.find(b => {
-            const normalizedName = b.name.toLowerCase().trim();
-            return normalizedName === normalizedExcel || 
-                   normalizedName.includes(normalizedExcel) || 
-                   normalizedExcel.includes(normalizedName);
-          });
-          if (foundBranch) targetBranchId = foundBranch.id;
-        }
-
-        if (targetBranchId === 'all') {
-          targetBranchId = branches[0]?.id || 'bn';
-        }
+        const targetBranchId = findBestBranchMatch(excelBranch, branches, selectedBranchId);
 
         // 2. Parse Date (D/M/YYYY or DD/MM/YYYY standard Spanish format)
         const dateInput = getValue(row, 'Fecha') || getValue(row, 'Date');
@@ -928,7 +1010,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const covers = parseInteger(getValue(row, 'Cubiertos') || getValue(row, 'Covers') || 0);
 
         const rowWeek = getValue(row, 'Semana') || getValue(row, 'Week');
-        const weekVal = rowWeek ? String(rowWeek) : `Semana ${Math.ceil(new Date(date).getUTCDate() / 7)}`;
+        const weekVal = getExcelOrCalculatedWeek(rowWeek, date);
 
         const rowDay = getValue(row, 'Dia') || getValue(row, 'Day') || getValue(row, 'Día');
         const dayVal = rowDay ? String(rowDay) : new Date(date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' });
@@ -1369,7 +1451,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               <option value="2">SEMANA 2</option>
               <option value="3">SEMANA 3</option>
               <option value="4">SEMANA 4</option>
-              <option value="5">SEMANA 5</option>
             </select>
           </div>
 
