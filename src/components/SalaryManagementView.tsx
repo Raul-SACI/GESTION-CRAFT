@@ -855,7 +855,7 @@ export default function SalaryManagementView() {
                   </thead>
                   <tbody className="divide-y divide-border-dim/50">
                     {filteredPositions.map(pos => {
-                      const firstValue = pos.history?.find(h => h.date.startsWith('2026'))?.value || pos.prevBaseValue || pos.baseValue;
+                      const firstValue = pos.prevBaseValue > 0 ? pos.prevBaseValue : (pos.history && pos.history.length > 0 ? pos.history[0].value : pos.baseValue);
                       const currentValue = pos.baseValue;
                       const accumIncrease = firstValue > 0 ? ((currentValue - firstValue) / firstValue) * 100 : 0;
                       

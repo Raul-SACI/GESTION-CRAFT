@@ -417,6 +417,7 @@ function AppContent() {
         Object.entries(parsed as Record<string, {id: string, label: string}[]>).forEach(([section, items]) => {
           rehydrated[section] = items.map((item) => ({
             ...item,
+            label: item.id === 'gestion_sueldos' ? 'Maestro de Personal' : item.label,
             icon: iconMap[item.id] || ListOrdered
           }));
         });
