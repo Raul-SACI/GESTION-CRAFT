@@ -58,8 +58,8 @@ const calculateWeekFromDate = (dateStr: string): string => {
   if (isNaN(day)) return 'Semana 1';
   if (day >= 1 && day <= 7) return 'Semana 1';
   if (day >= 8 && day <= 14) return 'Semana 2';
-  if (day >= 15 && day <= 20) return 'Semana 3';
-  return 'Semana 4'; // Days 21 onwards
+  if (day >= 15 && day <= 21) return 'Semana 3';
+  return 'Semana 4'; // Days 22 onwards
 };
 
 const getExcelOrCalculatedWeek = (rowWeek: any, dateStr: string): string => {
@@ -189,6 +189,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           .from('sales')
           .select('*')
           .order('date', { ascending: false })
+          .order('id', { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
           
         if (selectedBranchId !== 'all') {
@@ -254,6 +255,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           .from('product_rankings')
           .select('*')
           .order('date', { ascending: false })
+          .order('id', { ascending: true })
           .range(rankingPage * rankingPageSize, (rankingPage + 1) * rankingPageSize - 1);
           
         if (selectedBranchId !== 'all') {
