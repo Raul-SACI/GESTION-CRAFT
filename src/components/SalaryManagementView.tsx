@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -22,7 +22,9 @@ import {
   Filter,
   Download,
   Upload,
-  BarChart3
+  BarChart3,
+  Edit2,
+  Check
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import * as XLSX from 'xlsx';
@@ -57,83 +59,99 @@ interface SalaryPosition {
 }
 
 export default function SalaryManagementView() {
-  const [positions, setPositions] = useState<SalaryPosition[]>([
-    { 
-      id: '1', 
-      area: 'OPERACIONES', 
-      sector: 'COCINA', 
-      title: 'Cocinero A', 
-      type: 'hourly', 
-      baseValue: 3500, 
-      baseMonth: '2026-05',
-      prevBaseValue: 3100, 
-      prevBaseMonth: '2026-02', 
-      notes: 'Incluye premio puntualidad ($500)',
-      history: [
-        { date: '2026-01', value: 2900 },
-        { date: '2026-02', value: 3100 },
-        { date: '2026-03', value: 3100 },
-        { date: '2026-04', value: 3300 },
-        { date: '2026-05', value: 3500 },
-      ]
-    },
-    { 
-      id: '2', 
-      area: 'OPERACIONES', 
-      sector: 'SALON', 
-      title: 'Mozo Salon', 
-      type: 'hourly', 
-      baseValue: 2800, 
-      baseMonth: '2026-05',
-      prevBaseValue: 2500, 
-      prevBaseMonth: '2026-02', 
-      notes: '+ Propinas variables',
-      history: [
-        { date: '2026-01', value: 2300 },
-        { date: '2026-02', value: 2500 },
-        { date: '2026-03', value: 2500 },
-        { date: '2026-04', value: 2700 },
-        { date: '2026-05', value: 2800 },
-      ]
-    },
-    { 
-      id: '3', 
-      area: 'ADMINISTRACION', 
-      sector: 'GERENCIA', 
-      title: 'Gerente Operativo', 
-      type: 'monthly', 
-      baseValue: 850000, 
-      baseMonth: '2026-05',
-      prevBaseValue: 780000, 
-      prevBaseMonth: '2026-01', 
-      notes: 'Bono por objetivos trimestral',
-      history: [
-        { date: '2026-01', value: 780000 },
-        { date: '2026-02', value: 780000 },
-        { date: '2026-03', value: 800000 },
-        { date: '2026-04', value: 820000 },
-        { date: '2026-05', value: 850000 },
-      ]
-    },
-    { 
-      id: '4', 
-      area: 'ADMINISTRACION', 
-      sector: 'GESTION', 
-      title: 'Sub-Encargado', 
-      type: 'monthly', 
-      baseValue: 620000, 
-      baseMonth: '2026-05',
-      prevBaseValue: 580000, 
-      prevBaseMonth: '2026-01',
-      history: [
-        { date: '2026-01', value: 580000 },
-        { date: '2026-02', value: 580000 },
-        { date: '2026-03', value: 595000 },
-        { date: '2026-04', value: 610000 },
-        { date: '2026-05', value: 620000 },
-      ]
-    },
-  ]);
+  // Load initial data from localStorage if available, otherwise use defaults
+  const [positions, setPositions] = useState<SalaryPosition[]>(() => {
+    const saved = localStorage.getItem('craft_salary_positions');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (err) {
+        console.error('Error loading positions from LocalStorage', err);
+      }
+    }
+    return [
+      { 
+        id: '1', 
+        area: 'OPERACIONES', 
+        sector: 'COCINA', 
+        title: 'Cocinero A', 
+        type: 'hourly', 
+        baseValue: 3500, 
+        baseMonth: '2026-05',
+        prevBaseValue: 3100, 
+        prevBaseMonth: '2026-02', 
+        notes: 'Incluye premio puntualidad ($500)',
+        history: [
+          { date: '2026-01', value: 2900 },
+          { date: '2026-02', value: 3100 },
+          { date: '2026-03', value: 3100 },
+          { date: '2026-04', value: 3300 },
+          { date: '2026-05', value: 3500 },
+        ]
+      },
+      { 
+        id: '2', 
+        area: 'OPERACIONES', 
+        sector: 'SALON', 
+        title: 'Mozo Salon', 
+        type: 'hourly', 
+        baseValue: 2800, 
+        baseMonth: '2026-05',
+        prevBaseValue: 2500, 
+        prevBaseMonth: '2026-02', 
+        notes: '+ Propinas variables',
+        history: [
+          { date: '2026-01', value: 2300 },
+          { date: '2026-02', value: 2500 },
+          { date: '2026-03', value: 2500 },
+          { date: '2026-04', value: 2700 },
+          { date: '2026-05', value: 2800 },
+        ]
+      },
+      { 
+        id: '3', 
+        area: 'ADMINISTRACION', 
+        sector: 'GERENCIA', 
+        title: 'Gerente Operativo', 
+        type: 'monthly', 
+        baseValue: 850000, 
+        baseMonth: '2026-05',
+        prevBaseValue: 780000, 
+        prevBaseMonth: '2026-01', 
+        notes: 'Bono por objetivos trimestral',
+        history: [
+          { date: '2026-01', value: 780000 },
+          { date: '2026-02', value: 780000 },
+          { date: '2026-03', value: 800000 },
+          { date: '2026-04', value: 820000 },
+          { date: '2026-05', value: 850000 },
+        ]
+      },
+      { 
+        id: '4', 
+        area: 'ADMINISTRACION', 
+        sector: 'GESTION', 
+        title: 'Sub-Encargado', 
+        type: 'monthly', 
+        baseValue: 620000, 
+        baseMonth: '2026-05',
+        prevBaseValue: 580000, 
+        prevBaseMonth: '2026-01',
+        history: [
+          { date: '2026-01', value: 580000 },
+          { date: '2026-02', value: 580000 },
+          { date: '2026-03', value: 595000 },
+          { date: '2026-04', value: 610000 },
+          { date: '2026-05', value: 620000 },
+        ]
+      },
+    ];
+  });
+
+  // Persist data whenever it changes
+  useEffect(() => {
+    localStorage.setItem('craft_salary_positions', JSON.stringify(positions));
+  }, [positions]);
 
   const [filters, setFilters] = useState({
     area: '',
@@ -143,6 +161,7 @@ export default function SalaryManagementView() {
 
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
+  // States for Adding New Position
   const [showAddModal, setShowAddModal] = useState(false);
   const [newPos, setNewPos] = useState({
     area: '',
@@ -155,6 +174,30 @@ export default function SalaryManagementView() {
     prevBaseMonth: '',
     notes: ''
   });
+
+  // Row Inline-Editing States
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [editRowDraft, setEditRowDraft] = useState<SalaryPosition | null>(null);
+
+  // Salary Increase Modal States ("Actualización de Sueldos")
+  const [showBatchUpdateModal, setShowBatchUpdateModal] = useState(false);
+  const [batchMonth, setBatchMonth] = useState('2026-08'); // Default to August as per user's prompt example
+  const [batchMethod, setBatchMethod] = useState<'percent' | 'manual'>('percent');
+  const [batchPercent, setBatchPercent] = useState<number>(10);
+  const [batchScopeType, setBatchScopeType] = useState<'all' | 'hourly' | 'monthly'>('all');
+  const [batchScopeArea, setBatchScopeArea] = useState<string>('all');
+  const [batchManualValues, setBatchManualValues] = useState<Record<string, number>>({});
+
+  // Sync batchManualValues when batch modal is configured to manual
+  useEffect(() => {
+    if (showBatchUpdateModal && batchMethod === 'manual') {
+      const initial: Record<string, number> = {};
+      positions.forEach(p => {
+        initial[p.id] = p.baseValue;
+      });
+      setBatchManualValues(initial);
+    }
+  }, [showBatchUpdateModal, batchMethod, positions]);
 
   const handleAddPosition = () => {
     if (!newPos.title || newPos.baseValue <= 0) return;
@@ -173,17 +216,168 @@ export default function SalaryManagementView() {
       history: [
         { date: newPos.prevBaseMonth || '2026-01', value: newPos.prevBaseValue },
         { date: newPos.baseMonth || '2026-05', value: newPos.baseValue }
-      ]
+      ].filter(h => h.date && h.value > 0)
     };
+
+    // Ensure there is at least a current entry in history for charting
+    if (pos.history && pos.history.length === 0) {
+      pos.history.push({ date: pos.baseMonth, value: pos.baseValue });
+    }
 
     setPositions([...positions, pos]);
     setShowAddModal(false);
     setNewPos({ area: '', sector: '', title: '', type: 'hourly', baseValue: 0, baseMonth: '2026-05', prevBaseValue: 0, prevBaseMonth: '', notes: '' });
   };
 
-  const handleRemovePosition = (id: string) => {
+  const handleRemovePosition = (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    const confirmed = window.confirm('¿Está seguro de eliminar este puesto de trabajo?');
+    if (!confirmed) return;
+
     setPositions(positions.filter(p => p.id !== id));
     if (selectedPositionId === id) setSelectedPositionId(null);
+  };
+
+  // Row Editing handlers
+  const handleStartEditRow = (pos: SalaryPosition, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingRowId(pos.id);
+    setEditRowDraft({ ...pos });
+  };
+
+  const handleCancelRowEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingRowId(null);
+    setEditRowDraft(null);
+  };
+
+  const handleSaveRowEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!editRowDraft || !editRowDraft.title) return;
+
+    setPositions(prev => prev.map(pos => {
+      if (pos.id === editRowDraft.id) {
+        // Core updates
+        const updated = { ...editRowDraft };
+        
+        // Re-construct and filter out history entries
+        let hist = [...(pos.history || [])];
+
+        // Ensure current active rating exists in history array
+        if (updated.baseMonth) {
+          const idx = hist.findIndex(h => h.date === updated.baseMonth);
+          if (idx >= 0) {
+            hist[idx] = { date: updated.baseMonth, value: updated.baseValue };
+          } else {
+            hist.push({ date: updated.baseMonth, value: updated.baseValue });
+          }
+        }
+
+        // Ensure previous rating exists in history array
+        if (updated.prevBaseMonth && updated.prevBaseValue > 0) {
+          const idx = hist.findIndex(h => h.date === updated.prevBaseMonth);
+          if (idx >= 0) {
+            hist[idx] = { date: updated.prevBaseMonth, value: updated.prevBaseValue };
+          } else {
+            hist.push({ date: updated.prevBaseMonth, value: updated.prevBaseValue });
+          }
+        }
+
+        // Remove duplicates and empty dates
+        const seenDates = new Set<string>();
+        hist = hist.filter(h => {
+          if (!h.date || seenDates.has(h.date)) return false;
+          seenDates.add(h.date);
+          return true;
+        });
+
+        // Sort history by year-month chronologically
+        hist.sort((a,b) => a.date.localeCompare(b.date));
+        updated.history = hist;
+
+        return updated;
+      }
+      return pos;
+    }));
+
+    setEditingRowId(null);
+    setEditRowDraft(null);
+  };
+
+  // Batch Update Apply Handler
+  const handleApplyBatchUpdate = () => {
+    if (!batchMonth) {
+      alert('Por favor especifique el mes de vigencia.');
+      return;
+    }
+
+    setPositions(prev => prev.map(pos => {
+      // Check if item matches scope filters
+      const matchesType = batchScopeType === 'all' || pos.type === batchScopeType;
+      
+      const uniqueAreas = Array.from(new Set(prev.map(p => p.area.toUpperCase())));
+      const matchesArea = batchScopeArea === 'all' || pos.area.toUpperCase() === batchScopeArea.toUpperCase();
+      
+      if (!matchesType || !matchesArea) return pos;
+      
+      let newValue = pos.baseValue;
+      if (batchMethod === 'percent') {
+        newValue = Math.round(pos.baseValue * (1 + (batchPercent || 0) / 100));
+      } else {
+        newValue = Number(batchManualValues[pos.id] !== undefined ? batchManualValues[pos.id] : pos.baseValue);
+      }
+      
+      // If the value hasn't changed, return as-is
+      if (newValue === pos.baseValue && batchMonth === pos.baseMonth) return pos;
+      
+      // Save current as previous
+      const prevVal = pos.baseValue;
+      const prevMonthRef = pos.baseMonth;
+      
+      // Update history array
+      let updatedHistory = [...(pos.history || [])];
+
+      // Add actual new month
+      const existingNewIdx = updatedHistory.findIndex(h => h.date === batchMonth);
+      if (existingNewIdx >= 0) {
+        updatedHistory[existingNewIdx] = { date: batchMonth, value: newValue };
+      } else {
+        updatedHistory.push({ date: batchMonth, value: newValue });
+      }
+
+      // Keep previous active value recorded
+      if (prevMonthRef) {
+        const existingPrevIdx = updatedHistory.findIndex(h => h.date === prevMonthRef);
+        if (existingPrevIdx >= 0) {
+          updatedHistory[existingPrevIdx] = { date: prevMonthRef, value: prevVal };
+        } else {
+          updatedHistory.push({ date: prevMonthRef, value: prevVal });
+        }
+      }
+
+      // Deduplicate and sort
+      const seen = new Set<string>();
+      updatedHistory = updatedHistory.filter(h => {
+        if (!h.date || seen.has(h.date)) return false;
+        seen.add(h.date);
+        return true;
+      });
+      updatedHistory.sort((a,b) => a.date.localeCompare(b.date));
+
+      return {
+        ...pos,
+        prevBaseValue: prevVal,
+        prevBaseMonth: prevMonthRef,
+        baseValue: newValue,
+        baseMonth: batchMonth,
+        history: updatedHistory
+      };
+    }));
+    
+    setShowBatchUpdateModal(false);
+    alert(`Actualización de sueldos aplicada exitosamente para el mes de ${batchMonth}.`);
   };
 
   const handleExportTemplate = () => {
@@ -194,7 +388,7 @@ export default function SalaryManagementView() {
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    XLSX.writeFile(wb, "Plantilla_Sueldos.xlsx");
+    XLSX.writeFile(wb, "Plantilla_Maestro_Personal.xlsx");
   };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -209,39 +403,59 @@ export default function SalaryManagementView() {
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws);
 
-      const importedPositions: SalaryPosition[] = data.map((item: any) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        area: String(item.AREA || '').toUpperCase(),
-        sector: String(item.SECTOR || '').toUpperCase(),
-        title: String(item.PUESTO || '').toUpperCase(),
-        type: (item.TIPO === 'monthly' ? 'monthly' : 'hourly') as 'hourly' | 'monthly',
-        baseValue: Number(item.VALOR_ACTUAL || 0),
-        baseMonth: String(item.MES_ACTUAL || '2026-05'),
-        prevBaseValue: Number(item.VALOR_ANTERIOR || 0),
-        prevBaseMonth: String(item.MES_REF_ANTERIOR || ''),
-        notes: String(item.NOTAS || ''),
-        history: [
-          { date: String(item.MES_REF_ANTERIOR || '2026-01'), value: Number(item.VALOR_ANTERIOR || 0) },
-          { date: String(item.MES_ACTUAL || '2026-05'), value: Number(item.VALOR_ACTUAL || 0) }
-        ]
-      }));
+      const importedPositions: SalaryPosition[] = data.map((item: any) => {
+        const id = Math.random().toString(36).substr(2, 9);
+        const baseValue = Number(item.VALOR_ACTUAL || 0);
+        const baseMonth = String(item.MES_ACTUAL || '2026-05');
+        const prevBaseValue = Number(item.VALOR_ANTERIOR || 0);
+        const prevBaseMonth = String(item.MES_REF_ANTERIOR || '');
+        
+        return {
+          id,
+          area: String(item.AREA || '').toUpperCase(),
+          sector: String(item.SECTOR || '').toUpperCase(),
+          title: String(item.PUESTO || '').toUpperCase(),
+          type: (item.TIPO === 'monthly' ? 'monthly' : 'hourly') as 'hourly' | 'monthly',
+          baseValue,
+          baseMonth,
+          prevBaseValue,
+          prevBaseMonth,
+          notes: String(item.NOTAS || ''),
+          history: [
+            { date: prevBaseMonth || '2026-01', value: prevBaseValue },
+            { date: baseMonth || '2026-05', value: baseValue }
+          ].filter(h => h.date && h.value > 0)
+        };
+      });
 
       setPositions([...positions, ...importedPositions]);
+      alert('Se importaron los puestos correctamente desde Excel.');
     };
     reader.readAsBinaryString(file);
   };
 
   const filteredPositions = positions.filter(p => {
     return (
-      (filters.area === '' || p.area.includes(filters.area.toUpperCase())) &&
-      (filters.sector === '' || p.sector.includes(filters.sector.toUpperCase())) &&
-      (filters.title === '' || p.title.includes(filters.title.toUpperCase()))
+      (filters.area === '' || p.area.toUpperCase().includes(filters.area.toUpperCase())) &&
+      (filters.sector === '' || p.sector.toUpperCase().includes(filters.sector.toUpperCase())) &&
+      (filters.title === '' || p.title.toUpperCase().includes(filters.title.toUpperCase()))
     );
   });
 
   const selectedPosition = positions.find(p => p.id === selectedPositionId);
-
   const chartDataSummary = selectedPosition?.history || [];
+
+  // Areas available for filtering inside batch action
+  const uniqueAreasList = Array.from(new Set(positions.map(p => p.area.toUpperCase())));
+
+  // Math calculated metrics
+  const hourlyWages = positions.filter(p => p.type === 'hourly');
+  const avgHourlyWage = hourlyWages.length > 0 
+    ? Math.round(hourlyWages.reduce((sum, p) => sum + p.baseValue, 0) / hourlyWages.length)
+    : 0;
+
+  const monthlySalaries = positions.filter(p => p.type === 'monthly');
+  const totalMonthlySalaries = monthlySalaries.reduce((sum, p) => sum + p.baseValue, 0);
 
   return (
     <motion.div 
@@ -249,33 +463,44 @@ export default function SalaryManagementView() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      <div className="flex flex-wrap justify-between items-end gap-4">
+      {/* Header Panel */}
+      <div className="flex flex-wrap justify-between items-end gap-4 bg-bg-card border border-border-dim p-6 rounded-lg">
         <div>
           <h2 className="text-xl font-black uppercase text-text-main tracking-widest flex items-center gap-2">
-            <Users className="text-brand-500" size={24} /> Sueldos y Escalas
+            <Users className="text-brand-500" size={24} /> Maestro de Personal
           </h2>
           <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1 opacity-70">
-            Definición de puestos de trabajo y valores de remuneración
+            Remuneraciones, actualización de sueldos y listado de puestos
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <button 
+            onClick={() => setShowBatchUpdateModal(true)}
+            className="flex items-center gap-2 px-4 py-3 bg-brand-500/10 text-brand-500 border border-brand-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-500/20 transition-all shadow-lg"
+          >
+            <TrendingUp size={14} /> Actualización de Sueldos
+          </button>
+          
           <button 
             onClick={handleExportTemplate}
-            className="flex items-center gap-2 px-4 py-3 bg-bg-accent text-text-dim border border-border-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/50 transition-all"
+            className="flex items-center gap-2 px-4 py-3 bg-bg-accent text-text-dim border border-border-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/50 transition-all font-mono"
           >
             <Download size={14} /> Plantilla
           </button>
-          <label className="flex items-center gap-2 px-4 py-3 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all cursor-pointer">
+          
+          <label className="flex items-center gap-2 px-4 py-3 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all cursor-pointer font-bold">
             <Upload size={14} /> Importar Excel
             <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
           </label>
+          
           <button 
-            className="flex items-center gap-2 px-4 py-3 bg-brand-500/10 text-brand-500 border border-brand-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-500/20 transition-all"
+            className="flex items-center gap-2 px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/50 transition-all"
             onClick={() => window.print()}
           >
             <FileText size={14} /> PDF
           </button>
+          
           <button 
             onClick={() => setShowAddModal(true)}
             className="bg-brand-500 text-black px-6 py-3 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2 shadow-xl shadow-brand-500/10"
@@ -285,7 +510,7 @@ export default function SalaryManagementView() {
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* Filter Options */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-sidebar border border-border-dim p-4 rounded-lg">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
@@ -319,101 +544,243 @@ export default function SalaryManagementView() {
         </div>
       </div>
 
+      {/* Main Grid Content */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
-          <div className="p-4 border-b border-border-dim bg-bg-accent/30">
-            <h3 className="text-xs font-black uppercase tracking-widest text-text-main">
-              VALORES ACTUALES - {new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' }).format(new Date()).toUpperCase()}
-            </h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-bg-accent border-b border-border-dim">
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">ÁREA</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">SECTOR</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">PUESTO</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Tipo</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Ant.</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Act.</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Aumento</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Notas</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-dim/50">
-                {filteredPositions.map(pos => {
-                  const increase = pos.prevBaseValue > 0 ? ((pos.baseValue - pos.prevBaseValue) / pos.prevBaseValue) * 100 : 0;
-                  const isSelected = selectedPositionId === pos.id;
-                  
-                  return (
-                    <tr 
-                      key={pos.id} 
-                      onClick={() => setSelectedPositionId(pos.id)}
-                      className={cn(
-                        "hover:bg-bg-accent/10 transition-colors group text-[11px] cursor-pointer",
-                        isSelected && "bg-brand-500/5 border-l-2 border-brand-500"
-                      )}
-                    >
-                      <td className="px-6 py-4 font-bold text-text-dim uppercase">{pos.area}</td>
-                      <td className="px-6 py-4 font-bold text-text-dim uppercase">{pos.sector}</td>
-                      <td className="px-6 py-4 font-bold text-text-main uppercase">{pos.title}</td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
+        {/* Positions Table */}
+        <div className="lg:col-span-2 bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl flex flex-col justify-between">
+          <div>
+            <div className="p-4 border-b border-border-dim bg-bg-accent/30 flex justify-between items-center">
+              <h3 className="text-xs font-black uppercase tracking-widest text-text-main">
+                LISTADO DE PUESTOS Y REMUNERACIONES
+              </h3>
+              <span className="text-[10px] font-mono text-brand-500 px-2 py-0.5 bg-brand-500/10 border border-brand-500/20 rounded font-bold">
+                {filteredPositions.length} puestos cargados
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-bg-accent border-b border-border-dim">
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">ÁREA</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">SECTOR</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">PUESTO</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Tipo</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Ant.</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Act.</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Aumento</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Notas</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/50">
+                  {filteredPositions.map(pos => {
+                    const isEditing = editingRowId === pos.id;
+                    const increase = pos.prevBaseValue > 0 ? ((pos.baseValue - pos.prevBaseValue) / pos.prevBaseValue) * 100 : 0;
+                    const isSelected = selectedPositionId === pos.id;
+                    
+                    if (isEditing && editRowDraft) {
+                      const computedIncrease = editRowDraft.prevBaseValue > 0 
+                        ? ((editRowDraft.baseValue - editRowDraft.prevBaseValue) / editRowDraft.prevBaseValue) * 100 
+                        : 0;
+
+                      return (
+                        <tr key={pos.id} className="bg-brand-500/[0.04] border-l-2 border-brand-500 leading-normal text-[11px]">
+                          <td className="px-2 py-3">
+                            <input 
+                              type="text"
+                              value={editRowDraft.area}
+                              onChange={e => setEditRowDraft({...editRowDraft, area: e.target.value.toUpperCase()})}
+                              className="w-full bg-bg-card font-bold uppercase text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                            />
+                          </td>
+                          <td className="px-2 py-3">
+                            <input 
+                              type="text"
+                              value={editRowDraft.sector}
+                              onChange={e => setEditRowDraft({...editRowDraft, sector: e.target.value.toUpperCase()})}
+                              className="w-full bg-bg-card font-bold uppercase text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                            />
+                          </td>
+                          <td className="px-2 py-3">
+                            <input 
+                              type="text"
+                              value={editRowDraft.title}
+                              onChange={e => setEditRowDraft({...editRowDraft, title: e.target.value})}
+                              className="w-full bg-bg-card font-bold text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                            />
+                          </td>
+                          <td className="px-2 py-3">
+                            <select 
+                              value={editRowDraft.type}
+                              onChange={e => setEditRowDraft({...editRowDraft, type: e.target.value as any})}
+                              className="w-full bg-bg-card text-text-main border border-border-dim rounded px-1 py-1 font-bold text-[10px] outline-none"
+                            >
+                              <option value="hourly">H</option>
+                              <option value="monthly">M</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-3 text-right">
+                            <div className="flex flex-col gap-1 items-end">
+                              <input 
+                                type="number"
+                                value={editRowDraft.prevBaseValue || ''}
+                                onChange={e => setEditRowDraft({...editRowDraft, prevBaseValue: parseFloat(e.target.value) || 0})}
+                                className="w-20 bg-bg-card font-mono text-right text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                              />
+                              <input 
+                                type="month"
+                                value={editRowDraft.prevBaseMonth}
+                                onChange={e => setEditRowDraft({...editRowDraft, prevBaseMonth: e.target.value})}
+                                className="w-24 bg-bg-card text-[9px] border border-border-dim rounded px-1 py-0.5 outline-none font-bold"
+                              />
+                            </div>
+                          </td>
+                          <td className="px-2 py-3 text-right">
+                            <div className="flex flex-col gap-1 items-end">
+                              <input 
+                                type="number"
+                                value={editRowDraft.baseValue || ''}
+                                onChange={e => setEditRowDraft({...editRowDraft, baseValue: parseFloat(e.target.value) || 0})}
+                                className="w-20 bg-bg-card font-mono font-bold text-right text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                              />
+                              <input 
+                                type="month"
+                                value={editRowDraft.baseMonth}
+                                onChange={e => setEditRowDraft({...editRowDraft, baseMonth: e.target.value})}
+                                className="w-24 bg-bg-card text-[9px] border border-border-dim rounded px-1 py-0.5 outline-none font-bold"
+                              />
+                            </div>
+                          </td>
+                          <td className="px-2 py-3 text-center">
+                            <span className={cn(
+                              "px-2 py-1 rounded-full text-[9px] font-black font-mono",
+                              computedIncrease > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-text-dim/10 text-text-dim"
+                            )}>
+                              +{computedIncrease.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-2 py-3">
+                            <input 
+                              type="text"
+                              value={editRowDraft.notes || ''}
+                              onChange={e => setEditRowDraft({...editRowDraft, notes: e.target.value})}
+                              placeholder="Notas..."
+                              className="w-full bg-bg-card text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
+                            />
+                          </td>
+                          <td className="px-2 py-3 text-right">
+                            <div className="flex justify-end gap-1">
+                              <button 
+                                onClick={handleSaveRowEdit}
+                                title="Guardar cambios"
+                                className="p-1.5 text-emerald-500 hover:bg-emerald-500/10 border border-emerald-500/20 rounded transition-colors"
+                              >
+                                <Check size={12} />
+                              </button>
+                              <button 
+                                onClick={handleCancelRowEdit}
+                                title="Cancelar"
+                                className="p-1.5 text-red-500 hover:bg-red-500/10 border border-red-500/20 rounded transition-colors"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr 
+                        key={pos.id} 
+                        onClick={() => setSelectedPositionId(pos.id)}
+                        className={cn(
+                          "hover:bg-bg-accent/10 transition-colors group text-[11px] cursor-pointer",
+                          isSelected && "bg-brand-500/5 border-l-2 border-brand-500"
+                        )}
+                      >
+                        <td className="px-5 py-4 font-bold text-text-dim uppercase">{pos.area}</td>
+                        <td className="px-5 py-4 font-bold text-text-dim uppercase">{pos.sector}</td>
+                        <td className="px-5 py-4 font-bold text-text-main uppercase">{pos.title}</td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "text-[8px] font-black uppercase px-2 py-0.5 rounded",
+                              pos.type === 'hourly' ? "bg-blue-500/10 text-blue-500" : "bg-emerald-500/10 text-emerald-500 mr-1"
+                            )}>
+                              {pos.type === 'hourly' ? 'POR HORA' : 'MENSUAL'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-mono text-text-dim opacity-70">${pos.prevBaseValue.toLocaleString('es-AR')}</span>
+                            {pos.prevBaseMonth && (
+                              <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.prevBaseMonth}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex flex-col items-end">
+                            <span className="font-mono font-bold text-text-main">${pos.baseValue.toLocaleString('es-AR')}</span>
+                            {pos.baseMonth && (
+                              <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.baseMonth}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-center">
                           <span className={cn(
-                            "text-[8px] font-black uppercase px-2 py-0.5 rounded",
-                            pos.type === 'hourly' ? "bg-blue-500/10 text-blue-500" : "bg-emerald-500/10 text-emerald-500"
+                            "px-2 py-1 rounded-full text-[9px] font-black font-mono",
+                            increase > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-text-dim/10 text-text-dim"
                           )}>
-                            {pos.type === 'hourly' ? 'H' : 'M'}
+                            +{increase.toFixed(1)}%
                           </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="font-mono text-text-dim opacity-60">${pos.prevBaseValue.toLocaleString('es-AR')}</span>
-                          {pos.prevBaseMonth && (
-                            <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.prevBaseMonth}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="font-mono font-bold text-text-main">${pos.baseValue.toLocaleString('es-AR')}</span>
-                          {pos.baseMonth && (
-                            <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.baseMonth}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={cn(
-                          "px-2 py-1 rounded-full text-[9px] font-black font-mono",
-                          increase > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-text-dim/10 text-text-dim"
-                        )}>
-                          +{increase.toFixed(1)}%
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-[10px] text-text-dim italic leading-tight block max-w-[150px] truncate group-hover:whitespace-normal group-hover:overflow-visible group-hover:max-w-none transition-all">
-                          {pos.notes || '-'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => handleRemovePosition(pos.id)}
-                          className="p-2 text-text-dim hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="text-[10px] text-text-dim italic leading-tight block max-w-[150px] truncate group-hover:whitespace-normal group-hover:overflow-visible group-hover:max-w-none transition-all">
+                            {pos.notes || '-'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button 
+                              onClick={(e) => handleStartEditRow(pos, e)}
+                              title="Editar renglón"
+                              className="p-1.5 text-text-dim hover:text-brand-500 hover:bg-brand-500/10 rounded border border-transparent hover:border-brand-500/20 transition-colors"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button 
+                              onClick={(e) => handleRemovePosition(pos.id, e)}
+                              title="Eliminar puesto"
+                              className="p-1.5 text-text-dim hover:text-red-500 hover:bg-red-500/10 rounded border border-transparent hover:border-red-500/20 transition-colors"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredPositions.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-12 text-center text-text-dim">
+                        No se encontraron puestos que coincidan con los filtros de búsqueda.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="p-4 bg-bg-accent/20 border-t border-border-dim text-[10px] font-medium text-text-dim leading-snug">
+            💡 Haga clic en cualquier fila para cargar su historial salarial y gráfico analítico en el panel derecho.
           </div>
         </div>
 
+        {/* Sidebar Analytics */}
         <div className="space-y-6">
+          {/* Chart Section */}
           <div className="bg-bg-card border border-border-dim rounded-lg p-6">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-text-main mb-6 flex items-center gap-2">
               <BarChart3 size={14} className="text-brand-500" /> Evolución Salarial
@@ -466,18 +833,19 @@ export default function SalaryManagementView() {
                    <Users size={20} className="text-text-dim/40" />
                 </div>
                 <p className="text-[9px] font-bold uppercase text-text-dim leading-relaxed">
-                  Seleccione un puesto de la tabla<br/>para ver la evolución anual
+                  Seleccione un puesto de la tabla<br/>para ver la evolución de valores
                 </p>
               </div>
             )}
           </div>
 
+          {/* Accumulative Increase Panel */}
           <div className="bg-bg-card border border-border-dim rounded-lg p-6">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-text-main mb-6 flex items-center gap-2">
               <TrendingUp size={14} className="text-brand-500" /> Aumento Acumulado 2026
             </h4>
             <div className="space-y-4">
-              <div className="overflow-hidden rounded border border-border-dim">
+              <div className="overflow-hidden rounded border border-border-dim max-h-[160px] overflow-y-auto">
                 <table className="w-full text-left border-collapse text-[9px]">
                   <thead>
                     <tr className="bg-bg-accent border-b border-border-dim font-black uppercase text-text-dim">
@@ -492,8 +860,8 @@ export default function SalaryManagementView() {
                       const accumIncrease = firstValue > 0 ? ((currentValue - firstValue) / firstValue) * 100 : 0;
                       
                       return (
-                        <tr key={pos.id} className="hover:bg-bg-accent/50 transition-colors">
-                          <td className="px-3 py-2 font-bold text-text-dim truncate max-w-[100px]">{pos.title}</td>
+                        <tr key={pos.id} className="hover:bg-bg-accent/55 transition-colors">
+                          <td className="px-3 py-2 font-bold text-text-dim truncate max-w-[120px]">{pos.title}</td>
                           <td className="px-3 py-2 text-right">
                              <span className={cn(
                                "px-2 py-0.5 rounded font-black font-mono",
@@ -514,28 +882,34 @@ export default function SalaryManagementView() {
             </div>
           </div>
 
+          {/* Cost Estimates */}
           <div className="bg-bg-card border border-border-dim rounded-lg p-6">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-text-main mb-6 flex items-center gap-2">
-              <TrendingUp size={14} className="text-brand-500" /> Resumen de Costos
+              <TrendingUp size={14} className="text-brand-500" /> Resumen de Costos Maestro
             </h4>
             <div className="space-y-4">
               <div className="p-4 bg-bg-accent rounded-lg border border-border-dim">
-                <p className="text-[9px] text-text-dim uppercase font-bold">Promedio Hora Operativa</p>
+                <p className="text-[9px] text-text-dim uppercase font-bold">Promedio Valor de Hora</p>
                 <div className="flex items-end justify-between mt-1">
-                  <p className="text-xl font-black font-mono text-text-main">$3.150</p>
-                  <span className="text-[10px] text-emerald-500 font-bold tracking-tighter">+4.2%</span>
+                  <p className="text-xl font-black font-mono text-text-main">
+                    ${avgHourlyWage.toLocaleString('es-AR')}
+                  </p>
+                  <span className="text-[10px] text-emerald-500 font-bold tracking-tighter">VIGENTE</span>
                 </div>
               </div>
               <div className="p-4 bg-bg-accent rounded-lg border border-border-dim">
-                <p className="text-[9px] text-text-dim uppercase font-bold">Masa Salarial Mensual Est.</p>
+                <p className="text-[9px] text-text-dim uppercase font-bold">Masa Mensual Puestos Fijos</p>
                 <div className="flex items-end justify-between mt-1">
-                  <p className="text-xl font-black font-mono text-text-main">$8.4M</p>
+                  <p className="text-xl font-black font-mono text-text-main">
+                    ${totalMonthlySalaries.toLocaleString('es-AR')}
+                  </p>
                   <span className="text-[10px] text-text-dim font-bold tracking-tighter">CONSOLIDADO</span>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Auditor Note */}
           <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-brand-500/20 rounded">
@@ -547,12 +921,226 @@ export default function SalaryManagementView() {
               Cualquier modificación en los valores de remuneración impactará directamente en los cálculos de <span className="font-bold">Estado de Resultado</span> y <span className="font-bold">Presupuesto de Horas</span>. Asegúrese de realizar cambios sólo bajo supervisión general.
             </p>
             <div className="mt-4 flex items-center gap-2 text-[9px] font-black uppercase text-brand-500">
-               <CheckCircle2 size={12} /> Valores Revisados
+               <CheckCircle2 size={12} /> Valores de Puestos Validados
             </div>
           </div>
         </div>
       </div>
 
+      {/* Batch Salary Update Modal ("Actualización de Sueldos") */}
+      <AnimatePresence>
+        {showBatchUpdateModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBatchUpdateModal(false)}
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-2xl bg-bg-card border border-border-dim rounded-lg shadow-2xl p-6 overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="flex justify-between items-start border-b border-border-dim pb-4 mb-6">
+                <div>
+                  <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest border-l-2 border-brand-500 pl-4">
+                    Actualización General de Sueldos
+                  </h3>
+                  <p className="text-[10px] text-text-dim font-bold uppercase tracking-wider mt-1 pl-4">
+                    Cargar y recalcular valores de remuneración por lote
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setShowBatchUpdateModal(false)}
+                  className="p-1 text-text-dim hover:text-text-main rounded hover:bg-bg-accent transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              
+              <div className="space-y-5 overflow-y-auto flex-1 pr-1">
+                {/* Reference Update Month */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-bg-accent/40 p-4 rounded border border-border-dim">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-text-main uppercase tracking-wider block">Mes de Vigencia de los Nuevos Sueldos</label>
+                    <input 
+                      type="month"
+                      value={batchMonth}
+                      onChange={e => setBatchMonth(e.target.value)}
+                      className="w-full bg-bg-card border border-border-dim rounded px-4 py-3 text-xs text-text-main font-bold outline-none focus:border-brand-500"
+                    />
+                    <p className="text-[8px] text-text-dim italic mt-1">Especifique el mes correspondiente al aumento, ej: Agosto (2026-08)</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-text-main uppercase tracking-wider block">Método de Carga / Incremento</label>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <button 
+                        type="button"
+                        onClick={() => setBatchMethod('percent')}
+                        className={cn(
+                          "py-2.5 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+                          batchMethod === 'percent' 
+                            ? "bg-brand-500 text-black border-brand-500 font-black" 
+                            : "bg-bg-accent text-text-dim border-border-dim hover:bg-bg-accent/50"
+                        )}
+                      >
+                        Aumento % Masivo
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setBatchMethod('manual')}
+                        className={cn(
+                          "py-2.5 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+                          batchMethod === 'manual' 
+                            ? "bg-brand-500 text-black border-brand-500 font-black" 
+                            : "bg-bg-accent text-text-dim border-border-dim hover:bg-bg-accent/50"
+                        )}
+                      >
+                        Carga Manual
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scope Filters */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-text-dim uppercase">Filtrar por Modalidad</label>
+                    <select 
+                      value={batchScopeType}
+                      onChange={e => setBatchScopeType(e.target.value as any)}
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main font-bold outline-none"
+                    >
+                      <option value="all">TODOS LOS PUESTOS</option>
+                      <option value="hourly">SÓLO VALORES POR HORA</option>
+                      <option value="monthly">SÓLO SUELDOS MENSUALES</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-text-dim uppercase">Filtrar por Área</label>
+                    <select 
+                      value={batchScopeArea}
+                      onChange={e => setBatchScopeArea(e.target.value)}
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main font-bold outline-none uppercase"
+                    >
+                      <option value="all">TODAS LAS ÁREAS</option>
+                      {uniqueAreasList.map(area => (
+                        <option key={area} value={area}>{area}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Percentage Increment Form */}
+                {batchMethod === 'percent' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 bg-brand-500/[0.02] border border-brand-500/20 rounded-lg space-y-4"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-1/3 space-y-1">
+                        <label className="text-[10px] font-black text-brand-500 uppercase">Incremento (%)</label>
+                        <div className="relative">
+                          <input 
+                            type="number"
+                            value={batchPercent}
+                            onChange={e => setBatchPercent(parseFloat(e.target.value) || 0)}
+                            className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-sm font-mono font-black text-text-main outline-none focus:border-brand-500"
+                          />
+                          <span className="absolute right-4 top-1/2 -translate-y-1/2 font-black text-text-dim">%</span>
+                        </div>
+                      </div>
+                      <div className="w-2/3 text-[11px] text-text-dim leading-relaxed">
+                        Se sumará un <span className="font-bold text-emerald-500">{batchPercent}%</span> a los valores vigentes de los puestos que coincidan con los filtros configurados arriba.<br />
+                        Los valores actuales serán guardados en el historial como el <span className="font-bold">Valor anterior</span>.
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Manual Batch Entry Form */}
+                {batchMethod === 'manual' && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-3"
+                  >
+                    <label className="text-[10px] font-black text-text-dim uppercase tracking-wider block">Inserte el nuevo sueldo/valor para cada renglón de puesto</label>
+                    
+                    <div className="border border-border-dim rounded-lg overflow-hidden max-h-[250px] overflow-y-auto">
+                      <table className="w-full text-left border-collapse text-[11px]">
+                        <thead>
+                          <tr className="bg-bg-accent text-text-dim border-b border-border-dim font-black uppercase text-[10px]">
+                            <th className="px-4 py-3">Puesto</th>
+                            <th className="px-4 py-3 text-right">Valor actual</th>
+                            <th className="px-4 py-3 text-right w-44">Nuevo valor ($)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border-dim/40 max-h-[150px]">
+                          {positions
+                            .filter(pos => {
+                              const matchesType = batchScopeType === 'all' || pos.type === batchScopeType;
+                              const matchesArea = batchScopeArea === 'all' || pos.area.toUpperCase() === batchScopeArea.toUpperCase();
+                              return matchesType && matchesArea;
+                            })
+                            .map(pos => (
+                              <tr key={pos.id} className="hover:bg-bg-accent/40 font-medium">
+                                <td className="px-4 py-3 flex flex-col">
+                                  <span className="font-bold text-text-main">{pos.title}</span>
+                                  <span className="text-[9px] text-text-dim uppercase font-semibold">{pos.area} / {pos.sector}</span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-mono text-text-dim">
+                                  ${pos.baseValue.toLocaleString()}{pos.type === 'hourly' ? '/h' : ''}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <div className="relative flex justify-end">
+                                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={12} />
+                                    <input 
+                                      type="number"
+                                      value={batchManualValues[pos.id] !== undefined ? batchManualValues[pos.id] : ''}
+                                      onChange={e => setBatchManualValues({
+                                        ...batchManualValues,
+                                        [pos.id]: parseFloat(e.target.value) || 0
+                                      })}
+                                      placeholder={pos.baseValue.toString()}
+                                      className="bg-bg-accent border border-border-dim rounded pl-8 pr-3 py-1.5 w-36 font-mono text-xs text-right text-text-main outline-none focus:border-brand-500 font-bold"
+                                    />
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="mt-8 pt-4 border-t border-border-dim flex gap-3">
+                <button 
+                  onClick={handleApplyBatchUpdate}
+                  className="flex-1 bg-brand-500 text-black py-4 rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 flex items-center justify-center gap-2"
+                >
+                  <Check size={14} /> Aplicar Actualizaciones
+                </button>
+                <button 
+                  onClick={() => setShowBatchUpdateModal(false)}
+                  className="px-8 py-4 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Insert Modal (Single New Position Add) */}
       <AnimatePresence>
         {showAddModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -667,17 +1255,17 @@ export default function SalaryManagementView() {
                     />
                   </div>
                 </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-text-dim uppercase">Notas / Premios / Variables</label>
-                    <textarea 
-                      placeholder="Ej: Bono por puntualidad, premios por ventas..."
-                      rows={2}
-                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 resize-none"
-                      value={newPos.notes}
-                      onChange={e => setNewPos({...newPos, notes: e.target.value})}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Notas / Premios / Variables</label>
+                  <textarea 
+                    placeholder="Ej: Bono por puntualidad, premios por ventas..."
+                    rows={2}
+                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 resize-none"
+                    value={newPos.notes}
+                    onChange={e => setNewPos({...newPos, notes: e.target.value})}
+                  />
                 </div>
+              </div>
 
               <div className="mt-8 flex gap-3">
                 <button 

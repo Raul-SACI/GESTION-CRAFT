@@ -338,7 +338,7 @@ function AppContent() {
     ],
     'Recursos Humanos': [
       { id: 'control_horas', label: 'Control de Horas', icon: ShieldCheck },
-      { id: 'gestion_sueldos', label: 'Sueldos', icon: Users },
+      { id: 'gestion_sueldos', label: 'Maestro de Personal', icon: Users },
     ],
     'Gestión Líderes Operativos': [
       { id: 'presupuesto_horas', label: 'Presupuestador de horas', icon: Calendar },
