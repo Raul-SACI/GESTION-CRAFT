@@ -821,7 +821,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'precios' && <PriceListView key="precios" />}
-              {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" />}
+              {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" />}

@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import * as XLSX from 'xlsx';
+import { supabase } from '../lib/supabase';
+import { Branch } from '../types';
 import { 
   LineChart, 
   Line, 
@@ -58,7 +60,7 @@ interface SalaryPosition {
   history?: SalaryHistory[];
 }
 
-export default function SalaryManagementView() {
+export default function SalaryManagementView({ branches = [] }: { branches?: Branch[] }) {
   // Load initial data from localStorage if available, otherwise use defaults
   const [positions, setPositions] = useState<SalaryPosition[]>(() => {
     const saved = localStorage.getItem('craft_salary_positions');
@@ -198,6 +200,220 @@ export default function SalaryManagementView() {
       setBatchManualValues(initial);
     }
   }, [showBatchUpdateModal, batchMethod, positions]);
+
+  // --- MASTER DE EMPLEADOS (RRHH) ---
+  const ROLES = [
+    { id: 'encargado', label: 'Encargado' },
+    { id: 'caja', label: 'Caja' },
+    { id: 'runners', label: 'Runners' },
+    { id: 'mozos', label: 'Mozos' },
+    { id: 'barra', label: 'Barra' },
+    { id: 'jefe_cocina', label: 'Jefe de Cocina' },
+    { id: 'segundo_cocina', label: 'Segundo de Cocina' },
+    { id: 'cocinero', label: 'Cocinero' },
+    { id: 'bacha', label: 'Bacha' },
+  ];
+
+  interface MasterEmployee {
+    id: string;
+    name: string;
+    position: string;
+    branchId: string;
+  }
+
+  const [activeSubTab, setActiveSubTab] = useState<'positions' | 'employees'>('positions');
+  const [employees, setEmployees] = useState<MasterEmployee[]>([]);
+  const [employeesLoading, setEmployeesLoading] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<MasterEmployee | null>(null);
+  const [employeeForm, setEmployeeForm] = useState({
+    name: '',
+    position: 'mozos',
+    branchId: '1'
+  });
+  const [empSearch, setEmpSearch] = useState('');
+  const [empBranchFilter, setEmpBranchFilter] = useState('all');
+
+  const syncBranchStaffPools = (allEmployees: MasterEmployee[]) => {
+    const branchesList = Array.from(new Set(allEmployees.map(e => e.branchId)));
+    // We synchronize each branch's state individually for compatibility with older parts of the system
+    branchesList.forEach(bId => {
+      const branchStaff = allEmployees.filter(e => e.branchId === bId).map(e => ({
+        id: e.id,
+        name: e.name,
+        position: e.position,
+        hourly_rate: 0
+      }));
+      localStorage.setItem(`staff_pool_${bId}`, JSON.stringify(branchStaff));
+    });
+  };
+
+  const fetchEmployees = async () => {
+    setEmployeesLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('*');
+      
+      if (data && data.length > 0) {
+        const mapped = data.map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          position: e.position,
+          branchId: e.branch_id || '1'
+        }));
+        setEmployees(mapped);
+        localStorage.setItem('craft_employees_master', JSON.stringify(mapped));
+        syncBranchStaffPools(mapped);
+      } else {
+        const local = localStorage.getItem('craft_employees_master');
+        if (local) {
+          const parsed = JSON.parse(local);
+          setEmployees(parsed);
+          syncBranchStaffPools(parsed);
+        }
+      }
+    } catch (e) {
+      console.error('Error loading employees from Supabase, loading locally', e);
+      const local = localStorage.getItem('craft_employees_master');
+      if (local) {
+        const parsed = JSON.parse(local);
+        setEmployees(parsed);
+        syncBranchStaffPools(parsed);
+      }
+    } finally {
+      setEmployeesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmployees();
+  }, []);
+
+  const handleSaveEmployee = async () => {
+    if (!employeeForm.name.trim() || !employeeForm.branchId || !employeeForm.position) {
+      alert('Por favor ingrese todos los datos obligatorios.');
+      return;
+    }
+
+    const nameUpper = employeeForm.name.trim().toUpperCase();
+    setEmployeesLoading(true);
+
+    try {
+      if (editingEmployee) {
+        const { error } = await supabase
+          .from('employees')
+          .update({
+            name: nameUpper,
+            position: employeeForm.position,
+            branch_id: employeeForm.branchId,
+            is_active: true
+          })
+          .eq('id', editingEmployee.id);
+        
+        if (error) throw error;
+
+        const updated = employees.map(emp => emp.id === editingEmployee.id 
+          ? { ...emp, name: nameUpper, position: employeeForm.position, branchId: employeeForm.branchId }
+          : emp
+        );
+        setEmployees(updated);
+        localStorage.setItem('craft_employees_master', JSON.stringify(updated));
+        syncBranchStaffPools(updated);
+        alert('Empleado modificado correctamente.');
+      } else {
+        const newId = `emp-${Math.random().toString(36).substr(2, 9)}`;
+        const { data, error } = await supabase
+          .from('employees')
+          .insert({
+            id: newId,
+            name: nameUpper,
+            position: employeeForm.position,
+            branch_id: employeeForm.branchId,
+            is_active: true
+          })
+          .select()
+          .single();
+
+        const addedId = data?.id || newId;
+        const newEmp = {
+          id: addedId,
+          name: nameUpper,
+          position: employeeForm.position,
+          branchId: employeeForm.branchId
+        };
+        const updated = [...employees, newEmp];
+        setEmployees(updated);
+        localStorage.setItem('craft_employees_master', JSON.stringify(updated));
+        syncBranchStaffPools(updated);
+        alert('Empleado creado correctamente.');
+      }
+      setShowEmployeeModal(false);
+      setEditingEmployee(null);
+      setEmployeeForm({ name: '', position: 'mozos', branchId: branches[0]?.id || '1' });
+    } catch (err) {
+      console.error('Error saving employee with API, fallback local', err);
+      let updated: MasterEmployee[] = [];
+      if (editingEmployee) {
+        updated = employees.map(emp => emp.id === editingEmployee.id 
+          ? { ...emp, name: nameUpper, position: employeeForm.position, branchId: employeeForm.branchId }
+          : emp
+        );
+      } else {
+        const tempId = `emp-${Math.random().toString(36).substr(2, 9)}`;
+        updated = [...employees, {
+          id: tempId,
+          name: nameUpper,
+          position: employeeForm.position,
+          branchId: employeeForm.branchId
+        }];
+      }
+      setEmployees(updated);
+      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
+      syncBranchStaffPools(updated);
+      setShowEmployeeModal(false);
+      setEditingEmployee(null);
+      setEmployeeForm({ name: '', position: 'mozos', branchId: branches[0]?.id || '1' });
+      alert('Guardado en LocalStorage (Conexión offline temporal).');
+    } finally {
+      setEmployeesLoading(false);
+    }
+  };
+
+  const handleDeleteEmployee = async (id: string) => {
+    const isConfirmed = window.confirm('¿Está seguro de que desea eliminar a este empleado del Maestro?');
+    if (!isConfirmed) return;
+
+    setEmployeesLoading(true);
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .delete()
+        .eq('id', id);
+
+      const updated = employees.filter(emp => emp.id !== id);
+      setEmployees(updated);
+      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
+      syncBranchStaffPools(updated);
+      alert('Empleado eliminado correctamente.');
+    } catch (e) {
+      console.error('Error deleted API, deleting locally', e);
+      const updated = employees.filter(emp => emp.id !== id);
+      setEmployees(updated);
+      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
+      syncBranchStaffPools(updated);
+      alert('Empleado eliminado localmente.');
+    } finally {
+      setEmployeesLoading(false);
+    }
+  };
+
+  const filteredEmployees = employees.filter(emp => {
+    const matchesSearch = empSearch === '' || 
+      emp.name.toUpperCase().includes(empSearch.toUpperCase());
+    const matchesBranch = empBranchFilter === 'all' || emp.branchId === empBranchFilter;
+    return matchesSearch && matchesBranch;
+  });
 
   const handleAddPosition = () => {
     if (!newPos.title || newPos.baseValue <= 0) return;
@@ -510,7 +726,35 @@ export default function SalaryManagementView() {
         </div>
       </div>
 
-      {/* Filter Options */}
+      {/* Sub-navigation Tabs */}
+      <div className="flex border-b border-border-dim gap-1">
+        <button
+          onClick={() => setActiveSubTab('positions')}
+          className={cn(
+            "px-6 py-3.5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+            activeSubTab === 'positions'
+              ? "border-brand-500 text-brand-500 bg-brand-500/[0.02]"
+              : "border-transparent text-text-dim hover:text-text-main hover:bg-bg-accent/30"
+          )}
+        >
+          <Briefcase size={14} /> Escala Salarial de Puestos
+        </button>
+        <button
+          onClick={() => setActiveSubTab('employees')}
+          className={cn(
+            "px-6 py-3.5 text-[11px] font-black uppercase tracking-widest border-b-2 transition-all flex items-center gap-2",
+            activeSubTab === 'employees'
+              ? "border-brand-500 text-brand-500 bg-brand-500/[0.02]"
+              : "border-transparent text-text-dim hover:text-text-main hover:bg-bg-accent/30"
+          )}
+        >
+          <Users size={14} /> Maestro de Empleados
+        </button>
+      </div>
+
+      {activeSubTab === 'positions' && (
+        <>
+          {/* Filter Options */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-sidebar border border-border-dim p-4 rounded-lg">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
@@ -926,6 +1170,136 @@ export default function SalaryManagementView() {
           </div>
         </div>
       </div>
+        </>
+      )}
+
+      {activeSubTab === 'employees' && (
+        <div className="space-y-6">
+          {/* Employee Master Section */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-sidebar border border-border-dim p-4 rounded-lg">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
+              <input 
+                type="text"
+                placeholder="BUSCAR EMPLEADO POR NOMBRE O APELLIDO..."
+                className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500"
+                value={empSearch}
+                onChange={e => setEmpSearch(e.target.value)}
+              />
+            </div>
+            <div className="relative">
+              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
+              <select
+                className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-3.5 text-[10px] font-bold uppercase outline-none focus:border-brand-500 appearance-none text-text-main"
+                value={empBranchFilter}
+                onChange={e => setEmpBranchFilter(e.target.value)}
+              >
+                <option value="all">TODAS LAS SUCURSALES</option>
+                {branches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name.toUpperCase()}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end pr-1">
+              <button
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setEmployeeForm({ name: '', position: 'mozos', branchId: branches[0]?.id || '1' });
+                  setShowEmployeeModal(true);
+                }}
+                className="bg-brand-500 text-black px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2 shadow-xl shadow-brand-500/10 h-full"
+              >
+                <Plus size={14} /> Cargar Nuevo Empleado
+              </button>
+            </div>
+          </div>
+
+          {/* Table list of employees */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-border-dim bg-bg-accent/30 flex justify-between items-center">
+              <h3 className="text-xs font-black uppercase tracking-widest text-text-main">
+                Nómina Oficial de Empleados (Maestro de Personal)
+              </h3>
+              <span className="text-[10px] font-mono text-brand-500 px-2 py-0.5 bg-brand-500/10 border border-brand-500/20 rounded font-bold font-sans">
+                {filteredEmployees.length} empleados registrados
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-bg-accent border-b border-border-dim">
+                    <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">NOMBRE Y APELLIDO</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">PUESTO</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">SUCURSAL</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">ACCIONES</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/50">
+                  {employeesLoading && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8">
+                        <span className="text-xs font-bold text-text-dim uppercase tracking-widest animate-pulse">Cargando nómina...</span>
+                      </td>
+                    </tr>
+                  )}
+                  {!employeesLoading && filteredEmployees.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-12 text-text-dim">
+                        <span className="text-xs font-bold uppercase tracking-widest opacity-40">No hay empleados registrados en esta selección</span>
+                      </td>
+                    </tr>
+                  )}
+                  {filteredEmployees.map(emp => {
+                    const branchName = branches.find(b => b.id === emp.branchId)?.name || `SUCURSAL ${emp.branchId}`;
+                    const pLabel = ROLES.find(r => r.id === emp.position)?.label || emp.position;
+                    
+                    return (
+                      <tr key={emp.id} className="hover:bg-bg-accent/30 transition-colors">
+                        <td className="px-6 py-4 text-[11px] font-bold text-text-main uppercase font-sans tracking-wide">
+                          {emp.name}
+                        </td>
+                        <td className="px-6 py-4 text-[11.5px] font-bold text-text-dim uppercase">
+                          <span className="px-2 py-1 bg-brand-500/5 text-brand-500 rounded border border-brand-500/10 text-[9px] font-black uppercase">
+                            {pLabel}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-[11px] font-bold text-text-dim uppercase">
+                          {branchName}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              onClick={() => {
+                                setEditingEmployee(emp);
+                                setEmployeeForm({
+                                  name: emp.name,
+                                  position: emp.position,
+                                  branchId: emp.branchId
+                                });
+                                setShowEmployeeModal(true);
+                              }}
+                              className="text-text-dim hover:text-brand-500 p-1.5 border border-border-dim hover:border-brand-500/30 rounded bg-bg-accent/30 hover:bg-brand-500/5 transition-all text-[10px] font-bold uppercase flex items-center gap-1"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteEmployee(emp.id)}
+                              className="text-text-dim hover:text-red-500 p-1.5 border border-border-dim hover:border-red-500/30 rounded bg-bg-accent/30 hover:bg-red-500/5 transition-all text-[10px] font-bold uppercase flex items-center gap-1"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Batch Salary Update Modal ("Actualización de Sueldos") */}
       <AnimatePresence>
@@ -1276,9 +1650,94 @@ export default function SalaryManagementView() {
                 </button>
                 <button 
                   onClick={() => setShowAddModal(false)}
-                  className="px-8 py-4 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
+                  className="px-8 py-4 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all animate-none"
                 >
                   Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Employee Management Form Modal */}
+      <AnimatePresence>
+        {showEmployeeModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowEmployeeModal(false);
+                setEditingEmployee(null);
+              }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-md bg-bg-card border border-border-dim rounded-lg shadow-2xl p-6"
+            >
+              <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest mb-6 border-l-2 border-brand-500 pl-4">
+                {editingEmployee ? 'Editar Ficha de Empleado' : 'Cargar Nuevo Empleado en Maestro'}
+              </h3>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Nombre y Apellido</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej: JUAN PEREZ..."
+                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-bold font-sans"
+                    value={employeeForm.name}
+                    onChange={e => setEmployeeForm({...employeeForm, name: e.target.value})}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Puesto</label>
+                  <select 
+                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-bold uppercase transition-all"
+                    value={employeeForm.position}
+                    onChange={e => setEmployeeForm({...employeeForm, position: e.target.value})}
+                  >
+                    {ROLES.map(r => (
+                      <option key={r.id} value={r.id}>{r.label.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Sucursal Asignada</label>
+                  <select 
+                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-bold uppercase transition-all"
+                    value={employeeForm.branchId}
+                    onChange={e => setEmployeeForm({...employeeForm, branchId: e.target.value})}
+                  >
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>{b.name.toUpperCase()}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="mt-8 flex gap-3">
+                <button 
+                  onClick={handleSaveEmployee}
+                  className="flex-1 bg-brand-500 text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10"
+                >
+                  {editingEmployee ? 'Guardar Cambios' : 'Registrar Empleado'}
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowEmployeeModal(false);
+                    setEditingEmployee(null);
+                  }}
+                  className="px-8 py-4 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
+                >
+                  Cancelar
                 </button>
               </div>
             </motion.div>

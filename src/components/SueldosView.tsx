@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -106,6 +106,94 @@ function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
   // Fallback to default ROLES
   const role = ROLES.find(r => r.id === roleId);
   return role ? role.defaultRate : 2500;
+}
+
+interface SearchableEmployeeSelectProps {
+  value: string;
+  onChange: (val: string) => void;
+  staffPool: Array<{ id: string; name: string; position: string; hourly_rate: number }>;
+  disabled?: boolean;
+}
+
+export function SearchableEmployeeSelect({ value, onChange, staffPool, disabled }: SearchableEmployeeSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filteredStaff = staffPool.filter(staff => 
+    staff.name.toUpperCase().includes(search.toUpperCase())
+  );
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button 
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          if (!disabled) {
+            setIsOpen(!isOpen);
+            setSearch('');
+          }
+        }}
+        className={cn(
+          "w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-left text-text-main outline-none focus:border-brand-500 uppercase flex items-center justify-between cursor-pointer select-none h-9 min-w-[200px]",
+          disabled && "opacity-50 cursor-not-allowed"
+        )}
+      >
+        <span>{value || "SELECCIONAR PERSONA..."}</span>
+        <span className="text-text-dim text-[8px] ml-2">▼</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 mt-1 w-full min-w-[220px] bg-bg-card border border-border-dim rounded shadow-2xl z-55 max-h-60 overflow-hidden flex flex-col">
+          <div className="p-2 border-b border-border-dim bg-bg-accent/40 flex items-center">
+            <input 
+              type="text"
+              placeholder="Buscar por nombre o apellido..."
+              autoFocus
+              className="w-full bg-bg-card border border-border-dim/60 rounded px-2.5 py-1.5 text-[10px] font-semibold text-text-main outline-none focus:border-brand-500 uppercase"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <div className="overflow-y-auto flex-1 divide-y divide-border-dim/30">
+            {filteredStaff.length === 0 ? (
+              <div className="px-4 py-3 text-[10px] text-text-dim font-bold uppercase text-center">
+                Sin resultados
+              </div>
+            ) : (
+              filteredStaff.map(staff => (
+                <div
+                  key={staff.id}
+                  onClick={() => {
+                    onChange(staff.name);
+                    setIsOpen(false);
+                  }}
+                  className="px-4 py-2 text-[10.5px] font-bold text-text-main hover:bg-brand-500 hover:text-black cursor-pointer transition-colors uppercase font-sans flex justify-between items-center"
+                >
+                  <span>{staff.name}</span>
+                  <span className="text-[9px] opacity-75 uppercase bg-black/10 px-1.5 py-0.5 rounded font-mono text-text-dim">
+                    {staff.position.toUpperCase()}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function HourControlView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
@@ -694,16 +782,12 @@ export default function HourControlView({ selectedBranchId, branches }: { select
                         )}
                       >
                         <td className="px-6 py-3.5">
-                          <select 
+                          <SearchableEmployeeSelect
                             value={r.employeeName}
-                            onChange={(e) => handleUpdateRecord(r.id, 'employeeName', e.target.value)}
-                            className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500 uppercase"
-                          >
-                            <option value="">SELECCIONAR PERSONA...</option>
-                            {staffPool.map(staff => (
-                              <option key={staff.id} value={staff.name}>{staff.name}</option>
-                            ))}
-                          </select>
+                            onChange={(val) => handleUpdateRecord(r.id, 'employeeName', val)}
+                            staffPool={staffPool}
+                            disabled={r.confirmed}
+                          />
                         </td>
                         
                         {/* Fecha Column */}
