@@ -18,14 +18,19 @@ interface BudgetPosition {
 }
 
 const INITIAL_POSITIONS: BudgetPosition[] = [
-  { id: '1', name: 'Cocina', countWeekday: 2, countWeekend: 3, hoursPerDay: 8, hourlyRate: 2500 },
-  { id: '2', name: 'Salón', countWeekday: 3, countWeekend: 5, hoursPerDay: 8, hourlyRate: 2200 },
-  { id: '3', name: 'Barra', countWeekday: 1, countWeekend: 2, hoursPerDay: 8, hourlyRate: 2300 },
-  { id: '4', name: 'Bacha', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2000 },
+  { id: 'encargado', name: 'Encargado', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3500 },
+  { id: 'jefe_cocina', name: 'Jefe de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3200 },
+  { id: 'segundo_cocina', name: 'Segundo de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2800 },
+  { id: 'cocinero', name: 'Cocinero', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2500 },
+  { id: 'caja', name: 'Caja', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2400 },
+  { id: 'barra', name: 'Barra', countWeekday: 0.5, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2300 },
+  { id: 'mozos', name: 'Mozos', countWeekday: 2, countWeekend: 4, hoursPerDay: 8, hourlyRate: 2200 },
+  { id: 'runners', name: 'Runners', countWeekday: 0.5, countWeekend: 1.5, hoursPerDay: 8, hourlyRate: 2000 },
+  { id: 'bacha', name: 'Bacha', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 1900 },
 ];
 
 export default function HourBudgetView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
-  const activeBranch = branches.find(b => b.id === selectedBranchId);
+  const activeBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   
   // Day counters
@@ -36,6 +41,49 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [holidays, setHolidays] = useState(1);
 
   const [positions, setPositions] = useState<BudgetPosition[]>(INITIAL_POSITIONS);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
+
+  // Load saved budget or defaults
+  React.useEffect(() => {
+    const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.positions) setPositions(parsed.positions);
+        if (parsed.daysInMonth) setDaysInMonth(parsed.daysInMonth);
+        if (parsed.fridays) setFridays(parsed.fridays);
+        if (parsed.saturdays) setSaturdays(parsed.saturdays);
+        if (parsed.sundays) setSundays(parsed.sundays);
+        if (parsed.holidays) setHolidays(parsed.holidays);
+        if (parsed.status) setBudgetStatus(parsed.status);
+      } catch (e) {
+        console.error('Error loading budget', e);
+      }
+    } else {
+      setPositions(INITIAL_POSITIONS);
+      setBudgetStatus('pending');
+    }
+  }, [selectedBranchId, selectedMonth]);
+
+  const handleSaveBudget = () => {
+    const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
+    const payload = {
+      positions,
+      daysInMonth,
+      fridays,
+      saturdays,
+      sundays,
+      holidays,
+      status: budgetStatus
+    };
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
+  };
 
   const budget = useMemo(() => {
     let totalHours = 0;
@@ -278,12 +326,37 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                  </div>
                  <div className="flex flex-col">
                     <span className="text-[9px] font-bold text-brand-500 uppercase opacity-60">Surcharge Feriados</span>
-                    <span className="text-sm font-mono font-bold text-brand-500">${(budget.totalCost - (positions.reduce((acc, p) => acc + (p.count * p.hoursPerDay * daysInMonth * p.hourlyRate), 0))).toLocaleString()}</span>
+                    <span className="text-sm font-mono font-bold text-brand-500">
+                      ${positions.reduce((acc, pos) => acc + (holidays * (pos.countWeekend * pos.hoursPerDay) * pos.hourlyRate), 0).toLocaleString()}
+                    </span>
+                 </div>
+                 <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-text-dim uppercase opacity-60">Estado de Aprobación</span>
+                    <span className={cn(
+                      "text-[10px] font-black uppercase px-2 py-0.5 rounded border mt-0.5",
+                      budgetStatus === 'approved' 
+                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25"
+                        : budgetStatus === 'rejected'
+                          ? "bg-red-500/10 text-red-500 border-red-500/25"
+                          : "bg-amber-500/15 text-amber-500 border-amber-500/25 animate-pulse"
+                    )}>
+                      {budgetStatus === 'approved' ? 'Aprobado Gerencia' : budgetStatus === 'rejected' ? 'Rechazado' : 'Pendiente Líder'}
+                    </span>
                  </div>
               </div>
-              <button className="bg-brand-500 hover:bg-brand-600 text-black px-8 py-3 rounded text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg shadow-brand-500/10">
-                <Save size={16} /> GUARDAR PRESUPUESTO MENSUAL
-              </button>
+              <div className="flex items-center gap-2">
+                {saveSuccess && (
+                  <span className="text-[10px] font-bold text-emerald-500 uppercase py-2 px-3 bg-emerald-500/10 rounded border border-emerald-500/20">
+                    ¡Presupuesto Guardado!
+                  </span>
+                )}
+                <button 
+                  onClick={handleSaveBudget}
+                  className="bg-brand-500 hover:bg-brand-600 text-black px-8 py-3 rounded text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-2 shadow-lg shadow-brand-500/10"
+                >
+                  <Save size={16} /> GUARDAR PRESUPUESTO MENSUAL
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -293,7 +366,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         <AlertCircle size={20} className="text-orange-500 shrink-0 mt-0.5" />
         <p className="text-[10px] text-orange-500/80 font-bold uppercase tracking-tight leading-relaxed">
           Atención: Este presupuesto será la base contra la cual Recursos Humanos cargará las horas reales semanales. 
-          Asegúrese de que la dotación refleje los aumentos de personal para feriados o eventos especiales.
+          Asegúrese de que el presupuesto esté aprobado por Gerencia General antes de auditar desvíos.
         </p>
       </div>
     </motion.div>

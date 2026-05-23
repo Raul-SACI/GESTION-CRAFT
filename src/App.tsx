@@ -19,6 +19,7 @@ import {
   Search,
   ChevronRight,
   Flag,
+  Layers,
   Plus,
   ArrowUpRight,
   ArrowDownRight,
@@ -73,6 +74,7 @@ const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
+const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const UsersView = lazy(() => import('./components/UsersView'));
 const BranchManagementView = lazy(() => import('./components/BranchManagementView'));
@@ -319,7 +321,7 @@ function AppContent() {
     name: 'Administrador', 
     role: 'dueño' as UserRole, 
     branch: 'Todas las Sucursales',
-    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin']
+    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin', 'aprobacion_presupuestos']
   });
 
   // Sidebar Customization State
@@ -366,6 +368,9 @@ function AppContent() {
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
     ],
+    'Gerencia General': [
+      { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers }
+    ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
       { id: 'usuarios', label: 'Usuarios/Roles', icon: Users },
@@ -409,6 +414,7 @@ function AppContent() {
           papeles_administracion: FileText,
           precios: Tag,
           performance_admin: Trophy,
+          aprobacion_presupuestos: Layers,
           sucursales: Building2,
           usuarios: Users
         };
@@ -844,6 +850,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} />}
+              {activeTab === 'aprobacion_presupuestos' && <AprobacionPresupuestosView key="aprobacion_presupuestos" branches={branches} />}
               {activeTab === 'sucursales' && (
                 <BranchManagementView 
                   branches={branches} 

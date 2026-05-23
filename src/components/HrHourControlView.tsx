@@ -31,7 +31,9 @@ interface HrHourRecord {
   roleId: string;
   roleLabel: string;
   referenceHours: number; // Planned hours
-  definitiveHours: number; // Actual hours verified by HR
+  horasSucursal: number; // Hours charged in store
+  definitiveHours: number; // Real hours RRHH
+  valorHora: number; // Standard rate
   status: 'pending' | 'verified';
   notes?: string;
 }
@@ -47,6 +49,37 @@ const POSITIONS = [
   { id: 'runners', label: 'Runners', refHours: 36 },
   { id: 'bacha', label: 'Bacha', refHours: 40 },
 ];
+
+function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
+  const saved = localStorage.getItem('craft_salary_positions');
+  if (saved) {
+    try {
+      const positions = JSON.parse(saved);
+      const hourlyPositions = positions.filter((p: any) => p.type === 'hourly');
+      
+      const exactTitle = hourlyPositions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+      if (exactTitle) return exactTitle.baseValue;
+
+      const approx = hourlyPositions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
+      if (approx) return approx.baseValue;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  const defaultRates: Record<string, number> = {
+    encargado: 3500,
+    jefe_cocina: 3200,
+    segundo_cocina: 2800,
+    cocinero: 2500,
+    caja: 2400,
+    barra: 2300,
+    mozos: 2200,
+    runners: 2000,
+    bacha: 1900
+  };
+  return defaultRates[roleId] || 2000;
+}
 
 export default function HrHourControlView({ branches }: { branches: Branch[] }) {
   const [selectedBranch, setSelectedBranch] = useState(branches[0]?.id || '1');
@@ -97,33 +130,81 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
     const saved = localStorage.getItem(storageKey);
 
-    if (saved) {
+    // Let's load the Budget for this branch & month
+    const budgetKey = `hour_budget_${selectedBranch}_${selectedMonth}`;
+    const budgetStr = localStorage.getItem(budgetKey);
+    let budgetPositions: any[] = [];
+    if (budgetStr) {
       try {
-        setRecords(JSON.parse(saved));
-        return;
-      } catch (e) {
-        console.error('Error loading hours record from storage', e);
+        const parsedBudget = JSON.parse(budgetStr);
+        budgetPositions = parsedBudget.positions || [];
+      } catch(e) {
+        console.error(e);
       }
     }
 
-    // Default values if nothing is stored in local storage
-    const defaults: HrHourRecord[] = POSITIONS.map(p => {
-      // Add slight variance to reference hours to simulate actual logged hours
-      const simulatedHours = selectedBranch === 'bn' 
-        ? p.refHours 
-        : Math.max(0, p.refHours + (selectedWeek % 2 === 0 ? 2 : -1.5));
+    // Let's compute actual hours loaded by Store Manager dynamically from craft_branch_daily_hours
+    const savedDailyStr = localStorage.getItem('craft_branch_daily_hours') || '[]';
+    let dailyRecords: any[] = [];
+    try {
+      dailyRecords = JSON.parse(savedDailyStr);
+    } catch(e) {
+      console.error(e);
+    }
+    const filteredDaily = dailyRecords.filter((log: any) => 
+      log.originBranchId === selectedBranch || log.branchId === selectedBranch
+    ).filter((log: any) => 
+      log.monthKey === selectedMonth && log.weekNum === selectedWeek
+    );
+
+    const loadRecords = () => {
+      let existingList: any[] = [];
+      if (saved) {
+        try {
+          existingList = JSON.parse(saved);
+        } catch(e) {
+          console.error(e);
+        }
+      }
+
+      const mergedList = POSITIONS.map(p => {
+        const existing = existingList.find(r => r.roleId === p.id);
         
-      return {
-        id: p.id,
-        roleId: p.id,
-        roleLabel: p.label,
-        referenceHours: p.refHours,
-        definitiveHours: simulatedHours,
-        status: 'pending',
-        notes: ''
-      };
-    });
-    setRecords(defaults);
+        // Let's calculate planned hours from budget if exists, else fallback to standard refHours
+        let plannedHours = p.refHours;
+        const budgetPos = budgetPositions.find(bp => bp.id === p.id);
+        if (budgetPos) {
+          // Standard weekly hours: 4 weekdays (8h) + 3 weekend days (8h) with their custom staff counts
+          plannedHours = (budgetPos.countWeekday * 4 * budgetPos.hoursPerDay) + (budgetPos.countWeekend * 3 * budgetPos.hoursPerDay);
+        }
+
+        // Sum actuals loaded from store
+        const dailySum = filteredDaily.filter((log: any) => log.roleId === p.id).reduce((sum: number, log: any) => sum + (log.hours || 0), 0);
+        // Fallback simulated value for store hours if dailySum is 0 (to stay realistic representation)
+        const computedStoreHours = dailySum > 0 ? dailySum : Math.max(0, p.refHours + (selectedWeek % 2 === 0 ? 1 : -2));
+
+        // Let's find RRHH Hours (definitiveHours): if existing, use existing; otherwise use computedStoreHours.
+        const definitiveHours = existing ? existing.definitiveHours : computedStoreHours;
+
+        const rate = getPositionRateFromMaestro(p.id, p.label);
+
+        return {
+          id: p.id,
+          roleId: p.id,
+          roleLabel: p.label,
+          referenceHours: plannedHours, // Planned hours
+          horasSucursal: computedStoreHours, // Hours charged in store
+          definitiveHours: definitiveHours, // What RRHH enters
+          valorHora: rate,
+          status: existing ? existing.status : 'pending',
+          notes: existing ? existing.notes : ''
+        };
+      });
+
+      setRecords(mergedList);
+    };
+
+    loadRecords();
   }, [selectedBranch, selectedMonth, selectedWeek]);
 
   // Handle single record hours change
@@ -380,22 +461,27 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
 
       {/* Main Table Content */}
       <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto overflow-y-hidden">
+          <table className="w-full text-left border-collapse min-w-[1240px]">
             <thead>
               <tr className="bg-bg-accent/40 border-b border-border-dim">
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Puesto Operativo</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Horas Planificadas</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Horas Reales RRHH</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Desviación (Hs)</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Observaciones</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Estado</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Validar</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Puesto</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Planificadas</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Cargadas en Sucursal</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Reales RRHH</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Valor Hora</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Desviación en Horas</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Desviación en Pesos</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Observaciones</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Estado</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Validar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border-dim/40">
               {records.map(record => {
                 const deviation = record.definitiveHours - record.referenceHours;
+                const deviationPesos = deviation * record.valorHora;
                 const isPositiveDeviation = deviation > 0;
                 const isZero = deviation === 0;
 
@@ -407,19 +493,27 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                       record.status === 'verified' && "bg-emerald-500/[0.01]"
                     )}
                   >
-                    <td className="px-6 py-4.5 font-bold text-text-main uppercase">
+                    <td className="px-4 py-4 font-bold text-text-dim uppercase">
+                      {currentBranchName}
+                    </td>
+
+                    <td className="px-4 py-4 font-black text-text-main uppercase">
                       {record.roleLabel}
                     </td>
                     
-                    <td className="px-6 py-4.5 text-center font-mono font-bold text-text-dim">
+                    <td className="px-4 py-4 text-center font-mono font-bold text-text-dim">
                       {record.referenceHours.toFixed(1)}h
                     </td>
 
-                    <td className="px-6 py-4.5">
-                      <div className="flex items-center justify-center gap-2">
+                    <td className="px-4 py-4 text-center font-mono font-bold text-text-dim">
+                      {record.horasSucursal.toFixed(1)}h
+                    </td>
+
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-center gap-1">
                          <button 
                            onClick={() => handleUpdateHours(record.id, Math.max(0, record.definitiveHours - 1))}
-                           className="w-6 h-6 rounded bg-bg-accent border border-border-dim hover:border-text-dim/50 text-text-dim hover:text-text-main flex items-center justify-center font-bold text-xs"
+                           className="w-5 h-5 rounded bg-bg-accent border border-border-dim hover:border-text-dim/50 text-text-dim hover:text-text-main flex items-center justify-center font-bold text-xs"
                          >
                            -
                          </button>
@@ -427,22 +521,26 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                            type="number" 
                            value={record.definitiveHours === 0 ? '' : record.definitiveHours}
                            onChange={(e) => handleUpdateHours(record.id, parseFloat(e.target.value) || 0)}
-                           className="w-16 bg-bg-accent/60 border border-border-dim rounded px-2 py-1.5 text-center font-mono font-bold text-text-main outline-none focus:border-brand-500 focus:bg-bg-accent"
+                           className="w-12 bg-bg-accent/60 border border-border-dim rounded px-1 py-1 text-center font-mono font-bold text-text-main outline-none focus:border-brand-500 focus:bg-bg-accent text-xs"
                            placeholder="0.0"
                            step="0.5"
                          />
                          <button 
                            onClick={() => handleUpdateHours(record.id, record.definitiveHours + 1)}
-                           className="w-6 h-6 rounded bg-bg-accent border border-border-dim hover:border-text-dim/50 text-text-dim hover:text-text-main flex items-center justify-center font-bold text-xs"
+                           className="w-5 h-5 rounded bg-bg-accent border border-border-dim hover:border-text-dim/50 text-text-dim hover:text-text-main flex items-center justify-center font-bold text-xs"
                          >
                            +
                          </button>
                       </div>
                     </td>
 
-                    <td className="px-6 py-4.5 text-center">
+                    <td className="px-4 py-4 text-center font-mono text-text-dim text-xs">
+                      ${record.valorHora.toLocaleString('es-AR')}
+                    </td>
+
+                    <td className="px-4 py-4 text-center">
                       <span className={cn(
-                        "px-2 py-1 rounded font-mono font-bold text-[10px]",
+                        "px-2 py-0.5 rounded font-mono font-bold text-[10px]",
                         isZero 
                           ? "bg-bg-accent text-text-dim" 
                           : isPositiveDeviation 
@@ -453,17 +551,30 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                       </span>
                     </td>
 
-                    <td className="px-6 py-4.5">
+                    <td className="px-4 py-4 text-center">
+                      <span className={cn(
+                        "px-2 py-0.5 rounded font-mono font-black text-[10px]",
+                        isZero 
+                          ? "text-text-dim" 
+                          : isPositiveDeviation 
+                            ? "text-red-400" 
+                            : "text-emerald-400"
+                      )}>
+                        {isZero ? '$0' : `${isPositiveDeviation ? '+' : '-'}$${Math.abs(deviationPesos).toLocaleString('es-AR')}`}
+                      </span>
+                    </td>
+
+                    <td className="px-4 py-4">
                       <input 
                         type="text" 
                         value={record.notes || ''}
                         onChange={(e) => handleUpdateNotes(record.id, e.target.value)}
-                        placeholder="Observación de desvío..."
+                        placeholder="Observación..."
                         className="w-full bg-transparent border-b border-border-dim/40 hover:border-border-dim focus:border-brand-500 outline-none px-1 py-1 text-[10px] text-text-dim focus:text-text-main"
                       />
                     </td>
 
-                    <td className="px-6 py-4.5 text-center">
+                    <td className="px-4 py-4 text-center">
                       {record.status === 'verified' ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase border border-emerald-500/20">
                           CONCILIADO
@@ -475,18 +586,18 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                       )}
                     </td>
 
-                    <td className="px-6 py-4.5 text-center">
+                    <td className="px-4 py-4 text-center">
                       <button 
                         onClick={() => handleToggleVerify(record.id)}
                         className={cn(
-                          "p-2 rounded-full border transition-all",
+                          "p-1.5 rounded-full border transition-all",
                           record.status === 'verified' 
                             ? "bg-emerald-500/20 text-emerald-500 border-emerald-500/30" 
                             : "hover:bg-bg-accent text-text-dim border-transparent hover:border-border-dim"
                         )}
-                        title={record.status === 'verified' ? 'Marcar como pendiente' : 'Marcar conciliado'}
+                        title={record.status === 'verified' ? 'Marcar pendiente' : 'Marcar conciliado'}
                       >
-                        <Check size={14} className="stroke-[3]" />
+                        <Check size={11} className="stroke-[3]" />
                       </button>
                     </td>
                   </tr>
@@ -499,22 +610,22 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         {/* Footer Metrics and Actions */}
         <div className="p-6 border-t border-border-dim bg-bg-accent/15 flex flex-wrap justify-between items-center gap-6">
           <div className="flex flex-wrap gap-4">
-            <div className="bg-bg-card border border-border-dim/60 px-4 py-2.5 rounded-lg text-center min-w-[110px]">
+            <div className="bg-bg-card border border-border-dim/60 px-4 py-2 rounded-lg text-center min-w-[110px]">
                <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Planificadas</p>
                <p className="text-sm font-black font-mono text-text-main mt-0.5">
                  {totalRefHours.toFixed(1)}h
                </p>
             </div>
             
-            <div className="bg-bg-card border border-border-dim/60 px-4 py-2.5 rounded-lg text-center min-w-[110px]">
-               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Cargadas Def.</p>
+            <div className="bg-bg-card border border-border-dim/60 px-4 py-2 rounded-lg text-center min-w-[110px]">
+               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Reales RRHH</p>
                <p className="text-sm font-black font-mono text-text-main mt-0.5">
                  {totalDefHours.toFixed(1)}h
                </p>
             </div>
 
-            <div className="bg-bg-card border border-border-dim/60 px-4 py-2.5 rounded-lg text-center min-w-[110px]">
-               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Desviación Total</p>
+            <div className="bg-bg-card border border-border-dim/60 px-4 py-2 rounded-lg text-center min-w-[110px]">
+               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest font-sans">Desviación Hs</p>
                <p className={cn(
                  "text-sm font-black font-mono mt-0.5",
                  totalDeviation === 0 
@@ -525,8 +636,22 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                </p>
             </div>
 
-            <div className="bg-bg-card border border-border-dim/60 px-4 py-2.5 rounded-lg text-center min-w-[110px]">
-               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Progreso Control</p>
+            <div className="bg-bg-card border border-border-dim/60 px-4 py-2 rounded-lg text-center min-w-[130px]">
+               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Desviación Pesos</p>
+               <p className={cn(
+                 "text-sm font-black font-mono mt-0.5",
+                 records.reduce((sum, r) => sum + ((r.definitiveHours - r.referenceHours) * r.valorHora), 0) === 0
+                   ? "text-text-main"
+                   : records.reduce((sum, r) => sum + ((r.definitiveHours - r.referenceHours) * r.valorHora), 0) > 0 ? "text-red-400" : "text-emerald-400"
+               )}>
+                 {records.reduce((sum, r) => sum + ((r.definitiveHours - r.referenceHours) * r.valorHora), 0) === 0 
+                   ? '$0' 
+                   : `${records.reduce((sum, r) => sum + ((r.definitiveHours - r.referenceHours) * r.valorHora), 0) > 0 ? '+' : '-'}$${Math.abs(records.reduce((sum, r) => sum + ((r.definitiveHours - r.referenceHours) * r.valorHora), 0)).toLocaleString('es-AR')}`}
+               </p>
+            </div>
+
+            <div className="bg-bg-card border border-border-dim/60 px-4 py-2 rounded-lg text-center min-w-[110px]">
+               <p className="text-[8px] text-text-dim uppercase font-black tracking-widest">Control</p>
                <p className="text-sm font-black font-mono text-brand-500 mt-0.5">
                  {verifiedCount}/{records.length} puestos
                </p>
@@ -550,13 +675,13 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
             <button 
               onClick={handleSaveChanges}
               className={cn(
-                "px-8 py-4.5 rounded text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2.5 shadow-xl",
+                "px-8 py-3 rounded text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 shadow-xl",
                 isFullyVerified 
-                  ? "bg-brand-500 text-black border-brand-500 hover:bg-brand-600 shadow-brand-500/15" 
+                  ? "bg-brand-500 text-black border-brand-500 hover:bg-brand-600 shadow-brand-500/15 font-bold" 
                   : "bg-bg-card border-border-dim text-text-main hover:bg-bg-accent"
               )}
             >
-              <Save size={15} /> Guardar Horas Semana {selectedWeek}
+              <Save size={14} /> Guardar Horas Semana {selectedWeek}
             </button>
           </div>
         </div>

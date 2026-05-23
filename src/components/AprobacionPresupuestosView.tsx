@@ -1,0 +1,394 @@
+/**
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  Building2, 
+  CheckCircle2, 
+  XCircle, 
+  AlertCircle, 
+  Calendar, 
+  DollarSign, 
+  Clock, 
+  Check, 
+  ChevronRight,
+  TrendingUp, 
+  Layers
+} from 'lucide-react';
+import { cn } from '@/src/lib/utils';
+import { Branch } from '../types';
+
+interface BudgetPosition {
+  id: string;
+  name: string;
+  countWeekday: number;
+  countWeekend: number;
+  hoursPerDay: number;
+  hourlyRate: number;
+}
+
+const DEFAULT_POSITIONS: BudgetPosition[] = [
+  { id: 'encargado', name: 'Encargado', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3500 },
+  { id: 'jefe_cocina', name: 'Jefe de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3200 },
+  { id: 'segundo_cocina', name: 'Segundo de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2800 },
+  { id: 'cocinero', name: 'Cocinero', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2500 },
+  { id: 'caja', name: 'Caja', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2400 },
+  { id: 'barra', name: 'Barra', countWeekday: 0.5, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2300 },
+  { id: 'mozos', name: 'Mozos', countWeekday: 2, countWeekend: 4, hoursPerDay: 8, hourlyRate: 2200 },
+  { id: 'runners', name: 'Runners', countWeekday: 0.5, countWeekend: 1.5, hoursPerDay: 8, hourlyRate: 2000 },
+  { id: 'bacha', name: 'Bacha', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 1900 },
+];
+
+export default function AprobacionPresupuestosView({ branches }: { branches: Branch[] }) {
+  const [selectedMonth, setSelectedMonth] = useState('2026-05');
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [budgetsState, setBudgetsState] = useState<Record<string, {
+    positions: BudgetPosition[];
+    daysInMonth: number;
+    fridays: number;
+    saturdays: number;
+    sundays: number;
+    holidays: number;
+    status: 'pending' | 'approved' | 'rejected';
+  }>>({});
+
+  // Fetch budgets from LocalStorage for all branches
+  const loadAllBudgets = () => {
+    const loaded: Record<string, any> = {};
+    branches.forEach(b => {
+      const storageKey = `hour_budget_${b.id}_${selectedMonth}`;
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          loaded[b.id] = JSON.parse(saved);
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        // Fallback default structure
+        loaded[b.id] = {
+          positions: DEFAULT_POSITIONS,
+          daysInMonth: 30,
+          fridays: 4,
+          saturdays: 4,
+          sundays: 4,
+          holidays: 1,
+          status: 'pending'
+        };
+      }
+    });
+    setBudgetsState(loaded);
+  };
+
+  useEffect(() => {
+    loadAllBudgets();
+  }, [branches, selectedMonth]);
+
+  const handleToggleApprove = (branchId: string) => {
+    const current = budgetsState[branchId] || {
+      positions: DEFAULT_POSITIONS,
+      daysInMonth: 30,
+      fridays: 4,
+      saturdays: 4,
+      sundays: 4,
+      holidays: 1,
+      status: 'pending' as const
+    };
+    
+    const nextStatus = current.status === 'approved' ? 'pending' : 'approved';
+    const updated = {
+      ...current,
+      status: nextStatus
+    };
+
+    // Save back to LocalStorage
+    localStorage.setItem(`hour_budget_${branchId}_${selectedMonth}`, JSON.stringify(updated));
+    
+    // Update local state
+    setBudgetsState(prev => ({
+      ...prev,
+      [branchId]: updated
+    }));
+
+    if (selectedBranch?.id === branchId) {
+      setSelectedBranch(prev => prev ? { ...prev } : null);
+    }
+  };
+
+  // Helper calculation
+  const getBranchCalculatedBudget = (branchId: string) => {
+    const info = budgetsState[branchId];
+    if (!info) return { totalHours: 0, totalCost: 0, status: 'pending' };
+
+    const { positions, daysInMonth, fridays, saturdays, sundays, holidays } = info;
+    let totalHours = 0;
+    let totalCost = 0;
+
+    const weekendDaysCount = fridays + saturdays + sundays;
+    const weekdayDaysCount = Math.max(0, daysInMonth - weekendDaysCount);
+
+    positions.forEach(pos => {
+      const weekdayHours = weekdayDaysCount * (pos.countWeekday * pos.hoursPerDay);
+      const weekendHours = weekendDaysCount * (pos.countWeekend * pos.hoursPerDay);
+      const posMonthlyHours = weekdayHours + weekendHours;
+      const holidayExtraCost = holidays * (pos.countWeekend * pos.hoursPerDay) * pos.hourlyRate; 
+
+      totalHours += posMonthlyHours;
+      totalCost += (posMonthlyHours * pos.hourlyRate) + holidayExtraCost;
+    });
+
+    return { totalHours, totalCost, status: info.status };
+  };
+
+  // Totals calculations across all branches
+  const consolidatedMetrics = useMemo(() => {
+    let totalHours = 0;
+    let totalCost = 0;
+    let approvedCount = 0;
+
+    branches.forEach(b => {
+      const calc = getBranchCalculatedBudget(b.id);
+      totalHours += calc.totalHours;
+      totalCost += calc.totalCost;
+      if (calc.status === 'approved') approvedCount++;
+    });
+
+    return { totalHours, totalCost, approvedCount };
+  }, [branches, budgetsState]);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-6 pb-20 text-[11px]"
+    >
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-bg-card border border-border-dim p-6 rounded-lg">
+        <div>
+          <h2 className="text-xl font-black uppercase text-text-main tracking-widest flex items-center gap-2">
+            <Layers className="text-brand-500" size={24} /> Gerencia General: Aprobación de Presupuestos
+          </h2>
+          <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1 opacity-70">
+            Aprobación jerárquica de dotaciones y de presupuestos de horas mensuales por sucursal
+          </p>
+        </div>
+
+        <div className="bg-bg-sidebar border border-border-dim rounded p-2 px-4 flex items-center gap-3">
+          <Calendar size={16} className="text-brand-500" />
+          <input 
+            type="month" 
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="bg-transparent border-none font-mono text-text-main text-xs outline-none uppercase font-bold"
+          />
+        </div>
+      </div>
+
+      {/* Consolidation Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-bg-sidebar border border-border-dim p-4 rounded-lg">
+          <p className="text-[9px] font-black text-text-dim uppercase tracking-wider">Costo Consolidado Mensual</p>
+          <p className="text-xl font-mono font-black text-brand-500 mt-1">
+            ${consolidatedMetrics.totalCost.toLocaleString('es-AR')}
+          </p>
+          <span className="text-[8px] font-bold text-text-dim uppercase opacity-60">
+            Suma total monetaria proyectada
+          </span>
+        </div>
+
+        <div className="bg-bg-sidebar border border-border-dim p-4 rounded-lg">
+          <p className="text-[9px] font-black text-text-dim uppercase tracking-wider">Horas Presupuestadas</p>
+          <p className="text-xl font-mono font-bold text-text-main mt-1">
+            {consolidatedMetrics.totalHours.toLocaleString()}h
+          </p>
+          <span className="text-[8px] font-bold text-text-dim uppercase opacity-60">
+            Total horas planificadas mes
+          </span>
+        </div>
+
+        <div className="bg-bg-sidebar border border-border-dim p-4 rounded-lg">
+          <p className="text-[9px] font-black text-text-dim uppercase tracking-wider">Estado Aprobaciones</p>
+          <p className="text-xl font-mono font-bold text-brand-500 mt-1">
+            {consolidatedMetrics.approvedCount} / {branches.length}
+          </p>
+          <span className="text-[8px] font-bold text-text-dim uppercase opacity-60">
+            Sucursales con presupuesto aprobado
+          </span>
+        </div>
+
+        <div className="bg-bg-sidebar border border-brand-500/25 p-4 rounded-lg flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[9px] font-black text-brand-500 uppercase tracking-wide">Cierre Gerencia</p>
+            <p className="font-bold text-text-main mt-1">
+              {consolidatedMetrics.approvedCount === branches.length ? 'CIERRE COMPLETO' : 'PENDIENTE DE AUTORIZACIÓN'}
+            </p>
+          </div>
+          <div className={cn(
+            "p-2 rounded-full",
+            consolidatedMetrics.approvedCount === branches.length ? "bg-emerald-500/20 text-emerald-500" : "bg-amber-500/10 text-amber-500"
+          )}>
+            <CheckCircle2 size={20} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Branches Grid Column */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
+            <div className="p-4 bg-bg-accent/30 border-b border-border-dim">
+              <h3 className="text-xs font-black uppercase tracking-widest text-text-main">
+                Presupuestos por Sucursal - Periodo: {selectedMonth}
+              </h3>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-bg-accent border-b border-border-dim text-[10px] uppercase text-text-dim tracking-widest font-black">
+                    <th className="px-6 py-4">Sucursal</th>
+                    <th className="px-4 py-4 text-center">Horas Presupuestadas</th>
+                    <th className="px-4 py-4 text-center">Costo Mensual Proyectado</th>
+                    <th className="px-4 py-4 text-center">Estado</th>
+                    <th className="px-6 py-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/50">
+                  {branches.map(b => {
+                    const calc = getBranchCalculatedBudget(b.id);
+                    const isApproved = calc.status === 'approved';
+                    const isSelected = selectedBranch?.id === b.id;
+
+                    return (
+                      <tr 
+                        key={b.id} 
+                        onClick={() => setSelectedBranch(b)}
+                        className={cn(
+                          "cursor-pointer hover:bg-bg-accent/30 transition-all text-xs font-medium text-text-main",
+                          isSelected && "bg-brand-500/[0.03] border-l-2 border-brand-500"
+                        )}
+                      >
+                        <td className="px-6 py-4">
+                          <span className="font-sans font-bold uppercase block">{b.name}</span>
+                          <span className="text-[10px] text-text-dim font-bold block opacity-60">{b.location || 'Argentina'}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-mono font-bold text-text-dim text-xs">
+                          {calc.totalHours.toLocaleString()}h
+                        </td>
+                        <td className="px-4 py-4 text-center font-mono font-bold text-brand-500 text-xs">
+                          ${calc.totalCost.toLocaleString('es-AR')}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          {isApproved ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/10 text-emerald-500 text-[9px] font-black uppercase border border-emerald-500/20">
+                              <CheckCircle2 size={11} /> Aprobado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/10 text-amber-500 text-[9px] font-black uppercase border border-amber-500/20 animate-pulse">
+                              <AlertCircle size={11} /> Pendiente
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => handleToggleApprove(b.id)}
+                            className={cn(
+                              "text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded transition-all border",
+                              isApproved 
+                                ? "bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/35"
+                                : "bg-emerald-500 text-black border-emerald-500 hover:bg-emerald-600 font-bold"
+                            )}
+                          >
+                            {isApproved ? 'Desautorizar' : 'Autorizar'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Detailed Breakdown for the selected branch */}
+        <div className="lg:col-span-1">
+          {selectedBranch ? (
+            <motion.div 
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4 shadow-2xl"
+            >
+              <div className="flex justify-between items-center border-b border-border-dim pb-3">
+                <h3 className="text-xs font-black uppercase tracking-widest text-[#FFFFFF]">
+                  Visualización Analítica: {selectedBranch.name.toUpperCase()}
+                </h3>
+                <span className="text-[9px] font-mono font-bold uppercase text-brand-500 bg-brand-500/10 border border-brand-500/20 px-2 py-0.5 rounded">
+                  {budgetsState[selectedBranch.id]?.status === 'approved' ? 'APROBADO' : 'PENDIENTE'}
+                </span>
+              </div>
+
+              <div className="divide-y divide-border-dim/40 max-h-96 overflow-y-auto pr-1">
+                {(budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).map(pos => {
+                  const bInfo = budgetsState[selectedBranch.id] || {
+                    daysInMonth: 30,
+                    fridays: 4,
+                    saturdays: 4,
+                    sundays: 4,
+                    holidays: 1
+                  };
+                  const weekendDaysCount = bInfo.fridays + bInfo.saturdays + bInfo.sundays;
+                  const weekdayDaysCount = Math.max(0, bInfo.daysInMonth - weekendDaysCount);
+                  const posMonthlyHs = (weekdayDaysCount * pos.countWeekday * pos.hoursPerDay) + (weekendDaysCount * pos.countWeekend * pos.hoursPerDay);
+                  const posMonthlyTotal = (posMonthlyHs * pos.hourlyRate) + (bInfo.holidays * pos.countWeekend * pos.hoursPerDay * pos.hourlyRate);
+
+                  return (
+                    <div key={pos.id} className="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <p className="font-bold text-text-main uppercase font-sans tracking-wide">{pos.name}</p>
+                        <p className="text-[9px] text-text-dim mt-0.5 font-bold">
+                          Lu-Ju: {pos.countWeekday}p • Vi-Do: {pos.countWeekend}p • {pos.hoursPerDay}h/d
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono font-black text-text-main">${posMonthlyTotal.toLocaleString()}</p>
+                        <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
+                          {posMonthlyHs} horas
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="bg-bg-accent/50 border border-border-dim p-4 rounded-lg space-y-2 mt-4">
+                <div className="flex justify-between text-xs">
+                  <span className="text-text-dim uppercase font-bold">Costo Proyectado Feriados:</span>
+                  <span className="font-mono font-black text-brand-500">
+                    ${(budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).reduce((acc, p) => {
+                      const bInfo = budgetsState[selectedBranch.id] || { holidays: 1 };
+                      return acc + (bInfo.holidays * (p.countWeekend * p.hoursPerDay) * p.hourlyRate);
+                    }, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs border-t border-border-dim/40 pt-2 font-black">
+                  <span className="text-[#FFFFFF] uppercase">MONTO TOTAL PRESUPUESTADO:</span>
+                  <span className="text-brand-500 font-mono">
+                    ${getBranchCalculatedBudget(selectedBranch.id).totalCost.toLocaleString('es-AR')}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <div className="bg-bg-sidebar border border-border-dim border-dashed rounded-lg p-12 text-center text-text-dim">
+              <Building2 className="mx-auto text-text-dim opacity-30 mb-3" size={28} />
+              <p className="text-xs font-black uppercase tracking-widest opacity-50">Seleccione sucursal para ver desglose de puestos</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
