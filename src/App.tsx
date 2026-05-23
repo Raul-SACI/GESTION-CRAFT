@@ -447,6 +447,13 @@ function AppContent() {
           }
         });
 
+        // Ensure missing sections like Gerencia General are present
+        Object.keys(menuConfig).forEach(section => {
+          if (!merged[section]) {
+            merged[section] = menuConfig[section];
+          }
+        });
+
         setMenuConfig(merged);
       } catch (e) {
         console.error('Error loading menu config', e);

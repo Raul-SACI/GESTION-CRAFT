@@ -20,7 +20,19 @@ import {
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 
-interface BudgetPosition {
+interface BudgetRow {
+  id: string;
+  branchId: string;
+  roleId: string;
+  roleLabel: string;
+  shift: 'Mañana' | 'Tarde';
+  countGroupA: number;
+  countGroupB: number;
+  hoursPerDay: number;
+  hourlyRate: number;
+}
+
+interface LegacyBudgetPosition {
   id: string;
   name: string;
   countWeekday: number;
@@ -29,7 +41,7 @@ interface BudgetPosition {
   hourlyRate: number;
 }
 
-const DEFAULT_POSITIONS: BudgetPosition[] = [
+const DEFAULT_POSITIONS: LegacyBudgetPosition[] = [
   { id: 'encargado', name: 'Encargado', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3500 },
   { id: 'jefe_cocina', name: 'Jefe de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 3200 },
   { id: 'segundo_cocina', name: 'Segundo de Cocina', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 2800 },
@@ -41,18 +53,47 @@ const DEFAULT_POSITIONS: BudgetPosition[] = [
   { id: 'bacha', name: 'Bacha', countWeekday: 1, countWeekend: 1, hoursPerDay: 8, hourlyRate: 1900 },
 ];
 
+function getDaysOfWeekCounts(yearMonth: string) {
+  const [yearStr, monthStr] = yearMonth.split('-');
+  const year = parseInt(yearStr) || 2026;
+  const month = (parseInt(monthStr) || 5) - 1; // 0-indexed
+  
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const dayCounts: Record<string, number> = {
+    'Domingo': 0,
+    'Lunes': 0,
+    'Martes': 0,
+    'Miércoles': 0,
+    'Jueves': 0,
+    'Viernes': 0,
+    'Sábado': 0,
+  };
+
+  const JS_DAY_MAPPING: Record<number, string> = {
+    0: 'Domingo',
+    1: 'Lunes',
+    2: 'Martes',
+    3: 'Miércoles',
+    4: 'Jueves',
+    5: 'Viernes',
+    6: 'Sábado'
+  };
+
+  for (let d = 1; d <= totalDays; d++) {
+    const dateInstance = new Date(year, month, d);
+    const dayName = JS_DAY_MAPPING[dateInstance.getDay()];
+    if (dayName) {
+      dayCounts[dayName]++;
+    }
+  }
+
+  return { totalDays, dayCounts };
+}
+
 export default function AprobacionPresupuestosView({ branches }: { branches: Branch[] }) {
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
-  const [budgetsState, setBudgetsState] = useState<Record<string, {
-    positions: BudgetPosition[];
-    daysInMonth: number;
-    fridays: number;
-    saturdays: number;
-    sundays: number;
-    holidays: number;
-    status: 'pending' | 'approved' | 'rejected';
-  }>>({});
+  const [budgetsState, setBudgetsState] = useState<Record<string, any>>({});
 
   // Fetch budgets from LocalStorage for all branches
   const loadAllBudgets = () => {
@@ -67,14 +108,18 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
           console.error(e);
         }
       } else {
-        // Fallback default structure
+        // Fallback structures
+        const fallbackId = b.id;
         loaded[b.id] = {
+          rows: null, // fallback flag
           positions: DEFAULT_POSITIONS,
           daysInMonth: 30,
           fridays: 4,
           saturdays: 4,
           sundays: 4,
-          holidays: 1,
+          holidays: 2,
+          groupADays: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'],
+          groupBDays: ['Viernes', 'Sábado'],
           status: 'pending'
         };
       }
@@ -93,8 +138,10 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       fridays: 4,
       saturdays: 4,
       sundays: 4,
-      holidays: 1,
-      status: 'pending' as const
+      holidays: 2,
+      groupADays: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'],
+      groupBDays: ['Viernes', 'Sábado'],
+      status: 'pending'
     };
     
     const nextStatus = current.status === 'approved' ? 'pending' : 'approved';
@@ -117,29 +164,65 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     }
   };
 
-  // Helper calculation
+  // Upgraded custom calculations helper
   const getBranchCalculatedBudget = (branchId: string) => {
     const info = budgetsState[branchId];
     if (!info) return { totalHours: 0, totalCost: 0, status: 'pending' };
 
-    const { positions, daysInMonth, fridays, saturdays, sundays, holidays } = info;
+    const status = info.status || 'pending';
+    const holidays = info.holidays !== undefined ? info.holidays : 2;
+
+    const { dayCounts } = getDaysOfWeekCounts(selectedMonth);
+    const groupADays = info.groupADays || ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'];
+    const groupBDays = info.groupBDays || ['Viernes', 'Sábado'];
+
+    let countDaysGroupA = 0;
+    let countDaysGroupB = 0;
+    groupADays.forEach((day: string) => {
+      countDaysGroupA += dayCounts[day] || 0;
+    });
+    groupBDays.forEach((day: string) => {
+      countDaysGroupB += dayCounts[day] || 0;
+    });
+
     let totalHours = 0;
     let totalCost = 0;
 
-    const weekendDaysCount = fridays + saturdays + sundays;
-    const weekdayDaysCount = Math.max(0, daysInMonth - weekendDaysCount);
+    if (info.rows && Array.isArray(info.rows)) {
+      const rows = info.rows as BudgetRow[];
+      rows.forEach(row => {
+        const hoursA = countDaysGroupA * row.countGroupA * row.hoursPerDay;
+        const hoursB = countDaysGroupB * row.countGroupB * row.hoursPerDay;
+        const posMonthlyHs = hoursA + hoursB;
+        
+        const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
+        const holidayExtraCost = holidayHs * row.hourlyRate;
 
-    positions.forEach(pos => {
-      const weekdayHours = weekdayDaysCount * (pos.countWeekday * pos.hoursPerDay);
-      const weekendHours = weekendDaysCount * (pos.countWeekend * pos.hoursPerDay);
-      const posMonthlyHours = weekdayHours + weekendHours;
-      const holidayExtraCost = holidays * (pos.countWeekend * pos.hoursPerDay) * pos.hourlyRate; 
+        totalHours += posMonthlyHs;
+        totalCost += (posMonthlyHs * row.hourlyRate) + holidayExtraCost;
+      });
+    } else {
+      // Legacy support
+      const positions = (info.positions || DEFAULT_POSITIONS) as LegacyBudgetPosition[];
+      const daysInMonth = info.daysInMonth || 30;
+      const fridays = info.fridays || 4;
+      const saturdays = info.saturdays || 4;
+      const sundays = info.sundays || 4;
+      const weekendDaysCount = fridays + saturdays + sundays;
+      const weekdayDaysCount = Math.max(0, daysInMonth - weekendDaysCount);
 
-      totalHours += posMonthlyHours;
-      totalCost += (posMonthlyHours * pos.hourlyRate) + holidayExtraCost;
-    });
+      positions.forEach(pos => {
+        const weekdayHours = weekdayDaysCount * (pos.countWeekday * pos.hoursPerDay);
+        const weekendHours = weekendDaysCount * (pos.countWeekend * pos.hoursPerDay);
+        const posMonthlyHours = weekdayHours + weekendHours;
+        const holidayExtraCost = holidays * (pos.countWeekend * pos.hoursPerDay) * pos.hourlyRate; 
 
-    return { totalHours, totalCost, status: info.status };
+        totalHours += posMonthlyHours;
+        totalCost += (posMonthlyHours * pos.hourlyRate) + holidayExtraCost;
+      });
+    }
+
+    return { totalHours, totalCost, status };
   };
 
   // Totals calculations across all branches
@@ -156,7 +239,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     });
 
     return { totalHours, totalCost, approvedCount };
-  }, [branches, budgetsState]);
+  }, [branches, budgetsState, selectedMonth]);
 
   return (
     <motion.div 
@@ -252,7 +335,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
                     <th className="px-4 py-4 text-center">Horas Presupuestadas</th>
                     <th className="px-4 py-4 text-center">Costo Mensual Proyectado</th>
                     <th className="px-4 py-4 text-center">Estado</th>
-                    <th className="px-6 py-4 text-right">Acciones</th>
+                    <th className="px-6 py-4 text-right font-black">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim/50">
@@ -277,7 +360,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
                         <td className="px-4 py-4 text-center font-mono font-bold text-text-dim text-xs">
                           {calc.totalHours.toLocaleString()}h
                         </td>
-                        <td className="px-4 py-4 text-center font-mono font-bold text-brand-500 text-xs">
+                        <td className="px-4 py-4 text-center font-mono font-bold text-brand-500 text-xs font-black">
                           ${calc.totalCost.toLocaleString('es-AR')}
                         </td>
                         <td className="px-4 py-4 text-center">
@@ -331,51 +414,103 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
               </div>
 
               <div className="divide-y divide-border-dim/40 max-h-96 overflow-y-auto pr-1">
-                {(budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).map(pos => {
-                  const bInfo = budgetsState[selectedBranch.id] || {
-                    daysInMonth: 30,
-                    fridays: 4,
-                    saturdays: 4,
-                    sundays: 4,
-                    holidays: 1
-                  };
-                  const weekendDaysCount = bInfo.fridays + bInfo.saturdays + bInfo.sundays;
-                  const weekdayDaysCount = Math.max(0, bInfo.daysInMonth - weekendDaysCount);
-                  const posMonthlyHs = (weekdayDaysCount * pos.countWeekday * pos.hoursPerDay) + (weekendDaysCount * pos.countWeekend * pos.hoursPerDay);
-                  const posMonthlyTotal = (posMonthlyHs * pos.hourlyRate) + (bInfo.holidays * pos.countWeekend * pos.hoursPerDay * pos.hourlyRate);
+                {/* Check if new Rows schema or legacy Positions */}
+                {budgetsState[selectedBranch.id]?.rows && Array.isArray(budgetsState[selectedBranch.id].rows) ? (
+                  budgetsState[selectedBranch.id].rows.map((row: BudgetRow) => {
+                    const bInfo = budgetsState[selectedBranch.id];
+                    const { dayCounts } = getDaysOfWeekCounts(selectedMonth);
+                    const groupADays = bInfo.groupADays || ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'];
+                    const groupBDays = bInfo.groupBDays || ['Viernes', 'Sábado'];
+                    const holidays = bInfo.holidays !== undefined ? bInfo.holidays : 2;
 
-                  return (
-                    <div key={pos.id} className="py-2.5 flex justify-between items-center text-xs">
-                      <div>
-                        <p className="font-bold text-text-main uppercase font-sans tracking-wide">{pos.name}</p>
-                        <p className="text-[9px] text-text-dim mt-0.5 font-bold">
-                          Lu-Ju: {pos.countWeekday}p • Vi-Do: {pos.countWeekend}p • {pos.hoursPerDay}h/d
-                        </p>
+                    let countDaysGroupA = 0;
+                    let countDaysGroupB = 0;
+                    groupADays.forEach((day: string) => {
+                      countDaysGroupA += dayCounts[day] || 0;
+                    });
+                    groupBDays.forEach((day: string) => {
+                      countDaysGroupB += dayCounts[day] || 0;
+                    });
+
+                    const hoursA = countDaysGroupA * row.countGroupA * row.hoursPerDay;
+                    const hoursB = countDaysGroupB * row.countGroupB * row.hoursPerDay;
+                    const posMonthlyHs = hoursA + hoursB;
+                    const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
+                    const totalCostRow = (posMonthlyHs * row.hourlyRate) + (holidayHs * row.hourlyRate);
+
+                    return (
+                      <div key={row.id} className="py-2.5 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-text-main uppercase font-sans tracking-wide">
+                            {row.roleLabel} <span className="text-[9px] font-black text-brand-500">[{row.shift}]</span>
+                          </p>
+                          <p className="text-[9px] text-[#8C959F] mt-0.5 font-bold">
+                            Nom: {row.countGroupA}p • Esp: {row.countGroupB}p • {row.hoursPerDay}h/d
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-mono font-black text-text-main">${totalCostRow.toLocaleString()}</p>
+                          <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
+                            {posMonthlyHs} horas
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-mono font-black text-text-main">${posMonthlyTotal.toLocaleString()}</p>
-                        <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
-                          {posMonthlyHs} horas
-                        </p>
+                    );
+                  })
+                ) : (
+                  // Legacy fallback
+                  (budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).map((pos: LegacyBudgetPosition) => {
+                    const bInfo = budgetsState[selectedBranch.id] || {
+                      daysInMonth: 30,
+                      fridays: 4,
+                      saturdays: 4,
+                      sundays: 4,
+                      holidays: 2
+                    };
+                    const weekendDaysCount = bInfo.fridays + bInfo.saturdays + bInfo.sundays;
+                    const weekdayDaysCount = Math.max(0, bInfo.daysInMonth - weekendDaysCount);
+                    const posMonthlyHs = (weekdayDaysCount * pos.countWeekday * pos.hoursPerDay) + (weekendDaysCount * pos.countWeekend * pos.hoursPerDay);
+                    const posMonthlyTotal = (posMonthlyHs * pos.hourlyRate) + (bInfo.holidays * pos.countWeekend * pos.hoursPerDay * pos.hourlyRate);
+
+                    return (
+                      <div key={pos.id} className="py-2.5 flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-text-main uppercase font-sans tracking-wide">{pos.name}</p>
+                          <p className="text-[9px] text-[#8C959F] mt-0.5 font-bold">
+                            Lu-Ju: {pos.countWeekday}p • Vi-Do: {pos.countWeekend}p • {pos.hoursPerDay}h/d
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-mono font-black text-text-main">${posMonthlyTotal.toLocaleString()}</p>
+                          <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
+                            {posMonthlyHs} horas
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
 
               <div className="bg-bg-accent/50 border border-border-dim p-4 rounded-lg space-y-2 mt-4">
                 <div className="flex justify-between text-xs">
                   <span className="text-text-dim uppercase font-bold">Costo Proyectado Feriados:</span>
                   <span className="font-mono font-black text-brand-500">
-                    ${(budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).reduce((acc, p) => {
-                      const bInfo = budgetsState[selectedBranch.id] || { holidays: 1 };
-                      return acc + (bInfo.holidays * (p.countWeekend * p.hoursPerDay) * p.hourlyRate);
-                    }, 0).toLocaleString()}
+                    ${(budgetsState[selectedBranch.id]?.rows 
+                    ? budgetsState[selectedBranch.id].rows.reduce((acc: number, p: BudgetRow) => {
+                        const bInfo = budgetsState[selectedBranch.id];
+                        const holidays = bInfo.holidays !== undefined ? bInfo.holidays : 2;
+                        return acc + (holidays * (p.countGroupB * p.hoursPerDay) * p.hourlyRate);
+                      }, 0)
+                    : (budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).reduce((acc: number, p: LegacyBudgetPosition) => {
+                        const bInfo = budgetsState[selectedBranch.id] || { holidays: 2 };
+                        return acc + (bInfo.holidays * (p.countWeekend * p.hoursPerDay) * p.hourlyRate);
+                      }, 0)).toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs border-t border-border-dim/40 pt-2 font-black">
-                  <span className="text-[#FFFFFF] uppercase">MONTO TOTAL PRESUPUESTADO:</span>
-                  <span className="text-brand-500 font-mono">
+                  <span className="text-[#FFFFFF] uppercase text-[10px]">MONTO TOTAL PRESUPUESTADO:</span>
+                  <span className="text-brand-500 font-mono text-xs">
                     ${getBranchCalculatedBudget(selectedBranch.id).totalCost.toLocaleString('es-AR')}
                   </span>
                 </div>

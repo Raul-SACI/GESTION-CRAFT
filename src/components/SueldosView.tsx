@@ -47,6 +47,7 @@ interface HourRecord {
   rate: number;       // fetched from Maestro de Personal
   hours: number;
   confirmed: boolean;
+  shift?: 'Mañana' | 'Tarde';
 }
 
 const ROLES = [
@@ -335,7 +336,8 @@ export default function HourControlView({ selectedBranchId, branches }: { select
             roleId: emp.position,
             rate: currentRate,
             hours: 0,
-            confirmed: false
+            confirmed: false,
+            shift: 'Mañana' as const
           };
         });
         setRecords(defaults);
@@ -410,7 +412,8 @@ export default function HourControlView({ selectedBranchId, branches }: { select
       roleId: 'mozos',
       rate: getPositionRateFromMaestro('mozos', 'Mozos'),
       hours: 0,
-      confirmed: false
+      confirmed: false,
+      shift: 'Mañana'
     };
     setRecords([...records, newRecord]);
   };
@@ -760,6 +763,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
                   <th className="px-4 py-4 text-center">Mes</th>
                   <th className="px-4 py-4 text-center">Semana</th>
                   <th className="px-4 py-4 text-center">Puesto</th>
+                  <th className="px-4 py-4 text-center">Turno</th>
                   <th className="px-4 py-4 text-center">Valor Hora</th>
                   <th className="px-5 py-4 text-center">Horas Trabajadas</th>
                   <th className="px-6 py-4 text-right">Subtotal</th>
@@ -817,6 +821,19 @@ export default function HourControlView({ selectedBranchId, branches }: { select
                           <span className="px-2 py-0.5 rounded bg-bg-accent border border-border-dim text-text-dim font-bold uppercase text-[9px]">
                             {ROLES.find(rol => rol.id === r.roleId)?.label || r.roleId}
                           </span>
+                        </td>
+
+                        {/* Turno Column */}
+                        <td className="px-4 py-3.5 text-center">
+                          <select
+                            value={r.shift || 'Mañana'}
+                            onChange={(e) => handleUpdateRecord(r.id, 'shift', e.target.value as 'Mañana' | 'Tarde')}
+                            disabled={r.confirmed}
+                            className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500 uppercase h-8"
+                          >
+                            <option value="Mañana">Mañana</option>
+                            <option value="Tarde">Tarde</option>
+                          </select>
                         </td>
 
                         {/* Valor Hora Column - Read Only from Maestro de Personal */}

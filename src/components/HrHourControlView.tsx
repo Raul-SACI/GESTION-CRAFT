@@ -134,10 +134,16 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
     const budgetKey = `hour_budget_${selectedBranch}_${selectedMonth}`;
     const budgetStr = localStorage.getItem(budgetKey);
     let budgetPositions: any[] = [];
+    let budgetRows: any[] = [];
+    let groupADays: string[] = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'];
+    let groupBDays: string[] = ['Viernes', 'Sábado'];
     if (budgetStr) {
       try {
         const parsedBudget = JSON.parse(budgetStr);
         budgetPositions = parsedBudget.positions || [];
+        budgetRows = parsedBudget.rows || [];
+        if (parsedBudget.groupADays) groupADays = parsedBudget.groupADays;
+        if (parsedBudget.groupBDays) groupBDays = parsedBudget.groupBDays;
       } catch(e) {
         console.error(e);
       }
@@ -172,10 +178,26 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         
         // Let's calculate planned hours from budget if exists, else fallback to standard refHours
         let plannedHours = p.refHours;
-        const budgetPos = budgetPositions.find(bp => bp.id === p.id);
-        if (budgetPos) {
-          // Standard weekly hours: 4 weekdays (8h) + 3 weekend days (8h) with their custom staff counts
-          plannedHours = (budgetPos.countWeekday * 4 * budgetPos.hoursPerDay) + (budgetPos.countWeekend * 3 * budgetPos.hoursPerDay);
+        if (budgetRows && budgetRows.length > 0) {
+          const matchingRows = budgetRows.filter((br: any) => br.roleId === p.id);
+          if (matchingRows.length > 0) {
+            const countADaysInWeek = groupADays.length;
+            const countBDaysInWeek = groupBDays.length;
+            let weeklySum = 0;
+            matchingRows.forEach((br: any) => {
+              const hoursA = countADaysInWeek * (br.countGroupA || 0) * (br.hoursPerDay || 0);
+              const hoursB = countBDaysInWeek * (br.countGroupB || 0) * (br.hoursPerDay || 0);
+              weeklySum += (hoursA + hoursB);
+            });
+            if (weeklySum > 0) {
+              plannedHours = weeklySum;
+            }
+          }
+        } else {
+          const budgetPos = budgetPositions.find(bp => bp.id === p.id);
+          if (budgetPos) {
+            plannedHours = (budgetPos.countWeekday * 4 * budgetPos.hoursPerDay) + (budgetPos.countWeekend * 3 * budgetPos.hoursPerDay);
+          }
         }
 
         // Sum actuals loaded from store
