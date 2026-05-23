@@ -161,6 +161,12 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
     title: ''
   });
 
+  const [showAreaSuggestions, setShowAreaSuggestions] = useState(false);
+  const [showSectorSuggestions, setShowSectorSuggestions] = useState(false);
+  const [showTitleSuggestions, setShowTitleSuggestions] = useState(false);
+
+  const [selectedPostIds, setSelectedPostIds] = useState<string[]>([]);
+
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
   // States for Adding New Position
@@ -454,6 +460,18 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
 
     setPositions(positions.filter(p => p.id !== id));
     if (selectedPositionId === id) setSelectedPositionId(null);
+    setSelectedPostIds(prev => prev.filter(selectedId => selectedId !== id));
+  };
+
+  const handleDeleteSelectedPositions = () => {
+    const confirmed = window.confirm(`¿Está seguro de eliminar los ${selectedPostIds.length} puestos seleccionados?`);
+    if (!confirmed) return;
+
+    setPositions(prev => prev.filter(p => !selectedPostIds.includes(p.id)));
+    if (selectedPositionId && selectedPostIds.includes(selectedPositionId)) {
+      setSelectedPositionId(null);
+    }
+    setSelectedPostIds([]);
   };
 
   // Row Editing handlers
@@ -650,6 +668,11 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
     reader.readAsBinaryString(file);
   };
 
+  // Derived autocomplete suggestion values
+  const uniqueAreas: string[] = Array.from(new Set<string>(positions.map(p => p.area.trim().toUpperCase()))).filter(Boolean);
+  const uniqueSectors: string[] = Array.from(new Set<string>(positions.map(p => p.sector.trim().toUpperCase()))).filter(Boolean);
+  const uniqueTitles: string[] = Array.from(new Set<string>(positions.map(p => p.title.trim().toUpperCase()))).filter(Boolean);
+
   const filteredPositions = positions.filter(p => {
     return (
       (filters.area === '' || p.area.toUpperCase().includes(filters.area.toUpperCase())) &&
@@ -754,37 +777,132 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
 
       {activeSubTab === 'positions' && (
         <>
-          {/* Filter Options */}
+          {/* Filter Options with Autocomplete */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-bg-sidebar border border-border-dim p-4 rounded-lg">
+        {/* Area Filter */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
           <input 
             type="text"
             placeholder="FILTRAR POR ÁREA..."
-            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500"
+            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500 text-text-main"
             value={filters.area}
-            onChange={e => setFilters({...filters, area: e.target.value})}
+            onChange={e => {
+              setFilters({...filters, area: e.target.value});
+              setShowAreaSuggestions(true);
+            }}
+            onFocus={() => setShowAreaSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowAreaSuggestions(false), 250)}
           />
+          {showAreaSuggestions && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-48 overflow-y-auto divide-y divide-border-dim/30">
+              {uniqueAreas
+                .filter(a => a.toLowerCase().includes(filters.area.toLowerCase()))
+                .map(a => (
+                  <button
+                    key={a}
+                    type="button"
+                    onMouseDown={() => {
+                      setFilters({...filters, area: a});
+                      setShowAreaSuggestions(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer",
+                      filters.area.toUpperCase() === a ? "bg-brand-500/10 text-brand-500" : "text-text-main"
+                    )}
+                  >
+                    {a}
+                  </button>
+                ))}
+              {uniqueAreas.filter(a => a.toLowerCase().includes(filters.area.toLowerCase())).length === 0 && (
+                <div className="px-4 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Sector Filter */}
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
           <input 
             type="text"
             placeholder="FILTRAR POR SECTOR..."
-            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500"
+            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500 text-text-main"
             value={filters.sector}
-            onChange={e => setFilters({...filters, sector: e.target.value})}
+            onChange={e => {
+              setFilters({...filters, sector: e.target.value});
+              setShowSectorSuggestions(true);
+            }}
+            onFocus={() => setShowSectorSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSectorSuggestions(false), 250)}
           />
+          {showSectorSuggestions && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-48 overflow-y-auto divide-y divide-border-dim/30">
+              {uniqueSectors
+                .filter(s => s.toLowerCase().includes(filters.sector.toLowerCase()))
+                .map(s => (
+                  <button
+                    key={s}
+                    type="button"
+                    onMouseDown={() => {
+                      setFilters({...filters, sector: s});
+                      setShowSectorSuggestions(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer",
+                      filters.sector.toUpperCase() === s ? "bg-brand-500/10 text-brand-500" : "text-text-main"
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              {uniqueSectors.filter(s => s.toLowerCase().includes(filters.sector.toLowerCase())).length === 0 && (
+                <div className="px-4 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Puesto (Title) Filter */}
         <div className="relative">
           <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
           <input 
             type="text"
             placeholder="FILTRAR POR PUESTO..."
-            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500"
+            className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2 text-[10px] font-bold uppercase outline-none focus:border-brand-500 text-text-main"
             value={filters.title}
-            onChange={e => setFilters({...filters, title: e.target.value})}
+            onChange={e => {
+              setFilters({...filters, title: e.target.value});
+              setShowTitleSuggestions(true);
+            }}
+            onFocus={() => setShowTitleSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowTitleSuggestions(false), 250)}
           />
+          {showTitleSuggestions && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-48 overflow-y-auto divide-y divide-border-dim/30">
+              {uniqueTitles
+                .filter(t => t.toLowerCase().includes(filters.title.toLowerCase()))
+                .map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onMouseDown={() => {
+                      setFilters({...filters, title: t});
+                      setShowTitleSuggestions(false);
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer",
+                      filters.title.toUpperCase() === t ? "bg-brand-500/10 text-brand-500" : "text-text-main"
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              {uniqueTitles.filter(t => t.toLowerCase().includes(filters.title.toLowerCase())).length === 0 && (
+                <div className="px-4 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -793,27 +911,54 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
         {/* Positions Table */}
         <div className="lg:col-span-2 bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl flex flex-col justify-between">
           <div>
-            <div className="p-4 border-b border-border-dim bg-bg-accent/30 flex justify-between items-center">
+            <div className="p-4 border-b border-border-dim bg-bg-accent/30 flex justify-between items-center flex-wrap gap-2">
               <h3 className="text-xs font-black uppercase tracking-widest text-text-main">
                 LISTADO DE PUESTOS Y REMUNERACIONES
               </h3>
-              <span className="text-[10px] font-mono text-brand-500 px-2 py-0.5 bg-brand-500/10 border border-brand-500/20 rounded font-bold">
-                {filteredPositions.length} puestos cargados
-              </span>
+              <div className="flex items-center gap-2">
+                {selectedPostIds.length > 0 && (
+                  <button
+                    onClick={handleDeleteSelectedPositions}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-red-400/20 text-red-400 hover:bg-red-400/35 border border-red-500/30 rounded text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer shadow-md"
+                  >
+                    <Trash2 size={11} /> Eliminar Seleccionados ({selectedPostIds.length})
+                  </button>
+                )}
+                <span className="text-[10px] font-mono text-brand-500 px-2 py-0.5 bg-brand-500/10 border border-brand-500/20 rounded font-bold">
+                  {filteredPositions.length} puestos cargados
+                </span>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-bg-accent border-b border-border-dim">
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">ÁREA</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">SECTOR</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">PUESTO</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Tipo</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Ant.</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Valor Act.</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Aumento</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Notas</th>
-                    <th className="px-5 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
+                  <tr className="bg-bg-accent border-b border-border-dim font-black text-[10px] uppercase text-text-dim tracking-widest">
+                    <th className="px-4 py-4 w-12 text-center">
+                      <input 
+                        type="checkbox" 
+                        checked={filteredPositions.length > 0 && filteredPositions.every(p => selectedPostIds.includes(p.id))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPostIds(prev => {
+                              const nextSet = new Set([...prev, ...filteredPositions.map(p => p.id)]);
+                              return Array.from(nextSet);
+                            });
+                          } else {
+                            setSelectedPostIds(prev => prev.filter(id => !filteredPositions.some(p => p.id === id)));
+                          }
+                        }}
+                        className="cursor-pointer accent-brand-500 w-4 h-4 rounded"
+                      />
+                    </th>
+                    <th className="px-5 py-4">ÁREA</th>
+                    <th className="px-5 py-4">SECTOR</th>
+                    <th className="px-5 py-4">PUESTO</th>
+                    <th className="px-5 py-4">Tipo</th>
+                    <th className="px-5 py-4 text-right">Valor Ant.</th>
+                    <th className="px-5 py-4 text-right">Valor Act.</th>
+                    <th className="px-5 py-4 text-center">Aumento</th>
+                    <th className="px-5 py-4">Notas</th>
+                    <th className="px-5 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim/50">
@@ -828,7 +973,14 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
                         : 0;
 
                       return (
-                        <tr key={pos.id} className="bg-brand-500/[0.04] border-l-2 border-brand-500 leading-normal text-[11px]">
+                        <tr key={pos.id} className="bg-brand-500/[0.04] border-l-2 border-brand-500 leading-normal text-[11px]" onClick={e => e.stopPropagation()}>
+                          <td className="px-4 py-3 text-center w-12">
+                            <input 
+                              type="checkbox" 
+                              disabled 
+                              className="opacity-40"
+                            />
+                          </td>
                           <td className="px-2 py-3">
                             <input 
                               type="text"
@@ -943,6 +1095,20 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
                           isSelected && "bg-brand-500/5 border-l-2 border-brand-500"
                         )}
                       >
+                        <td className="px-4 py-4 text-center w-12" onClick={(e) => e.stopPropagation()}>
+                          <input 
+                            type="checkbox"
+                            checked={selectedPostIds.includes(pos.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedPostIds(prev => [...prev, pos.id]);
+                              } else {
+                                setSelectedPostIds(prev => prev.filter(id => id !== pos.id));
+                              }
+                            }}
+                            className="cursor-pointer accent-brand-500 w-4 h-4 rounded"
+                          />
+                        </td>
                         <td className="px-5 py-4 font-bold text-text-dim uppercase">{pos.area}</td>
                         <td className="px-5 py-4 font-bold text-text-dim uppercase">{pos.sector}</td>
                         <td className="px-5 py-4 font-bold text-text-main uppercase">{pos.title}</td>
@@ -986,7 +1152,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
                           </span>
                         </td>
                         <td className="px-5 py-4 text-right">
-                          <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                          <div className="flex justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                             <button 
                               onClick={(e) => handleStartEditRow(pos, e)}
                               title="Editar renglón"
@@ -1008,7 +1174,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
                   })}
                   {filteredPositions.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-6 py-12 text-center text-text-dim">
+                      <td colSpan={10} className="px-6 py-12 text-center text-text-dim">
                         No se encontraron puestos que coincidan con los filtros de búsqueda.
                       </td>
                     </tr>
