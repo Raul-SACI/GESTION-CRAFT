@@ -46,7 +46,9 @@ import {
   ListOrdered,
   Settings,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Landmark,
+  Crown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -70,6 +72,7 @@ import {
 import { supabase } from './lib/supabase';
 
 // Lazy load views for better performance
+const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
@@ -206,7 +209,7 @@ const LoadingState = () => (
 );
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('socios_dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -321,12 +324,15 @@ function AppContent() {
     name: 'Administrador', 
     role: 'dueño' as UserRole, 
     branch: 'Todas las Sucursales',
-    permissions: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin', 'aprobacion_presupuestos']
+    permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin', 'aprobacion_presupuestos']
   });
 
   // Sidebar Customization State
   const [isReorderingMode, setIsReorderingMode] = useState(false);
   const [menuConfig, setMenuConfig] = useState<Record<string, MenuItem[]>>({
+    'Socios': [
+      { id: 'socios_dashboard', label: 'Dashboard de Socios', icon: Landmark }
+    ],
     'Gestión Sucursal': [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'stock', label: 'Control Stock', icon: Package },
@@ -352,7 +358,6 @@ function AppContent() {
       { id: 'produccion_stock_control', label: 'Control de Stock', icon: ClipboardCheck },
     ],
     'Finanzas': [
-      { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'bank_liabilities', label: 'Pasivos Bancarios', icon: Building2 },
       { id: 'tax_liabilities', label: 'Pasivos Fiscales', icon: Calculator },
       { id: 'cronograma_pagos', label: 'Cronograma de Pagos', icon: Calendar },
@@ -360,16 +365,17 @@ function AppContent() {
     ],
     'Administración': [
       { id: 'ventas', label: 'Ventas', icon: TrendingUp },
-      { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
-      { id: 'performance_admin', label: 'Configuración de Premios', icon: Trophy },
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
       { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
-      { id: 'precios', label: 'Lista de Precios', icon: Tag },
     ],
     'Gerencia General': [
-      { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers }
+      { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
+      { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
+      { id: 'precios', label: 'Lista de Precios', icon: Tag },
+      { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
+      { id: 'performance_admin', label: 'Configuración de Premios', icon: Trophy }
     ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
@@ -385,6 +391,7 @@ function AppContent() {
         const parsed = JSON.parse(savedConfig);
         // Map icons back because they are not serializable
         const iconMap: Record<string, any> = {
+          socios_dashboard: Landmark,
           dashboard: LayoutDashboard,
           stock: Package,
           desempeño: Star,
@@ -773,6 +780,9 @@ function AppContent() {
         <div className="p-6 flex-1">
           <Suspense fallback={<LoadingState />}>
             <AnimatePresence mode="wait">
+              {activeTab === 'socios_dashboard' && (
+                <SociosDashboardView branches={branches} />
+              )}
               {activeTab === 'dashboard' && (
                 <DashboardView 
                   salesComparison={salesComparison} 

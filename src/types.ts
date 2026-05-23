@@ -312,6 +312,20 @@ export interface ScheduledPayment {
   amount: number;
   status: 'pending' | 'paid' | 'overdue';
   category: 'loan' | 'tax' | 'service' | 'other';
+  // Additional Bank Liabilities fields
+  bank?: string;
+  requestDate?: string;
+  requestedAmount?: number;
+  destination?: string;
+  rate?: string | number;
+  installmentNumber?: string | number;
+  installmentAmount?: number;
+  // Additional Fiscal Liabilities fields
+  entity?: string;
+  taxType?: string;
+  totalAmount?: number;
+  paymentPlanNumber?: string;
+  installmentCount?: number;
 }
 
 // 9. Estado de Resultado (P&L)

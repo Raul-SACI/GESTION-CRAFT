@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   DollarSign, 
@@ -28,7 +28,11 @@ import {
   Bell,
   StickyNote,
   Building2,
-  Calculator
+  Calculator,
+  Trash2,
+  Upload,
+  FileSpreadsheet,
+  Search
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch, ScheduledPayment, FinanceCategory, FinanceEntry } from '../types';
@@ -156,11 +160,67 @@ const FINANCE_CATEGORIES = [
 ];
 
 const INITIAL_PAYMENTS: ScheduledPayment[] = [
-  { id: '1', description: 'CUOTA PRÉSTAMO BBVA #4/12', dueDate: '2024-05-20', amount: 450000, status: 'pending', category: 'loan' },
-  { id: '2', description: 'SALDO F931 AFORO', dueDate: '2024-05-22', amount: 2800000, status: 'pending', category: 'tax' },
+  { 
+    id: '1', 
+    description: 'CUOTA PRÉSTAMO BBVA #4/12', 
+    dueDate: '2024-05-20', 
+    amount: 450000, 
+    status: 'pending', 
+    category: 'loan',
+    bank: 'BBVA',
+    requestDate: '2024-01-15',
+    requestedAmount: 5400000,
+    destination: 'Capital de Trabajo',
+    rate: 'TNA 85%',
+    installmentNumber: '4 de 12',
+    installmentAmount: 450000
+  },
+  { 
+    id: '2', 
+    description: 'SALDO F931 AFORO', 
+    dueDate: '2024-05-22', 
+    amount: 2800000, 
+    status: 'pending', 
+    category: 'tax',
+    entity: 'ARCA',
+    taxType: 'F931',
+    totalAmount: 2800000,
+    paymentPlanNumber: 'F931-Directo',
+    installmentCount: 1,
+    installmentNumber: '1 de 1',
+    installmentAmount: 2800000
+  },
   { id: '3', description: 'ALQUILER BARRIO NORTE', dueDate: '2024-05-15', amount: 1200000, status: 'paid', category: 'other' },
-  { id: '4', description: 'PLAN DE PAGO ARCA #10', dueDate: '2024-05-25', amount: 120000, status: 'pending', category: 'tax' },
-  { id: '5', description: 'PRÉSTAMO SANTANDER CUOTA', dueDate: '2024-05-18', amount: 350000, status: 'pending', category: 'loan' },
+  { 
+    id: '4', 
+    description: 'PLAN DE PAGO ARCA #10 - C1', 
+    dueDate: '2024-05-25', 
+    amount: 120000, 
+    status: 'pending', 
+    category: 'tax',
+    entity: 'ARCA',
+    taxType: 'IVA',
+    totalAmount: 600000,
+    paymentPlanNumber: 'PLAN ARCA 2024-A',
+    installmentCount: 5,
+    installmentNumber: '1 de 5',
+    installmentAmount: 120000
+  },
+  { 
+    id: '5', 
+    description: 'PRÉSTAMO SANTANDER CUOTA 2/6', 
+    dueDate: '2024-05-18', 
+    amount: 350000, 
+    status: 'pending', 
+    category: 'loan',
+    bank: 'SANTANDER',
+    requestDate: '2024-03-10',
+    requestedAmount: 2100000,
+    destination: 'Adquisición Vajilla y Mobiliario',
+    rate: 'TNA 92%',
+    installmentNumber: '2 de 6',
+    installmentAmount: 350000
+  }
 ];
 
 export default function FinanceView({ 
@@ -181,7 +241,38 @@ export default function FinanceView({
 
   const [activeSubTab, setActiveSubTab] = useState<'flow' | 'payments'>(mode === 'default' ? 'flow' : 'payments');
   const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
-  const [payments, setPayments] = useState<ScheduledPayment[]>(INITIAL_PAYMENTS);
+  
+  const [payments, setPayments] = useState<ScheduledPayment[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('craft_scheduled_payments');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Error loading payments from localStorage", e);
+        }
+      }
+    }
+    return INITIAL_PAYMENTS;
+  });
+
+  const savePayments = (newPayments: ScheduledPayment[]) => {
+    setPayments(newPayments);
+    localStorage.setItem('craft_scheduled_payments', JSON.stringify(newPayments));
+  };
+
+  const [showBankLoteModal, setShowBankLoteModal] = useState(false);
+  const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  
+  // Importer states
+  const [importRawText, setImportRawText] = useState('');
+  const [parsedData, setParsedData] = useState<{ headers: string[]; rows: any[] } | null>(null);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
+  
+  // Custom batch loader state for generated installments
+  const [tempCuotas, setTempCuotas] = useState<Array<{ installmentNumber: string; dueDate: string; amount: number }>>([]);
+
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
   
   const [entries, setEntries] = useState<FinanceEntry[]>([
@@ -247,6 +338,56 @@ export default function FinanceView({
     setEntries(prev => prev.map(e => e.id === entryId ? { ...e, isExecuted: !e.isExecuted } : e));
   };
 
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const togglePaymentPaid = (id: string) => {
+    const updated = payments.map(p => {
+      if (p.id === id) {
+        return { ...p, status: (p.status === 'paid' ? 'pending' : 'paid') as 'pending' | 'paid' };
+      }
+      return p;
+    });
+    savePayments(updated);
+  };
+
+  const handleDeletePayment = (id: string) => {
+    savePayments(payments.filter(p => p.id !== id));
+  };
+
+  const searchedPayments = useMemo(() => {
+    if (!searchQuery) return filteredPayments;
+    const q = searchQuery.toLowerCase();
+    return filteredPayments.filter(p => {
+      return (
+        p.description?.toLowerCase().includes(q) ||
+        p.bank?.toLowerCase().includes(q) ||
+        p.destination?.toLowerCase().includes(q) ||
+        p.rate?.toString().toLowerCase().includes(q) ||
+        p.entity?.toLowerCase().includes(q) ||
+        p.taxType?.toLowerCase().includes(q) ||
+        p.paymentPlanNumber?.toLowerCase().includes(q)
+      );
+    });
+  }, [filteredPayments, searchQuery]);
+
+  const bankStats = useMemo(() => {
+    const loanPayments = payments.filter(p => p.category === 'loan');
+    const totalPending = loanPayments.filter(p => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = loanPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const countPending = loanPayments.filter(p => p.status !== 'paid').length;
+    const countPaid = loanPayments.filter(p => p.status === 'paid').length;
+    return { totalPending, totalPaid, countPending, countPaid };
+  }, [payments]);
+
+  const taxStats = useMemo(() => {
+    const taxPayments = payments.filter(p => p.category === 'tax');
+    const totalPending = taxPayments.filter(p => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = taxPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
+    const countPending = taxPayments.filter(p => p.status !== 'paid').length;
+    const countPaid = taxPayments.filter(p => p.status === 'paid').length;
+    return { totalPending, totalPaid, countPending, countPaid };
+  }, [payments]);
+
   const handleAddPayment = (payment: Partial<ScheduledPayment>) => {
     const newPay: ScheduledPayment = {
       id: `pay_${Date.now()}`,
@@ -256,7 +397,7 @@ export default function FinanceView({
       status: 'pending',
       category: payment.category || 'other'
     };
-    setPayments([...payments, newPay]);
+    savePayments([...payments, newPay]);
     setShowPaymentModal(false);
   };
 
@@ -592,7 +733,305 @@ export default function FinanceView({
             exit={{ opacity: 0, x: -20 }}
             className="space-y-6"
           >
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* SEARCH AND CONTROL BAR */}
+            <div className="flex flex-wrap justify-between items-center gap-4 bg-bg-card border border-border-dim p-4 rounded-xl shadow-md">
+              <div className="relative w-full max-w-sm">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={mode === 'bank' ? "BUSCAR POR BANCO, DESTINO..." : mode === 'tax' ? "BUSCAR POR ENTIDAD, IMPUESTO..." : "BUSCAR OBLIGACIONES..."}
+                  className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2.5 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-black"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-[10px] text-text-dim uppercase font-black tracking-widest bg-bg-accent px-3 py-1.5 rounded border border-border-dim/60 font-mono">
+                  {searchedPayments.length} Obligaciones
+                </span>
+                {(mode === 'bank' || mode === 'tax') && (
+                  <button 
+                    onClick={() => {
+                      setImportRawText('');
+                      setParsedData(null);
+                      setShowImportModal(true);
+                    }}
+                    className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
+                  >
+                    <Upload size={13} /> Importar Excel/CSV
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {mode === 'bank' ? (
+              /* =========================================================================
+                 PASIVOS BANCARIOS (MODE = BANK)
+                 ========================================================================= */
+              <div className="space-y-6">
+                {/* Visual Stats Bento */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <DollarSign size={54} className="text-brand-500" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Deuda Pendiente Bancaria</p>
+                    <p className="text-2xl font-mono font-black text-brand-500 mt-1 italic">${bankStats.totalPending.toLocaleString('es-AR')}</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Por vencer a lo largo del cronograma</p>
+                  </div>
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <CheckCircle2 size={54} className="text-emerald-500" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-bold">Total Amortizado (Pagado)</p>
+                    <p className="text-2xl font-mono font-black text-emerald-400 mt-1 italic">${bankStats.totalPaid.toLocaleString('es-AR')}</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Cuotas canceladas irrevocablemente</p>
+                  </div>
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <Clock size={54} className="text-[#8B949E]" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-black">Rendimiento de Cuotas</p>
+                    <p className="text-2xl font-mono font-black text-text-main mt-1 italic">
+                      {bankStats.countPaid} / {bankStats.countPending + bankStats.countPaid}
+                    </p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Cuotas pagadas del total registrado</p>
+                  </div>
+                </div>
+
+                {/* Main widescreen Table */}
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden shadow-2xl">
+                  <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-accent/10">
+                    <div className="flex items-center gap-3">
+                      <Building2 size={22} className="text-brand-500 animate-pulse" />
+                      <div>
+                        <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Cartera de Pasivos Bancarios</h3>
+                        <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Control de Préstamos y cuotas de financiamiento comercial</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setTempCuotas([]);
+                        setShowBankLoteModal(true);
+                      }}
+                      className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-1.5"
+                    >
+                      <Plus size={14} strokeWidth={3} /> Cargar Préstamo en Cuotas
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse whitespace-nowrap">
+                      <thead>
+                        <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] font-black text-text-dim uppercase tracking-wider">
+                          <th className="px-5 py-4">Banco</th>
+                          <th className="px-5 py-4 text-center">Solicitud</th>
+                          <th className="px-5 py-4 text-right">Solicitado</th>
+                          <th className="px-5 py-4">Destino</th>
+                          <th className="px-5 py-4 text-center">Tasa TNA/TEM</th>
+                          <th className="px-5 py-4 text-center">N° Cuota</th>
+                          <th className="px-5 py-4 text-right">Importe Cuota</th>
+                          <th className="px-5 py-4 text-center">Vencimiento</th>
+                          <th className="px-5 py-4 text-center">Estado Pago</th>
+                          <th className="px-5 py-4 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/50 font-mono text-[11px]">
+                        {searchedPayments.length === 0 ? (
+                          <tr>
+                            <td colSpan={10} className="text-center py-12 text-text-dim uppercase font-black tracking-widest text-[10px]">
+                              No se encontraron pasivos bancarios registrados
+                            </td>
+                          </tr>
+                        ) : (
+                          searchedPayments.map(pay => (
+                            <tr key={pay.id} className="hover:bg-bg-accent/10 transition-colors">
+                              <td className="px-5 py-3.5 font-black text-text-main uppercase">{pay.bank || 'MOCK BANCO'}</td>
+                              <td className="px-5 py-3.5 text-center text-text-dim">
+                                {pay.requestDate ? new Date(pay.requestDate + 'T12:00:00').toLocaleDateString('es-AR') : 'S/D'}
+                              </td>
+                              <td className="px-5 py-3.5 text-right text-text-dim">
+                                {pay.requestedAmount ? `$${pay.requestedAmount.toLocaleString('es-AR')}` : 'S/D'}
+                              </td>
+                              <td className="px-5 py-3.5 text-text-dim max-w-[180px] truncate" title={pay.destination || pay.description}>
+                                {pay.destination || pay.description}
+                              </td>
+                              <td className="px-5 py-3.5 text-center text-text-dim font-bold">{pay.rate || 'S/D'}</td>
+                              <td className="px-5 py-3.5 text-center text-brand-500 font-black">{pay.installmentNumber || '1 de 1'}</td>
+                              <td className="px-5 py-3.5 text-right font-black text-text-main">${pay.amount.toLocaleString('es-AR')}</td>
+                              <td className="px-5 py-3.5 text-center text-text-main font-bold">
+                                {new Date(pay.dueDate + 'T12:00:00').toLocaleDateString('es-AR')}
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <button
+                                  onClick={() => togglePaymentPaid(pay.id)}
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-tighter border transition-all",
+                                    pay.status === 'paid' 
+                                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                                      : "bg-orange-500/10 border-orange-500/20 text-brand-500 animate-pulse"
+                                  )}
+                                >
+                                  {pay.status === 'paid' ? (
+                                    <>
+                                      <CheckCircle2 size={12} /> PAGADA
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock size={12} /> PENDIENTE
+                                    </>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <button
+                                  onClick={() => handleDeletePayment(pay.id)}
+                                  className="text-text-dim hover:text-red-500 transition-colors p-1"
+                                  title="Eliminar cuota"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : mode === 'tax' ? (
+              /* =========================================================================
+                 PASIVOS FISCALES (MODE = TAX)
+                 ========================================================================= */
+              <div className="space-y-6">
+                {/* Visual Stats Bento */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <DollarSign size={54} className="text-brand-500" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Impuestos Pendientes</p>
+                    <p className="text-2xl font-mono font-black text-brand-500 mt-1 italic">${taxStats.totalPending.toLocaleString('es-AR')}</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Total a devengar en planes y vencimientos</p>
+                  </div>
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <CheckCircle2 size={54} className="text-emerald-500" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-bold">Impuestos Abonados</p>
+                    <p className="text-2xl font-mono font-black text-emerald-400 mt-1 italic">${taxStats.totalPaid.toLocaleString('es-AR')}</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Carga tributaria ingresada/pagada</p>
+                  </div>
+                  <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4 opacity-5">
+                      <Clock size={54} className="text-[#8B949E]" />
+                    </div>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-black">Cumplimiento Planes</p>
+                    <p className="text-2xl font-mono font-black text-text-main mt-1 italic">
+                      {taxStats.countPaid} / {taxStats.countPending + taxStats.countPaid}
+                    </p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Vencimientos liquidados con éxito</p>
+                  </div>
+                </div>
+
+                {/* Main widescreen Table */}
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden shadow-2xl">
+                  <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-accent/10">
+                    <div className="flex items-center gap-3">
+                      <Calculator size={22} className="text-brand-500 animate-pulse" />
+                      <div>
+                        <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Planes Fiscales e Impuestos</h3>
+                        <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Control fiscal integral nacional, provincial y municipal (ARCA, ARBA, etc.)</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        setTempCuotas([]);
+                        setShowTaxLoteModal(true);
+                      }}
+                      className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-1.5"
+                    >
+                      <Plus size={14} strokeWidth={3} /> Cargar Plan en Lote
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse whitespace-nowrap">
+                      <thead>
+                        <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] font-black text-text-dim uppercase tracking-wider">
+                          <th className="px-5 py-4">Entidad</th>
+                          <th className="px-5 py-4">Impuesto (Tasa)</th>
+                          <th className="px-5 py-4 text-right">Importe Total Plan</th>
+                          <th className="px-5 py-4 text-center">N° de Plan</th>
+                          <th className="px-5 py-4 text-center">N° de Cuota</th>
+                          <th className="px-5 py-4 text-right">Importe de Cuota</th>
+                          <th className="px-5 py-4 text-center">Vencimiento Pago</th>
+                          <th className="px-5 py-4 text-center">Estado Pago</th>
+                          <th className="px-5 py-4 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/50 font-mono text-[11px]">
+                        {searchedPayments.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="text-center py-12 text-text-dim uppercase font-black tracking-widest text-[10px]">
+                              No se encontraron pasivos fiscales registrados
+                            </td>
+                          </tr>
+                        ) : (
+                          searchedPayments.map(pay => (
+                            <tr key={pay.id} className="hover:bg-bg-accent/10 transition-colors">
+                              <td className="px-5 py-3.5 font-black text-text-main uppercase">{pay.entity || 'AFIP / ARCA'}</td>
+                              <td className="px-5 py-3.5 font-bold text-brand-400 uppercase">{pay.taxType || pay.description}</td>
+                              <td className="px-5 py-3.5 text-right text-text-dim">
+                                {pay.totalAmount ? `$${pay.totalAmount.toLocaleString('es-AR')}` : 'S/D'}
+                              </td>
+                              <td className="px-5 py-3.5 text-center text-text-dim font-bold">{pay.paymentPlanNumber || 'CORRIENTE'}</td>
+                              <td className="px-5 py-3.5 text-center text-brand-500 font-black">{pay.installmentNumber || '1 de 1'}</td>
+                              <td className="px-5 py-3.5 text-right font-black text-text-main">${pay.amount.toLocaleString('es-AR')}</td>
+                              <td className="px-5 py-3.5 text-center text-text-main font-bold">
+                                {new Date(pay.dueDate + 'T12:00:00').toLocaleDateString('es-AR')}
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <button
+                                  onClick={() => togglePaymentPaid(pay.id)}
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-tighter border transition-all",
+                                    pay.status === 'paid' 
+                                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                                      : "bg-orange-500/10 border-orange-500/20 text-brand-500 animate-pulse"
+                                  )}
+                                >
+                                  {pay.status === 'paid' ? (
+                                    <>
+                                      <CheckCircle2 size={12} /> PAGADA
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock size={12} /> PENDIENTE
+                                    </>
+                                  )}
+                                </button>
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <button
+                                  onClick={() => handleDeletePayment(pay.id)}
+                                  className="text-text-dim hover:text-red-500 transition-colors p-1"
+                                  title="Eliminar cuota fiscal"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 bg-bg-card border border-border-dim rounded-lg overflow-hidden">
                 <div className="p-6 border-b border-border-dim flex justify-between items-center">
                   <div className="flex items-center gap-3">
@@ -741,6 +1180,7 @@ export default function FinanceView({
                 </div>
               </div>
             </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1243,6 +1683,786 @@ export default function FinanceView({
           </div>
         )}
       </AnimatePresence>
+
+      {/* =========================================================================
+         MODAL: CARGA DE PRÉSTAMOS BANCARIOS EN LOTE (CUOTAS)
+         ========================================================================= */}
+      <AnimatePresence>
+        {showBankLoteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBankLoteModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-bg-card border border-border-dim rounded-xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-border-dim bg-bg-accent/40 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <Building2 className="text-brand-500 animate-pulse" size={20} />
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Cargar Financiamiento Comercial</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Generación automática de cuotas consecutivas amortizadas</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowBankLoteModal(false)} className="text-text-dim hover:text-text-main transition-colors p-1">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto space-y-6 custom-scrollbar text-[11px]">
+                {/* Form parameters */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Entidad (Banco)</label>
+                    <input 
+                      id="b-bank" 
+                      type="text" 
+                      placeholder="Ej: BBVA Frances" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs uppercase" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Fecha de Solicitud</label>
+                    <input 
+                      id="b-reqdate" 
+                      type="date" 
+                      defaultValue={new Date().toISOString().split('T')[0]} 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Importe Solicitado ($)</label>
+                    <input 
+                      id="b-requested" 
+                      type="number" 
+                      placeholder="15000000" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Tasa (TNA / TEM)</label>
+                    <input 
+                      id="b-rate" 
+                      type="text" 
+                      placeholder="Ej: 72% TNA" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs font-bold" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="md:col-span-2 space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Destino de Fondos</label>
+                    <input 
+                      id="b-destination" 
+                      type="text" 
+                      placeholder="Ej: Compra de Hornos y reformas Salón Yerba Buena" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 text-xs font-bold" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Cuotas a Pagar</label>
+                    <input 
+                      id="b-installments" 
+                      type="number" 
+                      placeholder="12" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs font-black text-brand-500" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Importe de Cada Cuota ($)</label>
+                    <input 
+                      id="b-instamount" 
+                      type="number" 
+                      placeholder="1750000" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs font-black text-emerald-400" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Fecha Primer Vencimiento</label>
+                    <input 
+                      id="b-firstdue" 
+                      type="date" 
+                      defaultValue={new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0]} 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs text-brand-400" 
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const bank = (document.getElementById('b-bank') as HTMLInputElement).value || 'BANCO';
+                        const reqDate = (document.getElementById('b-reqdate') as HTMLInputElement).value;
+                        const requested = parseFloat((document.getElementById('b-requested') as HTMLInputElement).value) || 0;
+                        const rate = (document.getElementById('b-rate') as HTMLInputElement).value || 'S/D';
+                        const dest = (document.getElementById('b-destination') as HTMLInputElement).value || 'Préstamo';
+                        const count = parseInt((document.getElementById('b-installments') as HTMLInputElement).value) || 0;
+                        const instAmt = parseFloat((document.getElementById('b-instamount') as HTMLInputElement).value) || 0;
+                        const firstDue = (document.getElementById('b-firstdue') as HTMLInputElement).value;
+
+                        if (count <= 0 || instAmt <= 0) {
+                          alert('Indique una cantidad de cuotas e importe válidos.');
+                          return;
+                        }
+
+                        // Generate installments
+                        const list: any[] = [];
+                        let currentDate = new Date(firstDue + 'T12:00:00');
+                        for (let i = 1; i <= count; i++) {
+                          const dateString = currentDate.toISOString().split('T')[0];
+                          list.push({
+                            id: `temp_${Date.now()}_${i}`,
+                            bank,
+                            requestDate: reqDate,
+                            requestedAmount: requested,
+                            destination: dest,
+                            rate,
+                            installmentNumber: `${i} de ${count}`,
+                            amount: instAmt,
+                            dueDate: dateString,
+                            status: 'pending',
+                            category: 'loan'
+                          });
+                          // Increment by exactly 1 month
+                          currentDate.setMonth(currentDate.getMonth() + 1);
+                        }
+                        setTempCuotas(list);
+                      }}
+                      className="bg-bg-accent hover:bg-bg-accent/80 border border-border-dim/80 text-text-main w-full py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
+                    >
+                      Previsualizar Cronograma Amortizado
+                    </button>
+                  </div>
+                </div>
+
+                {/* Preview Table */}
+                {tempCuotas.length > 0 && (
+                  <div className="border border-border-dim/60 rounded-xl overflow-hidden shadow-lg bg-bg-accent/10">
+                    <div className="p-4 bg-bg-accent/40 border-b border-border-dim font-black uppercase text-[9px] tracking-widest text-[#8B949E]">
+                      HAGA DOBLE CLICK PARA EDITAR FECHAS O MONTOS SI DESEA CORREGIR DESVÍOS DEL PLAN COMERCIAL
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      <table className="w-full text-left font-mono text-[11px] whitespace-nowrap">
+                        <thead>
+                          <tr className="bg-bg-accent/60 text-[9px] font-black text-text-dim uppercase border-b border-border-dim">
+                            <th className="px-5 py-3">N° Cuota</th>
+                            <th className="px-5 py-3">Prestamista</th>
+                            <th className="px-5 py-3 text-right">Monto ($ ARS)</th>
+                            <th className="px-5 py-3 text-center">Fecha de Pago (Vencimiento)</th>
+                            <th className="px-5 py-3 text-center">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border-dim/40">
+                          {tempCuotas.map((cuota, idx) => (
+                            <tr key={cuota.id}>
+                              <td className="px-5 py-2 font-black text-brand-500">{cuota.installmentNumber}</td>
+                              <td className="px-5 py-2 uppercase font-bold text-text-dim">{cuota.bank}</td>
+                              <td className="px-5 py-2 text-right">
+                                <input 
+                                  type="number" 
+                                  value={cuota.amount}
+                                  onChange={(e) => {
+                                    const updated = [...tempCuotas];
+                                    updated[idx].amount = parseFloat(e.target.value) || 0;
+                                    setTempCuotas(updated);
+                                  }}
+                                  className="bg-bg-accent/60 outline-none text-right font-black border border-border-dim/40 rounded px-2.5 py-1 text-[11px] w-24 focus:border-brand-500" 
+                                />
+                              </td>
+                              <td className="px-5 py-2 text-center text-text-dim">
+                                <input 
+                                  type="date" 
+                                  value={cuota.dueDate}
+                                  onChange={(e) => {
+                                    const updated = [...tempCuotas];
+                                    updated[idx].dueDate = e.target.value;
+                                    setTempCuotas(updated);
+                                  }}
+                                  className="bg-bg-accent/60 outline-none text-center font-bold border border-border-dim/40 rounded px-2.5 py-1 text-[11px] focus:border-brand-500 text-brand-400" 
+                                />
+                              </td>
+                              <td className="px-5 py-2 text-center">
+                                <button 
+                                  onClick={() => setTempCuotas(tempCuotas.filter(c => c.id !== cuota.id))}
+                                  className="text-text-dim hover:text-red-500 transition-colors"
+                                >
+                                  Quitar
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-bg-accent/50 border-t border-border-dim flex justify-end gap-3 shrink-0">
+                <button 
+                  onClick={() => setShowBankLoteModal(false)}
+                  className="px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest text-[#8B949E] hover:text-text-main transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (tempCuotas.length === 0) {
+                      alert('Debe previsualizar e instanciar al menos una cuota.');
+                      return;
+                    }
+                    const updated = [...payments, ...tempCuotas.map(c => ({
+                      ...c,
+                      id: `pay_${Date.now()}_${Math.random()}`
+                    }))];
+                    savePayments(updated);
+                    setShowBankLoteModal(false);
+                  }}
+                  className="bg-brand-500 hover:bg-brand-600 font-black text-black px-8 py-2.5 rounded text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Confirmar e Importar {tempCuotas.length} Cuotas
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================================
+         MODAL: CARGA DE PLANES FISCALES EN LOTE
+         ========================================================================= */}
+      <AnimatePresence>
+        {showTaxLoteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTaxLoteModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-bg-card border border-border-dim rounded-xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-border-dim bg-bg-accent/40 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <Calculator className="text-emerald-400 animate-pulse" size={20} />
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Cargar Plan de Pagos Fiscal</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Control tributario sistemático para obligaciones AFIP, Rentas, Comuna, etc.</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowTaxLoteModal(false)} className="text-text-dim hover:text-text-main transition-colors p-1">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto space-y-6 custom-scrollbar text-[11px]">
+                {/* Form fields */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Entidad Fiscal</label>
+                    <select id="t-entity" className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs">
+                      <option value="ARCA (AFIP)">ARCA (AFIP)</option>
+                      <option value="Municipalidad YB">Municipalidad YB</option>
+                      <option value="Subsidio de Salud">Subsidio de Salud</option>
+                      <option value="Rentas Tucumán">Rentas Tucumán (DGR)</option>
+                      <option value="ARBA">ARBA</option>
+                      <option value="Sindicato Pastelero">Sindicato Pastelera</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Tipo de Impuesto</label>
+                    <select id="t-taxtype" className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs">
+                      <option value="IVA">IVA Débito/Saldos</option>
+                      <option value="F931">Cargas Sociales F931</option>
+                      <option value="Ingresos Brutos">Ingresos Brutos DGR</option>
+                      <option value="Ganancias">Impuesto a las Ganancias</option>
+                      <option value="Multas">Multas / Infracciones</option>
+                      <option value="Tasa de Comercio">Tasa de Comercio TEM YB</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Importe Total del Plan ($)</label>
+                    <input 
+                      id="t-total" 
+                      type="number" 
+                      placeholder="8500000" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">N° Plan de Pagos / Expediente</label>
+                    <input 
+                      id="t-plannumber" 
+                      type="text" 
+                      placeholder="Ej: Plan 4242132" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs uppercase font-bold" 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Cantidad de Cuotas</label>
+                    <input 
+                      id="t-installments" 
+                      type="number" 
+                      placeholder="6" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs font-black text-brand-500" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Importe de la Cuota ($)</label>
+                    <input 
+                      id="t-instamount" 
+                      type="number" 
+                      placeholder="1450000" 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs font-black text-emerald-400" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Primer Vencimiento de Cuota</label>
+                    <input 
+                      id="t-firstdue" 
+                      type="date" 
+                      defaultValue={new Date().toISOString().split('T')[0]} 
+                      className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs text-brand-400" 
+                    />
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const entity = (document.getElementById('t-entity') as HTMLSelectElement).value;
+                      const taxType = (document.getElementById('t-taxtype') as HTMLSelectElement).value;
+                      const totalAmount = parseFloat((document.getElementById('t-total') as HTMLInputElement).value) || 0;
+                      const planNumber = (document.getElementById('t-plannumber') as HTMLInputElement).value || 'EXP-TEMP';
+                      const count = parseInt((document.getElementById('t-installments') as HTMLInputElement).value) || 0;
+                      const instAmt = parseFloat((document.getElementById('t-instamount') as HTMLInputElement).value) || 0;
+                      const firstDue = (document.getElementById('t-firstdue') as HTMLInputElement).value;
+
+                      if (count <= 0 || instAmt <= 0) {
+                        alert('Indique cuotas e importes válidos para el fraccionamiento fiscal.');
+                        return;
+                      }
+
+                      const list: any[] = [];
+                      let currentDate = new Date(firstDue + 'T12:00:00');
+                      for (let i = 1; i <= count; i++) {
+                        const dateString = currentDate.toISOString().split('T')[0];
+                        list.push({
+                          id: `temp_tax_${Date.now()}_${i}`,
+                          entity,
+                          taxType,
+                          description: `${taxType} - Plan de Pagos`,
+                          totalAmount,
+                          paymentPlanNumber: planNumber,
+                          installmentNumber: `${i} de ${count}`,
+                          amount: instAmt,
+                          dueDate: dateString,
+                          status: 'pending',
+                          category: 'tax'
+                        });
+                        currentDate.setMonth(currentDate.getMonth() + 1);
+                      }
+                      setTempCuotas(list);
+                    }}
+                    className="bg-bg-accent hover:bg-bg-accent/80 border border-border-dim/80 text-text-main px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all w-full"
+                  >
+                    Calcular Amortización Fiscal / Generar
+                  </button>
+                </div>
+
+                {/* Temp Tax List */}
+                {tempCuotas.length > 0 && (
+                  <div className="border border-border-dim/60 rounded-xl overflow-hidden shadow-lg bg-bg-accent/10">
+                    <div className="p-4 bg-bg-accent/40 border-b border-border-dim font-black uppercase text-[9px] tracking-widest text-[#8B949E]">
+                      REVISE LAS CUOTAS GENERADAS Y EDITE FECHAS ANTES DE CONFIRMAR EN LA CARTERA PRINCIPAL
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      <table className="w-full text-left font-mono text-[11px] whitespace-nowrap">
+                        <thead>
+                          <tr className="bg-bg-accent/60 text-[9px] font-black text-text-dim uppercase border-b border-border-dim">
+                            <th className="px-5 py-3">Impuesto / Tributo</th>
+                            <th className="px-5 py-3">Plan N°</th>
+                            <th className="px-5 py-3">Número Cuota</th>
+                            <th className="px-5 py-3 text-right">Monto Cuota ($)</th>
+                            <th className="px-5 py-3 text-center">Fecha de Pago (Vto)</th>
+                            <th className="px-5 py-3 text-center">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border-dim/40">
+                          {tempCuotas.map((cuota, idx) => (
+                            <tr key={cuota.id}>
+                              <td className="px-5 py-2 uppercase font-black text-brand-400">{cuota.taxType}</td>
+                              <td className="px-5 py-2 text-text-dim">{cuota.paymentPlanNumber}</td>
+                              <td className="px-5 py-2 text-center text-text-main font-bold">{cuota.installmentNumber}</td>
+                              <td className="px-5 py-2 text-right">
+                                <input 
+                                  type="number" 
+                                  value={cuota.amount}
+                                  onChange={(e) => {
+                                    const updated = [...tempCuotas];
+                                    updated[idx].amount = parseFloat(e.target.value) || 0;
+                                    setTempCuotas(updated);
+                                  }}
+                                  className="bg-bg-accent/60 outline-none text-right font-black border border-border-dim/40 rounded px-2.5 py-1 text-[11px] w-24 focus:border-brand-500" 
+                                />
+                              </td>
+                              <td className="px-5 py-2 text-center">
+                                <input 
+                                  type="date" 
+                                  value={cuota.dueDate}
+                                  onChange={(e) => {
+                                    const updated = [...tempCuotas];
+                                    updated[idx].dueDate = e.target.value;
+                                    setTempCuotas(updated);
+                                  }}
+                                  className="bg-bg-accent/60 outline-none text-center font-bold border border-border-dim/40 rounded px-2.5 py-1 text-[11px] focus:border-brand-500 text-brand-400" 
+                                />
+                              </td>
+                              <td className="px-5 py-2 text-center">
+                                <button 
+                                  onClick={() => setTempCuotas(tempCuotas.filter(c => c.id !== cuota.id))}
+                                  className="text-text-dim hover:text-red-500 transition-colors"
+                                >
+                                  Quitar
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-bg-accent/50 border-t border-border-dim flex justify-end gap-3 shrink-0">
+                <button 
+                  onClick={() => setShowTaxLoteModal(false)}
+                  className="px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest text-[#8B949E] hover:text-text-main transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (tempCuotas.length === 0) {
+                      alert('Instancie primero las cuotas del plan fiscal.');
+                      return;
+                    }
+                    const updated = [...payments, ...tempCuotas.map(c => ({
+                      ...c,
+                      id: `pay_${Date.now()}_${Math.random()}`
+                    }))];
+                    savePayments(updated);
+                    setShowTaxLoteModal(false);
+                  }}
+                  className="bg-brand-500 hover:bg-brand-600 font-black text-black px-8 py-2.5 rounded text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Registrar e Ingresar {tempCuotas.length} Cuotas
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* =========================================================================
+         MODAL: IMPORTACIÓN COMPLETA DESDE EXCEL / PORTAPAPELES (CLIPBOARD TEXT TXT)
+         ========================================================================= */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowImportModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-4xl max-h-[90vh] bg-bg-card border border-border-dim rounded-xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-border-dim bg-bg-accent/40 flex justify-between items-center shrink-0">
+                <div className="flex items-center gap-3">
+                  <FileSpreadsheet className="text-emerald-400" size={20} />
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Asistente de Importación Excel / CSV</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Copie y pegue directamente las celdas de sus planillas de cálculo</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowImportModal(false)} className="text-text-dim hover:text-text-main transition-colors p-1">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-8 overflow-y-auto space-y-6 custom-scrollbar text-[11px]">
+                <div className="bg-bg-accent/40 p-4 rounded border border-border-dim/40 leading-relaxed text-text-dim">
+                  <p className="font-bold text-text-main uppercase text-[9px] tracking-widest mb-1">Pasos Rápidos:</p>
+                  <ol className="list-decimal pl-4 space-y-1">
+                    <li>Abra su archivo Excel o Planilla de Google Sheets.</li>
+                    <li>Seleccione las columnas deseadas y su contenido con el mouse, luego oprima <strong className="text-brand-500 font-mono">CTRL + C</strong>.</li>
+                    <li>Oprima <strong className="text-brand-500 font-mono">CTRL + V</strong> en el cuadro inferior y haga click en <strong className="text-brand-400 font-bold uppercase">Procesar Portapapeles</strong>.</li>
+                  </ol>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">ZONA DE PEGO (TEXTO EN FORMATO DE TABULACIÓN)</label>
+                  <textarea 
+                    value={importRawText}
+                    onChange={(e) => setImportRawText(e.target.value)}
+                    placeholder="Banco	Fecha Solicitud	Importe Solicitado	Destino	Tasa	Cuota	Monto Cuota	Fecha Vencimiento&#10;BBVA	2024-04-10	10000000	Reformas	85%	1 de 6	1800000	2024-05-10&#10;BBVA	2024-04-10	10000000	Reformas	85%	2 de 6	1800000	2024-06-10"
+                    className="w-full bg-bg-accent border border-border-dim rounded p-4 font-mono text-xs text-text-main h-44 outline-none focus:border-brand-500"
+                  />
+                </div>
+
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!importRawText.trim()) {
+                        alert('Por favor copie y pegue su hoja de datos primero.');
+                        return;
+                      }
+                      const rows = importRawText.split('\n').map(r => r.trim()).filter(Boolean);
+                      const parsed = rows.map(r => r.split('\t').map(cell => cell.trim()));
+                      if (parsed.length === 0) return;
+                      
+                      // Identify column indexes automatically
+                      const headers = parsed[0].map(h => h.toLowerCase().trim());
+                      const idxMap: Record<string, number> = {};
+                      
+                      const mapField = (field: string, synonyms: string[]) => {
+                        const index = headers.findIndex(h => synonyms.some(syn => h.includes(syn)));
+                        if (index !== -1) idxMap[field] = index;
+                      };
+
+                      if (mode === 'bank') {
+                        mapField('bank', ['banco', 'entidad', 'prestamo']);
+                        mapField('requestDate', ['solicitud', 'fecha sol']);
+                        mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
+                        mapField('destination', ['destino', 'uso']);
+                        mapField('rate', ['tasa', 'tna', 'tem', 'porcent']);
+                        mapField('installmentNumber', ['cuota', 'nro cuota']);
+                        mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'importe', 'monto']);
+                        mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
+                      } else {
+                        mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
+                        mapField('taxType', ['impuesto', 'tasa', 'tributo', 'concepto']);
+                        mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
+                        mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
+                        mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
+                        mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'cuota total', 'importe', 'monto']);
+                        mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
+                      }
+                      
+                      setColumnMapping(idxMap);
+                      setParsedData(parsed);
+                    }}
+                    className="bg-bg-accent hover:bg-bg-accent/80 border border-border-dim/80 text-text-main px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all w-full"
+                  >
+                    Procesar Portapapeles y Asignar Columnas
+                  </button>
+                </div>
+
+                {parsedData && (
+                  <div className="space-y-4">
+                    <p className="font-black uppercase text-[9px] text-[#8B949E] tracking-widest border-b border-border-dim pb-2">
+                      Filas Detectadas para Importar ({parsedData.length - 1} registros detectados, ignorando Cabecera)
+                    </p>
+                    <div className="max-h-[250px] overflow-y-auto border border-border-dim/60 rounded-xl">
+                      <table className="w-full text-left font-mono text-[10px]">
+                        <thead>
+                          <tr className="bg-bg-accent/60 text-text-dim uppercase border-b border-border-dim">
+                            {parsedData[0].map((header, idx) => (
+                              <th key={idx} className="px-3 py-2 text-center">
+                                <span className="block text-[8px] opacity-60 text-text-dim text-center">Encabezado</span>
+                                <span className="block font-black text-text-main text-[11px] mb-1.5 uppercase">{header}</span>
+                                <select
+                                  value={Object.keys(columnMapping).find(k => columnMapping[k] === idx) || 'ignore'}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const updated = { ...columnMapping };
+                                    if (val === 'ignore') {
+                                      Object.keys(updated).forEach(k => { if (updated[k] === idx) delete updated[k]; });
+                                    } else {
+                                      updated[val] = idx;
+                                    }
+                                    setColumnMapping(updated);
+                                  }}
+                                  className="bg-bg-card border border-border-dim text-[9px] uppercase font-bold text-brand-500 rounded px-1.5 py-0.5 outline-none focus:border-brand-500 max-w-[120px]"
+                                >
+                                  <option value="ignore">Ignorar Columna</option>
+                                  {mode === 'bank' ? (
+                                    <>
+                                      <option value="bank">Banco</option>
+                                      <option value="requestDate">Fecha Solicitud</option>
+                                      <option value="requestedAmount">Importe Solicitado</option>
+                                      <option value="destination">Destino</option>
+                                      <option value="rate">Tasa</option>
+                                      <option value="installmentNumber">Cuota N°</option>
+                                      <option value="amount">Monto Cuota</option>
+                                      <option value="dueDate">Vencimiento</option>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <option value="entity">Entidad</option>
+                                      <option value="taxType">Impuesto</option>
+                                      <option value="totalAmount">Importe Total Plan</option>
+                                      <option value="paymentPlanNumber">N° de Plan</option>
+                                      <option value="installmentNumber">Cuota N°</option>
+                                      <option value="amount">Monto Cuota</option>
+                                      <option value="dueDate">Vencimiento</option>
+                                    </>
+                                  )}
+                                </select>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border-dim/40 max-h-[140px] overflow-y-auto">
+                          {parsedData.slice(1, 10).map((row, rIdx) => (
+                            <tr key={rIdx} className="hover:bg-bg-accent/10 whitespace-nowrap">
+                              {row.map((cell, cIdx) => (
+                                <td key={cIdx} className="px-3 py-1.5 text-center text-text-dim select-all">
+                                  {cell || <span className="opacity-20">-</span>}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                          {parsedData.length > 10 && (
+                            <tr>
+                              <td colSpan={parsedData[0].length} className="text-center py-2 text-[9px] uppercase text-brand-500 font-bold tracking-widest italic bg-bg-accent/20">
+                                ... y {parsedData.length - 11} filas más se importarán con estos mapas de columna ...
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 bg-bg-accent/50 border-t border-border-dim flex justify-end gap-3 shrink-0">
+                <button 
+                  onClick={() => setShowImportModal(false)}
+                  className="px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest text-[#8B949E] hover:text-text-main transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (!parsedData || parsedData.length <= 1) {
+                      alert('Primero cargue y procese el portapapeles.');
+                      return;
+                    }
+                    if (columnMapping['amount'] === undefined || columnMapping['dueDate'] === undefined) {
+                      alert('Las columnas de "Importe de la cuota" y "Vencimiento" son obligatorias para sincronizar vencimientos.');
+                      return;
+                    }
+
+                    const listToImport: any[] = [];
+                    const rows = parsedData.slice(1);
+                    
+                    rows.forEach((row, rIdx) => {
+                      if (row.length === 0 || row.join('').trim() === '') return;
+                      
+                      const getValue = (field: string) => {
+                        const index = columnMapping[field];
+                        return index !== undefined ? row[index] : '';
+                      };
+
+                      const parsedAmount = parseFloat((getValue('amount') || '').replace(/[^0-9.-]+/g, '')) || 0;
+                      // Try to fix due date format
+                      let parsedDue = getValue('dueDate') || '';
+                      if (parsedDue.includes('/')) {
+                        const parts = parsedDue.split('/');
+                        if (parts[2]?.length === 4) {
+                          // dd/mm/yyyy -> yyyy-mm-dd
+                          parsedDue = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                        }
+                      }
+
+                      if (mode === 'bank') {
+                        const bank = getValue('bank') || 'MOCK BANCO';
+                        const reqDate = getValue('requestDate') || new Date().toISOString().split('T')[0];
+                        const reqAmount = parseFloat((getValue('requestedAmount') || '').replace(/[^0-9.-]+/g, '')) || 0;
+                        const destination = getValue('destination') || 'Financiamiento General';
+                        const rate = getValue('rate') || 'S/D';
+                        const instNum = getValue('installmentNumber') || '1 de 1';
+
+                        listToImport.push({
+                          id: `imported_${Date.now()}_${rIdx}_${Math.random()}`,
+                          bank,
+                          requestDate: reqDate,
+                          requestedAmount: reqAmount,
+                          destination,
+                          rate,
+                          installmentNumber: instNum,
+                          amount: parsedAmount,
+                          dueDate: parsedDue,
+                          status: 'pending',
+                          category: 'loan'
+                        });
+                      } else {
+                        const entity = getValue('entity') || 'ARCA (AFIP)';
+                        const taxType = getValue('taxType') || 'Otros Tributos';
+                        const totalAmount = parseFloat((getValue('totalAmount') || '').replace(/[^0-9.-]+/g, '')) || 0;
+                        const planNum = getValue('paymentPlanNumber') || 'CORRIENTE';
+                        const instNum = getValue('installmentNumber') || '1 de 1';
+
+                        listToImport.push({
+                          id: `imported_${Date.now()}_${rIdx}_${Math.random()}`,
+                          entity,
+                          taxType,
+                          description: `${taxType} - Plan de Pagos`,
+                          totalAmount,
+                          paymentPlanNumber: planNum,
+                          installmentNumber: instNum,
+                          amount: parsedAmount,
+                          dueDate: parsedDue,
+                          status: 'pending',
+                          category: 'tax'
+                        });
+                      }
+                    });
+
+                    const updated = [...payments, ...listToImport];
+                    savePayments(updated);
+                    setShowImportModal(false);
+                    alert(`Éxito: Se importaron ${listToImport.length} vencimientos a su cronograma de obligaciones.`);
+                  }}
+                  className="bg-brand-500 hover:bg-brand-600 font-black text-black px-8 py-2.5 rounded text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Importar y Guardar {parsedData ? parsedData.length - 1 : 0} Registros
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </motion.div>
   );
 }

@@ -424,15 +424,15 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         <div className="lg:col-span-1 space-y-6">
           
           {/* Day Group Configurator */}
-          <div className="bg-[#151515] border border-border-dim/90 rounded-lg p-5 space-y-4">
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4 shadow-sm">
             <h3 className="text-[10px] font-black uppercase text-brand-500 flex items-center gap-2 tracking-wider">
               <Calculator size={13} className="stroke-[2.5]" /> Configuración de Repetición
             </h3>
-            <p className="text-[9px] text-[#8B949E] font-bold uppercase leading-relaxed">
+            <p className="text-[9px] text-text-dim font-bold uppercase leading-relaxed">
               Define qué días de la semana siguen el patrón de personal normal o se duplican por volumen comercial.
             </p>
 
-            <div className="space-y-2 mt-4">
+            <div className="space-y-2 mt-4 font-sans">
               {WEEK_DAYS.map((day) => {
                 const isGroupA = groupADays.includes(day);
                 const occurrences = dayCounts[day] || 0;
@@ -441,22 +441,30 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     key={day}
                     onClick={() => handleToggleDayGroup(day)}
                     className={cn(
-                      "flex items-center justify-between p-2 rounded border cursor-pointer select-none transition-all",
+                      "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer select-none transition-all",
                       isGroupA 
-                        ? "bg-bg-sidebar border-border-dim/50 hover:bg-bg-accent/40" 
-                        : "bg-brand-500/[0.02] border-brand-500/20 hover:bg-brand-500/[0.04]"
+                        ? "bg-bg-main/40 hover:bg-bg-accent/60 border-border-dim/80 text-text-main" 
+                        : "bg-brand-50/70 border-brand-500/30 text-brand-600 hover:bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500/30 dark:text-brand-500 dark:hover:bg-brand-500/15"
                     )}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                       <div className={cn(
-                        "w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black",
-                        isGroupA ? "bg-bg-accent text-text-dim border border-border-dim" : "bg-brand-500 text-black font-extrabold"
+                        "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black",
+                        isGroupA 
+                          ? "bg-bg-accent text-text-dim border border-border-dim/60" 
+                          : "bg-brand-500 text-white font-extrabold shadow-sm"
                       )}>
                         {isGroupA ? 'A' : 'B'}
                       </div>
-                      <span className="font-bold text-text-main text-[10px] uppercase">{day}</span>
+                      <span className={cn(
+                        "font-extrabold text-[10.5px] uppercase tracking-wide",
+                        isGroupA ? "text-text-main" : "text-brand-600 dark:text-brand-500"
+                      )}>{day}</span>
                     </div>
-                    <span className="font-mono text-[9px] font-bold text-text-dim uppercase">
+                    <span className={cn(
+                      "font-mono text-[9.5px] font-bold uppercase",
+                      isGroupA ? "text-text-dim" : "text-brand-600/90 dark:text-brand-500/90"
+                    )}>
                       {occurrences} {occurrences === 1 ? 'vez' : 'veces'}
                     </span>
                   </div>
@@ -465,36 +473,36 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             </div>
 
             {/* Summarizer of computed days */}
-            <div className="pt-3 border-t border-border-dim/40 grid grid-cols-2 gap-2 text-center">
+            <div className="pt-3.5 border-t border-border-dim/60 grid grid-cols-2 gap-2 text-center">
               <div>
-                <p className="text-[8px] font-bold text-text-dim uppercase tracking-wider">Patrón Normal (Grupo A)</p>
-                <p className="text-xs font-mono font-black text-text-main mt-0.5">{countDaysGroupA} días</p>
+                <p className="text-[8px] font-black text-text-dim uppercase tracking-wider">Patrón Normal (Grupo A)</p>
+                <p className="text-xs font-mono font-black text-text-main mt-1 bg-bg-main/35 py-1 px-2 rounded border border-border-dim/40 inline-block min-w-[60px]">{countDaysGroupA} días</p>
               </div>
               <div>
-                <p className="text-[8px] font-bold text-brand-500 uppercase tracking-wider">Fin de Semana (Grupo B)</p>
-                <p className="text-xs font-mono font-black text-brand-500 mt-0.5">{countDaysGroupB} días</p>
+                <p className="text-[8px] font-black text-brand-600 dark:text-brand-500 uppercase tracking-wider">Fin de Semana (Grupo B)</p>
+                <p className="text-xs font-mono font-black text-brand-600 dark:text-brand-500 mt-1 bg-brand-500/10 dark:bg-brand-500/15 py-1 px-2 border border-brand-500/25 rounded inline-block min-w-[60px]">{countDaysGroupB} días</p>
               </div>
             </div>
 
             <div className="space-y-1.5 pt-2">
-              <label className="text-[9px] font-black text-brand-500 uppercase tracking-widest">Feriados Proyectados</label>
+              <label className="text-[9px] font-black text-brand-600 dark:text-brand-500 uppercase tracking-widest">Feriados Proyectados</label>
               <input 
                 type="number" 
                 value={holidays}
                 onChange={(e) => setHolidays(parseInt(e.target.value) || 0)}
-                className="w-full bg-bg-accent border border-brand-500/30 rounded px-2.5 py-1.5 text-[11px] font-mono font-bold text-brand-500 focus:border-brand-500 outline-none"
+                className="w-full bg-bg-main border border-border-dim/80 rounded px-2.5 py-1.5 text-[11px] font-mono font-bold text-brand-600 dark:text-brand-500 focus:border-brand-500 outline-none"
                 min="0"
               />
             </div>
           </div>
 
           {/* Budget Metrics Card */}
-          <div className="bg-[#151515] border border-border-dim rounded-lg p-5 relative overflow-hidden">
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 relative overflow-hidden shadow-sm">
             <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
               <TrendingUp size={60} className="text-brand-500" />
             </div>
             
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-text-dim mb-4">Total Presupuestado Sucursal</h4>
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-[#8B949E] dark:text-text-dim mb-4">Total Presupuestado Sucursal</h4>
             <div className="space-y-4">
               <div>
                 <p className="text-[8px] text-[#8B949E] uppercase font-black tracking-widest opacity-70">Horas Totales del Mes</p>
@@ -503,12 +511,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 </p>
               </div>
               
-              <div className="pt-4 border-t border-border-dim/40">
+              <div className="pt-4 border-t border-border-dim/50">
                 <p className="text-[8px] text-[#8B949E] uppercase font-black tracking-widest opacity-70">Costo Mensual Planificado</p>
-                <p className="text-3xl font-mono font-black text-brand-500 tracking-tighter italic">
+                <p className="text-3xl font-mono font-black text-brand-600 dark:text-brand-500 tracking-tighter italic">
                   ${budgetCalculations.totalCost.toLocaleString('es-AR')}
                 </p>
-                <span className="text-[8px] font-medium text-text-dim block mt-1 uppercase">
+                <span className="text-[8.5px] font-bold text-text-dim block mt-2.5 uppercase leading-relaxed">
                   Basado en {WEEK_DAYS.length} rotaciones semanales con feriados
                 </span>
               </div>
