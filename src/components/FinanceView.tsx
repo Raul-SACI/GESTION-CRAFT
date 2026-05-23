@@ -2217,13 +2217,63 @@ export default function FinanceView({
               </div>
 
               <div className="p-8 overflow-y-auto space-y-6 custom-scrollbar text-[11px]">
-                <div className="bg-bg-accent/40 p-4 rounded border border-border-dim/40 leading-relaxed text-text-dim">
-                  <p className="font-bold text-text-main uppercase text-[9px] tracking-widest mb-1">Pasos Rápidos:</p>
-                  <ol className="list-decimal pl-4 space-y-1">
-                    <li>Abra su archivo Excel o Planilla de Google Sheets.</li>
-                    <li>Seleccione las columnas deseadas y su contenido con el mouse, luego oprima <strong className="text-brand-500 font-mono">CTRL + C</strong>.</li>
-                    <li>Oprima <strong className="text-brand-500 font-mono">CTRL + V</strong> en el cuadro inferior y haga click en <strong className="text-brand-400 font-bold uppercase">Procesar Portapapeles</strong>.</li>
-                  </ol>
+                <div className="bg-bg-accent/40 p-4 rounded border border-border-dim/40 leading-relaxed text-text-dim flex flex-wrap justify-between items-center gap-4">
+                  <div className="flex-1 min-w-[280px]">
+                    <p className="font-bold text-text-main uppercase text-[9px] tracking-widest mb-1">Pasos Rápidos:</p>
+                    <ol className="list-decimal pl-4 space-y-1">
+                      <li>Abra su archivo Excel o Planilla de Google Sheets.</li>
+                      <li>Seleccione las columnas deseadas y su contenido con el mouse, luego oprima <strong className="text-brand-500 font-mono">CTRL + C</strong>.</li>
+                      <li>Oprima <strong className="text-brand-500 font-mono">CTRL + V</strong> en el cuadro inferior y haga click en <strong className="text-brand-400 font-bold uppercase">Procesar Portapapeles</strong>.</li>
+                    </ol>
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let content = "";
+                        let filename = "";
+                        if (mode === 'bank') {
+                          content = "Banco\tFecha Solicitud\tImporte Solicitado\tDestino\tTasa\tCuota\tMonto Cuota\tFecha Vencimiento\n" +
+                                    "BBVA Frances\t2026-04-10\t15000000\tReformas Yerba Buena\t72% TNA\t1 de 12\t1750000\t2026-05-10\n" +
+                                    "Banco Galicia\t2026-05-01\t8000000\tMaquinaria Salon\t68% TNA\t1 de 6\t1500000\t2026-06-01";
+                          filename = "planilla_modelo_bancos.txt";
+                        } else {
+                          content = "Entidad\tImpuesto\tImporte Total Plan\tNro de Plan\tCuota\tMonto Cuota\tFecha Vencimiento\n" +
+                                    "ARCA (AFIP)\tIVA Dec/Saldos\t5000000\tPlan AFIP 4242\t1 de 6\t950000\t2026-06-15\n" +
+                                    "Rentas Tucuman\tIngresos Brutos\t2400000\tCORRIENTE\t1 de 1\t2400000\t2026-06-10";
+                          filename = "planilla_modelo_impuestos.txt";
+                        }
+                        const blob = new Blob([content], { type: 'text/tab-separated-values;charset=utf-8' });
+                        const link = document.createElement("a");
+                        link.href = URL.createObjectURL(blob);
+                        link.download = filename;
+                        link.click();
+                      }}
+                      className="bg-brand-500 text-black hover:bg-brand-600 px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer shadow-lg"
+                    >
+                      <FileSpreadsheet size={13} /> Descargar Excel / Planilla Modelo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        let sample = "";
+                        if (mode === 'bank') {
+                          sample = "Banco\tFecha Solicitud\tImporte Solicitado\tDestino\tTasa\tCuota\tMonto Cuota\tFecha Vencimiento\n" +
+                                   "BBVA Frances\t2026-04-10\t15000000\tReformas Yerba Buena\t72% TNA\t1 de 12\t1750000\t2026-05-10\n" +
+                                   "Banco Galicia\t2026-05-01\t8000000\tMaquinaria Salon\t68% TNA\t1 de 6\t1500000\t2026-06-01";
+                        } else {
+                          sample = "Entidad\tImpuesto\tImporte Total Plan\tNro de Plan\tCuota\tMonto Cuota\tFecha Vencimiento\n" +
+                                   "ARCA (AFIP)\tIVA Dec/Saldos\t5000000\tPlan AFIP 4242\t1 de 6\t950000\t2026-06-15\n" +
+                                   "Rentas Tucuman\tIngresos Brutos\t2400000\tCORRIENTE\t1 de 1\t2400000\t2026-06-10";
+                        }
+                        navigator.clipboard.writeText(sample);
+                        alert("¡Formato de planilla de ejemplo copiado al portapapeles! Listo para pegar en Excel.");
+                      }}
+                      className="bg-bg-accent border border-border-dim text-text-main hover:border-brand-500 hover:text-brand-500 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all text-center cursor-pointer"
+                    >
+                      Copiar Formato Ejemplo
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-2">

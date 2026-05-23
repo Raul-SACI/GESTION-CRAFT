@@ -21,10 +21,15 @@ import {
   Zap,
   ArrowRightLeft,
   XCircle,
-  HelpCircle
+  HelpCircle,
+  Plus,
+  Trash2,
+  DollarSign,
+  X
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
+import HrMonthlyPayrollView from './HrMonthlyPayrollView';
 
 interface HrHourRecord {
   id: string;
@@ -87,6 +92,9 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
   const [selectedWeek, setSelectedWeek] = useState<number>(1); // 1, 2, 3, or 4
   const [records, setRecords] = useState<HrHourRecord[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // --- MONTHLY PAYROLL STATES & HANDLERS ---
+  const [activeTab, setActiveTab] = useState<'weekly_control' | 'monthly_payroll'>('weekly_control');
 
   // Helper to calculate date ranges for a given year, month, and week number
   const getWeekRange = (yearMonthStr: string, weekNum: number) => {
@@ -306,41 +314,76 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       className="space-y-6"
     >
       {/* Header Panel */}
-      <div className="flex flex-wrap justify-between items-end gap-4 bg-bg-card border border-border-dim p-6 rounded-lg">
+      <div className="flex flex-wrap justify-between items-center gap-4 bg-bg-card border border-border-dim p-6 rounded-lg shadow-xl">
         <div>
           <h2 className="text-xl font-black uppercase text-text-main tracking-widest flex items-center gap-2">
-            <Clock className="text-brand-500" size={24} /> Control de Horas (RRHH)
+            <Clock className="text-brand-500" size={24} /> Recursos Humanos
           </h2>
           <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1 opacity-70">
-            Control de horas por semanas fijas con cierre analítico
+            Control de horas por semanas fijas con cierre analítico y liquidación de haberes
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button 
-            onClick={handlePreloadPlanned}
-            className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 hover:text-text-main transition-all flex items-center gap-2"
+        {/* TABS SELECTOR (Segmented Controller) */}
+        <div className="flex bg-bg-accent/40 border border-border-dim rounded-md p-1 gap-1 min-w-[280px]">
+          <button
+            onClick={() => setActiveTab('weekly_control')}
+            className={cn(
+              "flex-1 px-4 py-2 text-[9px] font-black uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeTab === 'weekly_control'
+                ? "bg-brand-500 text-black shadow font-black"
+                : "text-text-dim hover:text-text-main"
+            )}
           >
-            <Zap size={13} className="text-brand-500" /> Sincronizar Programadas
+            <Clock size={12} /> Control Semanal
           </button>
-          
-          <button 
-            className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 transition-all flex items-center gap-2 font-mono"
-            onClick={() => window.print()}
+          <button
+            onClick={() => setActiveTab('monthly_payroll')}
+            className={cn(
+              "flex-1 px-4 py-2 text-[9px] font-black uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeTab === 'monthly_payroll'
+                ? "bg-brand-500 text-black shadow font-black"
+                : "text-text-dim hover:text-text-main"
+            )}
           >
-            <FileSpreadsheet size={13} /> EXCEL
-          </button>
-          
-          <button 
-            className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 transition-all flex items-center gap-2"
-            onClick={() => window.print()}
-          >
-            <FileText size={13} /> PDF
+            <Users size={12} /> Liquidación Mensual
           </button>
         </div>
       </div>
 
-      {/* Control Filters Block */}
+      {activeTab === 'monthly_payroll' ? (
+        <HrMonthlyPayrollView 
+          branches={branches} 
+          selectedMonth={selectedMonth} 
+          setSelectedMonth={setSelectedMonth} 
+        />
+      ) : (
+        <>
+          {/* Quick actions top bar (Original preload, print, pdf buttons) */}
+          <div className="flex flex-wrap justify-end gap-2">
+            <button 
+              onClick={handlePreloadPlanned}
+              className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 hover:text-text-main transition-all flex items-center gap-2"
+            >
+              <Zap size={13} className="text-brand-500" /> Sincronizar Programadas
+            </button>
+            
+            <button 
+              className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 transition-all flex items-center gap-2 font-mono"
+              onClick={() => window.print()}
+            >
+              <FileSpreadsheet size={13} /> EXCEL
+            </button>
+            
+            <button 
+              className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim rounded text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent/80 transition-all flex items-center gap-2"
+              onClick={() => window.print()}
+            >
+              <FileText size={13} /> PDF
+            </button>
+          </div>
+
+          {/* Control Filters Block */}
       <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -720,6 +763,8 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
           <li>• <span className="font-bold">Desviaciones</span>: Los aumentos con relación a la planificación aparecen sombreados en rojo, mientras que las reducciones favorables aparecen en verde.</li>
         </ul>
       </div>
+        </>
+      )}
     </motion.div>
   );
 }
