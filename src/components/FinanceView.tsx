@@ -581,18 +581,40 @@ export default function FinanceView({
             ? 'serv_other' 
             : 'exp_other';
 
+      let effectiveDate = p.dueDate;
+      let descriptionSuffix = "";
+
+      const isLiab = p.category === 'loan' || p.category === 'tax';
+      if (isLiab && p.status !== 'paid') {
+        if (periodType === 'weekly') {
+          if (p.dueDate < activeWeekRange.monday) {
+            effectiveDate = activeWeekRange.monday;
+            const parts = p.dueDate.split('-');
+            const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : p.dueDate;
+            descriptionSuffix = ` (VENCIDO - VTO: ${formattedDate})`;
+          }
+        } else {
+          if (p.dueDate < activeMonthRange.firstDayStr) {
+            effectiveDate = activeMonthRange.firstDayStr;
+            const parts = p.dueDate.split('-');
+            const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : p.dueDate;
+            descriptionSuffix = ` (VENCIDO - VTO: ${formattedDate})`;
+          }
+        }
+      }
+
       return {
         id: `payment-${p.id}`,
-        date: p.dueDate,
+        date: effectiveDate,
         itemId: itemId,
         amounts: { [targetAccount]: p.amount },
         isExecuted: p.status === 'paid',
-        description: p.description
+        description: p.description + descriptionSuffix
       };
     });
 
     return [...entries, ...paymentEntries];
-  }, [entries, payments]);
+  }, [entries, payments, periodType, activeWeekRange, activeMonthRange]);
 
   // Filter entries for the selected week / month
   const filteredEntriesForActivePeriod = useMemo(() => {
