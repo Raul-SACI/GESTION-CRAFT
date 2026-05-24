@@ -171,6 +171,9 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
 
   // States for Adding New Position
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddModalAreaSuggestions, setShowAddModalAreaSuggestions] = useState(false);
+  const [showAddModalSectorSuggestions, setShowAddModalSectorSuggestions] = useState(false);
+  const [showAddModalTitleSuggestions, setShowAddModalTitleSuggestions] = useState(false);
   const [newPos, setNewPos] = useState({
     area: '',
     sector: '',
@@ -1703,36 +1706,117 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
               
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                  <div className="space-y-2 relative">
                     <label className="text-[10px] font-bold text-text-dim uppercase">Área</label>
                     <input 
                       type="text" 
                       placeholder="Ej: OPERACIONES..."
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-bold"
                       value={newPos.area}
-                      onChange={e => setNewPos({...newPos, area: e.target.value.toUpperCase()})}
+                      onChange={e => {
+                        setNewPos({...newPos, area: e.target.value.toUpperCase()});
+                        setShowAddModalAreaSuggestions(true);
+                      }}
+                      onFocus={() => setShowAddModalAreaSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowAddModalAreaSuggestions(false), 250)}
                     />
+                    {showAddModalAreaSuggestions && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-32 overflow-y-auto divide-y divide-border-dim/30">
+                        {uniqueAreas
+                          .filter(a => a.toLowerCase().includes(newPos.area.toLowerCase()))
+                          .map(a => (
+                            <button
+                              key={a}
+                              type="button"
+                              onMouseDown={() => {
+                                setNewPos({...newPos, area: a});
+                                setShowAddModalAreaSuggestions(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer text-text-main"
+                            >
+                              {a}
+                            </button>
+                          ))}
+                        {uniqueAreas.filter(a => a.toLowerCase().includes(newPos.area.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 relative">
                     <label className="text-[10px] font-bold text-text-dim uppercase">Sector</label>
                     <input 
                       type="text" 
                       placeholder="Ej: SALON, COCINA..."
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-bold"
                       value={newPos.sector}
-                      onChange={e => setNewPos({...newPos, sector: e.target.value.toUpperCase()})}
+                      onChange={e => {
+                        setNewPos({...newPos, sector: e.target.value.toUpperCase()});
+                        setShowAddModalSectorSuggestions(true);
+                      }}
+                      onFocus={() => setShowAddModalSectorSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowAddModalSectorSuggestions(false), 250)}
                     />
+                    {showAddModalSectorSuggestions && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-32 overflow-y-auto divide-y divide-border-dim/30">
+                        {uniqueSectors
+                          .filter(s => s.toLowerCase().includes(newPos.sector.toLowerCase()))
+                          .map(s => (
+                            <button
+                              key={s}
+                              type="button"
+                              onMouseDown={() => {
+                                setNewPos({...newPos, sector: s});
+                                setShowAddModalSectorSuggestions(false);
+                              }}
+                              className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer text-text-main"
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        {uniqueSectors.filter(s => s.toLowerCase().includes(newPos.sector.toLowerCase())).length === 0 && (
+                          <div className="px-3 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   <label className="text-[10px] font-bold text-text-dim uppercase">Puesto de Trabajo</label>
                   <input 
                     type="text" 
                     placeholder="Ej: AYUDANTE, MOZO, ENCARGADO..."
                     className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-bold"
                     value={newPos.title}
-                    onChange={e => setNewPos({...newPos, title: e.target.value.toUpperCase()})}
+                    onChange={e => {
+                      setNewPos({...newPos, title: e.target.value.toUpperCase()});
+                      setShowAddModalTitleSuggestions(true);
+                    }}
+                    onFocus={() => setShowAddModalTitleSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowAddModalTitleSuggestions(false), 250)}
                   />
+                  {showAddModalTitleSuggestions && (
+                    <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-border-dim rounded shadow-2xl z-50 max-h-32 overflow-y-auto divide-y divide-border-dim/30">
+                      {uniqueTitles
+                        .filter(t => t.toLowerCase().includes(newPos.title.toLowerCase()))
+                        .map(t => (
+                          <button
+                            key={t}
+                            type="button"
+                            onMouseDown={() => {
+                              setNewPos({...newPos, title: t});
+                              setShowAddModalTitleSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase hover:bg-brand-500 hover:text-black transition-colors block cursor-pointer text-text-main"
+                          >
+                            {t}
+                          </button>
+                        ))}
+                      {uniqueTitles.filter(t => t.toLowerCase().includes(newPos.title.toLowerCase())).length === 0 && (
+                        <div className="px-3 py-2 text-[9px] text-text-dim uppercase italic">Sin coincidencias</div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 gap-4">
                   <div className="space-y-2">

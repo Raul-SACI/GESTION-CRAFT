@@ -315,11 +315,46 @@ export default function FinanceView({
     amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {}) as Record<string, number>
   });
 
+  // Convert payments/commitments to FinanceEntries dynamically so they are reflected automatically in the estimated cash flow
+  const allEntries = useMemo(() => {
+    const paymentEntries: FinanceEntry[] = payments.map(p => {
+      const bankId = p.bank?.toLowerCase().trim() || '';
+      let targetAccount = 'bbva'; // default
+      if (bankId.includes('santander')) targetAccount = 'santander';
+      else if (bankId.includes('bbva')) targetAccount = 'bbva';
+      else if (bankId.includes('macro')) targetAccount = 'macro';
+      else if (bankId.includes('ciudad')) targetAccount = 'ciudad';
+      else if (bankId.includes('nacion')) targetAccount = 'nacion';
+      else if (bankId.includes('mp') || bankId.includes('mercado')) targetAccount = 'mp';
+      else if (p.category === 'other') targetAccount = 'efectivo';
+      else if (p.category === 'service') targetAccount = 'efectivo';
+      
+      const itemId = p.category === 'loan' 
+        ? 'loan_cuota' 
+        : p.category === 'tax' 
+          ? (p.taxType?.toUpperCase() === 'F931' ? 'tax_931' : p.taxType?.toUpperCase() === 'IVA' ? 'tax_iva' : p.taxType?.toUpperCase() === 'GANANCIAS' ? 'tax_gan' : 'tax_plans') 
+          : p.category === 'service' 
+            ? 'serv_other' 
+            : 'exp_other';
+
+      return {
+        id: `payment-${p.id}`,
+        date: p.dueDate,
+        itemId: itemId,
+        amounts: { [targetAccount]: p.amount },
+        isExecuted: p.status === 'paid',
+        description: p.description
+      };
+    });
+
+    return [...entries, ...paymentEntries];
+  }, [entries, payments]);
+
   // Get all unique items present in entries for selected period
   const activeEntriesByCat = useMemo(() => {
     const grouped: Record<string, FinanceEntry[]> = {};
     
-    entries.forEach(entry => {
+    allEntries.forEach(entry => {
       const cat = FINANCE_CATEGORIES.find(c => c.items.some(i => i.id === entry.itemId));
       if (cat) {
         if (!grouped[cat.id]) grouped[cat.id] = [];
@@ -328,14 +363,25 @@ export default function FinanceView({
     });
 
     return grouped;
-  }, [entries]);
+  }, [allEntries]);
 
   const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : 'Flujo de Caja Estimado';
   const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
 
   const toggleExecution = (entryId: string | undefined) => {
     if (!entryId) return;
-    setEntries(prev => prev.map(e => e.id === entryId ? { ...e, isExecuted: !e.isExecuted } : e));
+    if (entryId.startsWith('payment-')) {
+      const paymentId = entryId.replace('payment-', '');
+      const updated = payments.map(p => {
+        if (p.id === paymentId) {
+          return { ...p, status: (p.status === 'paid' ? 'pending' : 'paid') as 'pending' | 'paid' };
+        }
+        return p;
+      });
+      savePayments(updated);
+    } else {
+      setEntries(prev => prev.map(e => e.id === entryId ? { ...e, isExecuted: !e.isExecuted } : e));
+    }
   };
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -682,8 +728,8 @@ export default function FinanceView({
                         <td className="px-6 py-3 uppercase tracking-widest text-[9px] text-emerald-400 italic">Saldo Final REAL (Ejecutado)</td>
                         <td className="px-4 py-3"></td>
                         {ACCOUNTS.map(acc => {
-                           const income = entries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const expense = entries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                           const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                           const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
                            const final = (initialBalances[acc.id] as number) + income - expense;
                            return (
                              <td key={acc.id} className="px-4 py-3 text-center font-mono text-xs text-emerald-400">
@@ -693,7 +739,7 @@ export default function FinanceView({
                         })}
                         <td className="px-6 py-3 text-right font-mono text-xs text-emerald-400">
                            ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             entries.filter(e => e.isExecuted).reduce((total: number, e) => {
+                             allEntries.filter(e => e.isExecuted).reduce((total: number, e) => {
                                const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
                                const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
                                const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
@@ -706,8 +752,8 @@ export default function FinanceView({
                         <td className="px-6 py-4 uppercase tracking-widest text-[9px] text-brand-500">Saldo PROYECTADO (Cierre esperado)</td>
                         <td className="px-4 py-4"></td>
                         {ACCOUNTS.map(acc => {
-                           const income = entries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const expense = entries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                           const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                           const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
                            const final = (initialBalances[acc.id] as number) + income - expense;
                            return (
                              <td key={acc.id} className="px-4 py-4 text-center font-mono text-sm text-brand-500">
@@ -717,7 +763,7 @@ export default function FinanceView({
                         })}
                         <td className="px-6 py-4 text-right font-mono text-sm text-brand-500">
                            ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             entries.reduce((total: number, e) => {
+                             allEntries.reduce((total: number, e) => {
                                const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
                                const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
                                const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
@@ -747,7 +793,7 @@ export default function FinanceView({
                   <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-1">Saldo Real (Hoy)</p>
                   <p className="text-2xl font-mono font-black text-emerald-400 italic tracking-tighter">
                     ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             entries.filter(e => e.isExecuted).reduce((total: number, e) => {
+                             allEntries.filter(e => e.isExecuted).reduce((total: number, e) => {
                                const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
                                const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
                                const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
