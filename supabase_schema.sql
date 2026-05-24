@@ -407,3 +407,40 @@ END $$;
 -- also Ensure inventory_logs has public policy
 ALTER TABLE inventory_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow public access for inventory_logs" ON inventory_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- 21. Google Business Profile Sync Tables (Option 2 Integration)
+CREATE TABLE IF NOT EXISTS google_reviews (
+  id TEXT PRIMARY KEY,
+  branch_id TEXT NOT NULL,
+  author_display_name TEXT NOT NULL,
+  author_photo_url TEXT,
+  rating INTEGER NOT NULL,
+  text TEXT,
+  publish_time TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS google_credentials (
+  id TEXT PRIMARY KEY, -- 'default'
+  access_token TEXT NOT NULL,
+  refresh_token TEXT,
+  linked_account TEXT,
+  linked_location TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE google_reviews ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for google_reviews" ON google_reviews FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE google_credentials ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public access for google_credentials" ON google_credentials FOR ALL USING (true) WITH CHECK (true);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'google_reviews') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE google_reviews;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'google_credentials') THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE google_credentials;
+    END IF;
+END $$;

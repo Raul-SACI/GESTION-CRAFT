@@ -1099,11 +1099,59 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const placesLib = useMapsLibrary('places');
 
   useEffect(() => {
-    if (!placesLib || !branch.googlePlaceId) return;
+    if (!branch.id) return;
 
     const fetchData = async () => {
       setData(prev => ({ ...prev, loading: true, error: undefined }));
       try {
+        // --- OPTION 2: Query shared Google Reviews table in Supabase ---
+        const { data: dbReviews, error: dbError } = await supabase
+          .from('google_reviews')
+          .select('*')
+          .eq('branch_id', branch.id);
+
+        if (dbReviews && dbReviews.length > 0) {
+          const mappedReviews = dbReviews.map((r: any) => ({
+            rating: r.rating,
+            text: r.text,
+            publishTime: r.publish_time ? new Date(r.publish_time) : undefined,
+            authorAttribution: {
+              displayName: r.author_display_name,
+              photoUri: r.author_photo_url || undefined
+            }
+          })) as google.maps.places.Review[];
+
+          const averageRating = dbReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / dbReviews.length;
+          const critical = mappedReviews.filter(review => (review.rating || 0) <= 4);
+          
+          const now = new Date();
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(now.getDate() - 7);
+          sevenDaysAgo.setHours(0, 0, 0, 0);
+          
+          const recent = mappedReviews.filter(review => {
+            if (!review.text) return false;
+            const pubDate = review.publishTime ? new Date(review.publishTime) : null;
+            return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
+          });
+
+          setData({
+            rating: parseFloat(averageRating.toFixed(1)),
+            userRatingCount: dbReviews.length,
+            allReviews: mappedReviews,
+            criticalReviews: critical,
+            recentWithText: recent,
+            loading: false
+          });
+          return; // Extracted successfully from Option 2 database!
+        }
+
+        // --- FALLBACK: Client side Google Places API ---
+        if (!placesLib || !branch.googlePlaceId) {
+          setData(prev => ({ ...prev, loading: false, error: 'Esperando sincronización de opiniones de Google.' }));
+          return;
+        }
+
         const place = new placesLib.Place({ id: branch.googlePlaceId });
         await place.fetchFields({
           fields: ['rating', 'userRatingCount', 'reviews']
@@ -1115,18 +1163,12 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         sevenDaysAgo.setHours(0, 0, 0, 0);
 
         const all = place.reviews || [];
-        
         const critical = all.filter(review => (review.rating || 0) <= 4);
         
         const recent = all.filter(review => {
           if (!review.text) return false;
-          const hasText = review.text.toString().trim().length > 0;
-          
-          // Debugging date comparison
           const pubDate = review.publishTime ? new Date(review.publishTime) : null;
-          const isRecent = pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
-          
-          return hasText && isRecent;
+          return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
         });
 
         setData({
@@ -1149,9 +1191,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     };
 
     fetchData();
-  }, [placesLib, branch.googlePlaceId]);
+  }, [placesLib, branch.googlePlaceId, branch.id]);
 
-  if (!branch.googlePlaceId) return null;
+  if (!branch.googlePlaceId && data.allReviews.length === 0) return null;
 
   const renderStars = (rating: number, size = 8, colorClass = "text-yellow-500 fill-yellow-500") => (
     <div className="flex gap-0.5">
