@@ -408,9 +408,101 @@ const localSupabaseEmulator = {
   removeChannel: (channel: any) => {}
 };
 
+// --- SMART PROXY FOR HYBRID REMOTE/LOCAL FAILOVER ---
+class SmartQueryChain {
+  constructor(
+    public table: string,
+    public realChain: any,
+    public mockChain: any
+  ) {}
+
+  static create(table: string, realChain: any, mockChain?: any) {
+    const actualMockChain = mockChain || new MockQueryBuilder(table);
+    const instance = new SmartQueryChain(table, realChain, actualMockChain);
+    return new Proxy(instance, {
+      get(target, prop) {
+        if (prop === 'then') {
+          return async (onfulfilled?: any, onrejected?: any) => {
+            try {
+              const res = await target.realChain;
+              if (res && res.error) {
+                const errMsg = String(res.error.message || '');
+                const errCode = String(res.error.code || '');
+                if (
+                  errMsg.includes('Could not find the table') ||
+                  errMsg.includes('schema cache') ||
+                  (errMsg.includes('relation') && errMsg.includes('does not exist')) ||
+                  errCode === '42P01' ||
+                  errCode === 'PGRST116' ||
+                  errCode === 'PGRST114'
+                ) {
+                  console.warn(`[Supabase Fallback] Table '${target.table}' not found in DB schema. Falling back to Local Emulator.`);
+                  const mockRes = await target.mockChain;
+                  if (onfulfilled) return onfulfilled(mockRes);
+                  return mockRes;
+                }
+              }
+              if (onfulfilled) return onfulfilled(res);
+              return res;
+            } catch (err: any) {
+              const errMsg = String(err?.message || '');
+              if (
+                errMsg.includes('Could not find the table') ||
+                errMsg.includes('schema cache') ||
+                (errMsg.includes('relation') && errMsg.includes('does not exist')) ||
+                err?.code === '42P01' ||
+                err?.code === 'PGRST116' ||
+                err?.code === 'PGRST114'
+              ) {
+                console.warn(`[Supabase Fallback] Executing query threw table/relation error. Falling back to Local Emulator.`, err);
+                const mockRes = await target.mockChain;
+                if (onfulfilled) return onfulfilled(mockRes);
+                return mockRes;
+              }
+              if (onrejected) return onrejected(err);
+              throw err;
+            }
+          };
+        }
+
+        const realProp = target.realChain[prop];
+        if (typeof realProp === 'function') {
+          return (...args: any[]) => {
+            const nextReal = realProp.apply(target.realChain, args);
+            // Check if mockChain has this method, otherwise skip
+            let nextMock = target.mockChain;
+            if (target.mockChain && typeof target.mockChain[prop] === 'function') {
+              nextMock = target.mockChain[prop].apply(target.mockChain, args);
+            }
+            return SmartQueryChain.create(target.table, nextReal, nextMock);
+          };
+        }
+
+        return realProp;
+      }
+    }) as any;
+  }
+}
+
 if (isMissingCredentials) {
   console.warn('Supabase credentials missing or invalid. Utilizing fully-functional client-side Local/Offline Emulator for seamless storage operations.');
 }
 
-// Export emulated client when config is missing; otherwise use real Supabase client.
-export const supabase = (isMissingCredentials ? localSupabaseEmulator : createClient(supabaseUrl, supabaseAnonKey)) as any;
+const realSupabaseClient = isMissingCredentials
+  ? localSupabaseEmulator
+  : createClient(supabaseUrl, supabaseAnonKey);
+
+export const supabase = new Proxy(realSupabaseClient, {
+  get(target, prop) {
+    if (prop === 'from') {
+      return (table: string) => {
+        const realChain = target.from(table);
+        if (isMissingCredentials) {
+          return realChain;
+        }
+        return SmartQueryChain.create(table, realChain);
+      };
+    }
+    return (target as any)[prop];
+  }
+}) as any;
