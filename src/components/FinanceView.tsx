@@ -67,6 +67,24 @@ const ACCOUNTS: Account[] = [
   { id: 'mp', name: 'MERCADO PAGO', icon: Wallet, color: 'text-blue-400' },
 ];
 
+const DEFAULT_TAX_ENTITIES = [
+  { value: "ARCA (AFIP)", label: "ARCA (AFIP)" },
+  { value: "Municipalidad YB", label: "Municipalidad YB" },
+  { value: "Subsidio de Salud", label: "Subsidio de Salud" },
+  { value: "Rentas Tucumán", label: "Rentas Tucumán (DGR)" },
+  { value: "ARBA", label: "ARBA" },
+  { value: "Sindicato Pastelero", label: "Sindicato Pastelera" }
+];
+
+const DEFAULT_TAX_TYPES = [
+  { value: "IVA", label: "IVA Débito/Saldos" },
+  { value: "F931", label: "Cargas Sociales F931" },
+  { value: "Ingresos Brutos", label: "Ingresos Brutos DGR" },
+  { value: "Ganancias", label: "Impuesto a las Ganancias" },
+  { value: "Multas", label: "Multas / Infracciones" },
+  { value: "Tasa de Comercio", label: "Tasa de Comercio TEM YB" }
+];
+
 const FINANCE_CATEGORIES = [
   { 
     id: 'balance_initial', 
@@ -265,6 +283,53 @@ export default function FinanceView({
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+
+  const [taxEntities, setTaxEntities] = useState<Array<{ value: string; label: string }>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('craft_tax_entities');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Error loading tax entities", e);
+        }
+      }
+    }
+    return DEFAULT_TAX_ENTITIES;
+  });
+
+  const [taxTypes, setTaxTypes] = useState<Array<{ value: string; label: string }>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('craft_tax_types');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Error loading tax types", e);
+        }
+      }
+    }
+    return DEFAULT_TAX_TYPES;
+  });
+
+  const saveTaxEntities = (newEntities: Array<{ value: string; label: string }>) => {
+    setTaxEntities(newEntities);
+    localStorage.setItem('craft_tax_entities', JSON.stringify(newEntities));
+  };
+
+  const saveTaxTypes = (newTypes: Array<{ value: string; label: string }>) => {
+    setTaxTypes(newTypes);
+    localStorage.setItem('craft_tax_types', JSON.stringify(newTypes));
+  };
+
+  const [selectedEntity, setSelectedEntity] = useState(() => taxEntities[0]?.value || '');
+  const [selectedTaxType, setSelectedTaxType] = useState(() => taxTypes[0]?.value || '');
+
+  const [showAddTaxEntity, setShowAddTaxEntity] = useState(false);
+  const [newTaxEntityName, setNewTaxEntityName] = useState('');
+
+  const [showAddTaxType, setShowAddTaxType] = useState(false);
+  const [newTaxTypeName, setNewTaxTypeName] = useState('');
   
   // Importer states
   const [importRawText, setImportRawText] = useState('');
@@ -548,6 +613,7 @@ export default function FinanceView({
     const data: Record<string, {
       itemId: string;
       dailyValues: number[]; // 7 elements (Lunes to Domingo)
+      dailyAccountValues?: Array<Record<string, number>>; // 7 elements (each is accountId -> amt)
       weeklyValues: number[]; // N elements (weeks of month)
       accountValues: Record<string, number>; // accountId -> number
       total: number;
@@ -561,6 +627,9 @@ export default function FinanceView({
         data[item.id] = {
           itemId: item.id,
           dailyValues: Array(7).fill(0),
+          dailyAccountValues: Array(7).fill(null).map(() => 
+            ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>)
+          ),
           weeklyValues: Array(activeMonthRange.weeks.length || 5).fill(0),
           accountValues: ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
           total: 0,
@@ -593,6 +662,15 @@ export default function FinanceView({
         const entryDayIndex = activeWeekRange.days.findIndex(d => d.dateStr === entry.date);
         if (entryDayIndex !== -1) {
           row.dailyValues[entryDayIndex] = ((row.dailyValues[entryDayIndex] as number) || 0) + rowTotal;
+          ACCOUNTS.forEach(acc => {
+            const amt = (entry.amounts[acc.id] as number) || 0;
+            if (!row.dailyAccountValues) {
+              row.dailyAccountValues = Array(7).fill(null).map(() => 
+                ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>)
+              );
+            }
+            row.dailyAccountValues[entryDayIndex][acc.id] = (row.dailyAccountValues[entryDayIndex][acc.id] || 0) + amt;
+          });
         }
       } else {
         const entryWeekIndex = activeMonthRange.weeks.findIndex(w => entry.date >= w.startStr && entry.date <= w.endStr);
@@ -608,6 +686,14 @@ export default function FinanceView({
       data['balance_start'].total = sum;
       if (periodType === 'weekly') {
         data['balance_start'].dailyValues[0] = sum; // Put on Monday
+        ACCOUNTS.forEach(a => {
+          if (!data['balance_start'].dailyAccountValues) {
+            data['balance_start'].dailyAccountValues = Array(7).fill(null).map(() => 
+              ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>)
+            );
+          }
+          data['balance_start'].dailyAccountValues[0][a.id] = (weekStartBalances as Record<string, number>)[a.id] || 0;
+        });
       } else {
         data['balance_start'].weeklyValues[0] = sum; // Put in first week of month
       }
@@ -624,6 +710,12 @@ export default function FinanceView({
     const totals = {
       daysIncome: Array(7).fill(0),
       daysExpense: Array(7).fill(0),
+      daysAccountIncome: Array(7).fill(null).map(() => 
+        ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>)
+      ),
+      daysAccountExpense: Array(7).fill(null).map(() => 
+        ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>)
+      ),
       weeksIncome: Array(activeMonthRange.weeks.length || 5).fill(0),
       weeksExpense: Array(activeMonthRange.weeks.length || 5).fill(0),
       accountsIncome: ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
@@ -641,6 +733,11 @@ export default function FinanceView({
         if (isIncome) {
           for (let i = 0; i < 7; i++) {
             totals.daysIncome[i] += row.dailyValues[i];
+            if (row.dailyAccountValues && row.dailyAccountValues[i]) {
+              ACCOUNTS.forEach(acc => {
+                totals.daysAccountIncome[i][acc.id] = (totals.daysAccountIncome[i][acc.id] || 0) + (row.dailyAccountValues?.[i]?.[acc.id] || 0);
+              });
+            }
           }
           for (let i = 0; i < row.weeklyValues.length; i++) {
             totals.weeksIncome[i] += row.weeklyValues[i];
@@ -652,6 +749,11 @@ export default function FinanceView({
         } else {
           for (let i = 0; i < 7; i++) {
             totals.daysExpense[i] += row.dailyValues[i];
+            if (row.dailyAccountValues && row.dailyAccountValues[i]) {
+              ACCOUNTS.forEach(acc => {
+                totals.daysAccountExpense[i][acc.id] = (totals.daysAccountExpense[i][acc.id] || 0) + (row.dailyAccountValues?.[i]?.[acc.id] || 0);
+              });
+            }
           }
           for (let i = 0; i < row.weeklyValues.length; i++) {
             totals.weeksExpense[i] += row.weeklyValues[i];
@@ -1139,26 +1241,37 @@ export default function FinanceView({
                   <table className="w-full text-left border-collapse min-w-[1200px]">
                     {periodType === 'weekly' ? (
                       <thead>
-                        <tr className="bg-bg-accent border-b border-border-dim">
-                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Rubro</th>
-                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Subrubro</th>
-                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[170px]">Concepto</th>
-                          <th className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest w-[80px]">Ejecución</th>
+                        <tr className="bg-bg-accent border-b border-border-dim/50">
+                          <th rowSpan={2} className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px] border-b border-border-dim/50">Rubro</th>
+                          <th rowSpan={2} className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px] border-b border-border-dim/50">Subrubro</th>
+                          <th rowSpan={2} className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[170px] border-b border-border-dim/50">Concepto</th>
+                          <th rowSpan={2} className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest w-[80px] border-b border-border-dim/50">Ejecución</th>
                           {activeWeekRange.days.map((day) => (
-                            <th key={day.dateStr} className="px-2 py-4 text-center min-w-[100px] border-r border-border-dim/20 bg-bg-accent/10">
-                              <span className="text-[9px] font-black text-brand-500 block">{day.name.toUpperCase()}</span>
+                            <th key={day.dateStr} colSpan={ACCOUNTS.length} className="px-2 py-2 text-center border-r border-l border-border-dim/20 bg-bg-accent/15">
+                              <span className="text-[10px] font-black text-brand-500 block">{day.name.toUpperCase()}</span>
                               <span className="text-[8px] font-mono text-text-dim block">{day.dateStr.slice(8, 10)}/{day.dateStr.slice(5, 7)}</span>
                             </th>
                           ))}
                           {ACCOUNTS.map(acc => (
-                            <th key={acc.id} className="px-3 py-4 text-center min-w-[115px]">
+                            <th key={acc.id} rowSpan={2} className="px-3 py-4 text-center min-w-[115px] border-l border-border-dim/25 border-b border-border-dim/50">
                               <div className="flex flex-col items-center gap-1">
                                 <acc.icon size={13} className={acc.color} />
                                 <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">{acc.name}</span>
                               </div>
                             </th>
                           ))}
-                          <th className="px-4 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Total</th>
+                          <th rowSpan={2} className="px-4 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px] border-l border-border-dim/25 border-b border-border-dim/50">Total</th>
+                        </tr>
+                        <tr className="bg-bg-accent/45 border-b border-border-dim">
+                          {activeWeekRange.days.map((day) => (
+                            <React.Fragment key={day.dateStr}>
+                              {ACCOUNTS.map(acc => (
+                                <th key={acc.id} className="px-1.5 py-1 text-center font-bold text-[7.5px] text-text-dim/80 border-r border-border-dim/10 uppercase tracking-tighter min-w-[55px] bg-bg-accent/5">
+                                  {acc.name.replace("BANCO ", "")}
+                                </th>
+                              ))}
+                            </React.Fragment>
+                          ))}
                         </tr>
                       </thead>
                     ) : (
@@ -1246,13 +1359,24 @@ export default function FinanceView({
                                   </td>
 
                                   {periodType === 'weekly' ? (
-                                    row.dailyValues.map((val, idx) => (
-                                      <td key={idx} className={cn(
-                                        "px-2 py-3 text-center font-mono text-[9px] border-r border-border-dim/10 bg-bg-accent/5",
-                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
-                                      )}>
-                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                                      </td>
+                                    activeWeekRange.days.map((day, dayIdx) => (
+                                      <React.Fragment key={day.dateStr}>
+                                        {ACCOUNTS.map(acc => {
+                                          const val = (row.dailyAccountValues && row.dailyAccountValues[dayIdx] && row.dailyAccountValues[dayIdx][acc.id]) || 0;
+                                          return (
+                                            <td 
+                                              key={acc.id} 
+                                              className={cn(
+                                                "px-1.5 py-3 text-center font-mono text-[8.5px] border-r border-border-dim/10",
+                                                dayIdx % 2 === 0 ? "bg-bg-card/20" : "bg-bg-accent/5",
+                                                val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
+                                              )}
+                                            >
+                                              {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                            </td>
+                                          );
+                                        })}
+                                      </React.Fragment>
                                     ))
                                   ) : (
                                     row.weeklyValues.map((val, idx) => (
@@ -1291,7 +1415,7 @@ export default function FinanceView({
                       })}
                     </tbody>
 
-                    <tfoot className="bg-bg-sidebar/95 backdrop-blur font-black text-text-main border-t-2 border-border-dim text-[9px]">
+                     <tfoot className="bg-bg-sidebar/95 backdrop-blur font-black text-text-main border-t-2 border-border-dim text-[9px]">
                       {/* ROW 1: TOTAL INGRESOS */}
                       <tr className="border-b border-border-dim/30 bg-emerald-500/5">
                         <td className="px-4 py-2.5 text-emerald-400 font-black tracking-wider uppercase">Ingresos Totales</td>
@@ -1299,10 +1423,17 @@ export default function FinanceView({
                         <td className="px-4 py-2.5"></td>
                         <td className="px-4 py-2.5"></td>
                         {periodType === 'weekly' ? (
-                          columnTotals.daysIncome.map((val, idx) => (
-                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-bold bg-emerald-500/5 border-r border-border-dim/10">
-                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                            </td>
+                          activeWeekRange.days.map((day, dayIdx) => (
+                            <React.Fragment key={day.dateStr}>
+                              {ACCOUNTS.map(acc => {
+                                const val = columnTotals.daysAccountIncome[dayIdx][acc.id] || 0;
+                                return (
+                                  <td key={acc.id} className="px-1 py-2.5 text-center font-mono text-[8.5px] font-bold border-r border-border-dim/10 bg-emerald-500/5 text-emerald-400">
+                                    {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                  </td>
+                                );
+                              })}
+                            </React.Fragment>
                           ))
                         ) : (
                           columnTotals.weeksIncome.map((val, idx) => (
@@ -1314,12 +1445,12 @@ export default function FinanceView({
                         {ACCOUNTS.map(acc => {
                           const val = columnTotals.accountsIncome[acc.id] || 0;
                           return (
-                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-extrabold">
+                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-extrabold border-l border-border-dim/20">
                               {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-emerald-400 font-black italic">
+                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-emerald-400 font-black italic border-l border-border-dim/20">
                           ${columnTotals.totalIncome.toLocaleString('es-AR')}
                         </td>
                       </tr>
@@ -1331,10 +1462,17 @@ export default function FinanceView({
                         <td className="px-4 py-2.5"></td>
                         <td className="px-4 py-2.5"></td>
                         {periodType === 'weekly' ? (
-                          columnTotals.daysExpense.map((val, idx) => (
-                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-red-400 font-bold bg-red-500/5 border-r border-border-dim/10">
-                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                            </td>
+                          activeWeekRange.days.map((day, dayIdx) => (
+                            <React.Fragment key={day.dateStr}>
+                              {ACCOUNTS.map(acc => {
+                                const val = columnTotals.daysAccountExpense[dayIdx][acc.id] || 0;
+                                return (
+                                  <td key={acc.id} className="px-1 py-2.5 text-center font-mono text-[8.5px] font-bold border-r border-border-dim/10 bg-red-500/5 text-red-400">
+                                    {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                  </td>
+                                );
+                              })}
+                            </React.Fragment>
                           ))
                         ) : (
                           columnTotals.weeksExpense.map((val, idx) => (
@@ -1346,12 +1484,12 @@ export default function FinanceView({
                         {ACCOUNTS.map(acc => {
                           const val = columnTotals.accountsExpense[acc.id] || 0;
                           return (
-                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-red-400 font-extrabold">
+                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-red-400 font-extrabold border-l border-border-dim/20">
                               {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-red-400 font-black italic">
+                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-red-400 font-black italic border-l border-border-dim/20">
                           ${columnTotals.totalExpense.toLocaleString('es-AR')}
                         </td>
                       </tr>
@@ -1363,19 +1501,24 @@ export default function FinanceView({
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         {periodType === 'weekly' ? (
-                          columnTotals.daysIncome.map((inc, idx) => {
-                            const exp = columnTotals.daysExpense[idx];
-                            const startBalanceVal = groupedRows['balance_start']?.dailyValues[idx] || 0;
-                            const net = (inc - startBalanceVal) - exp;
-                            return (
-                              <td key={idx} className={cn(
-                                "px-2 py-3 text-center font-mono font-bold bg-brand-500/5 border-r border-border-dim/10",
-                                net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
-                              )}>
-                                {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
-                              </td>
-                            );
-                          })
+                          activeWeekRange.days.map((day, dayIdx) => (
+                            <React.Fragment key={day.dateStr}>
+                              {ACCOUNTS.map(acc => {
+                                const inc = columnTotals.daysAccountIncome[dayIdx][acc.id] || 0;
+                                const exp = columnTotals.daysAccountExpense[dayIdx][acc.id] || 0;
+                                const startBalanceVal = (groupedRows['balance_start']?.dailyAccountValues && groupedRows['balance_start']?.dailyAccountValues[dayIdx]?.[acc.id]) || 0;
+                                const net = (inc - startBalanceVal) - exp;
+                                return (
+                                  <td key={acc.id} className={cn(
+                                    "px-1 py-3 text-center font-mono text-[8.5px] font-bold border-r border-border-dim/10 bg-brand-500/5",
+                                    net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
+                                  )}>
+                                    {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
+                                  </td>
+                                );
+                              })}
+                            </React.Fragment>
+                          ))
                         ) : (
                           columnTotals.weeksIncome.map((inc, idx) => {
                             const exp = columnTotals.weeksExpense[idx];
@@ -1398,7 +1541,7 @@ export default function FinanceView({
                           const net = (inc - startBalanceVal) - exp;
                           return (
                             <td key={acc.id} className={cn(
-                              "px-2 py-3 text-center font-mono font-black",
+                              "px-2 py-3 text-center font-mono font-black border-l border-border-dim/20",
                               net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
                             )}>
                               {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
@@ -1406,7 +1549,7 @@ export default function FinanceView({
                           );
                         })}
                         <td className={cn(
-                          "px-4 py-3 text-right font-mono text-[9px] font-black",
+                          "px-4 py-3 text-right font-mono text-[9px] font-black border-l border-border-dim/20",
                           ((columnTotals.totalIncome - (groupedRows['balance_start']?.total || 0)) - columnTotals.totalExpense) > 0 ? "text-emerald-400" : "text-red-400"
                         )}>
                           ${((columnTotals.totalIncome - (groupedRows['balance_start']?.total || 0)) - columnTotals.totalExpense).toLocaleString('es-AR')}
@@ -1415,17 +1558,25 @@ export default function FinanceView({
 
                       {/* ROW 4: SALDO FINAL REAL */}
                       <tr className="border-b border-border-dim/30 bg-bg-card/30 text-[9px]">
-                        <td className="px-4 py-3 text-emerald-400 font-sans tracking-wide uppercase font-black">Saldo Final REAL (Ejecutado)</td>
+                        <td className="px-4 py-3 text-emerald-400 font-sans tracking-wide uppercase font-black pb-4">Saldo Final REAL (Ejecutado)</td>
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         {periodType === 'weekly' ? (
-                          dailyAccountBalancesExecuted.map((dayData, i) => {
-                            const totalDayEnd = Object.values(dayData.accounts).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number;
+                          activeWeekRange.days.map((day, dayIdx) => {
+                            const dayData = dailyAccountBalancesExecuted[dayIdx];
                             return (
-                              <td key={i} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
-                                ${totalDayEnd.toLocaleString('es-AR')}
-                              </td>
+                              <React.Fragment key={day.dateStr}>
+                                {ACCOUNTS.map(acc => {
+                                  const accData = dayData?.accounts[acc.id];
+                                  const val = accData?.end ?? 0;
+                                  return (
+                                    <td key={acc.id} className="px-1 py-3 text-center font-mono text-[8.5px] border-r border-border-dim/10 bg-emerald-500/5 text-emerald-400 font-bold">
+                                      {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                    </td>
+                                  );
+                                })}
+                              </React.Fragment>
                             );
                           })
                         ) : (
@@ -1440,12 +1591,12 @@ export default function FinanceView({
                                 return ((initialBalances[acc.id] as number) + income - expense) as number;
                               })();
                           return (
-                            <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
+                            <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-l border-border-dim/20 bg-emerald-500/5">
                               ${final.toLocaleString('es-AR')}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold bg-emerald-500/5">
+                        <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold bg-emerald-500/5 border-l border-border-dim/20">
                           ${(periodType === 'weekly'
                             ? Object.values(dailyAccountBalancesExecuted[6]?.accounts || {}).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number
                             : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
@@ -1461,17 +1612,25 @@ export default function FinanceView({
 
                       {/* ROW 5: SALDO PROYECTADO */}
                       <tr className="bg-bg-card/50 text-[9px]">
-                        <td className="px-4 py-3.5 text-brand-500 font-sans tracking-wide uppercase font-black">Saldo PROYECTADO (Cierre esperado)</td>
+                        <td className="px-4 py-3.5 text-brand-500 font-sans tracking-wide uppercase font-black pb-4">Saldo PROYECTADO (Cierre esperado)</td>
                         <td className="px-4 py-3.5"></td>
                         <td className="px-4 py-3.5"></td>
                         <td className="px-4 py-3.5"></td>
                         {periodType === 'weekly' ? (
-                          dailyAccountBalancesProjected.map((dayData, i) => {
-                            const totalDayEnd = Object.values(dayData.accounts).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number;
+                          activeWeekRange.days.map((day, dayIdx) => {
+                            const dayData = dailyAccountBalancesProjected[dayIdx];
                             return (
-                              <td key={i} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
-                                ${totalDayEnd.toLocaleString('es-AR')}
-                              </td>
+                              <React.Fragment key={day.dateStr}>
+                                {ACCOUNTS.map(acc => {
+                                  const accData = dayData?.accounts[acc.id];
+                                  const val = accData?.end ?? 0;
+                                  return (
+                                    <td key={acc.id} className="px-1 py-3.5 text-center font-mono text-[8.5px] border-r border-border-dim/10 bg-brand-500/5 text-brand-500 font-bold font-mono">
+                                      {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                    </td>
+                                  );
+                                })}
+                              </React.Fragment>
                             );
                           })
                         ) : (
@@ -1486,12 +1645,12 @@ export default function FinanceView({
                                 return ((initialBalances[acc.id] as number) + income - expense) as number;
                               })();
                           return (
-                            <td key={acc.id} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
+                            <td key={acc.id} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-l border-border-dim/20 bg-brand-500/5">
                               ${final.toLocaleString('es-AR')}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-3.5 text-right font-mono text-[9px] text-brand-500 font-bold bg-brand-500/5">
+                        <td className="px-4 py-3.5 text-right font-mono text-[9px] text-brand-500 font-bold bg-brand-500/5 border-l border-border-dim/20">
                           ${(periodType === 'weekly'
                             ? Object.values(dailyAccountBalancesProjected[6]?.accounts || {}).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number
                             : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
@@ -1937,6 +2096,10 @@ export default function FinanceView({
                     </div>
                     <button 
                       onClick={() => {
+                        setSelectedEntity(taxEntities[0]?.value || '');
+                        setSelectedTaxType(taxTypes[0]?.value || '');
+                        setShowAddTaxEntity(false);
+                        setShowAddTaxType(false);
                         setTempCuotas([]);
                         setShowTaxLoteModal(true);
                       }}
@@ -3067,26 +3230,118 @@ export default function FinanceView({
                 {/* Form fields */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Entidad Fiscal</label>
-                    <select id="t-entity" className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs">
-                      <option value="ARCA (AFIP)">ARCA (AFIP)</option>
-                      <option value="Municipalidad YB">Municipalidad YB</option>
-                      <option value="Subsidio de Salud">Subsidio de Salud</option>
-                      <option value="Rentas Tucumán">Rentas Tucumán (DGR)</option>
-                      <option value="ARBA">ARBA</option>
-                      <option value="Sindicato Pastelero">Sindicato Pastelera</option>
-                    </select>
+                    <div className="flex justify-between items-center bg-transparent">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Entidad Fiscal</label>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setShowAddTaxEntity(!showAddTaxEntity);
+                          setNewTaxEntityName('');
+                        }}
+                        className="text-[9px] font-black text-brand-500 uppercase tracking-widest hover:text-brand-400 transition-colors"
+                      >
+                        {showAddTaxEntity ? "[X] Cancelar" : "+ Nueva"}
+                      </button>
+                    </div>
+                    {showAddTaxEntity ? (
+                      <div className="flex gap-1">
+                        <input 
+                          type="text"
+                          value={newTaxEntityName}
+                          onChange={(e) => setNewTaxEntityName(e.target.value)}
+                          placeholder="Nueva entidad..."
+                          className="flex-1 bg-bg-accent border border-brand-500 rounded px-2.5 py-1.5 outline-none font-bold text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = newTaxEntityName.trim();
+                            if (!trimmed) return;
+                            if (taxEntities.some(e => e.value.toLowerCase() === trimmed.toLowerCase())) {
+                              alert("Esta entidad ya existe.");
+                              return;
+                            }
+                            const newObj = { value: trimmed, label: trimmed };
+                            const updated = [...taxEntities, newObj];
+                            saveTaxEntities(updated);
+                            setSelectedEntity(trimmed);
+                            setNewTaxEntityName('');
+                            setShowAddTaxEntity(false);
+                          }}
+                          className="bg-brand-500 hover:bg-brand-600 text-black font-black px-2.5 rounded text-[10px] uppercase"
+                        >
+                          OK
+                        </button>
+                      </div>
+                    ) : (
+                      <select 
+                        id="t-entity" 
+                        value={selectedEntity}
+                        onChange={(e) => setSelectedEntity(e.target.value)}
+                        className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs"
+                      >
+                        {taxEntities.map(e => (
+                          <option key={e.value} value={e.value}>{e.label}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Tipo de Impuesto</label>
-                    <select id="t-taxtype" className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs">
-                      <option value="IVA">IVA Débito/Saldos</option>
-                      <option value="F931">Cargas Sociales F931</option>
-                      <option value="Ingresos Brutos">Ingresos Brutos DGR</option>
-                      <option value="Ganancias">Impuesto a las Ganancias</option>
-                      <option value="Multas">Multas / Infracciones</option>
-                      <option value="Tasa de Comercio">Tasa de Comercio TEM YB</option>
-                    </select>
+                    <div className="flex justify-between items-center bg-transparent">
+                      <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Tipo de Impuesto</label>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setShowAddTaxType(!showAddTaxType);
+                          setNewTaxTypeName('');
+                        }}
+                        className="text-[9px] font-black text-brand-500 uppercase tracking-widest hover:text-brand-400 transition-colors"
+                      >
+                        {showAddTaxType ? "[X] Cancelar" : "+ Nuevo"}
+                      </button>
+                    </div>
+                    {showAddTaxType ? (
+                      <div className="flex gap-1">
+                        <input 
+                          type="text"
+                          value={newTaxTypeName}
+                          onChange={(e) => setNewTaxTypeName(e.target.value)}
+                          placeholder="Nuevo impuesto..."
+                          className="flex-1 bg-bg-accent border border-brand-500 rounded px-2.5 py-1.5 outline-none font-bold text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const trimmed = newTaxTypeName.trim();
+                            if (!trimmed) return;
+                            if (taxTypes.some(t => t.value.toLowerCase() === trimmed.toLowerCase() || t.label.toLowerCase() === trimmed.toLowerCase())) {
+                              alert("Este impuesto ya existe.");
+                              return;
+                            }
+                            const newObj = { value: trimmed, label: trimmed };
+                            const updated = [...taxTypes, newObj];
+                            saveTaxTypes(updated);
+                            setSelectedTaxType(trimmed);
+                            setNewTaxTypeName('');
+                            setShowAddTaxType(false);
+                          }}
+                          className="bg-brand-500 hover:bg-brand-600 text-black font-black px-2.5 rounded text-[10px] uppercase"
+                        >
+                          OK
+                        </button>
+                      </div>
+                    ) : (
+                      <select 
+                        id="t-taxtype" 
+                        value={selectedTaxType}
+                        onChange={(e) => setSelectedTaxType(e.target.value)}
+                        className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-bold text-xs"
+                      >
+                        {taxTypes.map(t => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">Importe Total del Plan ($)</label>
@@ -3142,8 +3397,8 @@ export default function FinanceView({
                   <button
                     type="button"
                     onClick={() => {
-                      const entity = (document.getElementById('t-entity') as HTMLSelectElement).value;
-                      const taxType = (document.getElementById('t-taxtype') as HTMLSelectElement).value;
+                      const entity = selectedEntity || (taxEntities[0]?.value || '');
+                      const taxType = selectedTaxType || (taxTypes[0]?.value || '');
                       const totalAmount = parseFloat((document.getElementById('t-total') as HTMLInputElement).value) || 0;
                       const planNumber = (document.getElementById('t-plannumber') as HTMLInputElement).value || 'EXP-TEMP';
                       const count = parseInt((document.getElementById('t-installments') as HTMLInputElement).value) || 0;
