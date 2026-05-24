@@ -409,6 +409,32 @@ const localSupabaseEmulator = {
 };
 
 // --- SMART PROXY FOR HYBRID REMOTE/LOCAL FAILOVER ---
+const failedRemoteTables = new Set<string>();
+const LOADED_FAILED_TABLES_KEY = 'supabase_failed_remote_tables';
+
+try {
+  const loaded = localStorage.getItem(LOADED_FAILED_TABLES_KEY);
+  if (loaded) {
+    const list = JSON.parse(loaded);
+    if (Array.isArray(list)) {
+      list.forEach(t => failedRemoteTables.add(t));
+    }
+  }
+} catch (e) {
+  console.error('[Supabase Fallback] Error reading initially failed tables:', e);
+}
+
+const markTableAsFailed = (table: string) => {
+  if (!failedRemoteTables.has(table)) {
+    failedRemoteTables.add(table);
+    try {
+      localStorage.setItem(LOADED_FAILED_TABLES_KEY, JSON.stringify(Array.from(failedRemoteTables)));
+    } catch (e) {
+      console.error('[Supabase Fallback] Error saving failed tables list:', e);
+    }
+  }
+};
+
 class SmartQueryChain {
   constructor(
     public table: string,
@@ -423,6 +449,11 @@ class SmartQueryChain {
       get(target, prop) {
         if (prop === 'then') {
           return async (onfulfilled?: any, onrejected?: any) => {
+            if (failedRemoteTables.has(target.table)) {
+              const mockRes = await target.mockChain;
+              if (onfulfilled) return onfulfilled(mockRes);
+              return mockRes;
+            }
             try {
               const res = await target.realChain;
               if (res && res.error) {
@@ -431,12 +462,15 @@ class SmartQueryChain {
                 if (
                   errMsg.includes('Could not find the table') ||
                   errMsg.includes('schema cache') ||
-                  (errMsg.includes('relation') && errMsg.includes('does not exist')) ||
-                  errCode === '42P01' ||
+                  errMsg.includes('column') ||
+                  errMsg.includes('relation') ||
+                  errCode === '42P01' || // undefined_table
+                  errCode === '42703' || // undefined_column
                   errCode === 'PGRST116' ||
                   errCode === 'PGRST114'
                 ) {
-                  console.warn(`[Supabase Fallback] Table '${target.table}' not found in DB schema. Falling back to Local Emulator.`);
+                  console.warn(`[Supabase Fallback] Schema or validation error on table '${target.table}'. Marking as failed remote and falling back to Local Emulator.`);
+                  markTableAsFailed(target.table);
                   const mockRes = await target.mockChain;
                   if (onfulfilled) return onfulfilled(mockRes);
                   return mockRes;
@@ -446,15 +480,19 @@ class SmartQueryChain {
               return res;
             } catch (err: any) {
               const errMsg = String(err?.message || '');
+              const errCode = String(err?.code || err?.statusCode || '');
               if (
                 errMsg.includes('Could not find the table') ||
                 errMsg.includes('schema cache') ||
-                (errMsg.includes('relation') && errMsg.includes('does not exist')) ||
-                err?.code === '42P01' ||
-                err?.code === 'PGRST116' ||
-                err?.code === 'PGRST114'
+                errMsg.includes('column') ||
+                errMsg.includes('relation') ||
+                errCode === '42P01' ||
+                errCode === '42703' ||
+                errCode === 'PGRST116' ||
+                errCode === 'PGRST114'
               ) {
-                console.warn(`[Supabase Fallback] Executing query threw table/relation error. Falling back to Local Emulator.`, err);
+                console.warn(`[Supabase Fallback] Executing query threw table/relation/column error on '${target.table}'. Marking as failed remote and falling back to Local Emulator.`, err);
+                markTableAsFailed(target.table);
                 const mockRes = await target.mockChain;
                 if (onfulfilled) return onfulfilled(mockRes);
                 return mockRes;
@@ -496,10 +534,10 @@ export const supabase = new Proxy(realSupabaseClient, {
   get(target, prop) {
     if (prop === 'from') {
       return (table: string) => {
-        const realChain = target.from(table);
-        if (isMissingCredentials) {
-          return realChain;
+        if (isMissingCredentials || failedRemoteTables.has(table)) {
+          return localSupabaseEmulator.from(table);
         }
+        const realChain = target.from(table);
         return SmartQueryChain.create(table, realChain);
       };
     }
