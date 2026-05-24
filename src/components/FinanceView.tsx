@@ -1301,118 +1301,144 @@ export default function FinanceView({
                     )}
 
                     <tbody className="divide-y divide-border-dim/30 font-medium font-sans">
-                      {categories.map((cat, catIdx) => {
-                        return (
-                          <React.Fragment key={cat.id}>
-                            {cat.items.map((item, itemIdx) => {
-                              const row = groupedRows[item.id] || { dailyValues: Array(7).fill(0), weeklyValues: Array(activeMonthRange.weeks.length || 5).fill(0), accountValues: {}, total: 0, isExecuted: true, entriesInPeriod: [] };
-                              const rowTotal = row.total;
-                              const isExecuted = row.isExecuted;
-                              const entriesCount = row.entriesInPeriod.length;
+                      {(() => {
+                        let totalRenderedItems = 0;
+                        const renderedBlocks = categories.map((cat, catIdx) => {
+                          const activeItems = cat.items.filter(item => {
+                            const row = groupedRows[item.id];
+                            const rowTotal = row ? row.total : 0;
+                            return rowTotal !== 0;
+                          });
 
-                              return (
-                                <tr key={item.id} className={cn(
-                                  "hover:bg-bg-accent/15 transition-colors group text-[10px]",
-                                  rowTotal === 0 && "opacity-30 hover:opacity-100",
-                                  !isExecuted && "bg-orange-500/5"
-                                )}>
-                                  <td className="px-4 py-3 font-black uppercase text-text-dim/80 tracking-tighter text-[9px]">
-                                    {itemIdx === 0 ? cat.name : ""}
-                                  </td>
-                                  
-                                  <td className="px-4 py-3 font-bold uppercase text-text-dim/70 truncate text-[9px]">
-                                    {(item as any).subrubro}
-                                  </td>
+                          if (activeItems.length === 0) return null;
+                          totalRenderedItems += activeItems.length;
 
-                                  <td className="px-4 py-3">
-                                    <div className="flex flex-col">
-                                      <span className={cn(
-                                        "font-black uppercase tracking-tight text-[10px]",
-                                        isExecuted ? "text-text-main" : "text-orange-400"
-                                      )}>
-                                        {item.name}
-                                      </span>
-                                      {entriesCount > 0 && (
-                                        <span className="text-[8px] font-bold text-text-dim uppercase mt-0.5 opacity-70">
-                                          {entriesCount} reg. en período
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
+                          return (
+                            <React.Fragment key={cat.id}>
+                              {activeItems.map((item, itemIdx) => {
+                                const row = groupedRows[item.id] || { dailyValues: Array(7).fill(0), weeklyValues: Array(activeMonthRange.weeks.length || 5).fill(0), accountValues: {}, total: 0, isExecuted: true, entriesInPeriod: [] };
+                                const rowTotal = row.total;
+                                const isExecuted = row.isExecuted;
+                                const entriesCount = row.entriesInPeriod.length;
 
-                                  <td className="px-4 py-3 text-center">
-                                    {entriesCount > 0 ? (
-                                      <button 
-                                        onClick={() => toggleGroupExecution(item.id)}
-                                        className={cn(
-                                          "p-1.5 rounded-full transition-all scale-90",
-                                          isExecuted 
-                                            ? "bg-emerald-500 text-black shadow-md" 
-                                            : "bg-bg-accent border border-border-dim text-orange-400 hover:text-orange-500"
-                                        )}
-                                      >
-                                        {isExecuted ? <Check size={10} strokeWidth={4} /> : <AlertCircle size={10} strokeWidth={3} />}
-                                      </button>
-                                    ) : (
-                                      <span className="text-text-dim/20">-</span>
-                                    )}
-                                  </td>
-
-                                  {periodType === 'weekly' ? (
-                                    activeWeekRange.days.map((day, dayIdx) => (
-                                      <React.Fragment key={day.dateStr}>
-                                        {ACCOUNTS.map(acc => {
-                                          const val = (row.dailyAccountValues && row.dailyAccountValues[dayIdx] && row.dailyAccountValues[dayIdx][acc.id]) || 0;
-                                          return (
-                                            <td 
-                                              key={acc.id} 
-                                              className={cn(
-                                                "px-1.5 py-3 text-center font-mono text-[8.5px] border-r border-border-dim/10",
-                                                dayIdx % 2 === 0 ? "bg-bg-card/20" : "bg-bg-accent/5",
-                                                val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
-                                              )}
-                                            >
-                                              {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                                            </td>
-                                          );
-                                        })}
-                                      </React.Fragment>
-                                    ))
-                                  ) : (
-                                    row.weeklyValues.map((val, idx) => (
-                                      <td key={idx} className={cn(
-                                        "px-2 py-3 text-center font-mono text-[9px] border-r border-border-dim/10 bg-bg-accent/5",
-                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
-                                      )}>
-                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                                      </td>
-                                    ))
-                                  )}
-
-                                  {ACCOUNTS.map(acc => {
-                                    const val = row.accountValues[acc.id] || 0;
-                                    return (
-                                      <td key={acc.id} className={cn(
-                                        "px-2 py-3 text-center font-mono text-[9px]",
-                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-500/80 font-bold' : 'text-red-500/80 font-bold') : 'text-text-dim/15'
-                                      )}>
-                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
-                                      </td>
-                                    );
-                                  })}
-
-                                  <td className={cn(
-                                    "px-4 py-3 text-right font-mono text-[10px] font-black",
-                                    rowTotal !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim/20'
+                                return (
+                                  <tr key={item.id} className={cn(
+                                    "hover:bg-bg-accent/15 transition-colors group text-[10px]",
+                                    !isExecuted && "bg-orange-500/5"
                                   )}>
-                                    {rowTotal !== 0 ? `$${rowTotal.toLocaleString('es-AR')}` : '-'}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </React.Fragment>
-                        );
-                      })}
+                                    <td className="px-4 py-3 font-black uppercase text-text-dim/80 tracking-tighter text-[9px]">
+                                      {itemIdx === 0 ? cat.name : ""}
+                                    </td>
+                                    
+                                    <td className="px-4 py-3 font-bold uppercase text-text-dim/70 truncate text-[9px]">
+                                      {(item as any).subrubro}
+                                    </td>
+
+                                    <td className="px-4 py-3">
+                                      <div className="flex flex-col">
+                                        <span className={cn(
+                                          "font-black uppercase tracking-tight text-[10px]",
+                                          isExecuted ? "text-text-main" : "text-orange-400"
+                                        )}>
+                                          {item.name}
+                                        </span>
+                                        {entriesCount > 0 && (
+                                          <span className="text-[8px] font-bold text-text-dim uppercase mt-0.5 opacity-70">
+                                            {entriesCount} reg. en período
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    <td className="px-4 py-3 text-center">
+                                      {entriesCount > 0 ? (
+                                        <button 
+                                          onClick={() => toggleGroupExecution(item.id)}
+                                          className={cn(
+                                            "p-1.5 rounded-full transition-all scale-90",
+                                            isExecuted 
+                                              ? "bg-emerald-500 text-black shadow-md" 
+                                              : "bg-bg-accent border border-border-dim text-orange-400 hover:text-orange-500"
+                                          )}
+                                        >
+                                          {isExecuted ? <Check size={10} strokeWidth={4} /> : <AlertCircle size={10} strokeWidth={3} />}
+                                        </button>
+                                      ) : (
+                                        <span className="text-text-dim/20">-</span>
+                                      )}
+                                    </td>
+
+                                    {periodType === 'weekly' ? (
+                                      activeWeekRange.days.map((day, dayIdx) => (
+                                        <React.Fragment key={day.dateStr}>
+                                          {ACCOUNTS.map(acc => {
+                                            const val = (row.dailyAccountValues && row.dailyAccountValues[dayIdx] && row.dailyAccountValues[dayIdx][acc.id]) || 0;
+                                            return (
+                                              <td 
+                                                key={acc.id} 
+                                                className={cn(
+                                                  "px-1.5 py-3 text-center font-mono text-[8.5px] border-r border-border-dim/10",
+                                                  dayIdx % 2 === 0 ? "bg-bg-card/20" : "bg-bg-accent/5",
+                                                  val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
+                                                )}
+                                              >
+                                                {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                              </td>
+                                            );
+                                          })}
+                                        </React.Fragment>
+                                      ))
+                                    ) : (
+                                      row.weeklyValues.map((val, idx) => (
+                                        <td key={idx} className={cn(
+                                          "px-2 py-3 text-center font-mono text-[9px] border-r border-border-dim/10 bg-bg-accent/5",
+                                          val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
+                                        )}>
+                                          {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                        </td>
+                                      ))
+                                    )}
+
+                                    {ACCOUNTS.map(acc => {
+                                      const val = row.accountValues[acc.id] || 0;
+                                      return (
+                                        <td key={acc.id} className={cn(
+                                          "px-2 py-3 text-center font-mono text-[9px]",
+                                          val !== 0 ? (cat.type === 'income' ? 'text-emerald-500/80 font-bold' : 'text-red-500/80 font-bold') : 'text-text-dim/15'
+                                        )}>
+                                          {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                        </td>
+                                      );
+                                    })}
+
+                                    <td className={cn(
+                                      "px-4 py-3 text-right font-mono text-[10px] font-black",
+                                      rowTotal !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim/20'
+                                    )}>
+                                      {rowTotal !== 0 ? `$${rowTotal.toLocaleString('es-AR')}` : '-'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        });
+
+                        if (totalRenderedItems === 0) {
+                          const totalCols = periodType === 'weekly'
+                            ? 5 + 8 * ACCOUNTS.length
+                            : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length;
+                          return (
+                            <tr>
+                              <td colSpan={totalCols} className="text-center py-12 text-text-dim uppercase font-black tracking-widest text-[9px] bg-bg-card/20 italic">
+                                No hay movimientos registrados para este período
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return renderedBlocks;
+                      })()}
                     </tbody>
 
                      <tfoot className="bg-bg-sidebar/95 backdrop-blur font-black text-text-main border-t-2 border-border-dim text-[9px]">
