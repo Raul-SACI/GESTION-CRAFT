@@ -604,7 +604,7 @@ export default function FinanceView({
 
     // Override/set the weekly or monthly balance_start row to match weekStartBalances!
     if (data['balance_start']) {
-      const sum = Object.values(weekStartBalances).reduce((a, b) => a + b, 0);
+      const sum = Object.values(weekStartBalances).reduce((a: number, b: number) => a + b, 0) as number;
       data['balance_start'].total = sum;
       if (periodType === 'weekly') {
         data['balance_start'].dailyValues[0] = sum; // Put on Monday
@@ -612,7 +612,7 @@ export default function FinanceView({
         data['balance_start'].weeklyValues[0] = sum; // Put in first week of month
       }
       ACCOUNTS.forEach(a => {
-        data['balance_start'].accountValues[a.id] = weekStartBalances[a.id] || 0;
+        data['balance_start'].accountValues[a.id] = (weekStartBalances as Record<string, number>)[a.id] || 0;
       });
     }
 
@@ -1421,7 +1421,7 @@ export default function FinanceView({
                         <td className="px-4 py-3"></td>
                         {periodType === 'weekly' ? (
                           dailyAccountBalancesExecuted.map((dayData, i) => {
-                            const totalDayEnd = Object.values(dayData.accounts).reduce((s, a) => s + a.end, 0);
+                            const totalDayEnd = Object.values(dayData.accounts).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number;
                             return (
                               <td key={i} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
                                 ${totalDayEnd.toLocaleString('es-AR')}
@@ -1433,11 +1433,11 @@ export default function FinanceView({
                         )}
                         {ACCOUNTS.map(acc => {
                           const final = periodType === 'weekly' 
-                            ? (dailyAccountBalancesExecuted[6]?.accounts[acc.id]?.end || 0)
+                            ? (((dailyAccountBalancesExecuted[6]?.accounts[acc.id]) as any)?.end || 0) as number
                             : (() => {
                                 const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
                                 const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                                return (initialBalances[acc.id] as number) + income - expense;
+                                return ((initialBalances[acc.id] as number) + income - expense) as number;
                               })();
                           return (
                             <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
@@ -1447,7 +1447,7 @@ export default function FinanceView({
                         })}
                         <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold bg-emerald-500/5">
                           ${(periodType === 'weekly'
-                            ? Object.values(dailyAccountBalancesExecuted[6]?.accounts || {}).reduce((s, a) => s + a.end, 0)
+                            ? Object.values(dailyAccountBalancesExecuted[6]?.accounts || {}).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number
                             : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
                                allEntries.filter(e => e.isExecuted).reduce((total: number, e: any) => {
                                  const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
@@ -1467,7 +1467,7 @@ export default function FinanceView({
                         <td className="px-4 py-3.5"></td>
                         {periodType === 'weekly' ? (
                           dailyAccountBalancesProjected.map((dayData, i) => {
-                            const totalDayEnd = Object.values(dayData.accounts).reduce((s, a) => s + a.end, 0);
+                            const totalDayEnd = Object.values(dayData.accounts).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number;
                             return (
                               <td key={i} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
                                 ${totalDayEnd.toLocaleString('es-AR')}
@@ -1479,11 +1479,11 @@ export default function FinanceView({
                         )}
                         {ACCOUNTS.map(acc => {
                           const final = periodType === 'weekly' 
-                            ? (dailyAccountBalancesProjected[6]?.accounts[acc.id]?.end || 0)
+                            ? (((dailyAccountBalancesProjected[6]?.accounts[acc.id]) as any)?.end || 0) as number
                             : (() => {
                                 const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
                                 const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                                return (initialBalances[acc.id] as number) + income - expense;
+                                return ((initialBalances[acc.id] as number) + income - expense) as number;
                               })();
                           return (
                             <td key={acc.id} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
@@ -1493,7 +1493,7 @@ export default function FinanceView({
                         })}
                         <td className="px-4 py-3.5 text-right font-mono text-[9px] text-brand-500 font-bold bg-brand-500/5">
                           ${(periodType === 'weekly'
-                            ? Object.values(dailyAccountBalancesProjected[6]?.accounts || {}).reduce((s, a) => s + a.end, 0)
+                            ? Object.values(dailyAccountBalancesProjected[6]?.accounts || {}).reduce((s: number, a: any) => s + (a?.end || 0), 0) as number
                             : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
                                allEntries.reduce((total: number, e: any) => {
                                  const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
@@ -2475,6 +2475,109 @@ export default function FinanceView({
                  >
                    Activar Alerta
                  </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Close Week / Arqueo Real Modal */}
+      <AnimatePresence>
+        {showCloseWeekModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCloseWeekModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-lg bg-bg-card border border-border-dim rounded-lg shadow-2xl overflow-hidden"
+            >
+              <div className="p-6 border-b border-border-dim bg-bg-accent/50 flex justify-between items-center">
+                 <div>
+                   <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Cerrar Semana y Fijar Saldos Reales</h3>
+                   <p className="text-[9px] text-text-dim uppercase font-bold mt-1">Domingo - {activeWeekRange.sunday}</p>
+                 </div>
+                 <button onClick={() => setShowCloseWeekModal(false)}><X size={18} className="text-text-dim" /></button>
+              </div>
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto w-full">
+                 <p className="text-[10px] text-text-dim uppercase font-bold leading-relaxed">
+                   Ingresa los saldos reales de cierre contados al finalizar el domingo. Estos valores se guardarán como el saldo inicial oficial para los reportes y proyecciones de las semanas siguientes.
+                 </p>
+                 
+                 <div className="space-y-3">
+                   {ACCOUNTS.map(acc => {
+                     const IconComp = acc.icon;
+                     return (
+                       <div key={acc.id} className="bg-bg-main border border-border-dim rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                         <div className="flex items-center gap-2.5">
+                           <IconComp size={16} className={acc.color} />
+                           <div>
+                             <p className="text-[10px] font-black uppercase tracking-wider text-text-main">{acc.name}</p>
+                             <p className="text-[8px] font-mono text-text-dim">Proyectado: ${(dailyAccountBalancesProjected[6]?.accounts[acc.id]?.end || 0).toLocaleString('es-AR')}</p>
+                           </div>
+                         </div>
+                         <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                           <span className="text-text-dim font-mono text-xs font-bold">$</span>
+                           <input 
+                             type="number" 
+                             value={closeWeekForm[acc.id] !== undefined ? closeWeekForm[acc.id] : ''}
+                             onChange={(e) => {
+                               const val = parseFloat(e.target.value);
+                               setCloseWeekForm(prev => ({
+                                 ...prev,
+                                 [acc.id]: isNaN(val) ? 0 : val
+                               }));
+                             }}
+                             className="w-32 bg-bg-card border border-border-dim rounded px-2.5 py-1.5 text-xs text-text-main outline-none focus:border-brand-500 font-mono text-right font-black"
+                             placeholder="0"
+                           />
+                         </div>
+                       </div>
+                     );
+                   })}
+                 </div>
+
+                 <div className="p-4 bg-brand-500/5 border border-brand-500/20 rounded-lg">
+                    <p className="text-[9px] text-brand-500 font-black uppercase tracking-widest flex items-center gap-2">
+                       <AlertCircle size={12} /> Impacto en Saldos Iniciales
+                    </p>
+                    <p className="text-[9px] text-text-dim mt-1 leading-relaxed font-bold uppercase">
+                       Al confirmar el cierre, la semana entrante (<span className="text-brand-500 font-mono">Lunes {(() => {
+                         const nextMondayObj = new Date(activeWeekRange.sunday + 'T12:00:00');
+                         nextMondayObj.setDate(nextMondayObj.getDate() + 1);
+                         return nextMondayObj.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+                       })()}</span>) se iniciará exactamente con los saldos reales aquí declarados.
+                    </p>
+                 </div>
+
+                 <div className="flex gap-3 pt-2">
+                   <button 
+                    onClick={() => setShowCloseWeekModal(false)}
+                    className="w-1/2 bg-transparent hover:bg-bg-accent text-text-main border border-border-dim py-3 rounded text-[10px] font-black uppercase tracking-widest transition-all"
+                   >
+                     Cancelar
+                   </button>
+                   <button 
+                    onClick={() => {
+                      const newClosings = {
+                        ...weeklyClosings,
+                        [activeWeekRange.sunday]: closeWeekForm
+                      };
+                      saveWeeklyClosings(newClosings);
+                      setShowCloseWeekModal(false);
+                      alert("¡Saldos de cierre registrados exitosamente! El saldo final servirá como saldo inicial de la semana entrante.");
+                    }}
+                    className="w-1/2 bg-brand-500 hover:bg-brand-600 text-black py-3 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-xl shadow-brand-500/10"
+                   >
+                     Guardar Cierre
+                   </button>
+                 </div>
               </div>
             </motion.div>
           </div>

@@ -32,8 +32,14 @@ export default function BranchManagementView({
   const [placeQuery, setPlaceQuery] = useState('');
   const [searchResults, setSearchResults] = useState<google.maps.places.Place[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState('all');
 
   const placesLib = useMapsLibrary('places');
+
+  const filteredBranches = branches.filter(branch => {
+    if (selectedBranchFilter === 'all') return true;
+    return branch.id === selectedBranchFilter;
+  });
 
   const handlePlaceSearch = async () => {
     if (!placesLib || !placeQuery) return;
@@ -89,8 +95,23 @@ export default function BranchManagementView({
         </button>
       </div>
 
+      {/* Selector de Sucursal */}
+      <div className="bg-bg-sidebar p-4 border border-border-dim rounded-lg flex items-center gap-4">
+        <label className="text-[10px] font-black text-brand-500 uppercase tracking-widest shrink-0">Filtrar por Sucursal:</label>
+        <select
+          value={selectedBranchFilter}
+          onChange={(e) => setSelectedBranchFilter(e.target.value)}
+          className="bg-bg-main border border-border-dim rounded px-3 py-1.5 text-xs text-text-main outline-none focus:border-brand-500 font-bold uppercase tracking-wider"
+        >
+          <option value="all">TODAS LAS SUCURSALES</option>
+          {branches.map(b => (
+            <option key={b.id} value={b.id}>{b.name.toUpperCase()}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {branches.map((branch) => (
+        {filteredBranches.map((branch) => (
           <div key={branch.id} className={cn(
             "bg-bg-sidebar border rounded-lg p-6 transition-all relative overflow-hidden group",
             editingId === branch.id ? "border-brand-500 shadow-lg shadow-brand-500/5" : "border-border-dim hover:border-brand-500/50"
