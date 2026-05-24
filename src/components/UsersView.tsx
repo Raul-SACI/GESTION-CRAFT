@@ -163,7 +163,6 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
         name: userForm.name.toUpperCase(),
         role: userForm.role,
         branch_name: finalBranch,
-        permissions: selectedRoleConfig?.allowed_modules || []
       };
 
       if (userForm.id) {

@@ -4,7 +4,7 @@
  */
 
 // Vercel deployment trigger
-import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, lazy, Suspense, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   TrendingUp, 
@@ -227,6 +227,37 @@ function AppContent() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
 
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
+  const [rolesConfigList, setRolesConfigList] = useState<any[]>([]);
+  const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
+
+  // Load profiles and roles for switching representation
+  const loadAccessControlData = useCallback(async () => {
+    try {
+      const { data: rolesData } = await supabase.from('roles_config').select('*');
+      const { data: profilesData } = await supabase.from('profiles').select('*').order('name');
+      
+      if (rolesData) setRolesConfigList(rolesData);
+      if (profilesData) {
+        setAvailableProfiles(profilesData);
+        setCurrentUserProfile((prev: any) => {
+          if (!prev) {
+            return profilesData.find((p: any) => p.id === 'usr-admin') || profilesData[0] || null;
+          }
+          const latest = profilesData.find((p: any) => p.id === prev.id);
+          return latest || prev;
+        });
+      }
+    } catch (e) {
+      console.error('Error loading Access Control data in App:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAccessControlData();
+  }, [activeTab, loadAccessControlData]);
+
   // Fetch items, products and branches from Supabase
   React.useEffect(() => {
     const fetchData = async () => {
@@ -313,46 +344,24 @@ function AppContent() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'branches' }, fetchData)
       .subscribe();
 
+    const profilesChannel = supabase.channel('profiles_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, loadAccessControlData)
+      .subscribe();
+
+    const rolesChannel = supabase.channel('roles_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'roles_config' }, loadAccessControlData)
+      .subscribe();
+
     return () => {
       supabase.removeChannel(itemsChannel);
       supabase.removeChannel(productsChannel);
       supabase.removeChannel(branchesChannel);
+      supabase.removeChannel(profilesChannel);
+      supabase.removeChannel(rolesChannel);
     };
-  }, []);
+  }, [loadAccessControlData]);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  
-  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
-  const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
-  const [rolesConfigList, setRolesConfigList] = useState<any[]>([]);
-  const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
-
-  // Load profiles and roles for switching representation
-  useEffect(() => {
-    const loadAccessControlData = async () => {
-      try {
-        const { data: rolesData } = await supabase.from('roles_config').select('*');
-        const { data: profilesData } = await supabase.from('profiles').select('*').order('name');
-        
-        if (rolesData) setRolesConfigList(rolesData);
-        if (profilesData) {
-          setAvailableProfiles(profilesData);
-          // Set initial default profile to "usr-admin" or first available
-          if (!currentUserProfile) {
-            const def = profilesData.find((p: any) => p.id === 'usr-admin') || profilesData[0];
-            if (def) setCurrentUserProfile(def);
-          } else {
-            // Keep synchronized with latest from DB if name / branch changed
-            const latest = profilesData.find((p: any) => p.id === currentUserProfile.id);
-            if (latest) setCurrentUserProfile(latest);
-          }
-        }
-      } catch (e) {
-        console.error('Error loading Access Control data in App:', e);
-      }
-    };
-    loadAccessControlData();
-  }, [activeTab]);
 
   const currentUser = useMemo(() => {
     if (!currentUserProfile) {
@@ -393,7 +402,7 @@ function AppContent() {
     if (currentUser.accessScope === 'single_branch' && currentUserBranchId !== 'all') {
       setSelectedBranchId(currentUserBranchId);
     }
-  }, [currentUser, currentUserBranchId, branches]);
+  }, [currentUser, currentUserBranchId, branches, selectedBranchId]);
 
   // Sidebar Customization State
   const [isReorderingMode, setIsReorderingMode] = useState(false);
@@ -827,13 +836,28 @@ function AppContent() {
                 <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">Filtrar por Sucursal:</span>
                 <select
                   value={selectedBranchId}
-                  onChange={(e) => setSelectedBranchId(e.target.value)}
-                  className="bg-transparent border-none text-xs font-black uppercase text-brand-500 tracking-widest focus:ring-0 cursor-pointer outline-none"
+                  onChange={(e) => {
+                    if (currentUser.accessScope === 'single_branch' && currentUserBranchId !== 'all') {
+                      setSelectedBranchId(currentUserBranchId);
+                    } else {
+                      setSelectedBranchId(e.target.value);
+                    }
+                  }}
+                  disabled={currentUser.accessScope === 'single_branch'}
+                  className={`bg-transparent border-none text-xs font-black uppercase tracking-widest focus:ring-0 outline-none ${
+                    currentUser.accessScope === 'single_branch' 
+                      ? "text-brand-500/50 cursor-not-allowed opacity-70" 
+                      : "text-brand-500 cursor-pointer"
+                  }`}
                 >
-                  <option value="all" className="bg-bg-card font-bold text-text-main">CONSOLIDADO (TODAS)</option>
-                  {branches.map(b => (
-                    <option key={b.id} value={b.id} className="bg-bg-card font-bold text-text-main">{b.name}</option>
-                  ))}
+                  {currentUser.accessScope !== 'single_branch' && (
+                    <option value="all" className="bg-bg-card font-bold text-text-main">CONSOLIDADO (TODAS)</option>
+                  )}
+                  {branches
+                    .filter(b => currentUser.accessScope !== 'single_branch' || b.id === currentUserBranchId)
+                    .map(b => (
+                      <option key={b.id} value={b.id} className="bg-bg-card font-bold text-text-main">{b.name}</option>
+                    ))}
                 </select>
               </div>
             )}
