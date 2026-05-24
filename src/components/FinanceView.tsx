@@ -586,20 +586,13 @@ export default function FinanceView({
 
       const isLiab = p.category === 'loan' || p.category === 'tax';
       if (isLiab && p.status !== 'paid') {
-        if (periodType === 'weekly') {
-          if (p.dueDate < activeWeekRange.monday) {
-            effectiveDate = activeWeekRange.monday;
-            const parts = p.dueDate.split('-');
-            const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : p.dueDate;
-            descriptionSuffix = ` (VENCIDO - VTO: ${formattedDate})`;
-          }
-        } else {
-          if (p.dueDate < activeMonthRange.firstDayStr) {
-            effectiveDate = activeMonthRange.firstDayStr;
-            const parts = p.dueDate.split('-');
-            const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : p.dueDate;
-            descriptionSuffix = ` (VENCIDO - VTO: ${formattedDate})`;
-          }
+        // If the liability's due date is helper than the current active week's Monday,
+        // we automatically roll it over to this week to prevent forgetting to pay it.
+        if (p.dueDate < activeWeekRange.monday) {
+          effectiveDate = activeWeekRange.monday;
+          const parts = p.dueDate.split('-');
+          const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : p.dueDate;
+          descriptionSuffix = ` (VENCIDO REPROGRAMADO - VTO: ${formattedDate})`;
         }
       }
 

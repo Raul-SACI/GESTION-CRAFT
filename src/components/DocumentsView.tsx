@@ -39,9 +39,10 @@ interface DocumentsViewProps {
   branchName?: string;
   branches?: any[];
   onBranchSelect?: (id: string) => void;
+  isReadOnly?: boolean;
 }
 
-export default function DocumentsView({ mode, branchId, branchName, branches = [], onBranchSelect }: DocumentsViewProps) {
+export default function DocumentsView({ mode, branchId, branchName, branches = [], onBranchSelect, isReadOnly }: DocumentsViewProps) {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [navigationStack, setNavigationStack] = useState<{ id: string | null, name: string }[]>([{ id: null, name: 'Raíz' }]);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -111,6 +112,10 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
+    if (isReadOnly) {
+      alert('Modo Solo Lectura activado. No tienes permisos para crear carpetas.');
+      return;
+    }
 
     try {
       const { error } = await supabase.from('documents').insert([
@@ -118,7 +123,9 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           name: newFolderName,
           type: 'folder',
           parent_id: currentFolderId,
-          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null
+          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+          category: 'folder', // Satisfy real Supabase schema NOT NULL constraint
+          url: 'folder'       // Satisfy real Supabase schema NOT NULL constraint
         }
       ]);
 
@@ -127,15 +134,19 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
       setNewFolderName('');
       setShowNewFolderModal(false);
       fetchDocuments();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error creating folder:', err);
-      alert('Error al crear carpeta. ¿Existe la tabla "documents"?');
+      alert(`Error al crear carpeta: ${err.message || JSON.stringify(err)}`);
     }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isReadOnly) {
+      alert('Modo Solo Lectura activado. No tienes permisos para subir archivos.');
+      return;
+    }
 
     setUploading(true);
     try {
@@ -158,22 +169,28 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
           storage_path: path,
           file_size: file.size,
-          content_type: file.type
+          content_type: file.type,
+          category: 'file', // Satisfy real Supabase schema NOT NULL constraint
+          url: path        // Satisfy real Supabase schema NOT NULL constraint
         }
       ]);
 
       if (dbError) throw dbError;
 
       fetchDocuments();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading file:', err);
-      alert('Error al subir archivo. Verifica permisos de almacenamiento.');
+      alert(`Error al subir archivo: ${err.message || JSON.stringify(err)}`);
     } finally {
       setUploading(false);
     }
   };
 
   const handleDelete = async (doc: Document) => {
+    if (isReadOnly) {
+      alert('Modo Solo Lectura activado. No tienes permisos para eliminar carpetas o archivos.');
+      return;
+    }
     if (!confirm(`¿Estás seguro de eliminar "${doc.name}"?`)) return;
 
     try {

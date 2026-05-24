@@ -48,7 +48,8 @@ import {
   ArrowUp,
   ArrowDown,
   Landmark,
-  Crown
+  Crown,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -320,12 +321,79 @@ function AppContent() {
   }, []);
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
-  const [currentUser] = useState({ 
-    name: 'Administrador', 
-    role: 'dueño' as UserRole, 
-    branch: 'Todas las Sucursales',
-    permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'ventas', 'control_desvios', 'usuarios', 'performance_admin', 'aprobacion_presupuestos']
-  });
+  
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
+  const [rolesConfigList, setRolesConfigList] = useState<any[]>([]);
+  const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
+
+  // Load profiles and roles for switching representation
+  useEffect(() => {
+    const loadAccessControlData = async () => {
+      try {
+        const { data: rolesData } = await supabase.from('roles_config').select('*');
+        const { data: profilesData } = await supabase.from('profiles').select('*').order('name');
+        
+        if (rolesData) setRolesConfigList(rolesData);
+        if (profilesData) {
+          setAvailableProfiles(profilesData);
+          // Set initial default profile to "usr-admin" or first available
+          if (!currentUserProfile) {
+            const def = profilesData.find((p: any) => p.id === 'usr-admin') || profilesData[0];
+            if (def) setCurrentUserProfile(def);
+          } else {
+            // Keep synchronized with latest from DB if name / branch changed
+            const latest = profilesData.find((p: any) => p.id === currentUserProfile.id);
+            if (latest) setCurrentUserProfile(latest);
+          }
+        }
+      } catch (e) {
+        console.error('Error loading Access Control data in App:', e);
+      }
+    };
+    loadAccessControlData();
+  }, [activeTab]);
+
+  const currentUser = useMemo(() => {
+    if (!currentUserProfile) {
+      return {
+        id: 'usr-admin',
+        name: 'ADMINISTRADOR',
+        role: 'administrador',
+        branch: 'Todas las Sucursales',
+        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
+        isReadOnly: false,
+        accessScope: 'all_branches' as 'all_branches' | 'single_branch'
+      };
+    }
+    
+    const roleId = currentUserProfile.role;
+    const roleCfg = rolesConfigList.find((r: any) => r.id === roleId);
+    
+    return {
+      id: currentUserProfile.id,
+      name: currentUserProfile.name,
+      role: roleId,
+      branch: currentUserProfile.branch_name || 'Todas las Sucursales',
+      permissions: roleCfg ? roleCfg.allowed_modules : (currentUserProfile.permissions || []),
+      isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
+      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch'
+    };
+  }, [currentUserProfile, rolesConfigList]);
+
+  // Find current user's branch ID
+  const currentUserBranchId = useMemo(() => {
+    if (!currentUser.branch || currentUser.branch === 'Todas las Sucursales') return 'all';
+    const found = branches.find(b => b.name.toUpperCase() === currentUser.branch?.toUpperCase());
+    return found ? found.id : 'all';
+  }, [currentUser.branch, branches]);
+
+  // Lock selectedBranchId if single_branch role
+  useEffect(() => {
+    if (currentUser.accessScope === 'single_branch' && currentUserBranchId !== 'all') {
+      setSelectedBranchId(currentUserBranchId);
+    }
+  }, [currentUser, currentUserBranchId, branches]);
 
   // Sidebar Customization State
   const [isReorderingMode, setIsReorderingMode] = useState(false);
@@ -680,17 +748,56 @@ function AppContent() {
           })}
         </nav>
 
-        <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10">
+        <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10 relative">
+          {showProfileSwitcher && availableProfiles.length > 0 && (
+            <div className="absolute bottom-full left-4 right-4 mb-2 bg-bg-sidebar border border-border-dim rounded-lg shadow-2xl p-2 max-h-60 overflow-y-auto z-50 space-y-1">
+              <p className="text-[9px] font-black uppercase text-brand-500 px-2 pb-1.5 border-b border-border-dim mb-1 tracking-widest leading-none">Simulación de Rol</p>
+              {availableProfiles.map((p: any) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setCurrentUserProfile(p);
+                    setShowProfileSwitcher(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-2 py-1.5 rounded transition-all text-[11px] font-bold flex flex-col gap-0.5",
+                    currentUserProfile?.id === p.id 
+                      ? "bg-brand-500 text-black" 
+                      : "text-text-main hover:bg-white/5"
+                  )}
+                >
+                  <span className="truncate uppercase">{p.name || 'Sin Nombre'}</span>
+                  <span className={cn(
+                    "text-[8px] uppercase font-black tracking-wider leading-none",
+                    currentUserProfile?.id === p.id ? "text-black/60" : "text-text-dim"
+                  )}>{p.role.replace('_', ' ')} • {p.branch_name || 'Todas'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-brand-500 flex items-center justify-center text-black font-bold text-xs">
-              AD
+            <button 
+              onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}
+              className="w-8 h-8 rounded-full bg-brand-500 hover:scale-105 transition-all text-black font-extrabold text-[10px] uppercase flex items-center justify-center shrink-0 shadow-lg shadow-brand-500/20"
+              title="Cambiar Perfil"
+            >
+              {currentUser.name ? currentUser.name.substring(0, 2).toUpperCase() : 'US'}
+            </button>
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}>
+              <p className="text-xs font-bold truncate text-sidebar-text leading-tight uppercase font-sans">{currentUser.name}</p>
+              <p className="text-[9px] text-brand-500 font-black uppercase tracking-wider mt-0.5">{currentUser.role.replace('_', ' ')}</p>
+              <p className="text-[8px] text-sidebar-dim font-bold uppercase tracking-wider mt-0.5">{currentUser.branch}</p>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-sidebar-text leading-tight">{currentUser.name}</p>
-              <p className="text-[10px] text-sidebar-dim font-medium uppercase tracking-wider mt-0.5">{currentUser.branch}</p>
-            </div>
-            <button className="text-sidebar-dim hover:text-red-500 transition-colors">
-              <LogOut size={14} />
+            <button 
+              onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}
+              className={cn(
+                "p-1.5 rounded text-sidebar-dim hover:text-brand-500 hover:bg-white/5 transition-all",
+                showProfileSwitcher && "text-brand-500 bg-white/5"
+              )}
+              title="Seleccionar Usuario"
+            >
+              <Users size={14} />
             </button>
           </div>
         </div>
@@ -756,6 +863,12 @@ function AppContent() {
 
         {/* Dynamic View */}
         <div className="p-6 flex-1">
+          {currentUser.isReadOnly && (
+            <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest animate-pulse">
+              <Lock size={16} />
+              <span>MODO SOLO LECTURA ACTIVO • LOS CAMBIOS DE ESCRITURA ESTÁN RESTRINGIDOS PARA ESTE PERFIL</span>
+            </div>
+          )}
           <Suspense fallback={<LoadingState />}>
             <AnimatePresence mode="wait">
               {activeTab === 'socios_dashboard' && (
@@ -824,7 +937,7 @@ function AppContent() {
               {activeTab === 'precios' && <PriceListView key="precios" />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
-              {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} />}
+              {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={currentUser.isReadOnly} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" />}
               {activeTab === 'papeles_sucursal' && (
                 <DocumentsView 
@@ -834,6 +947,7 @@ function AppContent() {
                   branchName={selectedBranchId === 'all' ? 'Todas' : branches.find(b => b.id === selectedBranchId)?.name}
                   branches={branches}
                   onBranchSelect={(id) => setSelectedBranchId(id)}
+                  isReadOnly={currentUser.isReadOnly}
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
@@ -842,6 +956,7 @@ function AppContent() {
                 <DocumentsView 
                   key="papeles_administracion" 
                   mode="administracion" 
+                  isReadOnly={currentUser.isReadOnly}
                 />
               )}
               {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} />}

@@ -3,9 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = 'encargado' | 'supervisor' | 'administrativo' | 'dueño';
+export type UserRole = string;
 
 export type SaleType = 'Turno Mañana' | 'Turno Tarde' | 'Pedidos Ya Restó' | 'Pedidos Ya Café';
+
+export interface RoleConfig {
+  id: string;
+  name: string;
+  description: string;
+  allowed_modules: string[];
+  is_read_only: boolean;
+  access_scope: 'all_branches' | 'single_branch';
+}
 
 export interface User {
   id: string;

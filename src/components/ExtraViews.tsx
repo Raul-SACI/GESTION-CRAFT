@@ -110,7 +110,7 @@ export const PerformanceView: React.FC<{ branches: Branch[], selectedBranchId: s
   );
 }
 
-export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }> = ({ branches, selectedBranchId }) => {
+export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string, isReadOnly?: boolean }> = ({ branches, selectedBranchId, isReadOnly }) => {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const [newEntries, setNewEntries] = useState<any[]>([]);
   const [content, setContent] = useState('');
@@ -131,6 +131,10 @@ export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }
 
   const handlePost = async () => {
     if (!content.trim() || selectedBranchId === 'all') return;
+    if (isReadOnly) {
+      alert('Tu rol tiene acceso de SOLO LECTURA. No tienes permisos para registrar novedades.');
+      return;
+    }
     setLoading(true);
     const { error } = await supabase.from('news').insert([{
       branch_id: selectedBranchId,
@@ -142,6 +146,9 @@ export const NewsView: React.FC<{ branches: Branch[], selectedBranchId: string }
     if (!error) {
       setContent('');
       fetchNews();
+    } else {
+      console.error('Error inserting news:', error);
+      alert(`Error al registrar novedades: ${error.message || JSON.stringify(error)}`);
     }
     setLoading(false);
   };

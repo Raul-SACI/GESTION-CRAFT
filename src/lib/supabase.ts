@@ -289,6 +289,69 @@ class MockQueryBuilder {
         { id: 'news-2', branch_id: 'bs', title: 'Bitácora - 23/5/2026', content: 'MANTENIMIENTO DEL EXTRACTOR TERMINADO.', importance: 'normal', created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString() },
       ];
     }
+    if (this.table === 'roles_config') {
+      return [
+        {
+          id: 'administrador',
+          name: 'Administrador',
+          description: 'Acceso total de lectura y edición. Único rol que accede a Configuración.',
+          is_read_only: false,
+          access_scope: 'all_branches',
+          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios']
+        },
+        {
+          id: 'socio',
+          name: 'Socio',
+          description: 'Acceso completo al sistema pero restringido a modo Solo Lectura.',
+          is_read_only: true,
+          access_scope: 'all_branches',
+          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin']
+        },
+        {
+          id: 'encargado',
+          name: 'Encargado de Sucursal',
+          description: 'Solo puede cargar y ver los módulos de su propia sucursal asignada.',
+          is_read_only: false,
+          access_scope: 'single_branch',
+          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas']
+        },
+        {
+          id: 'lider_operativo',
+          name: 'Líder Operativo',
+          description: 'Acceso a todas las sucursales, Agenda Supervisores, Supervisiones y Presupuesto.',
+          is_read_only: false,
+          access_scope: 'all_branches',
+          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'presupuesto_horas', 'agenda', 'supervisiones_operativas']
+        },
+        {
+          id: 'lider_cocina',
+          name: 'Líder de Cocina',
+          description: 'Acceso a todas las sucursales, Agenda Supervisores, y Centro de Producción.',
+          is_read_only: false,
+          access_scope: 'all_branches',
+          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control']
+        },
+        {
+          id: 'recursos_humanos',
+          name: 'Recursos Humanos',
+          description: 'Acceso completo a la sección de Recursos Humanos para todas las sucursales.',
+          is_read_only: false,
+          access_scope: 'all_branches',
+          allowed_modules: ['control_horas', 'gestion_sueldos']
+        }
+      ];
+    }
+    if (this.table === 'profiles') {
+      return [
+        { id: 'usr-admin', name: 'ADMINISTRADOR', role: 'administrador', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+        { id: 'usr-socio', name: 'SOCIO GENERAL', role: 'socio', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+        { id: 'usr-norte', name: 'ENCARGADO BARRIO NORTE', role: 'encargado', branch_name: 'BARRIO NORTE', permissions: [] },
+        { id: 'usr-sur', name: 'ENCARGADO BARRIO SUR', role: 'encargado', branch_name: 'BARRIO SUR', permissions: [] },
+        { id: 'usr-lider-o', name: 'LÍDER OPERATIVO 1', role: 'lider_operativo', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+        { id: 'usr-lider-c', name: 'LÍDER DE COCINA 1', role: 'lider_cocina', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+        { id: 'usr-rrhh', name: 'RECURSOS HUMANOS', role: 'recursos_humanos', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+      ];
+    }
     return [];
   }
 }
