@@ -379,6 +379,38 @@ export default function FinanceView({
     return { totalPending, totalPaid, countPending, countPaid };
   }, [payments]);
 
+  const bankEntityStats = useMemo(() => {
+    const loanPayments = payments.filter(p => p.category === 'loan');
+    const grouped: Record<string, {
+      bank: string;
+      pendingInstallmentsCount: number;
+      installmentAmounts: number[];
+      totalPendingAmount: number;
+    }> = {};
+
+    loanPayments.forEach(p => {
+      const bankName = (p.bank || 'OTROS').trim().toUpperCase();
+      if (!grouped[bankName]) {
+        grouped[bankName] = {
+          bank: bankName,
+          pendingInstallmentsCount: 0,
+          installmentAmounts: [],
+          totalPendingAmount: 0
+        };
+      }
+      
+      if (p.status !== 'paid') {
+        grouped[bankName].pendingInstallmentsCount += 1;
+        grouped[bankName].totalPendingAmount += p.amount;
+        if (!grouped[bankName].installmentAmounts.includes(p.amount)) {
+          grouped[bankName].installmentAmounts.push(p.amount);
+        }
+      }
+    });
+
+    return Object.values(grouped).sort((a, b) => b.totalPendingAmount - a.totalPendingAmount);
+  }, [payments]);
+
   const taxStats = useMemo(() => {
     const taxPayments = payments.filter(p => p.category === 'tax');
     const totalPending = taxPayments.filter(p => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
@@ -796,6 +828,77 @@ export default function FinanceView({
                       {bankStats.countPaid} / {bankStats.countPending + bankStats.countPaid}
                     </p>
                     <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Cuotas pagadas del total registrado</p>
+                  </div>
+                </div>
+
+                {/* Consolidado por Entidad Financiera */}
+                <div className="bg-bg-card border border-border-dim p-5 rounded-xl shadow-lg space-y-4">
+                  <div className="flex items-center justify-between border-b border-border-dim/40 pb-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-brand-500/10 rounded text-brand-500">
+                        <Building2 size={14} />
+                      </div>
+                      <div>
+                        <h3 className="text-[10px] font-black uppercase text-text-main tracking-widest">Resumen Consolidado por Entidad Financiera</h3>
+                        <p className="text-[8px] text-text-dim font-bold uppercase mt-0.5">Visión integrada de deudas y amortizaciones activas</p>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-bold text-text-dim uppercase tracking-wider bg-bg-accent px-2 py-1 rounded border border-border-dim/50 font-mono">
+                      Entidades registradas: {bankEntityStats.length}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {bankEntityStats.map(stat => (
+                      <div key={stat.bank} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[120px]">
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider">
+                              {stat.bank}
+                            </span>
+                            <span className={cn(
+                              "text-[8px] font-mono font-black px-2 py-0.5 rounded border",
+                              stat.pendingInstallmentsCount > 0 
+                                ? "bg-orange-500/10 border-orange-500/20 text-brand-500 animate-pulse"
+                                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            )}>
+                              {stat.pendingInstallmentsCount} {stat.pendingInstallmentsCount === 1 ? 'CUOTA PEND.' : 'CUOTAS PEND.'}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <span className="text-[8px] text-text-dim uppercase font-black tracking-widest block opacity-70">
+                              Monto de cada cuota
+                            </span>
+                            <p className="text-[11px] font-mono font-black text-text-main max-w-full truncate" title={
+                              stat.installmentAmounts.length === 0 ? '$0' : 
+                              stat.installmentAmounts.map(amt => `$${amt.toLocaleString('es-AR')}`).join(' y ')
+                            }>
+                              {stat.installmentAmounts.length === 0 ? '-' : 
+                               stat.installmentAmounts.map(amt => `$${amt.toLocaleString('es-AR')}`).join(' / ')
+                              }
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-border-dim/40 flex justify-between items-end">
+                          <div>
+                            <span className="text-[8px] text-text-dim uppercase font-black tracking-widest block opacity-70">
+                              Monto total pendiente
+                            </span>
+                            <p className="text-sm font-mono font-black text-emerald-400 italic font-bold">
+                              ${stat.totalPendingAmount.toLocaleString('es-AR')}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {bankEntityStats.length === 0 && (
+                      <div className="col-span-full py-6 text-center text-[10px] text-text-dim uppercase font-bold italic">
+                        No se encontraron registros de pasivos bancarios por entidad
+                      </div>
+                    )}
                   </div>
                 </div>
 
