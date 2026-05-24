@@ -240,7 +240,8 @@ export default function FinanceView({
   }, []);
 
   const [activeSubTab, setActiveSubTab] = useState<'flow' | 'payments'>(mode === 'default' ? 'flow' : 'payments');
-  const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+  const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
+  const [currentDateStr, setCurrentDateStr] = useState('2026-05-24');
   
   const [payments, setPayments] = useState<ScheduledPayment[]>(() => {
     if (typeof window !== 'undefined') {
@@ -275,11 +276,27 @@ export default function FinanceView({
 
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
   
-  const [entries, setEntries] = useState<FinanceEntry[]>([
-    { id: 'start', date: today.toISOString().split('T')[0], itemId: 'balance_start', amounts: { efectivo: 5258100, mp: 0, bbva: 850000, santander: 14515000 }, isExecuted: true },
-    { id: '1', date: today.toISOString().split('T')[0], itemId: 'ret_suc', amounts: { efectivo: 17400000, mp: 0, bbva: 0, santander: 0 }, isExecuted: true },
-    { id: '2', date: today.toISOString().split('T')[0], itemId: 'acr_tarj', amounts: { efectivo: 0, mp: 0, bbva: 0, santander: 11570000 }, isExecuted: true },
-  ]);
+  const [entries, setEntries] = useState<FinanceEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('craft_finance_entries');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Error loading entries from localStorage", e);
+        }
+      }
+    }
+    return [
+      { id: 'start', date: '2026-05-24', itemId: 'balance_start', amounts: { efectivo: 5258100, mp: 0, bbva: 850000, santander: 14515000 }, isExecuted: true },
+      { id: '1', date: '2026-05-24', itemId: 'ret_suc', amounts: { efectivo: 17400000, mp: 0, bbva: 0, santander: 0 }, isExecuted: true },
+      { id: '2', date: '2026-05-24', itemId: 'acr_tarj', amounts: { efectivo: 0, mp: 0, bbva: 0, santander: 11570000 }, isExecuted: true },
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('craft_finance_entries', JSON.stringify(entries));
+  }, [entries]);
 
   // Global initial balances are 0 now because we use the 'balance_start' entry row
   const initialBalances: Record<string, number> = useMemo(() => {
@@ -299,8 +316,8 @@ export default function FinanceView({
   ]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   
-  const [startDate, setStartDate] = useState(lastWeek.toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(today.toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState('2026-05-17');
+  const [endDate, setEndDate] = useState('2026-05-24');
   const [showEntryModal, setShowEntryModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
@@ -312,8 +329,90 @@ export default function FinanceView({
     categoryId: FINANCE_CATEGORIES[0].id,
     itemId: FINANCE_CATEGORIES[0].items[0].id,
     type: 'expense' as 'income' | 'expense',
+    date: '2026-05-24',
     amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {}) as Record<string, number>
   });
+
+  // Calculate days of week for current week (Lunes to Domingo)
+  const activeWeekRange = useMemo(() => {
+    const d = new Date(currentDateStr + 'T12:00:00');
+    const day = d.getDay(); // 0 is Sun, 1 is Mon
+    const distanceToMonday = day === 0 ? 6 : day - 1;
+    const monday = new Date(d);
+    monday.setDate(d.getDate() - distanceToMonday);
+    
+    const daysOfWeek = [];
+    const daysOfWeekNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    for (let i = 0; i < 7; i++) {
+      const cd = new Date(monday);
+      cd.setDate(monday.getDate() + i);
+      const dateStr = cd.toISOString().split('T')[0];
+      daysOfWeek.push({
+        dateStr,
+        name: daysOfWeekNames[i],
+        shortLabel: `${daysOfWeekNames[i]} ${cd.getDate().toString().padStart(2, '0')}/${(cd.getMonth() + 1).toString().padStart(2, '0')}`
+      });
+    }
+    
+    const mondayStr = daysOfWeek[0].dateStr;
+    const sundayStr = daysOfWeek[6].dateStr;
+    
+    return {
+      monday: mondayStr,
+      sunday: sundayStr,
+      days: daysOfWeek,
+      label: `Semana del Lunes ${daysOfWeek[0].shortLabel.split(' ')[1]} al Domingo ${daysOfWeek[6].shortLabel.split(' ')[1]}`
+    };
+  }, [currentDateStr]);
+
+  // Calculate weeks of current month (with overlapping Mon-Sun weeks)
+  const activeMonthRange = useMemo(() => {
+    const d = new Date(currentDateStr + 'T12:00:00');
+    const year = d.getFullYear();
+    const month = d.getMonth(); // 0-indexed
+    
+    const firstDay = new Date(year, month, 1, 12, 0, 0);
+    const lastDay = new Date(year, month + 1, 0, 12, 0, 0);
+    
+    const fDay = firstDay.getDay();
+    const diffToMonday = fDay === 0 ? 6 : fDay - 1;
+    const startOfFirstWeek = new Date(firstDay);
+    startOfFirstWeek.setDate(firstDay.getDate() - diffToMonday);
+    
+    const weeks = [];
+    let currentStart = new Date(startOfFirstWeek);
+    while (currentStart <= lastDay) {
+      const currentEnd = new Date(currentStart);
+      currentEnd.setDate(currentStart.getDate() + 6);
+      
+      const startStr = currentStart.toISOString().split('T')[0];
+      const endStr = currentEnd.toISOString().split('T')[0];
+      const label = `Semana ${weeks.length + 1} (${currentStart.getDate().toString().padStart(2, '0')}/${(currentStart.getMonth() + 1).toString().padStart(2, '0')} a ${currentEnd.getDate().toString().padStart(2, '0')}/${(currentEnd.getMonth() + 1).toString().padStart(2, '0')})`;
+      
+      weeks.push({
+        startStr,
+        endStr,
+        label,
+        index: weeks.length
+      });
+      
+      currentStart.setDate(currentStart.getDate() + 7);
+    }
+    
+    const monthNames = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    
+    return {
+      year,
+      month,
+      monthLabel: `${monthNames[month]} de ${year}`,
+      weeks,
+      firstDayStr: firstDay.toISOString().split('T')[0],
+      lastDayStr: lastDay.toISOString().split('T')[0],
+    };
+  }, [currentDateStr]);
 
   // Convert payments/commitments to FinanceEntries dynamically so they are reflected automatically in the estimated cash flow
   const allEntries = useMemo(() => {
@@ -350,20 +449,147 @@ export default function FinanceView({
     return [...entries, ...paymentEntries];
   }, [entries, payments]);
 
-  // Get all unique items present in entries for selected period
-  const activeEntriesByCat = useMemo(() => {
-    const grouped: Record<string, FinanceEntry[]> = {};
-    
-    allEntries.forEach(entry => {
-      const cat = FINANCE_CATEGORIES.find(c => c.items.some(i => i.id === entry.itemId));
-      if (cat) {
-        if (!grouped[cat.id]) grouped[cat.id] = [];
-        grouped[cat.id].push(entry);
+  // Filter entries for the selected week / month
+  const filteredEntriesForActivePeriod = useMemo(() => {
+    if (periodType === 'weekly') {
+      const { monday, sunday } = activeWeekRange;
+      return allEntries.filter(e => e.date >= monday && e.date <= sunday);
+    } else {
+      const { weeks } = activeMonthRange;
+      if (weeks.length === 0) return [];
+      const minStart = weeks[0].startStr;
+      const maxEnd = weeks[weeks.length - 1].endStr;
+      return allEntries.filter(e => e.date >= minStart && e.date <= maxEnd);
+    }
+  }, [allEntries, periodType, activeWeekRange, activeMonthRange]);
+
+  // Group entries by itemId for multidimensional rendering
+  const groupedRows = useMemo(() => {
+    const data: Record<string, {
+      itemId: string;
+      dailyValues: number[]; // 7 elements (Lunes to Domingo)
+      weeklyValues: number[]; // N elements (weeks of month)
+      accountValues: Record<string, number>; // accountId -> number
+      total: number;
+      isExecuted: boolean;
+      entriesInPeriod: FinanceEntry[];
+    }> = {};
+
+    // Pre-populate with all items in the categories
+    categories.forEach(cat => {
+      cat.items.forEach(item => {
+        data[item.id] = {
+          itemId: item.id,
+          dailyValues: Array(7).fill(0),
+          weeklyValues: Array(activeMonthRange.weeks.length || 5).fill(0),
+          accountValues: ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
+          total: 0,
+          isExecuted: true,
+          entriesInPeriod: []
+        };
+      });
+    });
+
+    // Aggregate values
+    filteredEntriesForActivePeriod.forEach(entry => {
+      const row = data[entry.itemId];
+      if (!row) return;
+
+      row.entriesInPeriod.push(entry);
+      if (!entry.isExecuted) {
+        row.isExecuted = false; // mark as false (pending) if any individual entries are pending
+      }
+
+      const rowTotal: number = Object.values(entry.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+      
+      ACCOUNTS.forEach(acc => {
+        const amt = (entry.amounts[acc.id] as number) || 0;
+        row.accountValues[acc.id] = ((row.accountValues[acc.id] as number) || 0) + amt;
+      });
+
+      row.total = ((row.total as number) || 0) + rowTotal;
+
+      if (periodType === 'weekly') {
+        const entryDayIndex = activeWeekRange.days.findIndex(d => d.dateStr === entry.date);
+        if (entryDayIndex !== -1) {
+          row.dailyValues[entryDayIndex] = ((row.dailyValues[entryDayIndex] as number) || 0) + rowTotal;
+        }
+      } else {
+        const entryWeekIndex = activeMonthRange.weeks.findIndex(w => entry.date >= w.startStr && entry.date <= w.endStr);
+        if (entryWeekIndex !== -1) {
+          row.weeklyValues[entryWeekIndex] = ((row.weeklyValues[entryWeekIndex] as number) || 0) + rowTotal;
+        }
       }
     });
 
-    return grouped;
-  }, [allEntries]);
+    return data;
+  }, [categories, filteredEntriesForActivePeriod, periodType, activeWeekRange, activeMonthRange]);
+
+  // Compute column totals for the footer
+  const columnTotals = useMemo(() => {
+    const totals = {
+      daysIncome: Array(7).fill(0),
+      daysExpense: Array(7).fill(0),
+      weeksIncome: Array(activeMonthRange.weeks.length || 5).fill(0),
+      weeksExpense: Array(activeMonthRange.weeks.length || 5).fill(0),
+      accountsIncome: ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
+      accountsExpense: ACCOUNTS.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
+      totalIncome: 0,
+      totalExpense: 0
+    };
+
+    categories.forEach(cat => {
+      const isIncome = cat.type === 'income';
+      cat.items.forEach(item => {
+        const row = groupedRows[item.id];
+        if (!row) return;
+
+        if (isIncome) {
+          for (let i = 0; i < 7; i++) {
+            totals.daysIncome[i] += row.dailyValues[i];
+          }
+          for (let i = 0; i < row.weeklyValues.length; i++) {
+            totals.weeksIncome[i] += row.weeklyValues[i];
+          }
+          ACCOUNTS.forEach(acc => {
+            totals.accountsIncome[acc.id] += row.accountValues[acc.id];
+          });
+          totals.totalIncome += row.total;
+        } else {
+          for (let i = 0; i < 7; i++) {
+            totals.daysExpense[i] += row.dailyValues[i];
+          }
+          for (let i = 0; i < row.weeklyValues.length; i++) {
+            totals.weeksExpense[i] += row.weeklyValues[i];
+          }
+          ACCOUNTS.forEach(acc => {
+            totals.accountsExpense[acc.id] += row.accountValues[acc.id];
+          });
+          totals.totalExpense += row.total;
+        }
+      });
+    });
+
+    return totals;
+  }, [categories, groupedRows, activeMonthRange.weeks, periodType]);
+
+  const toggleGroupExecution = (itemId: string) => {
+    const row = groupedRows[itemId];
+    if (!row || row.entriesInPeriod.length === 0) return;
+    const targetState = !row.isExecuted;
+    
+    const entryIdsToToggle = row.entriesInPeriod.filter(e => !e.id.startsWith('payment-')).map(e => e.id);
+    const paymentIdsToToggle = row.entriesInPeriod.filter(e => e.id.startsWith('payment-')).map(e => e.id.replace('payment-', ''));
+
+    if (entryIdsToToggle.length > 0) {
+      setEntries(prev => prev.map(e => entryIdsToToggle.includes(e.id) ? { ...e, isExecuted: targetState } : e));
+    }
+    if (paymentIdsToToggle.length > 0) {
+      setPayments(prev => prev.map(p => paymentIdsToToggle.includes(p.id) ? { ...p, status: targetState ? 'paid' : 'pending' } : p));
+    }
+  };
+
+  const activeEntriesByCat = groupedRows; // fallback alias to avoid missing referencing errors if used downstream
 
   const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : 'Flujo de Caja Estimado';
   const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
@@ -585,135 +811,218 @@ export default function FinanceView({
             className="space-y-6"
           >
             <div className="bg-bg-card border border-border-dim rounded-lg overflow-hidden">
-                <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4">
+                {/* CALENDAR NAVIGATION & VIEW TOGGLES */}
+                <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-card/50">
                   <div className="flex items-center gap-4">
                     <History size={20} className="text-brand-500" />
                     <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Planilla de Flujo de Caja</h3>
                   </div>
                   
                   <div className="flex items-center gap-2 bg-bg-card border border-border-dim p-1 rounded h-[38px]">
-                    {(['daily', 'weekly', 'monthly'] as const).map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setPeriodType(type)}
-                        className={cn(
-                          "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
-                          periodType === type ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-                        )}
-                      >
-                        {type === 'daily' ? 'Día' : type === 'weekly' ? 'Semana' : 'Mes'}
-                      </button>
-                    ))}
+                    <button
+                      onClick={() => setPeriodType('weekly')}
+                      className={cn(
+                        "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                        periodType === 'weekly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                      )}
+                    >
+                      Por Semana
+                    </button>
+                    <button
+                      onClick={() => setPeriodType('monthly')}
+                      className={cn(
+                        "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                        periodType === 'monthly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                      )}
+                    >
+                      Por Mes
+                    </button>
                   </div>
 
-                  <div className="flex items-center gap-3 bg-bg-accent border border-border-dim rounded px-3 py-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[8px] font-black text-text-dim uppercase">Desde</span>
-                      <input 
-                        type="date" 
-                        value={startDate}
-                        onChange={(e) => setStartDate(e.target.value)}
-                        className="bg-transparent border-none text-[10px] font-mono text-text-main outline-none focus:ring-0 p-0"
-                      />
-                    </div>
-                    <div className="w-px h-3 bg-border-dim mx-1" />
-                    <div className="flex items-center gap-2">
-                      <span className="text-[8px] font-black text-text-dim uppercase">Hasta</span>
-                      <input 
-                        type="date" 
-                        value={endDate}
-                        onChange={(e) => setEndDate(e.target.value)}
-                        className="bg-transparent border-none text-[10px] font-mono text-text-main outline-none focus:ring-0 p-0"
-                      />
-                    </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        const d = new Date(currentDateStr + 'T12:00:00');
+                        if (periodType === 'weekly') {
+                          d.setDate(d.getDate() - 7);
+                        } else {
+                          d.setMonth(d.getMonth() - 1);
+                        }
+                        setCurrentDateStr(d.toISOString().split('T')[0]);
+                      }}
+                      className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
+                    >
+                      &larr; Anterior
+                    </button>
+
+                    <span className="text-[10px] font-mono font-black text-brand-500 bg-bg-accent/60 border border-border-dim px-4 py-1.5 rounded uppercase tracking-widest">
+                      {periodType === 'weekly' ? activeWeekRange.label : activeMonthRange.monthLabel}
+                    </span>
+
+                    <button
+                      onClick={() => {
+                        const d = new Date(currentDateStr + 'T12:00:00');
+                        if (periodType === 'weekly') {
+                          d.setDate(d.getDate() + 7);
+                        } else {
+                          d.setMonth(d.getMonth() + 1);
+                        }
+                        setCurrentDateStr(d.toISOString().split('T')[0]);
+                      }}
+                      className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
+                    >
+                      Siguiente &rarr;
+                    </button>
                   </div>
-               </div>
+                </div>
 
-               <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-bg-accent border-b border-border-dim">
-                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Rubro</th>
-                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Subrubro</th>
-                        <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[200px]">Concepto</th>
-                        <th className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest">Ejecución</th>
-                        {ACCOUNTS.map(acc => (
-                          <th key={acc.id} className="px-4 py-4 text-center min-w-[120px]">
-                            <div className="flex flex-col items-center gap-1">
-                              <acc.icon size={14} className={acc.color} />
-                              <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">{acc.name}</span>
-                            </div>
-                          </th>
-                        ))}
-                        <th className="px-6 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border-dim font-mono">
-                      {(Object.entries(activeEntriesByCat) as [string, FinanceEntry[]][]).map(([catId, catEntries]) => {
-                        const cat = FINANCE_CATEGORIES.find(c => c.id === catId);
-                        if (!cat) return null;
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left border-collapse min-w-[1200px]">
+                    {periodType === 'weekly' ? (
+                      <thead>
+                        <tr className="bg-bg-accent border-b border-border-dim">
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Rubro</th>
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Subrubro</th>
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[170px]">Concepto</th>
+                          <th className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest w-[80px]">Ejecución</th>
+                          {activeWeekRange.days.map((day) => (
+                            <th key={day.dateStr} className="px-2 py-4 text-center min-w-[100px] border-r border-border-dim/20 bg-bg-accent/10">
+                              <span className="text-[9px] font-black text-brand-500 block">{day.name.toUpperCase()}</span>
+                              <span className="text-[8px] font-mono text-text-dim block">{day.dateStr.slice(8, 10)}/{day.dateStr.slice(5, 7)}</span>
+                            </th>
+                          ))}
+                          {ACCOUNTS.map(acc => (
+                            <th key={acc.id} className="px-3 py-4 text-center min-w-[115px]">
+                              <div className="flex flex-col items-center gap-1">
+                                <acc.icon size={13} className={acc.color} />
+                                <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">{acc.name}</span>
+                              </div>
+                            </th>
+                          ))}
+                          <th className="px-4 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Total</th>
+                        </tr>
+                      </thead>
+                    ) : (
+                      <thead>
+                        <tr className="bg-bg-accent border-b border-border-dim">
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Rubro</th>
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Subrubro</th>
+                          <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[170px]">Concepto</th>
+                          <th className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest w-[80px]">Ejecución</th>
+                          {activeMonthRange.weeks.map((week) => (
+                            <th key={week.startStr} className="px-2 py-4 text-center min-w-[110px] border-r border-border-dim/20 bg-bg-accent/10">
+                              <span className="text-[9px] font-black text-brand-500 block">SEM {week.index + 1}</span>
+                              <span className="text-[7px] font-mono text-text-dim block">{week.startStr.slice(8, 10)}/{week.startStr.slice(5, 7)} al {week.endStr.slice(8, 10)}/{week.endStr.slice(5, 7)}</span>
+                            </th>
+                          ))}
+                          {ACCOUNTS.map(acc => (
+                            <th key={acc.id} className="px-3 py-4 text-center min-w-[115px]">
+                              <div className="flex flex-col items-center gap-1">
+                                <acc.icon size={13} className={acc.color} />
+                                <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">{acc.name}</span>
+                              </div>
+                            </th>
+                          ))}
+                          <th className="px-4 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px]">Total</th>
+                        </tr>
+                      </thead>
+                    )}
 
+                    <tbody className="divide-y divide-border-dim/30 font-medium font-sans">
+                      {categories.map((cat, catIdx) => {
                         return (
                           <React.Fragment key={cat.id}>
-                            {catEntries.map((entry, idx) => {
-                              const item = cat.items.find(i => i.id === entry.itemId);
-                              if (!item) return null;
+                            {cat.items.map((item, itemIdx) => {
+                              const row = groupedRows[item.id] || { dailyValues: Array(7).fill(0), weeklyValues: Array(activeMonthRange.weeks.length || 5).fill(0), accountValues: {}, total: 0, isExecuted: true, entriesInPeriod: [] };
+                              const rowTotal = row.total;
+                              const isExecuted = row.isExecuted;
+                              const entriesCount = row.entriesInPeriod.length;
 
-                              const amounts = entry.amounts;
-                              const totalRow = Object.values(amounts).reduce((a: number, b: any) => a + (b as number), 0);
-                              const isExecuted = entry.isExecuted;
-                              
                               return (
-                                <tr key={entry.id} className={cn(
-                                  "hover:bg-bg-accent/30 transition-colors group text-[10px]",
-                                  !isExecuted && "opacity-60"
+                                <tr key={item.id} className={cn(
+                                  "hover:bg-bg-accent/15 transition-colors group text-[10px]",
+                                  rowTotal === 0 && "opacity-30 hover:opacity-100",
+                                  !isExecuted && "bg-orange-500/5"
                                 )}>
-                                  <td className="px-4 py-2 font-black uppercase text-text-dim/50 tracking-tighter">
-                                    {idx === 0 ? cat.name : ''}
+                                  <td className="px-4 py-3 font-black uppercase text-text-dim/80 tracking-tighter text-[9px]">
+                                    {itemIdx === 0 ? cat.name : ""}
                                   </td>
-                                  <td className="px-4 py-2 font-bold uppercase text-text-dim/80">
+                                  
+                                  <td className="px-4 py-3 font-bold uppercase text-text-dim/70 truncate text-[9px]">
                                     {(item as any).subrubro}
                                   </td>
-                                  <td className="px-4 py-2">
-                                    <span className={cn(
-                                      "font-bold uppercase transition-colors",
-                                      isExecuted ? "text-text-main" : "text-text-dim italic"
-                                    )}>
-                                      {item.name}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-2 text-center">
-                                     <button 
-                                      onClick={() => toggleExecution(entry.id)}
-                                      className={cn(
-                                        "p-1.5 rounded-full transition-all scale-75 hover:scale-95",
-                                        isExecuted 
-                                          ? "bg-emerald-500 text-black shadow-lg" 
-                                          : "bg-bg-accent text-text-dim hover:text-brand-500 border border-border-dim"
-                                      )}
-                                     >
-                                        {isExecuted ? <Check size={10} strokeWidth={4} /> : <Circle size={10} />}
-                                     </button>
-                                  </td>
-                                  {ACCOUNTS.map(acc => (
-                                    <td key={acc.id} className={cn(
-                                      "px-4 py-2 text-center text-[10px] font-bold",
-                                      (amounts as any)[acc.id] !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-10'
-                                    )}>
-                                      {(amounts as any)[acc.id] !== 0 ? (
-                                        <span className="flex items-center justify-center gap-1">
-                                          {(amounts as any)[acc.id] < 0 ? '-' : ''}
-                                          <span className="opacity-40">$</span>
-                                          {Math.abs((amounts as any)[acc.id]).toLocaleString()}
+
+                                  <td className="px-4 py-3">
+                                    <div className="flex flex-col">
+                                      <span className={cn(
+                                        "font-black uppercase tracking-tight text-[10px]",
+                                        isExecuted ? "text-text-main" : "text-orange-400"
+                                      )}>
+                                        {item.name}
+                                      </span>
+                                      {entriesCount > 0 && (
+                                        <span className="text-[8px] font-bold text-text-dim uppercase mt-0.5 opacity-70">
+                                          {entriesCount} reg. en período
                                         </span>
-                                      ) : '-'}
-                                    </td>
-                                  ))}
+                                      )}
+                                    </div>
+                                  </td>
+
+                                  <td className="px-4 py-3 text-center">
+                                    {entriesCount > 0 ? (
+                                      <button 
+                                        onClick={() => toggleGroupExecution(item.id)}
+                                        className={cn(
+                                          "p-1.5 rounded-full transition-all scale-90",
+                                          isExecuted 
+                                            ? "bg-emerald-500 text-black shadow-md" 
+                                            : "bg-bg-accent border border-border-dim text-orange-400 hover:text-orange-500"
+                                        )}
+                                      >
+                                        {isExecuted ? <Check size={10} strokeWidth={4} /> : <AlertCircle size={10} strokeWidth={3} />}
+                                      </button>
+                                    ) : (
+                                      <span className="text-text-dim/20">-</span>
+                                    )}
+                                  </td>
+
+                                  {periodType === 'weekly' ? (
+                                    row.dailyValues.map((val, idx) => (
+                                      <td key={idx} className={cn(
+                                        "px-2 py-3 text-center font-mono text-[9px] border-r border-border-dim/10 bg-bg-accent/5",
+                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
+                                      )}>
+                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                      </td>
+                                    ))
+                                  ) : (
+                                    row.weeklyValues.map((val, idx) => (
+                                      <td key={idx} className={cn(
+                                        "px-2 py-3 text-center font-mono text-[9px] border-r border-border-dim/10 bg-bg-accent/5",
+                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold') : 'text-text-dim/15'
+                                      )}>
+                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                      </td>
+                                    ))
+                                  )}
+
+                                  {ACCOUNTS.map(acc => {
+                                    const val = row.accountValues[acc.id] || 0;
+                                    return (
+                                      <td key={acc.id} className={cn(
+                                        "px-2 py-3 text-center font-mono text-[9px]",
+                                        val !== 0 ? (cat.type === 'income' ? 'text-emerald-500/80 font-bold' : 'text-red-500/80 font-bold') : 'text-text-dim/15'
+                                      )}>
+                                        {val !== 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                                      </td>
+                                    );
+                                  })}
+
                                   <td className={cn(
-                                    "px-6 py-2 text-right text-[10px] font-black",
-                                    totalRow !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim opacity-10'
+                                    "px-4 py-3 text-right font-mono text-[10px] font-black",
+                                    rowTotal !== 0 ? (cat.type === 'income' ? 'text-emerald-400' : 'text-red-400') : 'text-text-dim/20'
                                   )}>
-                                     {totalRow !== 0 ? `$${Math.abs(totalRow as number).toLocaleString()}` : '-'}
+                                    {rowTotal !== 0 ? `$${rowTotal.toLocaleString('es-AR')}` : '-'}
                                   </td>
                                 </tr>
                               );
@@ -722,58 +1031,184 @@ export default function FinanceView({
                         );
                       })}
                     </tbody>
-                    <tfoot className="bg-bg-main/80 backdrop-blur font-black text-text-main border-t-2 border-border-dim">
-                      {/* REAL Footer Row */}
-                      <tr className="border-b border-border-dim/30">
-                        <td className="px-6 py-3 uppercase tracking-widest text-[9px] text-emerald-400 italic">Saldo Final REAL (Ejecutado)</td>
-                        <td className="px-4 py-3"></td>
+
+                    <tfoot className="bg-bg-sidebar/95 backdrop-blur font-black text-text-main border-t-2 border-border-dim text-[9px]">
+                      {/* ROW 1: TOTAL INGRESOS */}
+                      <tr className="border-b border-border-dim/30 bg-emerald-500/5">
+                        <td className="px-4 py-2.5 text-emerald-400 font-black tracking-wider uppercase">Ingresos Totales</td>
+                        <td className="px-4 py-2.5"></td>
+                        <td className="px-4 py-2.5"></td>
+                        <td className="px-4 py-2.5"></td>
+                        {periodType === 'weekly' ? (
+                          columnTotals.daysIncome.map((val, idx) => (
+                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-bold bg-emerald-500/5 border-r border-border-dim/10">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          ))
+                        ) : (
+                          columnTotals.weeksIncome.map((val, idx) => (
+                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-bold bg-emerald-500/5 border-r border-border-dim/10">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          ))
+                        )}
                         {ACCOUNTS.map(acc => {
-                           const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const final = (initialBalances[acc.id] as number) + income - expense;
-                           return (
-                             <td key={acc.id} className="px-4 py-3 text-center font-mono text-xs text-emerald-400">
-                               ${final.toLocaleString()}
-                             </td>
-                           );
+                          const val = columnTotals.accountsIncome[acc.id] || 0;
+                          return (
+                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-emerald-400 font-extrabold">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          );
                         })}
-                        <td className="px-6 py-3 text-right font-mono text-xs text-emerald-400">
-                           ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             allEntries.filter(e => e.isExecuted).reduce((total: number, e) => {
-                               const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
-                               const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
-                               const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
-                               return total + val;
-                             }, 0)).toLocaleString()}
+                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-emerald-400 font-black italic">
+                          ${columnTotals.totalIncome.toLocaleString('es-AR')}
                         </td>
                       </tr>
-                      {/* PROYECTADO Footer Row */}
-                      <tr>
-                        <td className="px-6 py-4 uppercase tracking-widest text-[9px] text-brand-500">Saldo PROYECTADO (Cierre esperado)</td>
-                        <td className="px-4 py-4"></td>
+
+                      {/* ROW 2: TOTAL EGRESOS */}
+                      <tr className="border-b border-border-dim/30 bg-red-500/5">
+                        <td className="px-4 py-2.5 text-red-400 font-black tracking-wider uppercase">Egresos Totales</td>
+                        <td className="px-4 py-2.5"></td>
+                        <td className="px-4 py-2.5"></td>
+                        <td className="px-4 py-2.5"></td>
+                        {periodType === 'weekly' ? (
+                          columnTotals.daysExpense.map((val, idx) => (
+                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-red-400 font-bold bg-red-500/5 border-r border-border-dim/10">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          ))
+                        ) : (
+                          columnTotals.weeksExpense.map((val, idx) => (
+                            <td key={idx} className="px-2 py-2.5 text-center font-mono text-red-400 font-bold bg-red-500/5 border-r border-border-dim/10">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          ))
+                        )}
                         {ACCOUNTS.map(acc => {
-                           const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                           const final = (initialBalances[acc.id] as number) + income - expense;
-                           return (
-                             <td key={acc.id} className="px-4 py-4 text-center font-mono text-sm text-brand-500">
-                               ${final.toLocaleString()}
-                             </td>
-                           );
+                          const val = columnTotals.accountsExpense[acc.id] || 0;
+                          return (
+                            <td key={acc.id} className="px-2 py-2.5 text-center font-mono text-red-400 font-extrabold">
+                              {val > 0 ? `$${val.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          );
                         })}
-                        <td className="px-6 py-4 text-right font-mono text-sm text-brand-500">
-                           ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             allEntries.reduce((total: number, e) => {
-                               const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
-                               const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
-                               const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
-                               return total + val;
-                             }, 0)).toLocaleString()}
+                        <td className="px-4 py-2.5 text-right font-mono text-[10px] text-red-400 font-black italic">
+                          ${columnTotals.totalExpense.toLocaleString('es-AR')}
+                        </td>
+                      </tr>
+
+                      {/* ROW 3: FLUJO NETO */}
+                      <tr className="border-b-2 border-border-dim bg-brand-500/5">
+                        <td className="px-4 py-3 text-brand-500 font-black tracking-widest uppercase">Flujo de Caja Neto</td>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"></td>
+                        {periodType === 'weekly' ? (
+                          columnTotals.daysIncome.map((inc, idx) => {
+                            const exp = columnTotals.daysExpense[idx];
+                            const net = inc - exp;
+                            return (
+                              <td key={idx} className={cn(
+                                "px-2 py-3 text-center font-mono font-bold bg-brand-500/5 border-r border-border-dim/10",
+                                net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
+                              )}>
+                                {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
+                              </td>
+                            );
+                          })
+                        ) : (
+                          columnTotals.weeksIncome.map((inc, idx) => {
+                            const exp = columnTotals.weeksExpense[idx];
+                            const net = inc - exp;
+                            return (
+                              <td key={idx} className={cn(
+                                "px-2 py-3 text-center font-mono font-bold bg-brand-500/5 border-r border-border-dim/10",
+                                net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
+                              )}>
+                                {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
+                              </td>
+                            );
+                          })
+                        )}
+                        {ACCOUNTS.map(acc => {
+                          const inc = columnTotals.accountsIncome[acc.id] || 0;
+                          const exp = columnTotals.accountsExpense[acc.id] || 0;
+                          const net = inc - exp;
+                          return (
+                            <td key={acc.id} className={cn(
+                              "px-2 py-3 text-center font-mono font-black",
+                              net === 0 ? "text-text-dim/20" : net > 0 ? "text-emerald-400" : "text-red-400"
+                            )}>
+                              {net !== 0 ? `${net < 0 ? '-' : ''}$${Math.abs(net).toLocaleString('es-AR')}` : '-'}
+                            </td>
+                          );
+                        })}
+                        <td className={cn(
+                          "px-4 py-3 text-right font-mono text-[10px] font-black",
+                          (columnTotals.totalIncome - columnTotals.totalExpense) > 0 ? "text-emerald-400" : "text-red-400"
+                        )}>
+                          ${(columnTotals.totalIncome - columnTotals.totalExpense).toLocaleString('es-AR')}
+                        </td>
+                      </tr>
+
+                      {/* ROW 4: SALDO FINAL REAL */}
+                      <tr className="border-b border-border-dim/30 bg-bg-card/30">
+                        <td className="px-4 py-3 text-emerald-400 font-sans tracking-wide uppercase">Saldo Final REAL (Ejecutado)</td>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"></td>
+                        <td className="px-4 py-3"></td>
+                        {periodType === 'weekly' ? Array(7).fill(0).map((_, i) => <td key={i} className="px-2 py-3 text-center text-text-dim/10 border-r border-border-dim/10">-</td>) : activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)}
+                        {ACCOUNTS.map(acc => {
+                          const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                          const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                          const final = (initialBalances[acc.id] as number) + income - expense;
+                          return (
+                            <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold">
+                              ${final.toLocaleString('es-AR')}
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold">
+                          ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
+                            allEntries.filter(e => e.isExecuted).reduce((total: number, e: any) => {
+                              const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+                              const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
+                              const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
+                              return total + val;
+                            }, 0)).toLocaleString('es-AR')}
+                        </td>
+                      </tr>
+
+                      {/* ROW 5: SALDO PROYECTADO */}
+                      <tr className="bg-bg-card/50">
+                        <td className="px-4 py-3.5 text-brand-500 font-sans tracking-wide uppercase">Saldo PROYECTADO (Cierre esperado)</td>
+                        <td className="px-4 py-3.5"></td>
+                        <td className="px-4 py-3.5"></td>
+                        <td className="px-4 py-3.5"></td>
+                        {periodType === 'weekly' ? Array(7).fill(0).map((_, i) => <td key={i} className="px-2 py-3.5 text-center text-text-dim/10 border-r border-border-dim/10">-</td>) : activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3.5 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)}
+                        {ACCOUNTS.map(acc => {
+                          const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                          const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                          const final = (initialBalances[acc.id] as number) + income - expense;
+                          return (
+                            <td key={acc.id} className="px-4 py-3.5 text-center font-mono text-[10px] text-brand-500 font-extrabold">
+                              ${final.toLocaleString('es-AR')}
+                            </td>
+                          );
+                        })}
+                        <td className="px-4 py-3.5 text-right font-mono text-[10px] text-brand-500 font-extrabold">
+                          ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
+                            allEntries.reduce((total: number, e: any) => {
+                              const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+                              const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
+                              const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
+                              return total + val;
+                            }, 0)).toLocaleString('es-AR')}
                         </td>
                       </tr>
                     </tfoot>
                   </table>
-               </div>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">

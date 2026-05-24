@@ -49,7 +49,7 @@ export default function PaymentScheduleView() {
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
-  const [filterWeekOnly, setFilterWeekOnly] = useState(true);
+  const [filterPeriodType, setFilterPeriodType] = useState<'week' | 'month' | 'all'>('week');
 
   // Modal Control States
   const [showModal, setShowModal] = useState(false);
@@ -91,10 +91,10 @@ export default function PaymentScheduleView() {
   const isDateInCurrentWeek = (dateStr: string) => {
     if (!dateStr) return false;
     const itemDate = new Date(dateStr + 'T12:00:00');
-    const today = new Date('2026-05-24T12:00:00'); // Consistent with prompt metadata (May 24, 2026 is Sunday)
+    const today = new Date('2026-05-24T12:00:00');
     
     // Get Monday of this week
-    const currentDay = today.getDay(); // 0 is Sun, 1 is Mon
+    const currentDay = today.getDay();
     const distanceToMonday = currentDay === 0 ? 6 : currentDay - 1;
     const sWeek = new Date(today);
     sWeek.setDate(today.getDate() - distanceToMonday);
@@ -105,6 +105,14 @@ export default function PaymentScheduleView() {
     eWeek.setHours(23, 59, 59, 999);
 
     return itemDate >= sWeek && itemDate <= eWeek;
+  };
+
+  // Check if date belongs to the current calendar month
+  const isDateInCurrentMonth = (dateStr: string) => {
+    if (!dateStr) return false;
+    const itemDate = new Date(dateStr + 'T12:00:00');
+    const today = new Date('2026-05-24T12:00:00');
+    return itemDate.getFullYear() === today.getFullYear() && itemDate.getMonth() === today.getMonth();
   };
 
   // Get start/end string for current week display
@@ -122,13 +130,24 @@ export default function PaymentScheduleView() {
     return `${format(sWeek)} al ${format(eWeek)}`;
   }, []);
 
+  const monthLabelString = useMemo(() => {
+    const today = new Date('2026-05-24T12:00:00');
+    const months = [
+      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    return `${months[today.getMonth()]} de ${today.getFullYear()}`;
+  }, []);
+
   // Filtered Payments list
   const processedPayments = useMemo(() => {
     let list = [...payments];
 
-    // Filter by week
-    if (filterWeekOnly) {
+    // Filter by selected period
+    if (filterPeriodType === 'week') {
       list = list.filter(p => isDateInCurrentWeek(p.dueDate));
+    } else if (filterPeriodType === 'month') {
+      list = list.filter(p => isDateInCurrentMonth(p.dueDate));
     }
 
     // Filter by search string
@@ -149,7 +168,7 @@ export default function PaymentScheduleView() {
 
     // Sort by Due Date
     return list.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  }, [payments, search, filterCategory, filterWeekOnly]);
+  }, [payments, search, filterCategory, filterPeriodType]);
 
   // Dashboard Stats Calculations
   const stats = useMemo(() => {
@@ -307,19 +326,44 @@ export default function PaymentScheduleView() {
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
-            {/* Week switch */}
-            <button
-              onClick={() => setFilterWeekOnly(!filterWeekOnly)}
-              className={cn(
-                "px-4 py-2 rounded text-[10px] font-black uppercase tracking-wider border transition-all flex items-center gap-2",
-                filterWeekOnly 
-                  ? "bg-brand-500/10 border-brand-500/40 text-brand-500" 
-                  : "bg-bg-accent border-border-dim text-text-dim hover:text-text-main"
-              )}
-            >
-              <Calendar size={13} />
-              {filterWeekOnly ? `Semana Actual: ${weekRangeString}` : "Ver Todos los Vencimientos"}
-            </button>
+            {/* Period selector */}
+            <div className="flex bg-bg-accent border border-border-dim p-1 rounded">
+              <button
+                type="button"
+                onClick={() => setFilterPeriodType('week')}
+                className={cn(
+                  "px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  filterPeriodType === 'week' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                )}
+              >
+                Semana
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterPeriodType('month')}
+                className={cn(
+                  "px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  filterPeriodType === 'month' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                )}
+              >
+                Mes
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterPeriodType('all')}
+                className={cn(
+                  "px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  filterPeriodType === 'all' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                )}
+              >
+                Ver Todos
+              </button>
+            </div>
+
+            {/* Range string indicator */}
+            <span className="text-[9px] font-mono font-black text-brand-500 uppercase tracking-widest bg-bg-accent/60 px-3 py-2 border border-border-dim rounded">
+              {filterPeriodType === 'week' ? `Semana: ${weekRangeString}` : filterPeriodType === 'month' ? `Mes: ${monthLabelString}` : 'Todo el Cronograma'}
+            </span>
 
             {/* Custom Category dropdown */}
             <div className="flex items-center gap-2">
@@ -451,7 +495,7 @@ export default function PaymentScheduleView() {
               {processedPayments.length === 0 && (
                 <tr>
                   <td colSpan={6} className="py-8 text-center text-xs text-text-dim uppercase font-bold italic">
-                    Sin compromisos registrados {filterWeekOnly ? 'para la semana actual' : 'en la consulta'}
+                    Sin compromisos registrados {filterPeriodType === 'week' ? 'para la semana actual' : filterPeriodType === 'month' ? 'para el mes actual' : 'en la consulta'}
                   </td>
                 </tr>
               )}

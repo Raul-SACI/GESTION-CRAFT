@@ -714,44 +714,7 @@ function AppContent() {
               </button>
             )}
 
-            {!['finanzas_estimado', 'cronograma_pagos', 'finanzas_mensual'].includes(activeTab) && (
-              <>
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-text-dim uppercase font-bold tracking-tighter">Sucursal Activa</span>
-                  <div className="flex items-center gap-3 mt-0.5">
-                    <select 
-                      value={selectedBranchId}
-                      onChange={(e) => setSelectedBranchId(e.target.value)}
-                      className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[11px] font-black uppercase text-brand-500 outline-none focus:border-brand-500/50 shadow-inner"
-                    >
-                      <option value="all">CONSOLIDADO (TODAS)</option>
-                      {branches.map(b => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
-                    </select>
-                    {selectedBranchId !== 'all' && branches.find(b => b.id === selectedBranchId)?.googleMapsUrl && (
-                      <a 
-                        href={branches.find(b => b.id === selectedBranchId)?.googleMapsUrl} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="text-text-dim hover:text-brand-500 transition-colors"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                  </div>
-                </div>
-                <div className="hidden lg:flex flex-col border-l border-border-dim/30 pl-8">
-                  <span className="text-[10px] text-text-dim uppercase font-bold tracking-tighter">Ventas Semanales</span>
-                  <span className="text-sm font-mono text-text-main tracking-tight mt-0.5">
-                    ${salesComparison.current.toLocaleString()} 
-                    <span className={cn("text-[10px] ml-2", salesComparison.isUp ? "text-emerald-500" : "text-red-500")}>
-                      {salesComparison.isUp ? '+' : ''}{salesComparison.diff}%
-                    </span>
-                  </span>
-                </div>
-              </>
-            )}
+            {/* Sucursal Activa and Ventas Semanales removed per user requirement */}
           </div>
 
           <div className="flex items-center gap-4">
