@@ -294,6 +294,40 @@ export default function FinanceView({
     ];
   });
 
+  const [weeklyClosings, setWeeklyClosings] = useState<Record<string, Record<string, number>>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('craft_weekly_closings');
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch (e) {
+          console.error("Error loading weekly closings from localStorage", e);
+        }
+      }
+    }
+    // Default initial data for closing balances:
+    return {
+      '2026-05-17': {
+        efectivo: 5258100,
+        bbva: 850000,
+        santander: 14515000,
+        ciudad: 0,
+        nacion: 0,
+        macro: 0,
+        mp: 0
+      }
+    };
+  });
+
+  const saveWeeklyClosings = (newClosings: Record<string, Record<string, number>>) => {
+    setWeeklyClosings(newClosings);
+    localStorage.setItem('craft_weekly_closings', JSON.stringify(newClosings));
+  };
+
+  const [dailyBreakdownMode, setDailyBreakdownMode] = useState<'projected' | 'executed'>('projected');
+  const [showCloseWeekModal, setShowCloseWeekModal] = useState(false);
+  const [closeWeekForm, setCloseWeekForm] = useState<Record<string, number>>({});
+
   useEffect(() => {
     localStorage.setItem('craft_finance_entries', JSON.stringify(entries));
   }, [entries]);
@@ -364,6 +398,52 @@ export default function FinanceView({
       label: `Semana del Lunes ${daysOfWeek[0].shortLabel.split(' ')[1]} al Domingo ${daysOfWeek[6].shortLabel.split(' ')[1]}`
     };
   }, [currentDateStr]);
+
+  // Dynamic starting balances computed from the closest preceding closed Sunday
+  const weekStartBalances = useMemo(() => {
+    const prevSundayObj = new Date(activeWeekRange.monday + 'T12:00:00');
+    prevSundayObj.setDate(prevSundayObj.getDate() - 1);
+    const prevSundayStr = prevSundayObj.toISOString().split('T')[0];
+
+    // Priority 1: Direct previous Sunday
+    if (weeklyClosings[prevSundayStr]) {
+      return {
+        efectivo: weeklyClosings[prevSundayStr].efectivo || 0,
+        bbva: weeklyClosings[prevSundayStr].bbva || 0,
+        santander: weeklyClosings[prevSundayStr].santander || 0,
+        ciudad: weeklyClosings[prevSundayStr].ciudad || 0,
+        nacion: weeklyClosings[prevSundayStr].nacion || 0,
+        macro: weeklyClosings[prevSundayStr].macro || 0,
+        mp: weeklyClosings[prevSundayStr].mp || 0
+      };
+    }
+
+    // Priority 2: Closest preceding closed Sunday
+    const sortedSundays = Object.keys(weeklyClosings).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+    const precedingSunday = sortedSundays.find(sDate => sDate < activeWeekRange.monday);
+    if (precedingSunday && weeklyClosings[precedingSunday]) {
+      return {
+        efectivo: weeklyClosings[precedingSunday].efectivo || 0,
+        bbva: weeklyClosings[precedingSunday].bbva || 0,
+        santander: weeklyClosings[precedingSunday].santander || 0,
+        ciudad: weeklyClosings[precedingSunday].ciudad || 0,
+        nacion: weeklyClosings[precedingSunday].nacion || 0,
+        macro: weeklyClosings[precedingSunday].macro || 0,
+        mp: weeklyClosings[precedingSunday].mp || 0
+      };
+    }
+
+    // Fallback default values
+    return {
+      efectivo: 5258100,
+      bbva: 850000,
+      santander: 14515000,
+      ciudad: 0,
+      nacion: 0,
+      macro: 0,
+      mp: 0
+    };
+  }, [activeWeekRange.monday, weeklyClosings]);
 
   // Calculate weeks of current month (with overlapping Mon-Sun weeks)
   const activeMonthRange = useMemo(() => {
@@ -453,13 +533,13 @@ export default function FinanceView({
   const filteredEntriesForActivePeriod = useMemo(() => {
     if (periodType === 'weekly') {
       const { monday, sunday } = activeWeekRange;
-      return allEntries.filter(e => e.date >= monday && e.date <= sunday);
+      return allEntries.filter(e => e.date >= monday && e.date <= sunday && e.itemId !== 'balance_start');
     } else {
       const { weeks } = activeMonthRange;
       if (weeks.length === 0) return [];
       const minStart = weeks[0].startStr;
       const maxEnd = weeks[weeks.length - 1].endStr;
-      return allEntries.filter(e => e.date >= minStart && e.date <= maxEnd);
+      return allEntries.filter(e => e.date >= minStart && e.date <= maxEnd && e.itemId !== 'balance_start');
     }
   }, [allEntries, periodType, activeWeekRange, activeMonthRange]);
 
@@ -522,8 +602,22 @@ export default function FinanceView({
       }
     });
 
+    // Override/set the weekly or monthly balance_start row to match weekStartBalances!
+    if (data['balance_start']) {
+      const sum = Object.values(weekStartBalances).reduce((a, b) => a + b, 0);
+      data['balance_start'].total = sum;
+      if (periodType === 'weekly') {
+        data['balance_start'].dailyValues[0] = sum; // Put on Monday
+      } else {
+        data['balance_start'].weeklyValues[0] = sum; // Put in first week of month
+      }
+      ACCOUNTS.forEach(a => {
+        data['balance_start'].accountValues[a.id] = weekStartBalances[a.id] || 0;
+      });
+    }
+
     return data;
-  }, [categories, filteredEntriesForActivePeriod, periodType, activeWeekRange, activeMonthRange]);
+  }, [categories, filteredEntriesForActivePeriod, periodType, activeWeekRange, activeMonthRange, weekStartBalances]);
 
   // Compute column totals for the footer
   const columnTotals = useMemo(() => {
@@ -573,6 +667,96 @@ export default function FinanceView({
     return totals;
   }, [categories, groupedRows, activeMonthRange.weeks, periodType]);
 
+  // Daily account balances (Estimado / Proyectado - ALL entries)
+  const dailyAccountBalancesProjected = useMemo(() => {
+    const days = activeWeekRange.days;
+    const result: Array<{
+      dateStr: string;
+      name: string;
+      accounts: Record<string, { start: number; income: number; expense: number; end: number }>;
+    }> = [];
+
+    const currentBalances = { ...weekStartBalances };
+
+    days.forEach((day) => {
+      const dayEntries = allEntries.filter(e => e.date === day.dateStr && e.itemId !== 'balance_start');
+      const dayAccData: Record<string, { start: number; income: number; expense: number; end: number }> = {};
+
+      ACCOUNTS.forEach(acc => {
+        let incSum = 0;
+        let expSum = 0;
+
+        dayEntries.forEach(entry => {
+          const amt = (entry.amounts[acc.id] as number) || 0;
+          const cat = categories.find(c => c.items.some(i => i.id === entry.itemId));
+          if (cat) {
+            if (cat.type === 'income') incSum += amt;
+            else expSum += amt;
+          }
+        });
+
+        const start = currentBalances[acc.id] || 0;
+        const end = start + incSum - expSum;
+
+        dayAccData[acc.id] = { start, income: incSum, expense: expSum, end };
+        currentBalances[acc.id] = end;
+      });
+
+      result.push({
+        dateStr: day.dateStr,
+        name: day.name,
+        accounts: dayAccData
+      });
+    });
+
+    return result;
+  }, [activeWeekRange.days, allEntries, weekStartBalances, categories]);
+
+  // Daily account balances (Real / Ejecutado - isExecuted === true)
+  const dailyAccountBalancesExecuted = useMemo(() => {
+    const days = activeWeekRange.days;
+    const result: Array<{
+      dateStr: string;
+      name: string;
+      accounts: Record<string, { start: number; income: number; expense: number; end: number }>;
+    }> = [];
+
+    const currentBalances = { ...weekStartBalances };
+
+    days.forEach((day) => {
+      const dayEntries = allEntries.filter(e => e.date === day.dateStr && e.itemId !== 'balance_start' && e.isExecuted);
+      const dayAccData: Record<string, { start: number; income: number; expense: number; end: number }> = {};
+
+      ACCOUNTS.forEach(acc => {
+        let incSum = 0;
+        let expSum = 0;
+
+        dayEntries.forEach(entry => {
+          const amt = (entry.amounts[acc.id] as number) || 0;
+          const cat = categories.find(c => c.items.some(i => i.id === entry.itemId));
+          if (cat) {
+            if (cat.type === 'income') incSum += amt;
+            else expSum += amt;
+          }
+        });
+
+        const start = currentBalances[acc.id] || 0;
+        const end = start + incSum - expSum;
+
+        dayAccData[acc.id] = { start, income: incSum, expense: expSum, end };
+        currentBalances[acc.id] = end;
+      });
+
+      result.push({
+        dateStr: day.dateStr,
+        name: day.name,
+        accounts: dayAccData
+      });
+    });
+
+    return result;
+  }, [activeWeekRange.days, allEntries, weekStartBalances, categories]);
+
   const toggleGroupExecution = (itemId: string) => {
     const row = groupedRows[itemId];
     if (!row || row.entriesInPeriod.length === 0) return;
@@ -590,6 +774,10 @@ export default function FinanceView({
   };
 
   const activeEntriesByCat = groupedRows; // fallback alias to avoid missing referencing errors if used downstream
+
+  const hasClosedCurrentWeek = useMemo(() => {
+    return !!weeklyClosings[activeWeekRange.sunday];
+  }, [weeklyClosings, activeWeekRange.sunday]);
 
   const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : 'Flujo de Caja Estimado';
   const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
@@ -810,6 +998,77 @@ export default function FinanceView({
             exit={{ opacity: 0, x: 20 }}
             className="space-y-6"
           >
+            {periodType === 'weekly' && !hasClosedCurrentWeek && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-500 p-5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-pulse">
+                <div className="flex items-center gap-3">
+                  <AlertCircle size={20} className="text-red-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider">⚠️ COMPROMISO DE CIERRE REQUERIDO</p>
+                    <p className="text-[10px] text-text-dim uppercase font-bold mt-1">
+                      No se han registrado los Saldos Finales Reales de Cierre para la semana (<span className="text-red-400 font-mono">{activeWeekRange.label}</span>). Carga los saldos de cierre reales de cada medio de cobro.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const lastDayProj = dailyAccountBalancesProjected[6]?.accounts || {};
+                    const formInitial: Record<string, number> = {};
+                    ACCOUNTS.forEach(a => {
+                      formInitial[a.id] = lastDayProj[a.id]?.end || 0;
+                    });
+                    setCloseWeekForm(formInitial);
+                    setShowCloseWeekModal(true);
+                  }}
+                  className="bg-red-500 text-black font-black text-[9px] uppercase tracking-widest px-4 py-2 rounded hover:bg-red-600 transition-colors w-full sm:w-auto shrink-0"
+                >
+                  Cargar Saldos de Cierre
+                </button>
+              </div>
+            )}
+
+            {periodType === 'weekly' && hasClosedCurrentWeek && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 p-5 rounded-lg flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider">✓ SEMANA CERRADA CON ÉXITO</p>
+                    <p className="text-[10px] text-text-dim uppercase font-bold mt-0.5">
+                      Saldos Reales de cierre registrados. El saldo final servirá como saldo inicial de la semana entrante.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const closedVals = weeklyClosings[activeWeekRange.sunday] || {};
+                      const formInitial: Record<string, number> = {};
+                      ACCOUNTS.forEach(a => {
+                        formInitial[a.id] = closedVals[a.id] || 0;
+                      });
+                      setCloseWeekForm(formInitial);
+                      setShowCloseWeekModal(true);
+                    }}
+                    className="bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-black text-[9px] uppercase tracking-widest px-4 py-2 rounded hover:bg-emerald-500/30 transition-colors"
+                  >
+                     Ver / Editar Saldos
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm("¿Estás seguro de que deseas reabrir el período de esta semana? Se restablecerán las proyecciones para el saldo inicial de la semana entrante.")) {
+                        const newClosings = { ...weeklyClosings };
+                        delete newClosings[activeWeekRange.sunday];
+                        saveWeeklyClosings(newClosings);
+                        alert("La semana ha sido reabierta.");
+                      }
+                    }}
+                    className="bg-red-500/10 hover:bg-red-500/20 text-red-400 font-black text-[9px] uppercase tracking-widest px-4 py-2 rounded border border-red-500/20 transition-all"
+                  >
+                    Reabrir
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="bg-bg-card border border-border-dim rounded-lg overflow-hidden">
                 {/* CALENDAR NAVIGATION & VIEW TOGGLES */}
                 <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-card/50">
@@ -1106,7 +1365,8 @@ export default function FinanceView({
                         {periodType === 'weekly' ? (
                           columnTotals.daysIncome.map((inc, idx) => {
                             const exp = columnTotals.daysExpense[idx];
-                            const net = inc - exp;
+                            const startBalanceVal = groupedRows['balance_start']?.dailyValues[idx] || 0;
+                            const net = (inc - startBalanceVal) - exp;
                             return (
                               <td key={idx} className={cn(
                                 "px-2 py-3 text-center font-mono font-bold bg-brand-500/5 border-r border-border-dim/10",
@@ -1119,7 +1379,8 @@ export default function FinanceView({
                         ) : (
                           columnTotals.weeksIncome.map((inc, idx) => {
                             const exp = columnTotals.weeksExpense[idx];
-                            const net = inc - exp;
+                            const startBalanceVal = groupedRows['balance_start']?.weeklyValues[idx] || 0;
+                            const net = (inc - startBalanceVal) - exp;
                             return (
                               <td key={idx} className={cn(
                                 "px-2 py-3 text-center font-mono font-bold bg-brand-500/5 border-r border-border-dim/10",
@@ -1133,7 +1394,8 @@ export default function FinanceView({
                         {ACCOUNTS.map(acc => {
                           const inc = columnTotals.accountsIncome[acc.id] || 0;
                           const exp = columnTotals.accountsExpense[acc.id] || 0;
-                          const net = inc - exp;
+                          const startBalanceVal = groupedRows['balance_start']?.accountValues[acc.id] || 0;
+                          const net = (inc - startBalanceVal) - exp;
                           return (
                             <td key={acc.id} className={cn(
                               "px-2 py-3 text-center font-mono font-black",
@@ -1144,72 +1406,216 @@ export default function FinanceView({
                           );
                         })}
                         <td className={cn(
-                          "px-4 py-3 text-right font-mono text-[10px] font-black",
-                          (columnTotals.totalIncome - columnTotals.totalExpense) > 0 ? "text-emerald-400" : "text-red-400"
+                          "px-4 py-3 text-right font-mono text-[9px] font-black",
+                          ((columnTotals.totalIncome - (groupedRows['balance_start']?.total || 0)) - columnTotals.totalExpense) > 0 ? "text-emerald-400" : "text-red-400"
                         )}>
-                          ${(columnTotals.totalIncome - columnTotals.totalExpense).toLocaleString('es-AR')}
+                          ${((columnTotals.totalIncome - (groupedRows['balance_start']?.total || 0)) - columnTotals.totalExpense).toLocaleString('es-AR')}
                         </td>
                       </tr>
 
                       {/* ROW 4: SALDO FINAL REAL */}
-                      <tr className="border-b border-border-dim/30 bg-bg-card/30">
-                        <td className="px-4 py-3 text-emerald-400 font-sans tracking-wide uppercase">Saldo Final REAL (Ejecutado)</td>
+                      <tr className="border-b border-border-dim/30 bg-bg-card/30 text-[9px]">
+                        <td className="px-4 py-3 text-emerald-400 font-sans tracking-wide uppercase font-black">Saldo Final REAL (Ejecutado)</td>
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
-                        {periodType === 'weekly' ? Array(7).fill(0).map((_, i) => <td key={i} className="px-2 py-3 text-center text-text-dim/10 border-r border-border-dim/10">-</td>) : activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)}
+                        {periodType === 'weekly' ? (
+                          dailyAccountBalancesExecuted.map((dayData, i) => {
+                            const totalDayEnd = Object.values(dayData.accounts).reduce((s, a) => s + a.end, 0);
+                            return (
+                              <td key={i} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
+                                ${totalDayEnd.toLocaleString('es-AR')}
+                              </td>
+                            );
+                          })
+                        ) : (
+                          activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)
+                        )}
                         {ACCOUNTS.map(acc => {
-                          const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                          const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                          const final = (initialBalances[acc.id] as number) + income - expense;
+                          const final = periodType === 'weekly' 
+                            ? (dailyAccountBalancesExecuted[6]?.accounts[acc.id]?.end || 0)
+                            : (() => {
+                                const income = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                                const expense = allEntries.filter(e => e.isExecuted && categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                                return (initialBalances[acc.id] as number) + income - expense;
+                              })();
                           return (
-                            <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold">
+                            <td key={acc.id} className="px-2 py-3 text-center font-mono text-[9px] text-emerald-400 font-bold border-r border-border-dim/10 bg-emerald-500/5">
                               ${final.toLocaleString('es-AR')}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold">
-                          ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                            allEntries.filter(e => e.isExecuted).reduce((total: number, e: any) => {
-                              const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
-                              const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
-                              const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
-                              return total + val;
-                            }, 0)).toLocaleString('es-AR')}
+                        <td className="px-4 py-3 text-right font-mono text-[9px] text-emerald-400 font-bold bg-emerald-500/5">
+                          ${(periodType === 'weekly'
+                            ? Object.values(dailyAccountBalancesExecuted[6]?.accounts || {}).reduce((s, a) => s + a.end, 0)
+                            : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
+                               allEntries.filter(e => e.isExecuted).reduce((total: number, e: any) => {
+                                 const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+                                 const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
+                                 const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
+                                 return total + val;
+                               }, 0))
+                          ).toLocaleString('es-AR')}
                         </td>
                       </tr>
 
                       {/* ROW 5: SALDO PROYECTADO */}
-                      <tr className="bg-bg-card/50">
-                        <td className="px-4 py-3.5 text-brand-500 font-sans tracking-wide uppercase">Saldo PROYECTADO (Cierre esperado)</td>
+                      <tr className="bg-bg-card/50 text-[9px]">
+                        <td className="px-4 py-3.5 text-brand-500 font-sans tracking-wide uppercase font-black">Saldo PROYECTADO (Cierre esperado)</td>
                         <td className="px-4 py-3.5"></td>
                         <td className="px-4 py-3.5"></td>
                         <td className="px-4 py-3.5"></td>
-                        {periodType === 'weekly' ? Array(7).fill(0).map((_, i) => <td key={i} className="px-2 py-3.5 text-center text-text-dim/10 border-r border-border-dim/10">-</td>) : activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3.5 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)}
+                        {periodType === 'weekly' ? (
+                          dailyAccountBalancesProjected.map((dayData, i) => {
+                            const totalDayEnd = Object.values(dayData.accounts).reduce((s, a) => s + a.end, 0);
+                            return (
+                              <td key={i} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
+                                ${totalDayEnd.toLocaleString('es-AR')}
+                              </td>
+                            );
+                          })
+                        ) : (
+                          activeMonthRange.weeks.map((_, i) => <td key={i} className="px-2 py-3.5 text-center text-text-dim/10 border-r border-border-dim/10">-</td>)
+                        )}
                         {ACCOUNTS.map(acc => {
-                          const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                          const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
-                          const final = (initialBalances[acc.id] as number) + income - expense;
+                          const final = periodType === 'weekly' 
+                            ? (dailyAccountBalancesProjected[6]?.accounts[acc.id]?.end || 0)
+                            : (() => {
+                                const income = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'income').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                                const expense = allEntries.filter(e => categories.find(c => c.items.some(i => i.id === e.itemId))?.type === 'expense').reduce((sum, e) => sum + ((e.amounts as any)[acc.id] as number), 0);
+                                return (initialBalances[acc.id] as number) + income - expense;
+                              })();
                           return (
-                            <td key={acc.id} className="px-4 py-3.5 text-center font-mono text-[10px] text-brand-500 font-extrabold">
+                            <td key={acc.id} className="px-2 py-3.5 text-center font-mono text-[9px] text-brand-500 font-bold border-r border-border-dim/10 bg-brand-500/5">
                               ${final.toLocaleString('es-AR')}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-3.5 text-right font-mono text-[10px] text-brand-500 font-extrabold">
-                          ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                            allEntries.reduce((total: number, e: any) => {
-                              const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
-                              const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
-                              const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
-                              return total + val;
-                            }, 0)).toLocaleString('es-AR')}
+                        <td className="px-4 py-3.5 text-right font-mono text-[9px] text-brand-500 font-bold bg-brand-500/5">
+                          ${(periodType === 'weekly'
+                            ? Object.values(dailyAccountBalancesProjected[6]?.accounts || {}).reduce((s, a) => s + a.end, 0)
+                            : (Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
+                               allEntries.reduce((total: number, e: any) => {
+                                 const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+                                 const rowTotal = Object.values(e.amounts).reduce((tot: number, val: any) => tot + (val as number), 0);
+                                 const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
+                                 return total + val;
+                               }, 0))
+                          ).toLocaleString('es-AR')}
                         </td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
             </div>
+
+            {periodType === 'weekly' && (
+              <div className="bg-bg-card border border-border-dim rounded-lg overflow-hidden p-6 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-dim pb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-brand-500/10 rounded-lg text-brand-500">
+                      <Wallet size={18} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black uppercase text-text-main tracking-widest bg-gradient-to-r from-brand-500 to-emerald-400 bg-clip-text text-transparent">Saldos Diarios por Medio de Cobro</h4>
+                      <p className="text-[10px] text-text-dim font-bold uppercase mt-0.5">Evolución para cada día de la semana</p>
+                    </div>
+                  </div>
+                  
+                  {/* Selector de modo para el Arqueo Diario */}
+                  <div className="flex bg-bg-main border border-border-dim p-1 rounded gap-1 self-start">
+                    <button
+                      type="button"
+                      onClick={() => setDailyBreakdownMode('projected')}
+                      className={cn(
+                        "px-3 py-1.5 rounded text-[8px] font-black uppercase tracking-wider transition-all",
+                        dailyBreakdownMode === 'projected' ? "bg-brand-500 text-black shadow font-black" : "text-text-dim hover:text-text-main"
+                      )}
+                    >
+                      Proyectado (Cierre esperado)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDailyBreakdownMode('executed')}
+                      className={cn(
+                        "px-3 py-1.5 rounded text-[8px] font-black uppercase tracking-wider transition-all",
+                        dailyBreakdownMode === 'executed' ? "bg-emerald-500 text-black shadow font-black" : "text-text-dim hover:text-text-main"
+                      )}
+                    >
+                      Real (Solo Ejecutados)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto w-full">
+                  <table className="w-full text-left border-collapse min-w-[1000px]">
+                    <thead>
+                      <tr className="border-b border-border-dim text-[9px] text-text-dim font-black uppercase tracking-wider bg-bg-card/20">
+                        <th className="px-4 py-3 min-w-[160px]">Medio de Cobro</th>
+                        {activeWeekRange.days.map((day, idx) => (
+                          <th key={idx} className="px-3 py-3 text-center border-l border-border-dim/20">
+                            <div>{day.name}</div>
+                            <div className="text-[8px] font-mono text-brand-500 mt-0.5">{day.shortLabel.split(' ')[1]}</div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim/20 text-[10px]">
+                      {ACCOUNTS.map(acc => {
+                        const accIconColor = acc.color;
+                        const IconComp = acc.icon;
+                        return (
+                          <tr key={acc.id} className="hover:bg-bg-accent/20 transition-all duration-150">
+                            <td className="px-4 py-3 font-bold text-text-main flex items-center gap-2">
+                              <IconComp size={14} className={accIconColor} />
+                              <span className="uppercase tracking-tight text-[9px] font-black">{acc.name}</span>
+                            </td>
+                            {activeWeekRange.days.map((day, dIdx) => {
+                              const dayData = dailyBreakdownMode === 'projected' 
+                                ? dailyAccountBalancesProjected[dIdx]?.accounts[acc.id]
+                                : dailyAccountBalancesExecuted[dIdx]?.accounts[acc.id];
+                              
+                              const endBal = dayData?.end || 0;
+                              const incAmt = dayData?.income || 0;
+                              const expAmt = dayData?.expense || 0;
+
+                              return (
+                                <td key={dIdx} className="px-3 py-2.5 text-center border-l border-border-dim/10 bg-bg-accent/5 font-mono">
+                                  {/* Saldo Final del Día */}
+                                  <div className={cn(
+                                    "font-black text-[10px]",
+                                    endBal === 0 ? "text-text-dim/40" : endBal > 0 ? "text-text-main" : "text-red-400"
+                                  )}>
+                                    ${endBal.toLocaleString('es-AR')}
+                                  </div>
+                                  
+                                  {/* Sub-valores de movimientos si los hay */}
+                                  <div className="flex items-center justify-center gap-1.5 mt-1 text-[8px] font-extrabold">
+                                    {incAmt > 0 && (
+                                      <span className="text-emerald-400" title="Ingresos de hoy">
+                                        +{incAmt.toLocaleString('es-AR')}
+                                      </span>
+                                    )}
+                                    {expAmt > 0 && (
+                                      <span className="text-red-400" title="Egresos de hoy">
+                                        -{expAmt.toLocaleString('es-AR')}
+                                      </span>
+                                    )}
+                                    {incAmt === 0 && expAmt === 0 && (
+                                      <span className="text-text-dim/20">-</span>
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                <div className="md:col-span-3 p-6 bg-brand-500/5 border border-brand-500/20 rounded-lg flex items-center gap-4">

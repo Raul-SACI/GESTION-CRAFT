@@ -715,6 +715,21 @@ function AppContent() {
             )}
 
             {/* Sucursal Activa and Ventas Semanales removed per user requirement */}
+            {['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas'].includes(activeTab) && (
+              <div className="flex items-center gap-3 bg-bg-card border border-border-dim px-4 py-2 rounded-lg">
+                <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">Filtrar por Sucursal:</span>
+                <select
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                  className="bg-transparent border-none text-xs font-black uppercase text-brand-500 tracking-widest focus:ring-0 cursor-pointer outline-none"
+                >
+                  <option value="all" className="bg-bg-card font-bold text-text-main">CONSOLIDADO (TODAS)</option>
+                  {branches.map(b => (
+                    <option key={b.id} value={b.id} className="bg-bg-card font-bold text-text-main">{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
