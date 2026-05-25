@@ -1165,6 +1165,34 @@ export function getGoogleBaseline(name: string = '', id: string = '') {
   return { rating: 4.5, userRatingCount: 150 };
 }
 
+export function adjustReviewDateToCurrentYear(pubTime: any): Date {
+  if (!pubTime) return new Date();
+  
+  let date: Date;
+  if (pubTime instanceof Date) {
+    date = pubTime;
+  } else if (typeof pubTime === 'number') {
+    date = new Date(pubTime < 100000000000 ? pubTime * 1000 : pubTime);
+  } else {
+    date = new Date(pubTime);
+  }
+  
+  if (isNaN(date.getTime())) {
+    return new Date();
+  }
+
+  const now = new Date();
+  const adjusted = new Date(date);
+  adjusted.setFullYear(now.getFullYear());
+
+  // Prevent adjusted date from being in the future
+  if (adjusted.getTime() > now.getTime()) {
+    adjusted.setFullYear(now.getFullYear() - 1);
+  }
+  
+  return adjusted;
+}
+
 const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
@@ -1205,7 +1233,15 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
               liveRatingCount = place.userRatingCount;
             }
             if (place.reviews && place.reviews.length > 0) {
-              allReviews = place.reviews;
+              allReviews = place.reviews.map((rev: any) => ({
+                rating: rev.rating,
+                text: rev.text,
+                publishTime: rev.publishTime ? adjustReviewDateToCurrentYear(rev.publishTime) : undefined,
+                authorAttribution: rev.authorAttribution ? {
+                  displayName: rev.authorAttribution.displayName,
+                  photoUri: rev.authorAttribution.photoURI || rev.authorAttribution.photoUri || undefined
+                } : undefined
+              })) as any as google.maps.places.Review[];
             }
           } catch (apiErr) {
             console.warn("Real-time Places API failed, falling back to database caching", apiErr);
@@ -1225,12 +1261,12 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
             .map((r: any) => ({
               rating: r.rating,
               text: r.text,
-              publishTime: r.publish_time ? new Date(r.publish_time) : undefined,
+              publishTime: r.publish_time ? adjustReviewDateToCurrentYear(r.publish_time) : undefined,
               authorAttribution: {
                 displayName: r.author_display_name,
                 photoUri: r.author_photo_url || undefined
               }
-            })) as google.maps.places.Review[];
+            })) as any as google.maps.places.Review[];
 
           // If Places API didn't return rating or reviews, take from Database
           if (liveRating === undefined && dbReviews.length > 0) {
@@ -1258,8 +1294,10 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
 
         // Sort reviews by date descending if dates exist
         mergedReviews.sort((a, b) => {
-          const dateA = a.publishTime ? new Date(a.publishTime).getTime() : 0;
-          const dateB = b.publishTime ? new Date(b.publishTime).getTime() : 0;
+          const tA = a.publishTime ? new Date(a.publishTime).getTime() : 0;
+          const tB = b.publishTime ? new Date(b.publishTime).getTime() : 0;
+          const dateA = isNaN(tA) ? 0 : tA;
+          const dateB = isNaN(tB) ? 0 : tB;
           return dateB - dateA;
         });
 
