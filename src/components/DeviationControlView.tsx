@@ -29,6 +29,7 @@ import * as XLSX from 'xlsx';
 export default function DeviationControlView({ 
   branches, 
   selectedBranchId,
+  onBranchChange,
   controlledItemIds: initialControlledItemIds,
   setControlledItemIds: setInitialControlledItemIds,
   items,
@@ -38,6 +39,7 @@ export default function DeviationControlView({
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
+  onBranchChange?: (id: string) => void,
   controlledItemIds: string[],
   setControlledItemIds: React.Dispatch<React.SetStateAction<string[]>>,
   items: StockItem[],
@@ -557,6 +559,37 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
           <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
         </div>
       </div>
+
+      {onBranchChange && (
+        <div className="flex flex-wrap items-center gap-2 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
+          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
+          <button
+            onClick={() => onBranchChange('all')}
+            className={cn(
+              "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+              selectedBranchId === 'all'
+                ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+            )}
+          >
+            Consolidado (Todas)
+          </button>
+          {branches.map(b => (
+            <button
+              key={b.id}
+              onClick={() => onBranchChange(b.id)}
+              className={cn(
+                "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+                selectedBranchId === b.id
+                  ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                  : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+              )}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {activeTab === 'comparativo' && (

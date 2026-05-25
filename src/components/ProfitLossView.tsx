@@ -18,7 +18,15 @@ import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
 import { Branch, PLRecord } from '../types';
 
-export default function ProfitLossView({ branches, selectedBranchId }: { branches: Branch[], selectedBranchId: string }) {
+export default function ProfitLossView({ 
+  branches, 
+  selectedBranchId, 
+  onBranchChange 
+}: { 
+  branches: Branch[], 
+  selectedBranchId: string, 
+  onBranchChange?: (id: string) => void 
+}) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [records, setRecords] = useState<PLRecord[]>([]);
 
@@ -129,6 +137,37 @@ export default function ProfitLossView({ branches, selectedBranchId }: { branche
           </label>
         </div>
       </div>
+
+      {onBranchChange && (
+        <div className="flex flex-wrap items-center gap-2 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
+          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
+          <button
+            onClick={() => onBranchChange('all')}
+            className={cn(
+              "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+              selectedBranchId === 'all'
+                ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+            )}
+          >
+            Consolidado (Todas)
+          </button>
+          {branches.map(b => (
+            <button
+              key={b.id}
+              onClick={() => onBranchChange(b.id)}
+              className={cn(
+                "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+                selectedBranchId === b.id
+                  ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                  : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+              )}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
         <div className="overflow-x-auto">

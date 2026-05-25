@@ -21,7 +21,15 @@ import {
 import { cn } from '../lib/utils';
 import { ConsumptionDetail, Branch } from '../types';
 
-export default function ConsumoView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
+export default function ConsumoView({ 
+  selectedBranchId, 
+  branches, 
+  onBranchChange 
+}: { 
+  selectedBranchId: string, 
+  branches: Branch[], 
+  onBranchChange?: (id: string) => void 
+}) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const [initialExistence, setInitialExistence] = useState(0);
   const [finalExistence, setFinalExistence] = useState(0);
@@ -114,6 +122,37 @@ export default function ConsumoView({ selectedBranchId, branches }: { selectedBr
           </button>
         </div>
       </div>
+      
+      {onBranchChange && (
+        <div className="flex flex-wrap items-center gap-2 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
+          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
+          <button
+            onClick={() => onBranchChange('all')}
+            className={cn(
+              "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+              selectedBranchId === 'all'
+                ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+            )}
+          >
+            Consolidado (Todas)
+          </button>
+          {branches.map(b => (
+            <button
+              key={b.id}
+              onClick={() => onBranchChange(b.id)}
+              className={cn(
+                "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+                selectedBranchId === b.id
+                  ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                  : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+              )}
+            >
+              {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
