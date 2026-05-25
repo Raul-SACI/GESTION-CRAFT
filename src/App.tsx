@@ -1168,6 +1168,7 @@ export function getGoogleBaseline(name: string = '', id: string = '') {
 }
 
 export function getGoogleBaselineReviews(name: string = '', branchId: string = ''): google.maps.places.Review[] {
+  return [];
   const normName = name.toUpperCase();
   const bId = branchId.toLowerCase();
   const now = new Date();
@@ -1361,17 +1362,8 @@ const GoogleMetricsCard: React.FC<{
           }
         }
 
-        // ALWAYS merge high-quality baseline reviews next to ensure every branch has beautiful recent reviews
-        const baselineReviews = getGoogleBaselineReviews(branch.name, branch.id);
-        for (const baseRev of baselineReviews) {
-          const normText = baseRev.text?.trim().toLowerCase();
-          if (normText && !existingTexts.has(normText)) {
-            mergedReviews.push(baseRev);
-            existingTexts.add(normText);
-          } else if (!normText) {
-            mergedReviews.push(baseRev);
-          }
-        }
+        
+        // Only real reviews from Google API and Supabase database cache will be used now.
 
 
 
