@@ -1558,6 +1558,8 @@ const GoogleMetricsCard: React.FC<{
 function DashboardView({ salesComparison: initialSalesComparison, performance, branches, selectedBranchId }: { salesComparison: any, performance: PerformanceData, branches: Branch[], selectedBranchId: string }) {
   const [startDate, setStartDate] = useState('2026-05-01');
   const [endDate, setEndDate] = useState('2026-05-25');
+  const [reviewStartDate, setReviewStartDate] = useState('');
+  const [reviewEndDate, setReviewEndDate] = useState('');
 
   // Filter sales data for the chart and KPIs
   const filteredSales = useMemo(() => {
@@ -1641,7 +1643,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
              <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
           </Card>
         ) : (
-          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={startDate} endDate={endDate} />
+          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={reviewStartDate} endDate={reviewEndDate} />
         )}
       </div>
 
@@ -1662,8 +1664,8 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
             <span className="text-[9px] font-bold text-text-dim uppercase">Desde:</span>
             <input 
               type="date" 
-              value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)} 
+              value={reviewStartDate} 
+              onChange={(e) => setReviewStartDate(e.target.value)} 
               className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
             />
           </div>
@@ -1671,14 +1673,14 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
             <span className="text-[9px] font-bold text-text-dim uppercase">Hasta:</span>
             <input 
               type="date" 
-              value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)} 
+              value={reviewEndDate} 
+              onChange={(e) => setReviewEndDate(e.target.value)} 
               className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
             />
           </div>
-          {(startDate || endDate) && (
+          {(reviewStartDate || reviewEndDate) && (
             <button 
-              onClick={() => { setStartDate(''); setEndDate(''); }}
+              onClick={() => { setReviewStartDate(''); setReviewEndDate(''); }}
               className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/25 text-red-400 border border-red-500/20 hover:border-red-500/45 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
             >
               Limpiar
@@ -1690,11 +1692,11 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {selectedBranchId === 'all' ? (
           branches.map(branch => (
-            <GoogleMetricsCard key={branch.id} branch={branch} startDate={startDate} endDate={endDate} />
+            <GoogleMetricsCard key={branch.id} branch={branch} startDate={reviewStartDate} endDate={reviewEndDate} />
           ))
         ) : (
           <div className="col-span-full">
-            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={startDate} endDate={endDate} />
+            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={reviewStartDate} endDate={reviewEndDate} />
           </div>
         )}
         {branches.length === 0 && (
