@@ -130,6 +130,18 @@ class MockQueryBuilder {
     return this;
   }
 
+  like(column: string, pattern: string) {
+    const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    const regexPattern = '^' + escapedPattern.replace(/%/g, '.*') + '$';
+    const regex = new RegExp(regexPattern, 'i');
+    this.filters.push(item => {
+      const val = item[column];
+      if (val === undefined || val === null) return false;
+      return regex.test(String(val));
+    });
+    return this;
+  }
+
   range(from: number, to: number) {
     this.sliceConfig = { from, to };
     return this;
