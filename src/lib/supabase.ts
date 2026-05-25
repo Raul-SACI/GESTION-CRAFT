@@ -68,6 +68,8 @@ class MockQueryBuilder {
   private sliceConfig?: { from: number; to: number };
   private action: 'select' | 'insert' | 'update' | 'delete' | 'upsert' = 'select';
   private actionData?: any;
+  private singleRequested = false;
+  private maybeSingleRequested = false;
 
   constructor(table: string) {
     this.table = table;
@@ -75,6 +77,16 @@ class MockQueryBuilder {
 
   select(fields?: string) {
     this.action = 'select';
+    return this;
+  }
+
+  single() {
+    this.singleRequested = true;
+    return this;
+  }
+
+  maybeSingle() {
+    this.maybeSingleRequested = true;
     return this;
   }
 
@@ -196,6 +208,21 @@ class MockQueryBuilder {
       if (this.sliceConfig) {
         const { from, to } = this.sliceConfig;
         filtered = filtered.slice(from, to + 1);
+      }
+      if (this.singleRequested) {
+        if (filtered.length === 0) {
+          return { data: null, error: { message: 'No rows found', code: 'PGRST116' } };
+        }
+        if (filtered.length > 1) {
+          return { data: null, error: { message: 'More than one row returned', code: 'PGRST116' } };
+        }
+        return { data: filtered[0], error: null };
+      }
+      if (this.maybeSingleRequested) {
+        if (filtered.length === 0) {
+          return { data: null, error: null };
+        }
+        return { data: filtered[0], error: null };
       }
       return { data: filtered, error: null };
     }
