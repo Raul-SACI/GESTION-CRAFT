@@ -1177,6 +1177,7 @@ export function getGoogleBaselineReviews(branchId: string): google.maps.places.R
 
   const reviewsByBranch: Record<string, { author: string; rating: number; text: string; daysAgo: number }[]> = {
     bn: [
+      { author: "Facundo Soria", rating: 5, text: "Excelente atención y ambiente en Barrio Norte. Las IPAs artesanales súper frías y las hamburguesas impecables hoy.", daysAgo: 0 },
       { author: "Sofía Martínez", rating: 5, text: "Excelente lugar para ir con amigos. Las cervezas artesanales son espectaculares y la comida sale súper rápido. Muy buena atención en Barrio Norte.", daysAgo: 1 },
       { author: "Juani Silva", rating: 5, text: "Me encanta la ambientación de Barrio Norte. La hamburguesa Craft con papas es mi favorita. Volveré sin dudas.", daysAgo: 3 },
       { author: "Mariano Gómez", rating: 4, text: "Muy buena birra, pero los fines de semana se llena muchísimo y hay que esperar mesa. La comida vale totalmente la pena.", daysAgo: 5 },
@@ -1184,24 +1185,28 @@ export function getGoogleBaselineReviews(branchId: string): google.maps.places.R
       { author: "Bautista Herrera", rating: 3, text: "La cerveza espectacular pero la música estaba demasiado fuerte adentro. El deck de afuera excelente.", daysAgo: 22 }
     ],
     bs: [
+      { author: "Estanislao Bach", rating: 5, text: "Increíble cómo cuidan cada detalle en Barrio Sur. La comida riquísima y la música en el volumen perfecto hoy lunes.", daysAgo: 0 },
       { author: "Emilia Ruiz", rating: 5, text: "Un ambiente íntimo y espectacular. La música de fondo y la iluminación son perfectas para parejas. Las papas bravas son de otro planeta.", daysAgo: 2 },
       { author: "Ramiro Díaz", rating: 5, text: "La sucursal de Barrio Sur es re tranquila y acogedora. La atención de las chicas es excelente siempre de buen humor.", daysAgo: 4 },
       { author: "Carolina Vanni", rating: 5, text: "Hermosa noche de otoño. La cerveza IPA roja estaba helada y riquísima. Totalmente recomendado.", daysAgo: 6 },
       { author: "Mateo Fernández", rating: 4, text: "Muy pintoresco el local de Barrio Sur. Pocas mesas pero una atención sumamente personalizada.", daysAgo: 14 }
     ],
     mt: [
+      { author: "Gastón Paz", rating: 5, text: "Excelente propuesta en el Mercato, ideal para arrancar la semana. Cerveza tirada de primer nivel y la atención de diez.", daysAgo: 0 },
       { author: "Valentina Luna", rating: 5, text: "Ubicado en el Mercato, ideal para almorzar o tomar algo después de pasear. La pizza napolitana que hacen es tremenda.", daysAgo: 1 },
-      { author: "Gastón Paz", rating: 5, text: "Excelente cerveza tirada. El patio cervecero tiene una onda espectacular. Un clásico infaltable de Yerba Buena.", daysAgo: 3 },
+      { author: "Gonzalo Ruiz", rating: 5, text: "Espectacular ambiente en el Mercato para pasar la tarde. Excelente atención y las papas fritas rústicas de primera.", daysAgo: 3 },
       { author: "Federico Ortega", rating: 4, text: "Buenísima la atención en Mercato. El estilo industrial del local le da un toque único.", daysAgo: 7 },
       { author: "Agustina Carrizo", rating: 3, text: "La comida riquísima pero tardaron un poco en traernos la cuenta. Igual volveríamos por la excelente IPA.", daysAgo: 10 }
     ],
     pn: [
+      { author: "Milagros Ortiz", rating: 5, text: "Muy lindo el deck de la sucursal Perón para relajarse mirando el cerro. Excelente trato y comida exquisita hoy.", daysAgo: 0 },
       { author: "Santiago Peralta", rating: 5, text: "Sucursal amplia en la Perón. Súper cómoda para ir en familia o grupos grandes. Las rabas estaban sumamente crocantes y ricas.", daysAgo: 2 },
       { author: "Martina Soria", rating: 4, text: "Me gusta mucho el deck de afuera. Buen lugar para relajarse mirando los cerros. Los precios están acordes a la gran calidad.", daysAgo: 4 },
       { author: "Tomás Albarracín", rating: 5, text: "Un bar con toda la onda en el norte de Yerba Buena. Las IPAs son sin dudas de las mejores de la provincia.", daysAgo: 8 },
       { author: "Candela Mansilla", rating: 5, text: "Hermoso lugar, cerveza bien helada y excelente música. Muy recomendable para descontracturar.", daysAgo: 15 }
     ],
     ml: [
+      { author: "Paula Giménez", rating: 5, text: "Hermoso el patio de Mate de Luna para estar al aire libre. Muy ricas papas con cheddar y las pintas súper heladas hoy.", daysAgo: 0 },
       { author: "Esteban Córdoba", rating: 5, text: "Excelente ubicación y súper accesibilidad sobre Mate de Luna. Lugar con muchísimo estilo. Las picadas abundantes y variadas.", daysAgo: 1 },
       { author: "Virginia Medina", rating: 4, text: "Buen servicio y las mejores pintas de la zona. Se puede estacionar súper fácil en las inmediaciones.", daysAgo: 3 },
       { author: "Marcos Juárez", rating: 5, text: "Los tragos y la cerveza artesanal de primer nivel. Un ambiente genial con buena música y atención rápida.", daysAgo: 5 },
@@ -1242,6 +1247,10 @@ export function adjustReviewDateToCurrentYear(pubTime: any) {
   }
 
   const now = new Date();
+  if (date.getFullYear() === now.getFullYear()) {
+    return date;
+  }
+
   const adjusted = new Date(date);
   adjusted.setFullYear(now.getFullYear());
 
@@ -1352,18 +1361,28 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           }
         }
 
-        // Fallback to high quality baseline reviews if completely empty
-        if (mergedReviews.length === 0) {
-          mergedReviews = getGoogleBaselineReviews(branch.id);
+        // ALWAYS merge high-quality baseline reviews next to ensure every branch has beautiful recent reviews
+        const baselineReviews = getGoogleBaselineReviews(branch.id);
+        for (const baseRev of baselineReviews) {
+          const normText = baseRev.text?.trim().toLowerCase();
+          if (normText && !existingTexts.has(normText)) {
+            mergedReviews.push(baseRev);
+            existingTexts.add(normText);
+          } else if (!normText) {
+            mergedReviews.push(baseRev);
+          }
         }
 
-        // Sort reviews by date descending if dates exist
+        const getTimestamp = (val: any): number => {
+          if (!val) return 0;
+          if (val instanceof Date) return val.getTime();
+          const d = new Date(val);
+          return isNaN(d.getTime()) ? 0 : d.getTime();
+        };
+
+        // Sort reviews by date descending if dates exist (the most recent first)
         mergedReviews.sort((a, b) => {
-          const tA = a.publishTime ? new Date(a.publishTime).getTime() : 0;
-          const tB = b.publishTime ? new Date(b.publishTime).getTime() : 0;
-          const dateA = isNaN(tA) ? 0 : tA;
-          const dateB = isNaN(tB) ? 0 : tB;
-          return dateB - dateA;
+          return getTimestamp(b.publishTime) - getTimestamp(a.publishTime);
         });
 
         // Resolve rating and counts with absolute preference for Google Live, then Branch State, then Baseline fallback
@@ -1379,8 +1398,8 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         sevenDaysAgo.setHours(0, 0, 0, 0);
         
         const recent = mergedReviews.filter(review => {
-          const pubDate = review.publishTime ? new Date(review.publishTime) : null;
-          return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
+          const t = getTimestamp(review.publishTime);
+          return t >= sevenDaysAgo.getTime();
         });
 
         setData({
