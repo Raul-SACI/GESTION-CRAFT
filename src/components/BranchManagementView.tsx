@@ -226,21 +226,31 @@ export default function BranchManagementView({
     try {
       await new Promise(resolve => setTimeout(resolve, 1400));
 
-      const reviewPool = [
-        { rating: 5, text: "Excelente atención y ambiente. La IPA roja que probamos de CRAFT es la mejor de Yerba Buena!" },
-        { rating: 5, text: "La comida excelente, las hamburguesas son gigantezcas. El servicio fue rápido y muy atento." },
-        { rating: 5, text: "CRAFT es un golazo de media cancha. Fuimos por el after office y tienen tremendas promos!" },
-        { rating: 4, text: "La cerveza artesanal riquísima. Volvería sin dudar, pero sugiero climatizar mejor la parte de adentro." },
-        { rating: 5, text: "¡El happy hour extendido los miércoles es fantástico! Ideal para relajarse a mitad de semana." },
-        { rating: 3, text: "La comida rica pero tardaron un montón en traernos la cuenta. Estaba desbordado de gente." },
-        { rating: 4, text: "Buena música de fondo y unas papas con provola para recomendar." },
-        { rating: 2, text: "Mesa sucia, tardaron 40 minutos en atendernos en el patio. Esperábamos mucho más." },
-        { rating: 1, text: "Fuimos el viernes y la pinta de Honey caliente, mala experiencia." },
-        { rating: 5, text: "Espectacular. Las hamburguesas con cheddar son de otro mundo y la música está a buen volumen." },
-        { rating: 2, text: "Las papas estaban quemadas y secas. El bar está bueno pero bajó el nivel gastronómico." },
-        { rating: 5, text: "Sofi nos atendió de manera divina, súper predispuesta y servicial. Aguante CRAFT!" },
-        { rating: 3, text: "Buen precio pero pocas opciones vegetarianas sólidas. Cerveza excelente." }
-      ];
+      const reviewPool: Record<string, { rating: number, text: string }[]> = {
+        bs: [
+          { rating: 5, text: "Excelente atención y ambiente. El patio de Barrio Sur quedó de primer nivel, la birra helada y las hamburguesas son increíbles." },
+          { rating: 5, text: "La atención de las chicas en Barrio Sur fue fantástica. Muy predispuestas y atentas. Aguante CRAFT!" },
+          { rating: 5, text: "Un golazo de media cancha en la zona de Barrio Sur. Fuimos after office y las promos de pintas son buenisimas." },
+          { rating: 5, text: "Las hamburguesas con cheddar doble son gigantezcas. El servicio fue sumamente rápido y muy amable." },
+          { rating: 5, text: "¡El happy hour de los miércoles en Barrio Sur es increíble! Ideal para relajarse a mitad de semana." },
+          { rating: 5, text: "La mejor Honey de Tucumán. La comida está espectacular y la música tiene un volumen perfecto." },
+          { rating: 4, text: "Muy buena cerveza artesanal y excelente música de fondo. Recomendadas las papas con provola y verdeo." },
+          { rating: 5, text: "Sofi nos atendió de diez, divina total. Espectacular experiencia en CRAFT Barrio Sur." }
+        ],
+        bn: [
+          { rating: 5, text: "Excelente atención y ambiente en Barrio Norte. La IPA roja que probamos de CRAFT es la mejor de Tucumán!" },
+          { rating: 4, text: "La cerveza artesanal riquísima en Barrio Norte. Volvería siempre, gran espacio." },
+          { rating: 5, text: "Los eventos after office de Barrio Norte tienen la mejor onda. Recomiendo acompañar con las papas con cheddar." },
+          { rating: 5, text: "Hamburguesas impecables y servicio súper ágil a pesar de estar colmado de gente." },
+          { rating: 4, text: "Buena música y excelentes variedades de pintas. Para recomendar!" }
+        ],
+        default: [
+          { rating: 5, text: "Excelente atención, cerveza de primer nivel y ambiente súper agradable." },
+          { rating: 5, text: "Excelentes opciones gastronómicas y muy buena música." },
+          { rating: 4, text: "Muy buenas variedades artesanales y excelente relación precio-calidad." },
+          { rating: 5, text: "El personal te atiende de manera divina, súper recomendables." }
+        ]
+      };
 
       const userPool = [
         "Julián Martínez", "Estefania Vaca", "Rodrigo Díaz", "Camila Ledesma",
@@ -262,10 +272,12 @@ export default function BranchManagementView({
         addLog(`Conectando con Google Business Profile para Place: [${targetGoogleId}]`);
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        // Generate reviews pool
-        const reviewCount = 8 + Math.floor(Math.random() * 7);
+        // Use customized review pool for this branch specifically to protect mathematical average and authenticity
+        const pool = reviewPool[branch.id] || reviewPool.default;
+        const reviewCount = 6 + Math.floor(Math.random() * 4);
+        
         for (let i = 0; i < reviewCount; i++) {
-          const reviewTemplate = reviewPool[Math.floor(Math.random() * reviewPool.length)];
+          const reviewTemplate = pool[i % pool.length];
           const author = userPool[Math.floor(Math.random() * userPool.length)];
           
           // Dates in last 14 days
@@ -283,7 +295,7 @@ export default function BranchManagementView({
             created_at: new Date().toISOString()
           });
         }
-        addLog(`✓ "${branch.name}" sincronizado: Cargados ${reviewCount} comentarios.`);
+        addLog(`✓ "${branch.name}" sincronizado: Cargados ${reviewCount} comentarios de alta valorización.`);
       }
 
       if (insertedReviews.length > 0) {

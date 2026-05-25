@@ -296,11 +296,11 @@ class MockQueryBuilder {
   private getDefaultSeeds(): any[] {
     if (this.table === 'branches') {
       return [
-        { id: 'bn', name: 'Barrio Norte', location: 'Av. Belgrano 123, Tucumán', is_active: true, google_maps_url: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111' },
-        { id: 'bs', name: 'Barrio Sur', location: 'San Lorenzo 456, Tucumán', is_active: true },
-        { id: 'mt', name: 'Casco Viejo', location: 'San Lorenzo 207, Yerba Buena, Tucumán', is_active: true, google_place_id: 'ChIJz3uE95S6U5YRMmP_V1kY9B0' },
-        { id: 'pn', name: 'Perón', location: 'Av. Perón 1000, Yerba Buena', is_active: true },
-        { id: 'ml', name: 'Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', is_active: true },
+        { id: 'bn', name: 'CRAFT Barrio Norte', location: 'Av. Belgrano 123, Tucumán', is_active: true, google_maps_url: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111', google_rating: 4.7, google_rating_count: 7399 },
+        { id: 'bs', name: 'CRAFT Barrio Sur', location: 'Batalla de Chacabuco 688, Tucumán', is_active: true, google_rating: 4.9, google_rating_count: 778 },
+        { id: 'mt', name: 'CRAFT Mercato', location: 'San Lorenzo 207, Yerba Buena, Tucumán', is_active: true, google_place_id: 'ChIJz3uE95S6U5YRMmP_V1kY9B0', google_rating: 4.5, google_rating_count: 3410 },
+        { id: 'pn', name: 'CRAFT Perón', location: 'Av. Perón 1000, Yerba Buena', is_active: true, google_rating: 4.5, google_rating_count: 1890 },
+        { id: 'ml', name: 'CRAFT Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', is_active: true, google_rating: 4.4, google_rating_count: 2750 },
       ];
     }
     if (this.table === 'documents') {

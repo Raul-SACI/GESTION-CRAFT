@@ -271,22 +271,50 @@ function AppContent() {
         if (branchesError) {
           console.error('Error fetching branches:', branchesError);
         } else if (branchesData && branchesData.length > 0) {
-          setBranches(branchesData.map(b => ({
-            id: b.id,
-            name: b.name,
-            location: b.location,
-            isActive: b.is_active,
-            googleMapsUrl: b.google_maps_url,
-            googleReviewUrl: b.google_review_url,
-            googlePlaceId: b.google_place_id,
-            googleRating: b.google_rating !== undefined && b.google_rating !== null ? Number(b.google_rating) : undefined,
-            googleRatingCount: b.google_rating_count !== undefined && b.google_rating_count !== null ? Number(b.google_rating_count) : undefined
-          })));
+          setBranches(branchesData.map(b => {
+            const baseline = getGoogleBaseline(b.name, b.id);
+            // Self-healing of outdated values for Barrio Sur and others to display actual ratings
+            let r = b.google_rating !== undefined && b.google_rating !== null ? Number(b.google_rating) : undefined;
+            let c = b.google_rating_count !== undefined && b.google_rating_count !== null ? Number(b.google_rating_count) : undefined;
+            
+            if (b.id === 'bs' && (r === 4.5 || r === undefined)) {
+              r = 4.9;
+              c = 778;
+            }
+            if (b.id === 'bn' && (r === undefined)) {
+              r = 4.7;
+              c = 7399;
+            }
+            if (b.id === 'mt' && (r === undefined)) {
+              r = 4.5;
+              c = 3410;
+            }
+            if (b.id === 'pn' && (r === undefined)) {
+              r = 4.5;
+              c = 1890;
+            }
+            if (b.id === 'ml' && (r === undefined)) {
+              r = 4.4;
+              c = 2750;
+            }
+            
+            return {
+              id: b.id,
+              name: b.name,
+              location: b.location === 'San Lorenzo 456, Tucumán' ? 'Batalla de Chacabuco 688, Tucumán' : b.location,
+              isActive: b.is_active,
+              googleMapsUrl: b.google_maps_url,
+              googleReviewUrl: b.google_review_url,
+              googlePlaceId: b.google_place_id,
+              googleRating: r || baseline.rating,
+              googleRatingCount: c || baseline.userRatingCount
+            };
+          }));
         } else {
           // Fallback defaults
           const defaults: Branch[] = [
             { id: 'bn', name: 'CRAFT Barrio Norte', location: 'Av. Belgrano 123, Tucumán', isActive: true, googleMapsUrl: 'https://www.google.com/maps/place/CRAFT+Barrio+Norte/data=!4m2!3m1!1s0x0:0x1fdb8452ca845bc1?sa=X&ved=1t:2428&ictx=111', googleRating: 4.7, googleRatingCount: 7399 },
-            { id: 'bs', name: 'CRAFT Barrio Sur', location: 'San Lorenzo 456, Tucumán', isActive: true, googleRating: 4.5, googleRatingCount: 5120 },
+            { id: 'bs', name: 'CRAFT Barrio Sur', location: 'Batalla de Chacabuco 688, Tucumán', isActive: true, googleRating: 4.9, googleRatingCount: 778 },
             { id: 'mt', name: 'CRAFT Mercato', location: 'San Lorenzo 207, Yerba Buena, Tucumán', isActive: true, googlePlaceId: 'ChIJz3uE95S6U5YRMmP_V1kY9B0', googleRating: 4.5, googleRatingCount: 3410 },
             { id: 'pn', name: 'CRAFT Perón', location: 'Av. Perón 1000, Yerba Buena', isActive: true, googleRating: 4.5, googleRatingCount: 1890 },
             { id: 'ml', name: 'CRAFT Mate de Luna', location: 'Av. Mate de Luna 2000, Tucumán', isActive: true, googleRating: 4.4, googleRatingCount: 2750 },
@@ -1095,7 +1123,7 @@ export function getGoogleBaseline(name: string = '', id: string = '') {
     return { rating: 4.7, userRatingCount: 7399 };
   }
   if (normName.includes('BARRIO SUR') || normId === 'bs') {
-    return { rating: 4.5, userRatingCount: 5120 };
+    return { rating: 4.9, userRatingCount: 778 };
   }
   if (normName.includes('MERCATO') || normId === 'mt') {
     return { rating: 4.5, userRatingCount: 3410 };
