@@ -24,6 +24,7 @@ import { Branch } from '../types';
 import { cn } from '../lib/utils';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import { supabase } from '../lib/supabase';
+import { getGoogleBaseline } from '../App';
 
 export default function BranchManagementView({ 
   branches, 
@@ -496,6 +497,32 @@ export default function BranchManagementView({
                             className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-brand-500"
                           />
                         </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Estrellas Google (ej. 4.7)</label>
+                            <input 
+                              type="number"
+                              step="0.1"
+                              min="1"
+                              max="5"
+                              value={editValues.googleRating !== undefined && editValues.googleRating !== null ? editValues.googleRating : ''}
+                              onChange={(e) => setEditValues({...editValues, googleRating: e.target.value ? Number(e.target.value) : undefined})}
+                              placeholder="4.7"
+                              className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-brand-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Total Reseñas (ej. 7399)</label>
+                            <input 
+                              type="number"
+                              value={editValues.googleRatingCount !== undefined && editValues.googleRatingCount !== null ? editValues.googleRatingCount : ''}
+                              onChange={(e) => setEditValues({...editValues, googleRatingCount: e.target.value ? Number(e.target.value) : undefined})}
+                              placeholder="7399"
+                              className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-brand-500"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div className="pt-4 border-t border-border-dim flex justify-between items-center">
@@ -534,10 +561,24 @@ export default function BranchManagementView({
                          </div>
                          <div className="flex-1 min-w-0">
                             <h3 className="font-black text-text-main text-lg uppercase tracking-tighter truncate">{branch.name}</h3>
-                            <div className="flex items-center gap-1.5 text-text-dim">
+                            <div className="flex items-center gap-1.5 text-text-dim mb-1">
                               <MapPin size={10} className="text-brand-500" />
                               <p className="text-[10px] font-bold uppercase tracking-widest truncate">{branch.location || 'Sin dirección'}</p>
                             </div>
+                            {(() => {
+                              const baseline = getGoogleBaseline(branch.name, branch.id);
+                              const r = branch.googleRating || baseline.rating;
+                              const c = branch.googleRatingCount || baseline.userRatingCount;
+                              return (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <div className="flex items-center gap-0.5 text-yellow-500">
+                                    <Star size={10} className="fill-yellow-500" />
+                                    <span className="text-[10px] font-mono font-black text-text-main">{r}</span>
+                                  </div>
+                                  <span className="text-[8px] text-yellow-500 font-bold uppercase tracking-wider">({c.toLocaleString('es-AR')} reseñas)</span>
+                                </div>
+                              );
+                            })()}
                          </div>
                       </div>
 

@@ -33,6 +33,8 @@ export interface Branch {
   googleMapsUrl?: string;
   googleReviewUrl?: string;
   googlePlaceId?: string;
+  googleRating?: number;
+  googleRatingCount?: number;
 }
 
 // 0. Base Entities
