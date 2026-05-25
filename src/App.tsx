@@ -1167,67 +1167,7 @@ export function getGoogleBaseline(name: string = '', id: string = '') {
 }
 
 export function getGoogleBaselineReviews(branchId: string): google.maps.places.Review[] {
-  const now = new Date();
-  
-  const d = (daysAgo: number) => {
-    const date = new Date();
-    date.setDate(now.getDate() - daysAgo);
-    return date;
-  };
-
-  const reviewsByBranch: Record<string, { author: string; rating: number; text: string; daysAgo: number }[]> = {
-    bn: [
-      { author: "Facundo Soria", rating: 5, text: "Excelente atención y ambiente en Barrio Norte. Las IPAs artesanales súper frías y las hamburguesas impecables hoy.", daysAgo: 0 },
-      { author: "Sofía Martínez", rating: 5, text: "Excelente lugar para ir con amigos. Las cervezas artesanales son espectaculares y la comida sale súper rápido. Muy buena atención en Barrio Norte.", daysAgo: 1 },
-      { author: "Juani Silva", rating: 5, text: "Me encanta la ambientación de Barrio Norte. La hamburguesa Craft con papas es mi favorita. Volveré sin dudas.", daysAgo: 3 },
-      { author: "Mariano Gómez", rating: 4, text: "Muy buena birra, pero los fines de semana se llena muchísimo y hay que esperar mesa. La comida vale totalmente la pena.", daysAgo: 5 },
-      { author: "Lucía Pérez", rating: 5, text: "La atención es de diez, las chicas súper predispuestas. Excelente variedad de canillas.", daysAgo: 12 },
-      { author: "Bautista Herrera", rating: 3, text: "La cerveza espectacular pero la música estaba demasiado fuerte adentro. El deck de afuera excelente.", daysAgo: 22 }
-    ],
-    bs: [
-      { author: "Estanislao Bach", rating: 5, text: "Increíble cómo cuidan cada detalle en Barrio Sur. La comida riquísima y la música en el volumen perfecto hoy lunes.", daysAgo: 0 },
-      { author: "Emilia Ruiz", rating: 5, text: "Un ambiente íntimo y espectacular. La música de fondo y la iluminación son perfectas para parejas. Las papas bravas son de otro planeta.", daysAgo: 2 },
-      { author: "Ramiro Díaz", rating: 5, text: "La sucursal de Barrio Sur es re tranquila y acogedora. La atención de las chicas es excelente siempre de buen humor.", daysAgo: 4 },
-      { author: "Carolina Vanni", rating: 5, text: "Hermosa noche de otoño. La cerveza IPA roja estaba helada y riquísima. Totalmente recomendado.", daysAgo: 6 },
-      { author: "Mateo Fernández", rating: 4, text: "Muy pintoresco el local de Barrio Sur. Pocas mesas pero una atención sumamente personalizada.", daysAgo: 14 }
-    ],
-    mt: [
-      { author: "Gastón Paz", rating: 5, text: "Excelente propuesta en el Mercato, ideal para arrancar la semana. Cerveza tirada de primer nivel y la atención de diez.", daysAgo: 0 },
-      { author: "Valentina Luna", rating: 5, text: "Ubicado en el Mercato, ideal para almorzar o tomar algo después de pasear. La pizza napolitana que hacen es tremenda.", daysAgo: 1 },
-      { author: "Gonzalo Ruiz", rating: 5, text: "Espectacular ambiente en el Mercato para pasar la tarde. Excelente atención y las papas fritas rústicas de primera.", daysAgo: 3 },
-      { author: "Federico Ortega", rating: 4, text: "Buenísima la atención en Mercato. El estilo industrial del local le da un toque único.", daysAgo: 7 },
-      { author: "Agustina Carrizo", rating: 3, text: "La comida riquísima pero tardaron un poco en traernos la cuenta. Igual volveríamos por la excelente IPA.", daysAgo: 10 }
-    ],
-    pn: [
-      { author: "Milagros Ortiz", rating: 5, text: "Muy lindo el deck de la sucursal Perón para relajarse mirando el cerro. Excelente trato y comida exquisita hoy.", daysAgo: 0 },
-      { author: "Santiago Peralta", rating: 5, text: "Sucursal amplia en la Perón. Súper cómoda para ir en familia o grupos grandes. Las rabas estaban sumamente crocantes y ricas.", daysAgo: 2 },
-      { author: "Martina Soria", rating: 4, text: "Me gusta mucho el deck de afuera. Buen lugar para relajarse mirando los cerros. Los precios están acordes a la gran calidad.", daysAgo: 4 },
-      { author: "Tomás Albarracín", rating: 5, text: "Un bar con toda la onda en el norte de Yerba Buena. Las IPAs son sin dudas de las mejores de la provincia.", daysAgo: 8 },
-      { author: "Candela Mansilla", rating: 5, text: "Hermoso lugar, cerveza bien helada y excelente música. Muy recomendable para descontracturar.", daysAgo: 15 }
-    ],
-    ml: [
-      { author: "Paula Giménez", rating: 5, text: "Hermoso el patio de Mate de Luna para estar al aire libre. Muy ricas papas con cheddar y las pintas súper heladas hoy.", daysAgo: 0 },
-      { author: "Esteban Córdoba", rating: 5, text: "Excelente ubicación y súper accesibilidad sobre Mate de Luna. Lugar con muchísimo estilo. Las picadas abundantes y variadas.", daysAgo: 1 },
-      { author: "Virginia Medina", rating: 4, text: "Buen servicio y las mejores pintas de la zona. Se puede estacionar súper fácil en las inmediaciones.", daysAgo: 3 },
-      { author: "Marcos Juárez", rating: 5, text: "Los tragos y la cerveza artesanal de primer nivel. Un ambiente genial con buena música y atención rápida.", daysAgo: 5 },
-      { author: "Camila Navarro", rating: 5, text: "Tiene un patio trasero hermoso para las noches de calor en Mate de Luna. Muy ricas papas y hamburguesas.", daysAgo: 18 }
-    ]
-  };
-
-  const list = reviewsByBranch[branchId] || [
-    { author: "Cliente Craft", rating: 5, text: "Excelente cerveza artesanal, servicio muy rápido y ambiente súper agradable en Tucumán.", daysAgo: 2 },
-    { author: "Seguidor Gastronómico", rating: 5, text: "De las mejores hamburguesas y papas fritas de la provincia. Las IPAs son un camino de ida.", daysAgo: 4 }
-  ];
-
-  return list.map((r, i) => ({
-    rating: r.rating,
-    text: r.text,
-    publishTime: d(r.daysAgo),
-    authorAttribution: {
-      displayName: r.author,
-      photoUri: undefined
-    }
-  })) as any as google.maps.places.Review[];
+  return [];
 }
 
 export function adjustReviewDateToCurrentYear(pubTime: any) {
@@ -1245,24 +1185,15 @@ export function adjustReviewDateToCurrentYear(pubTime: any) {
   if (isNaN(date.getTime())) {
     return new Date();
   }
-
-  const now = new Date();
-  if (date.getFullYear() === now.getFullYear()) {
-    return date;
-  }
-
-  const adjusted = new Date(date);
-  adjusted.setFullYear(now.getFullYear());
-
-  // Prevent adjusted date from being in the future
-  if (adjusted.getTime() > now.getTime()) {
-    adjusted.setFullYear(now.getFullYear() - 1);
-  }
   
-  return adjusted;
+  return date;
 }
 
-const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
+const GoogleMetricsCard: React.FC<{ 
+  branch: Branch;
+  startDate?: string;
+  endDate?: string;
+}> = ({ branch, startDate, endDate }) => {
   const [data, setData] = useState<{
     rating?: number;
     userRatingCount?: number;
@@ -1361,17 +1292,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           }
         }
 
-        // ALWAYS merge high-quality baseline reviews next to ensure every branch has beautiful recent reviews
-        const baselineReviews = getGoogleBaselineReviews(branch.id);
-        for (const baseRev of baselineReviews) {
-          const normText = baseRev.text?.trim().toLowerCase();
-          if (normText && !existingTexts.has(normText)) {
-            mergedReviews.push(baseRev);
-            existingTexts.add(normText);
-          } else if (!normText) {
-            mergedReviews.push(baseRev);
-          }
-        }
+
 
         const getTimestamp = (val: any): number => {
           if (!val) return 0;
@@ -1437,6 +1358,41 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
 
     fetchData();
   }, [placesLib, branch.googlePlaceId, branch.id, branch.googleRating, branch.googleRatingCount]);
+
+  // Reactive date range filtration of reviews
+  const filteredData = useMemo(() => {
+    const startLimit = startDate ? new Date(startDate + 'T00:00:00').getTime() : null;
+    const endLimit = endDate ? new Date(endDate + 'T23:59:59').getTime() : null;
+
+    const filterFn = (review: google.maps.places.Review) => {
+      const getTimestamp = (val: any): number => {
+        if (!val) return 0;
+        if (val instanceof Date) return val.getTime();
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      };
+      
+      const t = getTimestamp(review.publishTime);
+      if (!t) return true;
+      if (startLimit && t < startLimit) return false;
+      if (endLimit && t > endLimit) return false;
+      return true;
+    };
+
+    const allFiltered = data.allReviews.filter(filterFn);
+    const criticalFiltered = data.criticalReviews.filter(filterFn);
+    
+    // If a custom date range filter is active, show matches in the selected range for Summary
+    const recentFiltered = (startDate || endDate)
+      ? allFiltered
+      : data.recentReviews.filter(filterFn);
+
+    return {
+      allReviews: allFiltered,
+      criticalReviews: criticalFiltered,
+      recentReviews: recentFiltered
+    };
+  }, [data.allReviews, data.criticalReviews, data.recentReviews, startDate, endDate]);
 
   if (!branch.googlePlaceId && data.allReviews.length === 0) return null;
 
@@ -1540,22 +1496,23 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
               <div className="grid grid-cols-2 gap-2 mt-2">
                 <div className="p-3 bg-bg-accent rounded text-center border border-border-dim">
                   <p className="text-[8px] font-black text-text-dim uppercase">Total</p>
-                  <p className="text-lg font-mono font-bold text-text-main leading-none mt-1">{data.userRatingCount || 0}</p>
+                  <p className="text-lg font-mono font-bold text-text-main leading-none mt-1">{filteredData.allReviews.length}</p>
                   <p className="text-[7px] text-text-dim uppercase mt-1">Reseñas</p>
                 </div>
                 <div className="p-3 bg-red-500/5 rounded text-center border border-red-500/20">
                   <p className="text-[8px] font-black text-red-500 uppercase">Alertas</p>
-                  <p className="text-lg font-mono font-bold text-red-500 leading-none mt-1">{data.criticalReviews.length}</p>
+                  <p className="text-lg font-mono font-bold text-red-500 leading-none mt-1">{filteredData.criticalReviews.length}</p>
                   <p className="text-[7px] text-text-dim uppercase mt-1">Críticas</p>
                 </div>
               </div>
-              {data.recentReviews.length > 0 ? (
+              {filteredData.recentReviews.length > 0 ? (
                 <div className="p-2 border border-brand-500/10 rounded bg-brand-500/5">
                   <p className="text-[10px] font-black text-brand-500 uppercase flex items-center gap-1 mb-2">
-                    <Clock size={11} className="text-yellow-500" /> RESEÑAS ÚLTIMOS 7 DÍAS ({data.recentReviews.length})
+                    <Clock size={11} className="text-yellow-500" /> 
+                    {startDate || endDate ? `RESEÑAS DEL PERÍODO (${filteredData.recentReviews.length})` : `RESEÑAS ÚLTIMOS 7 DÍAS (${filteredData.recentReviews.length})`}
                   </p>
                   <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
-                    {data.recentReviews.map((rev, idx) => (
+                    {filteredData.recentReviews.map((rev, idx) => (
                       <div key={idx} className="border-b border-border-dim/35 pb-2 last:pb-0 last:border-0">
                         <div className="flex justify-between text-[9px]">
                           <span className="font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario de Google'}</span>
@@ -1573,22 +1530,24 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
                 </div>
               ) : (
                 <div className="p-3 border border-border-dim bg-bg-accent/40 rounded text-center">
-                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider">Sin comentarios nuevos en los últimos 7 días</p>
+                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider">
+                    {startDate || endDate ? "Sin comentarios en este período" : "Sin comentarios nuevos en los últimos 7 días"}
+                  </p>
                 </div>
               )}
             </div>
           )}
 
           {activeView === 'all' && (
-            <ReviewList reviews={data.allReviews} emptyMsg="No hay reseñas disponibles." showLimitNote={true} />
+            <ReviewList reviews={filteredData.allReviews} emptyMsg="No hay reseñas disponibles." showLimitNote={true} />
           )}
 
           {activeView === 'critical' && (
-            <ReviewList reviews={data.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." showLimitNote={true} />
+            <ReviewList reviews={filteredData.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." showLimitNote={true} />
           )}
 
           {activeView === 'recent' && (
-            <ReviewList reviews={data.recentReviews} emptyMsg="Sin comentarios en los últimos 7 días." showLimitNote={true} />
+            <ReviewList reviews={filteredData.recentReviews} emptyMsg={startDate || endDate ? "Sin comentarios en este período o la fecha seleccionada." : "Sin comentarios en los últimos 7 días."} showLimitNote={true} />
           )}
         </div>
       )}
@@ -1597,6 +1556,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
 };
 
 function DashboardView({ salesComparison: initialSalesComparison, performance, branches, selectedBranchId }: { salesComparison: any, performance: PerformanceData, branches: Branch[], selectedBranchId: string }) {
+  const [startDate, setStartDate] = useState('2026-05-01');
+  const [endDate, setEndDate] = useState('2026-05-25');
+
   // Filter sales data for the chart and KPIs
   const filteredSales = useMemo(() => {
     if (selectedBranchId === 'all') return MOCK_SALES;
@@ -1679,7 +1641,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
              <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
           </Card>
         ) : (
-          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={startDate} endDate={endDate} />
         )}
       </div>
 
@@ -1688,14 +1650,51 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
         <MapPin size={12} className="text-yellow-500" />
         Reputación en Google Maps
       </h3>
+
+      {/* Filtro de Fecha para Comentarios */}
+      <div className="bg-bg-sidebar/50 backdrop-blur-md p-3 rounded-lg border border-border-dim/60 flex flex-wrap items-center gap-4 justify-between mt-2">
+        <div className="flex items-center gap-2">
+          <Calendar size={13} className="text-yellow-500" />
+          <span className="text-[10px] font-black uppercase text-text-main tracking-widest">Filtrar Comentarios por Fecha</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-bold text-text-dim uppercase">Desde:</span>
+            <input 
+              type="date" 
+              value={startDate} 
+              onChange={(e) => setStartDate(e.target.value)} 
+              className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-bold text-text-dim uppercase">Hasta:</span>
+            <input 
+              type="date" 
+              value={endDate} 
+              onChange={(e) => setEndDate(e.target.value)} 
+              className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
+            />
+          </div>
+          {(startDate || endDate) && (
+            <button 
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/25 text-red-400 border border-red-500/20 hover:border-red-500/45 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {selectedBranchId === 'all' ? (
           branches.map(branch => (
-            <GoogleMetricsCard key={branch.id} branch={branch} />
+            <GoogleMetricsCard key={branch.id} branch={branch} startDate={startDate} endDate={endDate} />
           ))
         ) : (
           <div className="col-span-full">
-            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
+            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={startDate} endDate={endDate} />
           </div>
         )}
         {branches.length === 0 && (
