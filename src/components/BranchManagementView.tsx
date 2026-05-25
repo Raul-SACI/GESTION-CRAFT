@@ -18,7 +18,8 @@ import {
   Database,
   Lock,
   Cloud,
-  FileText
+  FileText,
+  Trash2
 } from 'lucide-react';
 import { Branch } from '../types';
 import { cn } from '../lib/utils';
@@ -29,11 +30,13 @@ import { getGoogleBaseline } from '../App';
 export default function BranchManagementView({ 
   branches, 
   onUpdateBranch,
-  onAddBranchClick
+  onAddBranchClick,
+  onDeleteBranch
 }: { 
   branches: Branch[], 
   onUpdateBranch: (branch: Branch) => void,
-  onAddBranchClick: () => void
+  onAddBranchClick: () => void,
+  onDeleteBranch: (branchId: string) => void
 }) {
   const [activeTab, setActiveTab] = useState<'branches' | 'google_profile'>('branches');
   
@@ -230,44 +233,19 @@ export default function BranchManagementView({
   const handleSyncReviews = async () => {
     setSyncing(true);
     setSyncLogs([]);
-    addLog("Iniciando sincronización con la API de Google Business Profile...");
+    addLog("Iniciando sincronización con la API de Google Business Profile (Real-Time Places API)...");
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1400));
-
-      const reviewPool: Record<string, { rating: number, text: string }[]> = {
-        bs: [
-          { rating: 5, text: "Excelente atención y ambiente. El patio de Barrio Sur quedó de primer nivel, la birra helada y las hamburguesas son increíbles." },
-          { rating: 5, text: "La atención de las chicas en Barrio Sur fue fantástica. Muy predispuestas y atentas. Aguante CRAFT!" },
-          { rating: 5, text: "Un golazo de media cancha en la zona de Barrio Sur. Fuimos after office y las promos de pintas son buenisimas." },
-          { rating: 5, text: "Las hamburguesas con cheddar doble son gigantezcas. El servicio fue sumamente rápido y muy amable." },
-          { rating: 5, text: "¡El happy hour de los miércoles en Barrio Sur es increíble! Ideal para relajarse a mitad de semana." },
-          { rating: 5, text: "La mejor Honey de Tucumán. La comida está espectacular y la música tiene un volumen perfecto." },
-          { rating: 4, text: "Muy buena cerveza artesanal y excelente música de fondo. Recomendadas las papas con provola y verdeo." },
-          { rating: 5, text: "Sofi nos atendió de diez, divina total. Espectacular experiencia en CRAFT Barrio Sur." }
-        ],
-        bn: [
-          { rating: 5, text: "Excelente atención y ambiente en Barrio Norte. La IPA roja que probamos de CRAFT es la mejor de Tucumán!" },
-          { rating: 4, text: "La cerveza artesanal riquísima en Barrio Norte. Volvería siempre, gran espacio." },
-          { rating: 5, text: "Los eventos after office de Barrio Norte tienen la mejor onda. Recomiendo acompañar con las papas con cheddar." },
-          { rating: 5, text: "Hamburguesas impecables y servicio súper ágil a pesar de estar colmado de gente." },
-          { rating: 4, text: "Buena música y excelentes variedades de pintas. Para recomendar!" }
-        ],
-        default: [
-          { rating: 5, text: "Excelente atención, cerveza de primer nivel y ambiente súper agradable." },
-          { rating: 5, text: "Excelentes opciones gastronómicas y muy buena música." },
-          { rating: 4, text: "Muy buenas variedades artesanales y excelente relación precio-calidad." },
-          { rating: 5, text: "El personal te atiende de manera divina, súper recomendables." }
-        ]
-      };
-
-      const userPool = [
-        "Julián Martínez", "Estefania Vaca", "Rodrigo Díaz", "Camila Ledesma",
-        "Pedro Mansilla", "Paula Medina", "Santiago Albornoz", "María José Solórzano",
-        "Federico Romano", "Luciana Giménez", "Emilio Ocaranza", "Mariana Córdoba"
-      ];
+      if (!placesLib) {
+        throw new Error("La librería de Google Places no está disponible. Verifique su API Key.");
+      }
 
       const insertedReviews: any[] = [];
+      let successCount = 0;
+
+      // First, let's delete any synthetic reviews to start fresh and realistic
+      addLog("Limpiando opiniones simuladas previas para forzar transparencia...");
+      await supabase.from('google_reviews').delete().like('id', 'api-rev-%');
 
       for (const branch of branches) {
         addLog(`Analizando sucursal: "${branch.name}"...`);
@@ -278,37 +256,58 @@ export default function BranchManagementView({
           continue;
         }
 
-        addLog(`Conectando con Google Business Profile para Place: [${targetGoogleId}]`);
-        await new Promise(resolve => setTimeout(resolve, 300));
+        addLog(`Conectando con Google Places para Place: [${targetGoogleId}]`);
+        await new Promise(resolve => setTimeout(resolve, 400));
 
-        // Use customized review pool for this branch specifically to protect mathematical average and authenticity
-        const pool = reviewPool[branch.id] || reviewPool.default;
-        const reviewCount = 6 + Math.floor(Math.random() * 4);
-        
-        for (let i = 0; i < reviewCount; i++) {
-          const reviewTemplate = pool[i % pool.length];
-          const author = userPool[Math.floor(Math.random() * userPool.length)];
-          
-          // Dates in last 14 days
-          const pDate = new Date();
-          pDate.setDate(pDate.getDate() - Math.floor(Math.random() * 14));
-
-          insertedReviews.push({
-            id: `api-rev-${branch.id}-${i}-${pDate.getDate()}-${pDate.getHours()}`,
-            branch_id: branch.id,
-            author_display_name: author,
-            author_photo_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(author)}`,
-            rating: reviewTemplate.rating,
-            text: reviewTemplate.text,
-            publish_time: pDate.toISOString(),
-            created_at: new Date().toISOString()
+        try {
+          const place = new placesLib.Place({ id: targetGoogleId });
+          await place.fetchFields({
+            fields: ['rating', 'userRatingCount', 'reviews']
           });
+
+          const liveRating = place.rating;
+          const liveRatingCount = place.userRatingCount;
+          const liveReviews = place.reviews || [];
+
+          addLog(`✓ Datos obtenidos de Google para "${branch.name}": Calificación ${liveRating} con ${liveRatingCount} reseñas.`);
+
+          if (liveRating !== undefined && liveRating !== null && liveRatingCount !== undefined && liveRatingCount !== null) {
+            await supabase
+              .from('branches')
+              .update({
+                google_rating: liveRating,
+                google_rating_count: liveRatingCount,
+                google_place_id: targetGoogleId
+              })
+              .eq('id', branch.id);
+          }
+
+          if (liveReviews.length > 0) {
+            liveReviews.forEach((rev, idx) => {
+              insertedReviews.push({
+                id: `real-rev-${branch.id}-${idx}-${rev.publishTime ? new Date(rev.publishTime).getTime() : idx}`,
+                branch_id: branch.id,
+                author_display_name: rev.authorAttribution?.displayName || 'Usuario de Google',
+                author_photo_url: (rev.authorAttribution as any)?.photoURI || (rev.authorAttribution as any)?.photoUri || null,
+                rating: rev.rating || 5,
+                text: rev.text || '',
+                publish_time: rev.publishTime ? new Date(rev.publishTime).toISOString() : new Date().toISOString(),
+                created_at: new Date().toISOString()
+              });
+            });
+            addLog(`✓ Extraídas y guardadas ${liveReviews.length} reseñas 100% REALES de Google para "${branch.name}".`);
+            successCount++;
+          } else {
+            addLog(`ℹ️ "${branch.name}" no tiene comentarios con texto o Google no devolvió opiniones.`);
+          }
+        } catch (apiErr: any) {
+          console.error(`Error query real comments for Place ID ${targetGoogleId}:`, apiErr);
+          addLog(`❌ Error en "${branch.name}": ${apiErr.message || apiErr}`);
         }
-        addLog(`✓ "${branch.name}" sincronizado: Cargados ${reviewCount} comentarios de alta valorización.`);
       }
 
       if (insertedReviews.length > 0) {
-        addLog("Guardando opiniones consolidadas en base de datos Google reviews de Supabase...");
+        addLog("Guardando opiniones REALES consolidadas en base de datos de Supabase...");
         
         const { error } = await supabase
           .from('google_reviews')
@@ -326,13 +325,15 @@ export default function BranchManagementView({
         });
 
         await fetchGoogleConfig();
-        addLog(`✨ Sincronización exitosa! Se importaron un total de ${insertedReviews.length} reseñas. De ahora en más, cualquier usuario u operario logueado a la app las verá al instante.`);
+        addLog(`✨ Sincronización real exitosa! Se importaron un total de ${insertedReviews.length} reseñas reales. Cualquier usuario o directivo las verá en tiempo real.`);
+      } else if (successCount > 0) {
+        addLog("✨ Sincronización de métricas finalizada (sin comentarios nuevos para importar).");
       } else {
-        addLog("⌛ No hay mapeos válidos asociados para sincronizar opiniones.");
+        addLog("⚠️ Fin del ciclo. No hay mapeos válidos o no se detectaron reseñas.");
       }
     } catch (err: any) {
       console.error(err);
-      addLog(`❌ Error de guardado: ${err.message || err}`);
+      addLog(`❌ Error en sincronización: ${err.message || err}`);
     } finally {
       setSyncing(false);
     }
@@ -557,22 +558,39 @@ export default function BranchManagementView({
                           />
                           <label htmlFor={`active-${branch.id}`} className="text-[10px] font-bold uppercase text-text-dim cursor-pointer">Sucursal Activa</label>
                         </div>
-                        <button 
-                          onClick={handleSave}
-                          className="bg-brand-500 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
-                        >
-                          <Save size={12} /> Guardar
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => onDeleteBranch && onDeleteBranch(branch.id)}
+                            className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-widest transition-all border border-red-500/25 flex items-center gap-1.5"
+                            title="Eliminar esta sucursal permanentemente"
+                          >
+                            <Trash2 size={12} /> Eliminar
+                          </button>
+                          <button 
+                            onClick={handleSave}
+                            className="bg-brand-500 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
+                          >
+                            <Save size={12} /> Guardar
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <>
-                      <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
                          <button 
                           onClick={() => startEditing(branch)}
                           className="bg-bg-accent hover:bg-brand-500 hover:text-black text-text-dim p-2 rounded-full border border-border-dim transition-all"
+                          title="Editar Sucursal"
                          >
                             <Edit2 size={14} />
+                         </button>
+                         <button 
+                          onClick={() => onDeleteBranch && onDeleteBranch(branch.id)}
+                          className="bg-bg-accent hover:bg-red-500 hover:text-white text-red-500 p-2 rounded-full border border-border-dim transition-all"
+                          title="Eliminar Sucursal"
+                         >
+                            <Trash2 size={14} />
                          </button>
                       </div>
 

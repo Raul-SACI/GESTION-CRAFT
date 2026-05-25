@@ -667,6 +667,27 @@ function AppContent() {
     }
   };
 
+  const handleDeleteBranch = async (branchId: string) => {
+    if (!window.confirm('¿Estás seguro de que deseas eliminar esta sucursal? Esta acción es irreversible y eliminará todos sus registros asociados.')) {
+      return;
+    }
+    try {
+      // Delete from Supabase
+      const { error } = await supabase
+        .from('branches')
+        .delete()
+        .eq('id', branchId);
+
+      if (error) throw error;
+
+      // Update local state
+      setBranches(prev => prev.filter(b => b.id !== branchId));
+    } catch (err: any) {
+      console.error('Error deleting branch:', err);
+      alert(`Error al eliminar la sucursal: ${err.message || 'Error desconocido'}`);
+    }
+  };
+
   // Calculate comparison KPI for "Ventas" (Week 1 May vs Week 1 April)
   const salesComparison = useMemo(() => {
     const week1April = MOCK_SALES.find(s => s.date === '2024-04-01')?.pesos || 1;
@@ -1022,6 +1043,7 @@ function AppContent() {
                   branches={branches} 
                   onUpdateBranch={handleUpdateBranch} 
                   onAddBranchClick={() => setShowAddBranch(true)}
+                  onDeleteBranch={handleDeleteBranch}
                 />
               )}
             </AnimatePresence>
@@ -1198,15 +1220,17 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
 
         let mappedDbReviews: google.maps.places.Review[] = [];
         if (dbReviews && dbReviews.length > 0) {
-          mappedDbReviews = dbReviews.map((r: any) => ({
-            rating: r.rating,
-            text: r.text,
-            publishTime: r.publish_time ? new Date(r.publish_time) : undefined,
-            authorAttribution: {
-              displayName: r.author_display_name,
-              photoUri: r.author_photo_url || undefined
-            }
-          })) as google.maps.places.Review[];
+          mappedDbReviews = dbReviews
+            .filter((r: any) => !r.id?.startsWith('api-rev-')) // Skip all simulated reviews
+            .map((r: any) => ({
+              rating: r.rating,
+              text: r.text,
+              publishTime: r.publish_time ? new Date(r.publish_time) : undefined,
+              authorAttribution: {
+                displayName: r.author_display_name,
+                photoUri: r.author_photo_url || undefined
+              }
+            })) as google.maps.places.Review[];
 
           // If Places API didn't return rating or reviews, take from Database
           if (liveRating === undefined && dbReviews.length > 0) {
@@ -1404,12 +1428,29 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
                   <p className="text-[7px] text-text-dim uppercase mt-1">Críticas</p>
                 </div>
               </div>
-              {data.recentWithText.length > 0 && (
-                <div className="p-2 border-2 border-dashed border-brand-500/20 rounded-lg animate-pulse-slow">
-                  <p className="text-[8px] font-black text-brand-500 uppercase flex items-center gap-1 mb-1">
-                    <Clock size={10} /> Nuevos Comentarios (7d): {data.recentWithText.length}
+              {data.recentWithText.length > 0 ? (
+                <div className="p-2 border border-brand-500/10 rounded bg-brand-500/5">
+                  <p className="text-[10px] font-black text-brand-500 uppercase flex items-center gap-1 mb-2">
+                    <Clock size={11} className="text-yellow-500" /> RESEÑAS ÚLTIMOS 7 DÍAS ({data.recentWithText.length})
                   </p>
-                  <p className="text-[8px] text-text-dim italic line-clamp-1">"{data.recentWithText[0].text}"</p>
+                  <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
+                    {data.recentWithText.map((rev, idx) => (
+                      <div key={idx} className="border-b border-border-dim/35 pb-2 last:pb-0 last:border-0">
+                        <div className="flex justify-between text-[9px]">
+                          <span className="font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario de Google'}</span>
+                          <span className="text-text-dim text-[8px] whitespace-nowrap">{rev.publishTime ? new Date(rev.publishTime).toLocaleDateString() : ''}</span>
+                        </div>
+                        <div className="my-0.5">
+                          {renderStars(rev.rating || 0, 7)}
+                        </div>
+                        <p className="text-[9px] text-text-dim leading-tight italic">"{rev.text}"</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 border border-border-dim bg-bg-accent/40 rounded text-center">
+                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider">Sin comentarios nuevos en los últimos 7 días</p>
                 </div>
               )}
             </div>
