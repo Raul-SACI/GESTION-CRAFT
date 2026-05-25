@@ -1171,10 +1171,10 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     userRatingCount?: number;
     allReviews: google.maps.places.Review[];
     criticalReviews: google.maps.places.Review[];
-    recentWithText: google.maps.places.Review[];
+    recentReviews: google.maps.places.Review[];
     error?: string;
     loading: boolean;
-  }>({ allReviews: [], criticalReviews: [], recentWithText: [], loading: false });
+  }>({ allReviews: [], criticalReviews: [], recentReviews: [], loading: false });
 
   const [activeView, setActiveView] = useState<'summary' | 'all' | 'critical' | 'recent'>('summary');
 
@@ -1276,7 +1276,6 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
         sevenDaysAgo.setHours(0, 0, 0, 0);
         
         const recent = mergedReviews.filter(review => {
-          if (!review.text) return false;
           const pubDate = review.publishTime ? new Date(review.publishTime) : null;
           return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
         });
@@ -1286,7 +1285,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           userRatingCount: finalCount,
           allReviews: mergedReviews,
           criticalReviews: critical,
-          recentWithText: recent,
+          recentReviews: recent,
           loading: false
         });
 
@@ -1354,9 +1353,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
                 </div>
                 <span className="text-[7px] text-text-dim whitespace-nowrap">{pubDate?.toLocaleDateString()}</span>
               </div>
-              {rev.text && (
-                <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">"{rev.text}"</p>
-              )}
+              <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">
+                {rev.text ? `"${rev.text}"` : "(Sin comentario escrito)"}
+              </p>
             </div>
           );
         })
@@ -1379,7 +1378,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
             { id: 'summary', icon: LayoutDashboard, label: 'Resumen' },
             { id: 'all', icon: Star, label: 'Todas' },
             { id: 'critical', icon: AlertCircle, label: 'Críticas' },
-            { id: 'recent', icon: Clock, label: '7d Texto' }
+            { id: 'recent', icon: Clock, label: '7D' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -1428,13 +1427,13 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
                   <p className="text-[7px] text-text-dim uppercase mt-1">Críticas</p>
                 </div>
               </div>
-              {data.recentWithText.length > 0 ? (
+              {data.recentReviews.length > 0 ? (
                 <div className="p-2 border border-brand-500/10 rounded bg-brand-500/5">
                   <p className="text-[10px] font-black text-brand-500 uppercase flex items-center gap-1 mb-2">
-                    <Clock size={11} className="text-yellow-500" /> RESEÑAS ÚLTIMOS 7 DÍAS ({data.recentWithText.length})
+                    <Clock size={11} className="text-yellow-500" /> RESEÑAS ÚLTIMOS 7 DÍAS ({data.recentReviews.length})
                   </p>
                   <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
-                    {data.recentWithText.map((rev, idx) => (
+                    {data.recentReviews.map((rev, idx) => (
                       <div key={idx} className="border-b border-border-dim/35 pb-2 last:pb-0 last:border-0">
                         <div className="flex justify-between text-[9px]">
                           <span className="font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario de Google'}</span>
@@ -1443,7 +1442,9 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
                         <div className="my-0.5">
                           {renderStars(rev.rating || 0, 7)}
                         </div>
-                        <p className="text-[9px] text-text-dim leading-tight italic">"{rev.text}"</p>
+                        <p className="text-[9px] text-text-dim leading-tight italic">
+                          {rev.text ? `"${rev.text}"` : "(Sin comentario escrito)"}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -1465,7 +1466,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
           )}
 
           {activeView === 'recent' && (
-            <ReviewList reviews={data.recentWithText} emptyMsg="Sin comentarios con texto en los últimos 7 días." showLimitNote={true} />
+            <ReviewList reviews={data.recentReviews} emptyMsg="Sin comentarios en los últimos 7 días." showLimitNote={true} />
           )}
         </div>
       )}
