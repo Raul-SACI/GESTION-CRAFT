@@ -1263,18 +1263,13 @@ const GoogleMetricsCard: React.FC<{
   branch: Branch;
   startDate?: string;
   endDate?: string;
-}> = ({ branch, startDate, endDate }) => {
+}> = ({ branch }) => {
   const [data, setData] = useState<{
     rating?: number;
     userRatingCount?: number;
-    allReviews: google.maps.places.Review[];
-    criticalReviews: google.maps.places.Review[];
-    recentReviews: google.maps.places.Review[];
     error?: string;
     loading: boolean;
-  }>({ allReviews: [], criticalReviews: [], recentReviews: [], loading: false });
-
-  const [activeView, setActiveView] = useState<'summary' | 'all' | 'critical' | 'recent'>('summary');
+  }>({ loading: false });
 
   const placesLib = useMapsLibrary('places');
 
@@ -1286,14 +1281,13 @@ const GoogleMetricsCard: React.FC<{
       try {
         let liveRating: number | undefined = undefined;
         let liveRatingCount: number | undefined = undefined;
-        let allReviews: google.maps.places.Review[] = [];
 
         // Try Google Maps Places API (Real-Time Live) first if googlePlaceId is specified
         if (placesLib && branch.googlePlaceId) {
           try {
             const place = new placesLib.Place({ id: branch.googlePlaceId });
             await place.fetchFields({
-              fields: ['rating', 'userRatingCount', 'reviews']
+              fields: ['rating', 'userRatingCount']
             });
 
             if (place.rating !== undefined && place.rating !== null) {
@@ -1302,111 +1296,42 @@ const GoogleMetricsCard: React.FC<{
             if (place.userRatingCount !== undefined && place.userRatingCount !== null) {
               liveRatingCount = place.userRatingCount;
             }
-            if (place.reviews && place.reviews.length > 0) {
-              allReviews = place.reviews.map((rev: any) => ({
-                rating: rev.rating,
-                text: rev.text,
-                publishTime: rev.publishTime ? adjustReviewDateToCurrentYear(rev.publishTime) : undefined,
-                authorAttribution: rev.authorAttribution ? {
-                  displayName: rev.authorAttribution.displayName,
-                  photoUri: rev.authorAttribution.photoURI || rev.authorAttribution.photoUri || undefined
-                } : undefined
-              })) as any as google.maps.places.Review[];
-            }
           } catch (apiErr) {
             console.warn("Real-time Places API failed, falling back to database caching", apiErr);
           }
         }
 
-        // Fetch Supabase Reviews to merge or fall back
-        const { data: dbReviews } = await supabase
-          .from('google_reviews')
-          .select('*')
-          .eq('branch_id', branch.id);
+        // Fetch Supabase Reviews to count/calculate average if Google API didn't return rating
+        if (liveRating === undefined || liveRatingCount === undefined) {
+          const { data: dbReviews } = await supabase
+            .from('google_reviews')
+            .select('rating')
+            .eq('branch_id', branch.id);
 
-        let mappedDbReviews: google.maps.places.Review[] = [];
-        if (dbReviews && dbReviews.length > 0) {
-          mappedDbReviews = dbReviews
-            .filter((r: any) => !r.id?.startsWith('api-rev-')) // Skip all simulated reviews
-            .map((r: any) => ({
-              rating: r.rating,
-              text: r.text,
-              publishTime: r.publish_time ? adjustReviewDateToCurrentYear(r.publish_time) : undefined,
-              authorAttribution: {
-                displayName: r.author_display_name,
-                photoUri: r.author_photo_url || undefined
-              }
-            })) as any as google.maps.places.Review[];
-
-          // If Places API didn't return rating or reviews, take from Database
-          if (liveRating === undefined && dbReviews.length > 0) {
-            const dbAvg = dbReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / dbReviews.length;
-            liveRating = Number(dbAvg.toFixed(1));
-          }
-          if (liveRatingCount === undefined) {
-            liveRatingCount = dbReviews.length;
+          if (dbReviews && dbReviews.length > 0) {
+            if (liveRating === undefined) {
+              const dbAvg = dbReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / dbReviews.length;
+              liveRating = Number(dbAvg.toFixed(1));
+            }
+            if (liveRatingCount === undefined) {
+              liveRatingCount = dbReviews.length;
+            }
           }
         }
-
-        // Merge reviews: live Google reviews first, followed by DB reviews (avoiding duplicates by text/author)
-        let mergedReviews = [...allReviews];
-        const existingTexts = new Set(allReviews.map(r => r.text?.trim().toLowerCase()).filter(Boolean));
-        
-        for (const dbRev of mappedDbReviews) {
-          const normText = dbRev.text?.trim().toLowerCase();
-          if (normText && !existingTexts.has(normText)) {
-            mergedReviews.push(dbRev);
-            existingTexts.add(normText);
-          } else if (!normText) {
-            mergedReviews.push(dbRev);
-          }
-        }
-
-        
-        // Only real reviews from Google API and Supabase database cache will be used now.
-
-
-
-        const getTimestamp = (val: any): number => {
-          if (!val) return 0;
-          if (val instanceof Date) return val.getTime();
-          const d = new Date(val);
-          return isNaN(d.getTime()) ? 0 : d.getTime();
-        };
-
-        // Sort reviews by date descending if dates exist (the most recent first)
-        mergedReviews.sort((a, b) => {
-          return getTimestamp(b.publishTime) - getTimestamp(a.publishTime);
-        });
 
         // Resolve rating and counts with absolute preference for Google Live, then Branch State, then Baseline fallback
         const baseline = getGoogleBaseline(branch.name, branch.id);
         const finalRating = liveRating !== undefined && liveRating !== null ? liveRating : (branch.googleRating || baseline.rating);
         const finalCount = liveRatingCount !== undefined && liveRatingCount !== null ? liveRatingCount : (branch.googleRatingCount || baseline.userRatingCount);
 
-        const critical = mergedReviews.filter(review => (review.rating || 0) <= 4);
-        
-        const now = new Date();
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(now.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-        
-        const recent = mergedReviews.filter(review => {
-          const t = getTimestamp(review.publishTime);
-          return t >= sevenDaysAgo.getTime();
-        });
-
         setData({
           rating: finalRating,
           userRatingCount: finalCount,
-          allReviews: mergedReviews,
-          criticalReviews: critical,
-          recentReviews: recent,
           loading: false
         });
 
         // Auto-persist realtime metrics to Supabase to enable offline coherence
-        if (liveRating && liveRatingCount && (liveRating !== branch.googleRating || liveRatingCount !== branch.googleRatingCount)) {
+        if (liveRating !== undefined && liveRatingCount !== undefined && (liveRating !== branch.googleRating || liveRatingCount !== branch.googleRatingCount)) {
           supabase
             .from('branches')
             .update({
@@ -1422,9 +1347,9 @@ const GoogleMetricsCard: React.FC<{
         console.error('Error fetching Google metrics:', err);
         const errorMsg = err.message || '';
         if (errorMsg.includes('NOT_FOUND') || errorMsg.includes('invalid') || errorMsg.includes('Place ID')) {
-          setData(prev => ({ ...prev, loading: false, error: 'ID de Google inválido o expirado. Por favor, actualice el ID en Gestión de Sucursales.' }));
+          setData(prev => ({ ...prev, loading: false, error: 'ID de Google inválido (Edítelo en Gestión de Sucursales).' }));
         } else {
-          setData(prev => ({ ...prev, loading: false, error: 'Error al cargar datos de Google (Verifica la conexión y el ID).' }));
+          setData(prev => ({ ...prev, loading: false, error: 'Error al cargar datos de Google.' }));
         }
       }
     };
@@ -1432,44 +1357,7 @@ const GoogleMetricsCard: React.FC<{
     fetchData();
   }, [placesLib, branch.googlePlaceId, branch.id, branch.googleRating, branch.googleRatingCount]);
 
-  // Reactive date range filtration of reviews
-  const filteredData = useMemo(() => {
-    const startLimit = startDate ? new Date(startDate + 'T00:00:00').getTime() : null;
-    const endLimit = endDate ? new Date(endDate + 'T23:59:59').getTime() : null;
-
-    const filterFn = (review: google.maps.places.Review) => {
-      const getTimestamp = (val: any): number => {
-        if (!val) return 0;
-        if (val instanceof Date) return val.getTime();
-        const d = new Date(val);
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-      };
-      
-      const t = getTimestamp(review.publishTime);
-      if (!t) return true;
-      if (startLimit && t < startLimit) return false;
-      if (endLimit && t > endLimit) return false;
-      return true;
-    };
-
-    const allFiltered = data.allReviews.filter(filterFn);
-    const criticalFiltered = data.criticalReviews.filter(filterFn);
-    
-    // If a custom date range filter is active, show matches in the selected range for Summary
-    const recentFiltered = (startDate || endDate)
-      ? allFiltered
-      : data.recentReviews.filter(filterFn);
-
-    return {
-      allReviews: allFiltered,
-      criticalReviews: criticalFiltered,
-      recentReviews: recentFiltered
-    };
-  }, [data.allReviews, data.criticalReviews, data.recentReviews, startDate, endDate]);
-
-  if (!branch.googlePlaceId && data.allReviews.length === 0) return null;
-
-  const renderStars = (rating: number, size = 8, colorClass = "text-yellow-500 fill-yellow-500") => (
+  const renderStars = (rating: number, size = 11, colorClass = "text-yellow-500 fill-yellow-500") => (
     <div className="flex gap-0.5">
       {[...Array(5)].map((_, i) => (
         <Star 
@@ -1481,147 +1369,41 @@ const GoogleMetricsCard: React.FC<{
     </div>
   );
 
-  const ReviewList = ({ reviews, emptyMsg, showLimitNote = false }: { reviews: google.maps.places.Review[], emptyMsg: string, showLimitNote?: boolean }) => (
-    <div className="space-y-2 mt-3 max-h-48 overflow-y-auto custom-scrollbar pr-1">
-      {showLimitNote && (
-        <div className="p-2 bg-blue-500/5 border border-blue-500/10 rounded mb-2">
-          <p className="text-[7px] text-blue-500 uppercase font-black leading-tight">
-            Nota: Google API limita la respuesta a los 5 comentarios más relevantes. Si un comentario nuevo no aparece, es por esta restricción de Google.
-          </p>
-        </div>
-      )}
-      {reviews.length === 0 ? (
-        <p className="text-[9px] text-text-dim italic text-center py-4">{emptyMsg}</p>
-      ) : (
-        reviews.map((rev, i) => {
-          const pubDate = rev.publishTime ? new Date(rev.publishTime) : null;
-          return (
-            <div key={i} className="p-2 bg-bg-accent/50 border border-border-dim rounded group hover:border-brand-500/30 transition-all">
-              <div className="flex justify-between items-start mb-1">
-                <div className="flex flex-col">
-                  <span className="text-[9px] font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario Google'}</span>
-                  {renderStars(rev.rating || 0, 7)}
-                </div>
-                <span className="text-[7px] text-text-dim whitespace-nowrap">{pubDate?.toLocaleDateString()}</span>
-              </div>
-              <p className="text-[9px] text-text-dim leading-tight italic mt-1 line-clamp-3">
-                {rev.text ? `"${rev.text}"` : "(Sin comentario escrito)"}
-              </p>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
+  if (!branch.googlePlaceId && !data.rating) return null;
 
   return (
-    <Card className="h-full border-l-4 border-yellow-500 flex flex-col p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-black text-text-dim uppercase tracking-wider">{branch.name}</span>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-bold text-text-main">{data.rating || '--'}</span>
-            {renderStars(data.rating || 0, 10)}
-          </div>
-        </div>
-        <div className="flex gap-1 bg-bg-accent p-0.5 rounded border border-border-dim">
-          {[
-            { id: 'summary', icon: LayoutDashboard, label: 'Resumen' },
-            { id: 'all', icon: Star, label: 'Todas' },
-            { id: 'critical', icon: AlertCircle, label: 'Críticas' },
-            { id: 'recent', icon: Clock, label: '7D' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveView(tab.id as any)}
-              className={cn(
-                "p-1.5 rounded transition-all group relative",
-                activeView === tab.id ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-              )}
-              title={tab.label}
-            >
-              <tab.icon size={12} />
-              {activeView === tab.id && (
-                 <span className="absolute -top-6 left-1/2 -translate-x-1/2 bg-black text-white text-[7px] px-1 rounded uppercase font-bold whitespace-nowrap shadow-xl">
-                   {tab.label}
-                 </span>
-              )}
-            </button>
-          ))}
+    <Card className="h-32 border-l-4 border-yellow-500 flex flex-col justify-between p-4 bg-bg-sidebar/30 hover:border-yellow-400 transition-all">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-black text-text-dim uppercase tracking-wider">{branch.name}</span>
+        <div className="flex items-center gap-1 text-[8px] font-black uppercase text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded tracking-widest">
+          <Star size={8} className="fill-yellow-500" /> Google Maps
         </div>
       </div>
 
       {data.loading ? (
-        <div className="animate-pulse space-y-3 py-4">
-          <div className="h-4 bg-bg-accent rounded w-3/4" />
-          <div className="h-12 bg-bg-accent rounded w-full" />
-          <div className="h-12 bg-bg-accent rounded w-full" />
+        <div className="animate-pulse space-y-2 py-1">
+          <div className="h-6 bg-bg-accent rounded w-1/3" />
+          <div className="h-3 bg-bg-accent rounded w-1/2" />
         </div>
       ) : data.error ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
-          <AlertCircle size={24} className="text-red-500 mb-2" />
-          <p className="text-[10px] text-text-dim font-medium uppercase leading-tight italic">{data.error}</p>
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-[8px] text-red-400 leading-normal uppercase font-bold italic line-clamp-2">{data.error}</p>
         </div>
       ) : (
-        <div className="flex-1">
-          {activeView === 'summary' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <div className="p-3 bg-bg-accent rounded text-center border border-border-dim">
-                  <p className="text-[8px] font-black text-text-dim uppercase">Total</p>
-                  <p className="text-lg font-mono font-bold text-text-main leading-none mt-1">{filteredData.allReviews.length}</p>
-                  <p className="text-[7px] text-text-dim uppercase mt-1">Reseñas</p>
-                </div>
-                <div className="p-3 bg-red-500/5 rounded text-center border border-red-500/20">
-                  <p className="text-[8px] font-black text-red-500 uppercase">Alertas</p>
-                  <p className="text-lg font-mono font-bold text-red-500 leading-none mt-1">{filteredData.criticalReviews.length}</p>
-                  <p className="text-[7px] text-text-dim uppercase mt-1">Críticas</p>
-                </div>
-              </div>
-              {filteredData.recentReviews.length > 0 ? (
-                <div className="p-2 border border-brand-500/10 rounded bg-brand-500/5">
-                  <p className="text-[10px] font-black text-brand-500 uppercase flex items-center gap-1 mb-2">
-                    <Clock size={11} className="text-yellow-500" /> 
-                    {startDate || endDate ? `RESEÑAS DEL PERÍODO (${filteredData.recentReviews.length})` : `RESEÑAS ÚLTIMOS 7 DÍAS (${filteredData.recentReviews.length})`}
-                  </p>
-                  <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar">
-                    {filteredData.recentReviews.map((rev, idx) => (
-                      <div key={idx} className="border-b border-border-dim/35 pb-2 last:pb-0 last:border-0">
-                        <div className="flex justify-between text-[9px]">
-                          <span className="font-bold text-text-main line-clamp-1">{rev.authorAttribution?.displayName || 'Usuario de Google'}</span>
-                          <span className="text-text-dim text-[8px] whitespace-nowrap">{rev.publishTime ? new Date(rev.publishTime).toLocaleDateString() : ''}</span>
-                        </div>
-                        <div className="my-0.5">
-                          {renderStars(rev.rating || 0, 7)}
-                        </div>
-                        <p className="text-[9px] text-text-dim leading-tight italic">
-                          {rev.text ? `"${rev.text}"` : "(Sin comentario escrito)"}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="p-3 border border-border-dim bg-bg-accent/40 rounded text-center">
-                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider">
-                    {startDate || endDate ? "Sin comentarios en este período" : "Sin comentarios nuevos en los últimos 7 días"}
-                  </p>
-                </div>
-              )}
+        <div className="flex justify-between items-end mt-1">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-mono font-bold text-text-main">{data.rating ? data.rating.toFixed(1) : '--'}</span>
+              <span className="text-[10px] text-text-dim font-mono font-semibold">/ 5.0</span>
             </div>
-          )}
-
-          {activeView === 'all' && (
-            <ReviewList reviews={filteredData.allReviews} emptyMsg="No hay reseñas disponibles." showLimitNote={true} />
-          )}
-
-          {activeView === 'critical' && (
-            <ReviewList reviews={filteredData.criticalReviews} emptyMsg="¡Excelente! No hay reseñas críticas registradas." showLimitNote={true} />
-          )}
-
-          {activeView === 'recent' && (
-            <ReviewList reviews={filteredData.recentReviews} emptyMsg={startDate || endDate ? "Sin comentarios en este período o la fecha seleccionada." : "Sin comentarios en los últimos 7 días."} showLimitNote={true} />
-          )}
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {renderStars(data.rating || 0, 11)}
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="text-xl font-mono font-black text-text-main block leading-none">{data.userRatingCount || 0}</span>
+            <span className="text-[8px] text-text-dim font-bold uppercase tracking-wider block mt-0.5">Reseñas Totales</span>
+          </div>
         </div>
       )}
     </Card>
@@ -1631,10 +1413,6 @@ const GoogleMetricsCard: React.FC<{
 function DashboardView({ salesComparison: initialSalesComparison, performance, branches, selectedBranchId }: { salesComparison: any, performance: PerformanceData, branches: Branch[], selectedBranchId: string }) {
   const [startDate, setStartDate] = useState('2026-05-01');
   const [endDate, setEndDate] = useState('2026-05-25');
-  const [reviewStartDate, setReviewStartDate] = useState('');
-  const [reviewEndDate, setReviewEndDate] = useState('');
-  const [tempReviewStartDate, setTempReviewStartDate] = useState('');
-  const [tempReviewEndDate, setTempReviewEndDate] = useState('');
 
   // Filter sales data for the chart and KPIs
   const filteredSales = useMemo(() => {
@@ -1718,7 +1496,7 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
              <p className="text-[8px] text-text-dim italic">Ver desglose abajo</p>
           </Card>
         ) : (
-          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={reviewStartDate} endDate={reviewEndDate} />
+          <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
         )}
       </div>
 
@@ -1728,67 +1506,14 @@ function DashboardView({ salesComparison: initialSalesComparison, performance, b
         Reputación en Google Maps
       </h3>
 
-      {/* Filtro de Fecha para Comentarios */}
-      <div className="bg-bg-sidebar/50 backdrop-blur-md p-3 rounded-lg border border-border-dim/60 flex flex-wrap items-center gap-4 justify-between mt-2">
-        <div className="flex items-center gap-2">
-          <Calendar size={13} className="text-yellow-500" />
-          <span className="text-[10px] font-black uppercase text-text-main tracking-widest">Filtrar Comentarios por Fecha</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-bold text-text-dim uppercase">Desde:</span>
-            <input 
-              type="date" 
-              value={tempReviewStartDate} 
-              onChange={(e) => setTempReviewStartDate(e.target.value)} 
-              className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-bold text-text-dim uppercase">Hasta:</span>
-            <input 
-              type="date" 
-              value={tempReviewEndDate} 
-              onChange={(e) => setTempReviewEndDate(e.target.value)} 
-              className="bg-bg-accent border border-border-dim rounded px-2.5 py-1 text-[10px] font-mono text-text-main focus:outline-none focus:border-yellow-500/70 transition-all"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => {
-                setReviewStartDate(tempReviewStartDate);
-                setReviewEndDate(tempReviewEndDate);
-              }}
-              className="px-3.5 py-1 bg-yellow-500 hover:bg-yellow-600 active:scale-95 text-black rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 shadow-lg shadow-yellow-500/5 hover:shadow-yellow-500/15"
-            >
-              <RefreshCw size={10} />
-              Cargar
-            </button>
-            {(reviewStartDate || reviewEndDate || tempReviewStartDate || tempReviewEndDate) && (
-              <button 
-                onClick={() => { 
-                  setTempReviewStartDate(''); 
-                  setTempReviewEndDate(''); 
-                  setReviewStartDate(''); 
-                  setReviewEndDate(''); 
-                }}
-                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/25 text-red-400 border border-red-500/20 hover:border-red-500/45 rounded text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
-              >
-                Limpiar
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
         {selectedBranchId === 'all' ? (
           branches.map(branch => (
-            <GoogleMetricsCard key={branch.id} branch={branch} startDate={reviewStartDate} endDate={reviewEndDate} />
+            <GoogleMetricsCard key={branch.id} branch={branch} />
           ))
         ) : (
           <div className="col-span-full">
-            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} startDate={reviewStartDate} endDate={reviewEndDate} />
+            <GoogleMetricsCard branch={branches.find(b => b.id === selectedBranchId) || branches[0]} />
           </div>
         )}
         {branches.length === 0 && (
