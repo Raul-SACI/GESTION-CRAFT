@@ -210,8 +210,17 @@ export default function BranchManagementView({
         });
 
       if (error) throw error;
+      
+      // Also propagate the mapped Place IDs directly to the branches database table for real-time API integrations
+      for (const [branchId, placeId] of Object.entries(newMapping)) {
+        await supabase
+          .from('branches')
+          .update({ google_place_id: placeId || null })
+          .eq('id', branchId);
+      }
+
       setLocationsMapping(newMapping);
-      addLog("💾 Mapeo de sucursales guardado de forma segura en Supabase.");
+      addLog("💾 Mapeo de sucursales guardado de forma segura en Supabase y códigos de Place ID enlazados.");
     } catch (err: any) {
       console.error("Error saving mapping:", err);
       addLog(`❌ Error al guardar mapeo: ${err.message}`);

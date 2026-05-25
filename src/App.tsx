@@ -1164,14 +1164,41 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     const fetchData = async () => {
       setData(prev => ({ ...prev, loading: true, error: undefined }));
       try {
-        // --- OPTION 2: Query shared Google Reviews table in Supabase ---
-        const { data: dbReviews, error: dbError } = await supabase
+        let liveRating: number | undefined = undefined;
+        let liveRatingCount: number | undefined = undefined;
+        let allReviews: google.maps.places.Review[] = [];
+
+        // Try Google Maps Places API (Real-Time Live) first if googlePlaceId is specified
+        if (placesLib && branch.googlePlaceId) {
+          try {
+            const place = new placesLib.Place({ id: branch.googlePlaceId });
+            await place.fetchFields({
+              fields: ['rating', 'userRatingCount', 'reviews']
+            });
+
+            if (place.rating !== undefined && place.rating !== null) {
+              liveRating = place.rating;
+            }
+            if (place.userRatingCount !== undefined && place.userRatingCount !== null) {
+              liveRatingCount = place.userRatingCount;
+            }
+            if (place.reviews && place.reviews.length > 0) {
+              allReviews = place.reviews;
+            }
+          } catch (apiErr) {
+            console.warn("Real-time Places API failed, falling back to database caching", apiErr);
+          }
+        }
+
+        // Fetch Supabase Reviews to merge or fall back
+        const { data: dbReviews } = await supabase
           .from('google_reviews')
           .select('*')
           .eq('branch_id', branch.id);
 
+        let mappedDbReviews: google.maps.places.Review[] = [];
         if (dbReviews && dbReviews.length > 0) {
-          const mappedReviews = dbReviews.map((r: any) => ({
+          mappedDbReviews = dbReviews.map((r: any) => ({
             rating: r.rating,
             text: r.text,
             publishTime: r.publish_time ? new Date(r.publish_time) : undefined,
@@ -1181,68 +1208,77 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
             }
           })) as google.maps.places.Review[];
 
-          const averageRating = dbReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / dbReviews.length;
-          const critical = mappedReviews.filter(review => (review.rating || 0) <= 4);
-          
-          const now = new Date();
-          const sevenDaysAgo = new Date();
-          sevenDaysAgo.setDate(now.getDate() - 7);
-          sevenDaysAgo.setHours(0, 0, 0, 0);
-          
-          const recent = mappedReviews.filter(review => {
-            if (!review.text) return false;
-            const pubDate = review.publishTime ? new Date(review.publishTime) : null;
-            return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
-          });
-
-          const baseline = getGoogleBaseline(branch.name, branch.id);
-
-          setData({
-            rating: branch.googleRating || baseline.rating,
-            userRatingCount: branch.googleRatingCount || baseline.userRatingCount,
-            allReviews: mappedReviews,
-            criticalReviews: critical,
-            recentWithText: recent,
-            loading: false
-          });
-          return; // Extracted successfully from Option 2 database!
+          // If Places API didn't return rating or reviews, take from Database
+          if (liveRating === undefined && dbReviews.length > 0) {
+            const dbAvg = dbReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / dbReviews.length;
+            liveRating = Number(dbAvg.toFixed(1));
+          }
+          if (liveRatingCount === undefined) {
+            liveRatingCount = dbReviews.length;
+          }
         }
 
-        // --- FALLBACK: Client side Google Places API ---
-        if (!placesLib || !branch.googlePlaceId) {
-          setData(prev => ({ ...prev, loading: false, error: 'Esperando sincronización de opiniones de Google.' }));
-          return;
+        // Merge reviews: live Google reviews first, followed by DB reviews (avoiding duplicates by text/author)
+        let mergedReviews = [...allReviews];
+        const existingTexts = new Set(allReviews.map(r => r.text?.trim().toLowerCase()).filter(Boolean));
+        
+        for (const dbRev of mappedDbReviews) {
+          const normText = dbRev.text?.trim().toLowerCase();
+          if (normText && !existingTexts.has(normText)) {
+            mergedReviews.push(dbRev);
+            existingTexts.add(normText);
+          } else if (!normText) {
+            mergedReviews.push(dbRev);
+          }
         }
 
-        const place = new placesLib.Place({ id: branch.googlePlaceId });
-        await place.fetchFields({
-          fields: ['rating', 'userRatingCount', 'reviews']
+        // Sort reviews by date descending if dates exist
+        mergedReviews.sort((a, b) => {
+          const dateA = a.publishTime ? new Date(a.publishTime).getTime() : 0;
+          const dateB = b.publishTime ? new Date(b.publishTime).getTime() : 0;
+          return dateB - dateA;
         });
 
+        // Resolve rating and counts with absolute preference for Google Live, then Branch State, then Baseline fallback
+        const baseline = getGoogleBaseline(branch.name, branch.id);
+        const finalRating = liveRating !== undefined && liveRating !== null ? liveRating : (branch.googleRating || baseline.rating);
+        const finalCount = liveRatingCount !== undefined && liveRatingCount !== null ? liveRatingCount : (branch.googleRatingCount || baseline.userRatingCount);
+
+        const critical = mergedReviews.filter(review => (review.rating || 0) <= 4);
+        
         const now = new Date();
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(now.getDate() - 7);
         sevenDaysAgo.setHours(0, 0, 0, 0);
-
-        const all = place.reviews || [];
-        const critical = all.filter(review => (review.rating || 0) <= 4);
         
-        const recent = all.filter(review => {
+        const recent = mergedReviews.filter(review => {
           if (!review.text) return false;
           const pubDate = review.publishTime ? new Date(review.publishTime) : null;
           return pubDate && pubDate.getTime() >= sevenDaysAgo.getTime();
         });
 
-        const baseline = getGoogleBaseline(branch.name, branch.id);
-
         setData({
-          rating: branch.googleRating || place.rating || baseline.rating,
-          userRatingCount: branch.googleRatingCount || place.userRatingCount || baseline.userRatingCount,
-          allReviews: all,
+          rating: finalRating,
+          userRatingCount: finalCount,
+          allReviews: mergedReviews,
           criticalReviews: critical,
           recentWithText: recent,
           loading: false
         });
+
+        // Auto-persist realtime metrics to Supabase to enable offline coherence
+        if (liveRating && liveRatingCount && (liveRating !== branch.googleRating || liveRatingCount !== branch.googleRatingCount)) {
+          supabase
+            .from('branches')
+            .update({
+              google_rating: liveRating,
+              google_rating_count: liveRatingCount
+            })
+            .eq('id', branch.id)
+            .then(({ error }) => {
+              if (error) console.error("Error updates realtime branch stats:", error);
+            });
+        }
       } catch (err: any) {
         console.error('Error fetching Google metrics:', err);
         const errorMsg = err.message || '';
@@ -1255,7 +1291,7 @@ const GoogleMetricsCard: React.FC<{ branch: Branch }> = ({ branch }) => {
     };
 
     fetchData();
-  }, [placesLib, branch.googlePlaceId, branch.id]);
+  }, [placesLib, branch.googlePlaceId, branch.id, branch.googleRating, branch.googleRatingCount]);
 
   if (!branch.googlePlaceId && data.allReviews.length === 0) return null;
 
