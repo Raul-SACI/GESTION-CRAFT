@@ -411,12 +411,19 @@ function AppContent() {
     const roleId = currentUserProfile.role;
     const roleCfg = rolesConfigList.find((r: any) => r.id === roleId);
     
+    let allowed = roleCfg ? roleCfg.allowed_modules : (currentUserProfile.permissions || []);
+    if (roleId === 'administrador' || roleId === 'dueño') {
+      if (allowed && !allowed.includes('pedidos_ya')) {
+        allowed = [...allowed, 'pedidos_ya'];
+      }
+    }
+
     return {
       id: currentUserProfile.id,
       name: currentUserProfile.name,
       role: roleId,
       branch: currentUserProfile.branch_name || 'Todas las Sucursales',
-      permissions: roleCfg ? roleCfg.allowed_modules : (currentUserProfile.permissions || []),
+      permissions: allowed,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
       accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch'
     };

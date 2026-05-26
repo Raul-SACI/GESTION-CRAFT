@@ -79,8 +79,10 @@ export default function PerformanceAdminView({
     jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
   });
 
+  const [allConfigs, setAllConfigs] = useState<any[]>([]);
+
   useEffect(() => {
-    if (localBranchId && localBranchId !== 'all') {
+    if (localBranchId) {
       fetchData();
     }
   }, [localBranchId, selectedMonth]);
@@ -88,6 +90,27 @@ export default function PerformanceAdminView({
   const fetchData = async () => {
     setLoading(true);
     try {
+      if (localBranchId === 'all') {
+        try {
+          const { data: configData } = await supabase
+            .from('performance_role_configs')
+            .select('*')
+            .eq('month', selectedMonth);
+          
+          if (configData) {
+            setAllConfigs(configData);
+          } else {
+            setAllConfigs([]);
+          }
+        } catch (dbErr) {
+          console.error('Error fetching all configurations:', dbErr);
+          setAllConfigs([]);
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
+
       // Load fallbacks first as immediate values
       const storageKeyConfig = `craft_performance_config_${localBranchId}_${selectedMonth}`;
       const storageKeyReport = `craft_performance_report_${localBranchId}_${selectedMonth}`;
@@ -562,23 +585,172 @@ export default function PerformanceAdminView({
   };
 
   if (localBranchId === 'all') {
+    const activeBranches = branches.filter(b => b.id !== 'all' && b.id !== 'virtual');
+    
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-text-dim text-center p-8 bg-bg-sidebar/30 rounded-xl border border-dashed border-border-dim space-y-4">
-        <Calculator size={48} className="opacity-20" />
-        <h3 className="text-xl font-black uppercase">Administración de Premios</h3>
-        <p className="text-sm max-w-md">Por favor, selecciona una sucursal específica para definir sus objetivos mensuales y premios por rol.</p>
-        <div className="flex items-center bg-bg-accent px-4 py-2 rounded-lg border border-border-dim mt-2">
-          <Building2 size={16} className="text-blue-500 mr-2" />
-          <select
-            value={localBranchId}
-            onChange={(e) => setLocalBranchId(e.target.value)}
-            className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none cursor-pointer"
-          >
-            <option value="all" className="bg-bg-sidebar text-text-main">SELECCIONAR SUCURSAL...</option>
-            {branches.map(b => (
-              <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">{b.name.toUpperCase()}</option>
-            ))}
-          </select>
+      <div className="space-y-6 pb-20">
+        {/* Header Panel */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-bg-sidebar p-5 rounded-lg border border-border-dim shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-500 rounded-lg text-white shadow-lg shadow-blue-500/20">
+              <Trophy size={24} />
+            </div>
+            <div>
+              <h2 className="text-lg font-black text-text-main uppercase tracking-tight">Vista Consolidada de Premios</h2>
+              <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest leading-none mt-1">Comparativa de Objetivos y Variables de todas las Sucursales</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Month Picker */}
+            <div className="flex items-center bg-bg-accent px-3 py-1.5 rounded border border-border-dim">
+              <CalendarIcon size={16} className="text-text-dim mr-2 border-none outline-none" />
+              <input 
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none cursor-pointer"
+              />
+            </div>
+            <button onClick={fetchData} className="p-2 text-text-dim hover:text-blue-500 transition-colors">
+              <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
+            </button>
+          </div>
+        </div>
+
+        {/* Role Toggle Selector */}
+        <div className="flex p-1 bg-bg-sidebar rounded-lg border border-border-dim w-fit shadow-sm">
+          {(['encargado', 'jefe_cocina'] as const).map((role) => (
+            <button
+              key={role}
+              onClick={() => setActiveRole(role)}
+              className={cn(
+                "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[140px]",
+                activeRole === role 
+                  ? "bg-blue-600 text-white shadow-md" 
+                  : "text-text-dim hover:text-text-main"
+              )}
+            >
+              {role === 'encargado' ? '👥 Encargado' : '👨‍🍳 Jefe de Cocina'}
+            </button>
+          ))}
+        </div>
+
+        {/* Consolidated Table Container */}
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-xl overflow-hidden">
+          <div className="p-5 border-b border-border-dim/60 bg-bg-accent/10 flex items-center justify-between">
+            <div>
+              <h3 className="text-xs font-black text-text-main uppercase tracking-wider">
+                Resumen de Configuraciones - {activeRole === 'encargado' ? 'Encargados' : 'Jefes de Cocina'}
+              </h3>
+              <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Mes: {selectedMonth} • Compara objetivos y métricas vigentes</p>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20 gap-3">
+              <RefreshCcw size={24} className="animate-spin text-blue-500" />
+              <span className="text-[10px] text-text-dim font-black uppercase tracking-widest animate-pulse">Cargando Tablero Consolidado...</span>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-border-dim bg-bg-accent/10 whitespace-nowrap">
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Objetivo Ventas (Mes)</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Pena Bandera Roja</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Variables y Métricas (%)</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/30">
+                  {activeBranches.map(branch => {
+                    // Find config for this branch & active role
+                    const config = allConfigs.find(
+                      c => c.branch_id === branch.id && c.role === activeRole
+                    );
+
+                    // If not configured, we shows a gray state block
+                    const salesGoal = config?.sales_goal || 0;
+                    const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 1000;
+                    const variablesList: any[] = config?.variables || [];
+
+                    return (
+                      <tr key={branch.id} className="hover:bg-bg-accent/10 transition-colors">
+                        {/* Branch Name */}
+                        <td className="p-4 min-w-[150px]">
+                          <div className="flex flex-col">
+                            <span className="text-[11px] font-black text-text-main uppercase tracking-tight">{branch.name}</span>
+                            <span className="text-[8px] text-text-dim font-bold uppercase tracking-widest mt-0.5">{branch.location || 'Tucumán'}</span>
+                          </div>
+                        </td>
+
+                        {/* Sales Goal */}
+                        <td className="p-4">
+                          {config ? (
+                            <span className="text-xs font-mono font-bold text-text-main">
+                              ${salesGoal.toLocaleString('es-AR')}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-500/70 italic font-black uppercase">Sin configurar</span>
+                          )}
+                        </td>
+
+                        {/* Red Flag Penalty */}
+                        <td className="p-4">
+                          {config ? (
+                            <span className="text-xs font-mono text-red-400 font-bold">
+                              -${redFlagPenalty.toLocaleString('es-AR')}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-text-dim/50 italic font-bold">--</span>
+                          )}
+                        </td>
+
+                        {/* Variables List summary breakdown */}
+                        <td className="p-4 max-w-[400px]">
+                          {config && variablesList.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {variablesList.map((v, idx) => (
+                                <div 
+                                  key={v.id || idx} 
+                                  className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/10 rounded flex items-center gap-1.5 text-[9px] font-mono font-black uppercase"
+                                >
+                                  <span>{v.name}</span>
+                                  <span className="px-1 bg-blue-500/20 text-blue-300 rounded text-[8px] font-black">
+                                    {v.weight || 0}%
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : config ? (
+                            <span className="text-[9px] text-amber-400 font-black uppercase tracking-wider bg-amber-400/10 px-2 py-1 rounded border border-amber-400/20">
+                              ⚠️ Config Sin Variables
+                            </span>
+                          ) : (
+                            <span className="text-[9px] text-text-dim font-black uppercase tracking-wider bg-bg-accent/40 px-2 py-1 rounded border border-border-dim/40">
+                              ❌ No inicializado para {selectedMonth}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Quick Configuration action */}
+                        <td className="p-4 text-right">
+                          <button
+                            onClick={() => setLocalBranchId(branch.id)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-wider px-3 py-1.5 rounded transition-colors inline-flex items-center gap-1"
+                          >
+                            <span>Configurar</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     );
