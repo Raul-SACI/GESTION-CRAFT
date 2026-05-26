@@ -24,7 +24,17 @@ import {
   Option 
 } from '../lib/supervisionSeeds';
 
-export default function SupervisionFlagsView({ branches, initialViewMode = 'admin' }: { branches: Branch[], initialViewMode?: 'admin' | 'supervisor' }) {
+export default function SupervisionFlagsView({ 
+  branches, 
+  initialViewMode = 'admin',
+  hideToggle = false,
+  customTitle
+}: { 
+  branches: Branch[]; 
+  initialViewMode?: 'admin' | 'supervisor';
+  hideToggle?: boolean;
+  customTitle?: string;
+}) {
   const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>(initialViewMode);
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<AuditTemplate | null>(null);
@@ -496,31 +506,37 @@ export default function SupervisionFlagsView({ branches, initialViewMode = 'admi
             <Flag size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Supervisiones y Banderas</h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">Auditorías Operativas y Control de Calidad</p>
+            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">
+              {customTitle || (viewMode === 'supervisor' ? 'Registro de Supervisión' : 'Supervisiones y Banderas')}
+            </h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">
+              {viewMode === 'supervisor' ? 'Formulario de Auditoría y Control de Calidad' : 'Auditorías Operativas y Control de Calidad'}
+            </p>
           </div>
         </div>
 
-        <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm">
-          <button 
-            onClick={() => setViewMode('admin')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
-              viewMode === 'admin' ? "bg-bg-accent text-brand-500 shadow-md border border-border-dim/50" : "text-text-dim hover:text-text-main"
-            )}
-          >
-            <Settings size={14} /> Consola Admin
-          </button>
-          <button 
-            onClick={() => setViewMode('supervisor')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
-              viewMode === 'supervisor' ? "bg-bg-accent text-brand-500 shadow-md border border-border-dim/50" : "text-text-dim hover:text-text-main"
-            )}
-          >
-            <ClipboardCheck size={14} /> Registro de Visita
-          </button>
-        </div>
+        {!hideToggle && (
+          <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm">
+            <button 
+              onClick={() => setViewMode('admin')}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+                viewMode === 'admin' ? "bg-bg-accent text-brand-500 shadow-md border border-border-dim/50" : "text-text-dim hover:text-text-main"
+              )}
+            >
+              <Settings size={14} /> Consola Admin
+            </button>
+            <button 
+              onClick={() => setViewMode('supervisor')}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+                viewMode === 'supervisor' ? "bg-bg-accent text-brand-500 shadow-md border border-border-dim/50" : "text-text-dim hover:text-text-main"
+              )}
+            >
+              <ClipboardCheck size={14} /> Registro de Visita
+            </button>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
