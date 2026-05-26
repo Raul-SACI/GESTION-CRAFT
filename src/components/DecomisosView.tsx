@@ -62,7 +62,7 @@ export default function DecomisosView({
   const [referenceId, setReferenceId] = useState('');
   const [quantity, setQuantity] = useState<number | ''>('');
   const [reason, setReason] = useState('');
-  const [selectedPresetReason, setSelectedPresetReason] = useState('Vencimiento');
+  const [selectedPresetReason, setSelectedPresetReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -117,6 +117,11 @@ export default function DecomisosView({
       return;
     }
 
+    if (!selectedPresetReason) {
+      alert('Por favor, seleccione un motivo para el decomiso.');
+      return;
+    }
+
     const finalReason = selectedPresetReason === 'Otros' ? customReason : selectedPresetReason;
     if (selectedPresetReason === 'Otros' && !customReason.trim()) {
       alert('Por favor, especifique el motivo para la opción "Otros".');
@@ -165,7 +170,7 @@ export default function DecomisosView({
       setQuantity('');
       setReason('');
       setCustomReason('');
-      setSelectedPresetReason('Vencimiento');
+      setSelectedPresetReason('');
       setSearchTerm('');
     }
     setSaving(false);
@@ -406,12 +411,15 @@ export default function DecomisosView({
             
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-text-dim uppercase ml-1">Motivo</label>
+                <label className="text-[10px] font-black text-text-dim uppercase ml-1">
+                  Motivo <span className="text-red-500 font-black">*</span>
+                </label>
                 <select
                   value={selectedPresetReason}
                   onChange={(e) => setSelectedPresetReason(e.target.value)}
                   className="w-full px-4 py-2 bg-bg-accent border border-[#30363D]/80 rounded text-[11px] font-black text-text-main uppercase outline-none focus:border-brand-500 h-[38px] cursor-pointer"
                 >
+                  <option value="" className="bg-bg-sidebar text-text-dim">-- SELECCIONE EL MOTIVO --</option>
                   <option value="Vencimiento" className="bg-bg-sidebar">Vencimiento</option>
                   <option value="Mal Estado" className="bg-bg-sidebar">Mal Estado</option>
                   <option value="Rotura" className="bg-bg-sidebar">Rotura</option>

@@ -43,57 +43,94 @@ export default function PerformanceView({
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Config
-      const { data: configData } = await supabase
-        .from('performance_role_configs')
-        .select('*')
-        .match({ branch_id: selectedBranchId, month: selectedMonth, role: activeRole })
-        .single();
-
-      if (configData) {
-        setConfig({
-          id: configData.id,
-          branchId: configData.branch_id,
-          month: configData.month,
-          role: configData.role,
-          variables: configData.variables || [],
-          salesGoal: configData.sales_goal || 0,
-          redFlagPenalty: configData.red_flag_penalty || 1000
-        });
-      } else {
-        setConfig(null);
+      // Load fallbacks first as immediate values
+      const storageKeyConfig = `craft_performance_config_${selectedBranchId}_${selectedMonth}`;
+      const storageKeyReport = `craft_performance_report_${selectedBranchId}_${selectedMonth}`;
+      
+      let fallbackConfig = null;
+      let fallbackReport = null;
+      
+      try {
+        const localC = localStorage.getItem(storageKeyConfig);
+        if (localC) {
+          const parsedC = JSON.parse(localC);
+          if (parsedC[activeRole]) {
+            fallbackConfig = parsedC[activeRole];
+          }
+        }
+        
+        const localR = localStorage.getItem(storageKeyReport);
+        if (localR) {
+          const parsedR = JSON.parse(localR);
+          if (parsedR[activeRole]) {
+            fallbackReport = parsedR[activeRole];
+          }
+        }
+      } catch (e) {
+        console.error('Local fallback parse error:', e);
       }
+
+      // 1. Fetch Config
+      let fetchedConfig = null;
+      try {
+        const { data: configData } = await supabase
+          .from('performance_role_configs')
+          .select('*')
+          .match({ branch_id: selectedBranchId, month: selectedMonth, role: activeRole })
+          .single();
+
+        if (configData) {
+          fetchedConfig = {
+            id: configData.id,
+            branchId: configData.branch_id,
+            month: configData.month,
+            role: configData.role,
+            variables: configData.variables || [],
+            salesGoal: configData.sales_goal || 0,
+            redFlagPenalty: configData.red_flag_penalty || 1000
+          };
+        }
+      } catch (dbErr) {
+        console.error('Database config fetch error, using local fallback:', dbErr);
+      }
+
+      setConfig(fetchedConfig || fallbackConfig || null);
 
       // 2. Fetch Report (Actuals)
-      const { data: reportData } = await supabase
-        .from('performance_reports')
-        .select('*')
-        .match({ branch_id: selectedBranchId, month: selectedMonth, role: activeRole })
-        .single();
+      let fetchedReport = null;
+      try {
+        const { data: reportData } = await supabase
+          .from('performance_reports')
+          .select('*')
+          .match({ branch_id: selectedBranchId, month: selectedMonth, role: activeRole })
+          .single();
 
-      if (reportData) {
-        setReport({
-          id: reportData.id,
-          branchId: reportData.branch_id,
-          month: reportData.month,
-          role: reportData.role,
-          results: reportData.results || [],
-          actualSales: reportData.actual_sales || 0,
-          redFlagsCount: reportData.red_flags_count || 0,
-          totalCalculatedPrize: reportData.total_calculated_prize || 0
-        });
-      } else {
-        setReport({
-          id: '',
-          branchId: selectedBranchId,
-          month: selectedMonth,
-          role: activeRole,
-          results: [],
-          actualSales: 0,
-          redFlagsCount: 0,
-          totalCalculatedPrize: 0
-        });
+        if (reportData) {
+          fetchedReport = {
+            id: reportData.id,
+            branchId: reportData.branch_id,
+            month: reportData.month,
+            role: reportData.role,
+            results: reportData.results || [],
+            actualSales: reportData.actual_sales || 0,
+            redFlagsCount: reportData.red_flags_count || 0,
+            totalCalculatedPrize: reportData.total_calculated_prize || 0
+          };
+        }
+      } catch (dbErr) {
+        console.error('Database report fetch error, using local fallback:', dbErr);
       }
+
+      setReport(fetchedReport || fallbackReport || {
+        id: '',
+        branchId: selectedBranchId,
+        month: selectedMonth,
+        role: activeRole,
+        results: [],
+        actualSales: 0,
+        redFlagsCount: 0,
+        totalCalculatedPrize: 0
+      });
     } catch (err) {
       console.error('Error fetching performance data:', err);
     } finally {
