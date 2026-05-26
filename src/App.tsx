@@ -401,7 +401,7 @@ function AppContent() {
         name: 'ADMINISTRADOR',
         role: 'administrador',
         branch: 'Todas las Sucursales',
-        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
+        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_visitas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
         isReadOnly: false,
         accessScope: 'all_branches' as 'all_branches' | 'single_branch'
       };
@@ -460,6 +460,7 @@ function AppContent() {
       { id: 'presupuesto_horas', label: 'Presupuestador de horas', icon: Calendar },
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
+      { id: 'registro_visitas', label: 'Registro de Visitas', icon: ClipboardCheck },
     ],
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
@@ -514,6 +515,7 @@ function AppContent() {
           presupuesto_horas: Calendar,
           agenda: ClipboardList,
           supervisiones_operativas: Flag,
+          registro_visitas: ClipboardCheck,
           produccion_mes: Factory,
           produccion_stock_control: ClipboardCheck,
           finanzas_estimado: TrendingUp,
@@ -1002,6 +1004,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} />}
+              {activeTab === 'registro_visitas' && <SupervisionFlagsView key="registro_visitas" branches={branches} initialViewMode="supervisor" />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}
               {activeTab === 'decomisos' && (

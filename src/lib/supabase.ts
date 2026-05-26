@@ -336,7 +336,7 @@ class MockQueryBuilder {
           description: 'Acceso total de lectura y edición. Único rol que accede a Configuración.',
           is_read_only: false,
           access_scope: 'all_branches',
-          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios']
+          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_visitas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios']
         },
         {
           id: 'socio',
@@ -344,7 +344,7 @@ class MockQueryBuilder {
           description: 'Acceso completo al sistema pero restringido a modo Solo Lectura.',
           is_read_only: true,
           access_scope: 'all_branches',
-          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin']
+          allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_visitas', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin']
         },
         {
           id: 'encargado',
@@ -360,7 +360,7 @@ class MockQueryBuilder {
           description: 'Acceso a todas las sucursales, Agenda Supervisores, Supervisiones y Presupuesto.',
           is_read_only: false,
           access_scope: 'all_branches',
-          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'presupuesto_horas', 'agenda', 'supervisiones_operativas']
+          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_visitas']
         },
         {
           id: 'lider_cocina',
@@ -368,7 +368,7 @@ class MockQueryBuilder {
           description: 'Acceso a todas las sucursales, Agenda Supervisores, y Centro de Producción.',
           is_read_only: false,
           access_scope: 'all_branches',
-          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'produccion_mes', 'produccion_stock_control']
+          allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_visitas', 'produccion_mes', 'produccion_stock_control']
         },
         {
           id: 'recursos_humanos',

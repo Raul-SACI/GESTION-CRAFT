@@ -122,6 +122,29 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
   
+  // Load and memoize the sucursal roles list from Maestro de Personal (craft_salary_positions) for area SUCURSAL
+  const sucursalRolesList = useMemo(() => {
+    const saved = localStorage.getItem('craft_salary_positions');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const sucursalPositions = parsed.filter((p: any) => p.area?.trim().toUpperCase() === 'SUCURSAL');
+          if (sucursalPositions.length > 0) {
+            return sucursalPositions.map((p: any) => ({
+              id: p.id || p.title.toLowerCase().replace(/\s+/g, '_'),
+              label: p.title,
+              defaultRate: p.baseValue
+            }));
+          }
+        }
+      } catch (e) {
+        console.error('Error parsing craft_salary_positions inside HourBudgetView:', e);
+      }
+    }
+    return ROLES_LIST;
+  }, []);
+
   // Synchronize local state with prop when it isn't "all"
   useEffect(() => {
     if (selectedBranchId !== 'all') {
@@ -163,7 +186,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         console.error(e);
       }
     }
-    const defaultR = ROLES_LIST.find(r => r.id === roleId);
+    const defaultR = sucursalRolesList.find(r => r.id === roleId);
     return defaultR ? defaultR.defaultRate : 2500;
   };
 
@@ -295,8 +318,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleAddRow = () => {
-    const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
-    const defaultRole = ROLES_LIST[3]; // Cocinero
+    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
+    const defaultRole = sucursalRolesList[3] || sucursalRolesList[0];
     const newRow: BudgetRow = {
       id: `custom-${Math.random().toString(36).substr(2, 9)}`,
       branchId: branchIdKey,
@@ -320,7 +343,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       if (row.id === id) {
         const updated = { ...row, [field]: value };
         if (field === 'roleId') {
-          const matchRole = ROLES_LIST.find(rl => rl.id === value);
+          const matchRole = sucursalRolesList.find(rl => rl.id === value);
           if (matchRole) {
             updated.roleLabel = matchRole.label;
             updated.hourlyRate = getMaestroRate(matchRole.id, matchRole.label);
@@ -664,9 +687,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                                   onChange={(e) => handleRowChange(row.id, 'roleId', e.target.value)}
                                   className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10.5px] font-bold text-text-main outline-none focus:border-brand-500 uppercase w-full max-w-[160px] h-8"
                                 >
-                                  {ROLES_LIST.map(rl => (
+                                  {sucursalRolesList.map(rl => (
                                     <option key={rl.id} value={rl.id}>{rl.label}</option>
                                   ))}
+                                  {row.roleId && !sucursalRolesList.find(rl => rl.id === row.roleId) && (
+                                    <option key={row.roleId} value={row.roleId}>{row.roleLabel || row.roleId}</option>
+                                  )}
                                 </select>
                               </td>
 

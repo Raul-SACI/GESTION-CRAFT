@@ -42,6 +42,7 @@ const SYSTEM_MODULES = [
   { id: 'presupuesto_horas', label: 'Presupuestador de Horas', category: 'Gestión Líderes Operativos' },
   { id: 'agenda', label: 'Agenda Supervisores', category: 'Gestión Líderes Operativos' },
   { id: 'supervisiones_operativas', label: 'Supervisiones', category: 'Gestión Líderes Operativos' },
+  { id: 'registro_visitas', label: 'Registro de Visitas', category: 'Gestión Líderes Operativos' },
   { id: 'produccion_mes', label: 'Producción del Mes', category: 'Centro de Producción' },
   { id: 'produccion_stock_control', label: 'Control Stock Insumos', category: 'Centro de Producción' },
   { id: 'bank_liabilities', label: 'Pasivos Bancarios', category: 'Finanzas' },

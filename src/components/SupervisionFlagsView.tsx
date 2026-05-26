@@ -24,8 +24,8 @@ import {
   Option 
 } from '../lib/supervisionSeeds';
 
-export default function SupervisionFlagsView({ branches }: { branches: Branch[] }) {
-  const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>('admin');
+export default function SupervisionFlagsView({ branches, initialViewMode = 'admin' }: { branches: Branch[], initialViewMode?: 'admin' | 'supervisor' }) {
+  const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>(initialViewMode);
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<AuditTemplate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
