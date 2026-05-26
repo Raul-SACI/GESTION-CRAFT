@@ -196,6 +196,30 @@ class MockQueryBuilder {
       if (items.length > 0) {
         localStorage.setItem(storageKey, JSON.stringify(items));
       }
+    } else if (this.table === 'roles_config') {
+      const defaultSeeds = this.getDefaultSeeds();
+      let changed = false;
+      items = items.map(item => {
+        const matchingSeed = defaultSeeds.find(s => s.id === item.id);
+        if (matchingSeed) {
+          const missingModules = matchingSeed.allowed_modules.filter(m => !item.allowed_modules.includes(m));
+          const obsoleteModules = item.allowed_modules.filter(m => m === 'registro_visitas');
+          if (missingModules.length > 0 || obsoleteModules.length > 0) {
+            changed = true;
+            return {
+              ...item,
+              allowed_modules: [
+                ...item.allowed_modules.filter(m => m !== 'registro_visitas'),
+                ...missingModules
+              ]
+            };
+          }
+        }
+        return item;
+      });
+      if (changed) {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+      }
     }
 
     if (this.action === 'select') {

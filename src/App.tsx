@@ -538,11 +538,13 @@ function AppContent() {
 
         const rehydrated: Record<string, MenuItem[]> = {};
         Object.entries(parsed as Record<string, {id: string, label: string}[]>).forEach(([section, items]) => {
-          rehydrated[section] = items.map((item) => ({
-            ...item,
-            label: item.id === 'gestion_sueldos' ? 'Maestro de Personal' : item.label,
-            icon: iconMap[item.id] || ListOrdered
-          }));
+          rehydrated[section] = items
+            .filter((item) => item.id !== 'registro_visitas')
+            .map((item) => ({
+              ...item,
+              label: item.id === 'gestion_sueldos' ? 'Maestro de Personal' : item.label,
+              icon: iconMap[item.id] || ListOrdered
+            }));
         });
 
         // Merge with defaults to ensure new modules are visible even if a custom order was saved
