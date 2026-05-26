@@ -18,7 +18,10 @@ import {
   Clock,
   Layers,
   HelpCircle,
-  Building2
+  Building2,
+  Copy,
+  Flag,
+  CheckSquare
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -29,10 +32,11 @@ interface BudgetRow {
   roleId: string;
   roleLabel: string;
   shift: 'Mañana' | 'Tarde';
-  countGroupA: number; // For Group A days of the week
-  countGroupB: number; // For Group B days of the week
+  countGroupA: number; // fallback legacy weekday headcount
+  countGroupB: number; // fallback legacy weekend headcount
   hoursPerDay: number;
   hourlyRate: number;
+  staffByDate?: Record<string, number>; // exact headcount by date "YYYY-MM-DD"
 }
 
 const ROLES_LIST = [
@@ -47,63 +51,84 @@ const ROLES_LIST = [
   { id: 'bacha', label: 'Bacha', defaultRate: 1900 },
 ];
 
-const DEFAULT_INITIAL_ROWS: BudgetRow[] = [
-  { id: 'b1', branchId: '1', roleId: 'encargado', roleLabel: 'Encargado', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 3500 },
-  { id: 'b2', branchId: '1', roleId: 'encargado', roleLabel: 'Encargado', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 3500 },
-  { id: 'b3', branchId: '1', roleId: 'jefe_cocina', roleLabel: 'Jefe de Cocina', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 3200 },
-  { id: 'b4', branchId: '1', roleId: 'segundo_cocina', roleLabel: 'Segundo de Cocina', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2800 },
-  { id: 'b5', branchId: '1', roleId: 'cocinero', roleLabel: 'Cocinero', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2500 },
-  { id: 'b6', branchId: '1', roleId: 'cocinero', roleLabel: 'Cocinero', shift: 'Tarde', countGroupA: 2, countGroupB: 2, hoursPerDay: 8, hourlyRate: 2500 },
-  { id: 'b7', branchId: '1', roleId: 'caja', roleLabel: 'Caja', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2400 },
-  { id: 'b8', branchId: '1', roleId: 'caja', roleLabel: 'Caja', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2400 },
-  { id: 'b9', branchId: '1', roleId: 'barra', roleLabel: 'Barra', shift: 'Mañana', countGroupA: 0.5, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2300 },
-  { id: 'b10', branchId: '1', roleId: 'barra', roleLabel: 'Barra', shift: 'Tarde', countGroupA: 0.5, countGroupB: 1, hoursPerDay: 8, hourlyRate: 2300 },
-  { id: 'b11', branchId: '1', roleId: 'mozos', roleLabel: 'Mozos', shift: 'Mañana', countGroupA: 1, countGroupB: 2, hoursPerDay: 8, hourlyRate: 2200 },
-  { id: 'b12', branchId: '1', roleId: 'mozos', roleLabel: 'Mozos', shift: 'Tarde', countGroupA: 2, countGroupB: 4, hoursPerDay: 8, hourlyRate: 2200 },
-  { id: 'b13', branchId: '1', roleId: 'runners', roleLabel: 'Runners', shift: 'Tarde', countGroupA: 0.5, countGroupB: 1.5, hoursPerDay: 8, hourlyRate: 2000 },
-  { id: 'b14', branchId: '1', roleId: 'bacha', roleLabel: 'Bacha', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8, hourlyRate: 1900 },
+const DEFAULT_INITIAL_ROWS = [
+  { id: 'b1', roleId: 'encargado', roleLabel: 'Encargado', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b2', roleId: 'encargado', roleLabel: 'Encargado', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b3', roleId: 'jefe_cocina', roleLabel: 'Jefe de Cocina', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b4', roleId: 'segundo_cocina', roleLabel: 'Segundo de Cocina', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b5', roleId: 'cocinero', roleLabel: 'Cocinero', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b6', roleId: 'cocinero', roleLabel: 'Cocinero', shift: 'Tarde', countGroupA: 2, countGroupB: 2, hoursPerDay: 8 },
+  { id: 'b7', roleId: 'caja', roleLabel: 'Caja', shift: 'Mañana', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b8', roleId: 'caja', roleLabel: 'Caja', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b9', roleId: 'barra', roleLabel: 'Barra', shift: 'Mañana', countGroupA: 0.5, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b10', roleId: 'barra', roleLabel: 'Barra', shift: 'Tarde', countGroupA: 0.5, countGroupB: 1, hoursPerDay: 8 },
+  { id: 'b11', roleId: 'mozos', roleLabel: 'Mozos', shift: 'Mañana', countGroupA: 1, countGroupB: 2, hoursPerDay: 8 },
+  { id: 'b12', roleId: 'mozos', roleLabel: 'Mozos', shift: 'Tarde', countGroupA: 2, countGroupB: 4, hoursPerDay: 8 },
+  { id: 'b13', roleId: 'runners', roleLabel: 'Runners', shift: 'Tarde', countGroupA: 0.5, countGroupB: 1.5, hoursPerDay: 8 },
+  { id: 'b14', roleId: 'bacha', roleLabel: 'Bacha', shift: 'Tarde', countGroupA: 1, countGroupB: 1, hoursPerDay: 8 },
 ];
 
 const WEEK_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-function getDaysOfWeekCounts(yearMonth: string) {
+function getWeeksForMonth(yearMonth: string) {
   const [yearStr, monthStr] = yearMonth.split('-');
   const year = parseInt(yearStr) || 2026;
   const month = (parseInt(monthStr) || 5) - 1; // 0-indexed
   
-  const totalDays = new Date(year, month + 1, 0).getDate();
-  const dayCounts: Record<string, number> = {
-    'Domingo': 0,
-    'Lunes': 0,
-    'Martes': 0,
-    'Miércoles': 0,
-    'Jueves': 0,
-    'Viernes': 0,
-    'Sábado': 0,
-  };
-
-  const JS_DAY_MAPPING: Record<number, string> = {
-    0: 'Domingo',
-    1: 'Lunes',
-    2: 'Martes',
-    3: 'Miércoles',
-    4: 'Jueves',
-    5: 'Viernes',
-    6: 'Sábado'
-  };
-
-  for (let d = 1; d <= totalDays; d++) {
-    const dateInstance = new Date(year, month, d);
-    const dayName = JS_DAY_MAPPING[dateInstance.getDay()];
-    if (dayName) {
-      dayCounts[dayName]++;
+  const firstDayOfMonth = new Date(year, month, 1);
+  const lastDayOfMonth = new Date(year, month + 1, 0);
+  
+  // Find Monday of the first calendar week in the month
+  let startOfWeek = new Date(firstDayOfMonth);
+  let dayOfWeek = startOfWeek.getDay(); // 0 Sunday, 1 Monday...
+  
+  const shiftDays = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  startOfWeek.setDate(startOfWeek.getDate() - shiftDays);
+  
+  const weeks: Array<{
+    weekIndex: number;
+    days: Array<{
+      dateStr: string;
+      dayName: string;
+      dayNumber: number;
+      isInMonth: boolean;
+      formattedDate: string;
+    }>;
+  }> = [];
+  
+  let currentWordDate = new Date(startOfWeek);
+  let weekIdx = 1;
+  const JS_DAY_MAPPING = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  
+  while (currentWordDate <= lastDayOfMonth || currentWordDate.getDay() !== 1) {
+    const days: any[] = [];
+    for (let d = 0; d < 7; d++) {
+      const dayIdx = currentWordDate.getDay();
+      const isCurrentMonth = currentWordDate.getMonth() === month && currentWordDate.getFullYear() === year;
+      const dStr = `${currentWordDate.getFullYear()}-${String(currentWordDate.getMonth() + 1).padStart(2, '0')}-${String(currentWordDate.getDate()).padStart(2, '0')}`;
+      
+      days.push({
+        dateStr: dStr,
+        dayName: JS_DAY_MAPPING[dayIdx],
+        dayNumber: currentWordDate.getDate(),
+        isInMonth: isCurrentMonth,
+        formattedDate: `${String(currentWordDate.getDate()).padStart(2, '0')}/${String(currentWordDate.getMonth() + 1).padStart(2, '0')}`
+      });
+      
+      currentWordDate.setDate(currentWordDate.getDate() + 1);
     }
+    
+    weeks.push({
+      weekIndex: weekIdx,
+      days
+    });
+    weekIdx++;
+    if (weekIdx > 10) break;
   }
-
-  return { totalDays, dayCounts };
+  
+  return weeks;
 }
 
-// Map roles to standard map room categories
 const ROLE_TO_ROOM: Record<string, string> = {
   jefe_cocina: 'cocina',
   segundo_cocina: 'cocina',
@@ -121,8 +146,37 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const activeBranch = branches.find(b => b.id === localBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
-  
-  // Load and memoize the sucursal roles list from Maestro de Personal (craft_salary_positions) for area SUCURSAL
+  const [activeWeekIndex, setActiveWeekIndex] = useState(1);
+  const [holidaysList, setHolidaysList] = useState<string[]>([]);
+  const [rows, setRows] = useState<BudgetRow[]>([]);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
+
+  // Interactive Map State
+  const [mapDateStr, setMapDateStr] = useState<string>('');
+  const [mapShift, setMapShift] = useState<'Mañana' | 'Tarde'>('Tarde');
+  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<string>('cocina');
+
+  // Sync with selected branch changes
+  useEffect(() => {
+    if (selectedBranchId !== 'all') {
+      setLocalBranchId(selectedBranchId);
+    }
+  }, [selectedBranchId]);
+
+  // Reset active week when user shifts months
+  useEffect(() => {
+    setActiveWeekIndex(1);
+  }, [selectedMonth]);
+
+  // Set default selected date for the map view
+  useEffect(() => {
+    const [yr, mo] = selectedMonth.split('-');
+    setMapDateStr(`${yr}-${mo}-01`);
+  }, [selectedMonth]);
+
+  // Load and memoize custom positions lists
   const sucursalRolesList = useMemo(() => {
     const saved = localStorage.getItem('craft_salary_positions');
     if (saved) {
@@ -139,35 +193,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
           }
         }
       } catch (e) {
-        console.error('Error parsing craft_salary_positions inside HourBudgetView:', e);
+        console.error('Error parsing positions inside HourBudgetView:', e);
       }
     }
     return ROLES_LIST;
   }, []);
 
-  // Synchronize local state with prop when it isn't "all"
-  useEffect(() => {
-    if (selectedBranchId !== 'all') {
-      setLocalBranchId(selectedBranchId);
-    }
-  }, [selectedBranchId]);
-  
-  // Custom groupings: Group A (regular) and Group B (weekend/specific)
-  const [groupADays, setGroupADays] = useState<string[]>(['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo']);
-  const [groupBDays, setGroupBDays] = useState<string[]>(['Viernes', 'Sábado']);
-  
-  const [holidays, setHolidays] = useState(1);
-  const [rows, setRows] = useState<BudgetRow[]>([]);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
-
-  // Interactive Map State
-  const [mapDayType, setMapDayType] = useState<'A' | 'B'>('A');
-  const [mapShift, setMapShift] = useState<'Mañana' | 'Tarde'>('Tarde');
-  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
-  const [selectedRoom, setSelectedRoom] = useState<string>('cocina');
-
-  // Read latest Maestro de Personal rates if available to update hourlyRate automatically
   const getMaestroRate = (roleId: string, roleLabel: string): number => {
     const saved = localStorage.getItem('craft_salary_positions');
     if (saved) {
@@ -175,11 +206,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         const positions = JSON.parse(saved);
         const hourlyPositions = positions.filter((p: any) => p.type === 'hourly');
         
-        // Exact match
         const exact = hourlyPositions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
         if (exact) return exact.baseValue;
 
-        // Approx match
         const approx = hourlyPositions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
         if (approx) return approx.baseValue;
       } catch (e) {
@@ -190,136 +219,167 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     return defaultR ? defaultR.defaultRate : 2500;
   };
 
-  // Compute total occurrences of days based on month
-  const { totalDays: computedTotalDays, dayCounts } = useMemo(() => {
-    return getDaysOfWeekCounts(selectedMonth);
+  const weeks = useMemo(() => {
+    return getWeeksForMonth(selectedMonth);
   }, [selectedMonth]);
 
-  // Compute count of days for group A and B in this month
-  const { countDaysGroupA, countDaysGroupB } = useMemo(() => {
-    let aSum = 0;
-    let bSum = 0;
-    groupADays.forEach(day => {
-      aSum += dayCounts[day] || 0;
-    });
-    groupBDays.forEach(day => {
-      bSum += dayCounts[day] || 0;
-    });
-    return { countDaysGroupA: aSum, countDaysGroupB: bSum };
-  }, [groupADays, groupBDays, dayCounts]);
+  const activeWeek = useMemo(() => {
+    return weeks.find(w => w.weekIndex === activeWeekIndex) || weeks[0] || { weekIndex: 1, days: [] };
+  }, [weeks, activeWeekIndex]);
 
-  // Load saved budget or defaults
+  // Active month days that are sorted correctly
+  const activeMonthDays = useMemo(() => {
+    const daysList: Array<{ dateStr: string; dayName: string; dayNumber: number; formattedDate: string; isHoliday: boolean }> = [];
+    weeks.forEach(week => {
+      week.days.forEach(day => {
+        if (day.isInMonth) {
+          daysList.push({
+            ...day,
+            isHoliday: holidaysList.includes(day.dateStr)
+          });
+        }
+      });
+    });
+    return daysList.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
+  }, [weeks, holidaysList]);
+
+  // Load saved budget V2 or fall back & upgrade from V1
   useEffect(() => {
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
-    const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
-    const saved = localStorage.getItem(storageKey);
+    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
+    const storageKeyV1 = `hour_budget_${branchIdKey}_${selectedMonth}`;
     
-    if (saved) {
+    const savedV2 = localStorage.getItem(storageKeyV2);
+    const savedV1 = localStorage.getItem(storageKeyV1);
+    
+    const computedWeeks = getWeeksForMonth(selectedMonth);
+    
+    if (savedV2) {
       try {
-        const parsed = JSON.parse(saved);
-        // Map legacy arrays to have new properties
+        const parsed = JSON.parse(savedV2);
         if (parsed.rows) {
           setRows(parsed.rows);
-        } else if (parsed.positions) {
-          // Upgrade legacy positions to rows format
-          const upgraded: BudgetRow[] = [];
-          parsed.positions.forEach((p: any, idx: number) => {
-            // Distribute on Mañana shift
-            upgraded.push({
-              id: `u-${idx}-m`,
-              branchId: branchIdKey,
-              roleId: p.id,
-              roleLabel: p.name,
-              shift: 'Mañana',
-              countGroupA: p.countWeekday,
-              countGroupB: p.countWeekend,
-              hoursPerDay: p.hoursPerDay,
-              hourlyRate: p.hourlyRate
-            });
-            // Distribute on Tarde shift
-            upgraded.push({
-              id: `u-${idx}-t`,
-              branchId: branchIdKey,
-              roleId: p.id,
-              roleLabel: p.name,
-              shift: 'Tarde',
-              countGroupA: 0,
-              countGroupB: 0,
-              hoursPerDay: p.hoursPerDay,
-              hourlyRate: p.hourlyRate
-            });
-          });
-          setRows(upgraded);
-        } else {
-          // Populate with defaults assigned to this branch
-          const defWithBranch = DEFAULT_INITIAL_ROWS.map(r => ({
-            ...r,
-            id: `init-${r.id}-${Math.random().toString(36).substr(2, 5)}`,
-            branchId: branchIdKey,
-            hourlyRate: getMaestroRate(r.roleId, r.roleLabel)
-          }));
-          setRows(defWithBranch);
         }
-
-        if (parsed.groupADays) setGroupADays(parsed.groupADays);
-        if (parsed.groupBDays) setGroupBDays(parsed.groupBDays);
-        if (parsed.holidays !== undefined) setHolidays(parsed.holidays);
+        if (parsed.holidaysList) {
+          setHolidaysList(parsed.holidaysList);
+        } else {
+          setHolidaysList([]);
+        }
         if (parsed.status) setBudgetStatus(parsed.status);
       } catch (e) {
-        console.error('Error loading budget, fell back to defaults', e);
+        console.error('Error loading budget V2:', e);
+      }
+    } else if (savedV1) {
+      try {
+        const parsed = JSON.parse(savedV1);
+        const legacyRows = parsed.rows || [];
+        
+        // Dynamic upgrade holidays
+        const legacyHolidaysCount = parsed.holidays || 0;
+        const generatedHolidays: string[] = [];
+        let count = 0;
+        
+        computedWeeks.forEach(week => {
+          week.days.forEach(day => {
+            if (day.isInMonth && day.dayName === 'Domingo' && count < legacyHolidaysCount) {
+              generatedHolidays.push(day.dateStr);
+              count++;
+            }
+          });
+        });
+        setHolidaysList(generatedHolidays);
+
+        const upgradedRows = legacyRows.map((r: any) => {
+          const staffByDate: Record<string, number> = {};
+          computedWeeks.forEach(week => {
+            week.days.forEach(day => {
+              if (day.isInMonth) {
+                const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
+                staffByDate[day.dateStr] = isWeekend ? (r.countGroupB ?? r.countGroupA) : r.countGroupA;
+              }
+            });
+          });
+
+          return {
+            ...r,
+            countGroupA: r.countGroupA ?? 1,
+            countGroupB: r.countGroupB ?? 2,
+            staffByDate
+          };
+        });
+
+        setRows(upgradedRows);
+        if (parsed.status) setBudgetStatus(parsed.status);
+      } catch (e) {
+        console.error('Error upgrading budget V1:', e);
       }
     } else {
-      // Load standard defaults
-      const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
-      const defWithBranch = DEFAULT_INITIAL_ROWS.map(r => ({
-        ...r,
-        id: `init-${r.id}-${Math.random().toString(36).substr(2, 5)}`,
-        branchId: branchIdKey,
-        hourlyRate: getMaestroRate(r.roleId, r.roleLabel)
-      }));
+      // Create new budget populated with defaults
+      const defWithBranch = DEFAULT_INITIAL_ROWS.map((r, index) => {
+        const staffByDate: Record<string, number> = {};
+        computedWeeks.forEach(week => {
+          week.days.forEach(day => {
+            if (day.isInMonth) {
+              const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
+              staffByDate[day.dateStr] = isWeekend ? r.countGroupB : r.countGroupA;
+            }
+          });
+        });
+        
+        return {
+          id: `init-${r.id}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+          branchId: branchIdKey,
+          roleId: r.roleId,
+          roleLabel: r.roleLabel,
+          shift: r.shift as 'Mañana' | 'Tarde',
+          countGroupA: r.countGroupA,
+          countGroupB: r.countGroupB,
+          hoursPerDay: r.hoursPerDay,
+          hourlyRate: getMaestroRate(r.roleId, r.roleLabel),
+          staffByDate
+        };
+      });
       setRows(defWithBranch);
-      setGroupADays(['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo']);
-      setGroupBDays(['Viernes', 'Sábado']);
-      setHolidays(2);
+      setHolidaysList([]);
       setBudgetStatus('pending');
     }
-  }, [localBranchId, selectedMonth]);
+  }, [localBranchId, selectedMonth, sucursalRolesList]);
 
-  // Sync state saved
   const handleSaveBudget = () => {
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
-    const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
+    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
     const payload = {
       rows,
-      daysInMonth: computedTotalDays,
-      groupADays,
-      groupBDays,
-      holidays,
+      holidaysList,
       status: budgetStatus
     };
     
-    localStorage.setItem(storageKey, JSON.stringify(payload));
+    localStorage.setItem(storageKeyV2, JSON.stringify(payload));
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
 
-  const handleToggleDayGroup = (dayName: string) => {
-    if (groupADays.includes(dayName)) {
-      setGroupADays(groupADays.filter(d => d !== dayName));
-      if (!groupBDays.includes(dayName)) {
-        setGroupBDays([...groupBDays, dayName]);
-      }
+  const handleToggleHoliday = (dateStr: string) => {
+    if (holidaysList.includes(dateStr)) {
+      setHolidaysList(holidaysList.filter(d => d !== dateStr));
     } else {
-      setGroupBDays(groupBDays.filter(d => d !== dayName));
-      if (!groupADays.includes(dayName)) {
-        setGroupADays([...groupADays, dayName]);
-      }
+      setHolidaysList([...holidaysList, dateStr]);
     }
   };
 
   const handleAddRow = () => {
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const defaultRole = sucursalRolesList[3] || sucursalRolesList[0];
+    const initialStaffByDate: Record<string, number> = {};
+    
+    weeks.forEach(week => {
+      week.days.forEach(day => {
+        if (day.isInMonth) {
+          initialStaffByDate[day.dateStr] = 1;
+        }
+      });
+    });
+
     const newRow: BudgetRow = {
       id: `custom-${Math.random().toString(36).substr(2, 9)}`,
       branchId: branchIdKey,
@@ -329,7 +389,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       countGroupA: 1,
       countGroupB: 1,
       hoursPerDay: 8,
-      hourlyRate: getMaestroRate(defaultRole.id, defaultRole.label)
+      hourlyRate: getMaestroRate(defaultRole.id, defaultRole.label),
+      staffByDate: initialStaffByDate
     };
     setRows([...rows, newRow]);
   };
@@ -355,49 +416,173 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     }));
   };
 
+  const handleStaffChange = (rowId: string, dateStr: string, val: number) => {
+    setRows(rows.map(row => {
+      if (row.id === rowId) {
+        const staffMap = { ...(row.staffByDate || {}) };
+        staffMap[dateStr] = val;
+        return {
+          ...row,
+          staffByDate: staffMap
+        };
+      }
+      return row;
+    }));
+  };
+
+  const handleCopyWeekToMonth = (currentWeekIdx: number) => {
+    const currentWeekObj = weeks.find(w => w.weekIndex === currentWeekIdx);
+    if (!currentWeekObj) return;
+
+    const weekdayValues: Record<string, Record<string, number>> = {};
+    
+    // For each role row, map the staffing pattern of current week by Day Name (Lunes, Martes...)
+    rows.forEach(r => {
+      weekdayValues[r.id] = {};
+      currentWeekObj.days.forEach(d => {
+        const hc = r.staffByDate?.[d.dateStr] !== undefined
+          ? r.staffByDate[d.dateStr]
+          : (['Viernes', 'Sábado'].includes(d.dayName) ? r.countGroupB : r.countGroupA);
+        weekdayValues[r.id][d.dayName] = hc;
+      });
+    });
+
+    // Populate all other days in the active month with that day-of-week pattern
+    const updated = rows.map(r => {
+      const staffByDate = { ...(r.staffByDate || {}) };
+      weeks.forEach(wk => {
+        wk.days.forEach(dy => {
+          if (dy.isInMonth) {
+            staffByDate[dy.dateStr] = weekdayValues[r.id]?.[dy.dayName] ?? 0;
+          }
+        });
+      });
+      return {
+        ...r,
+        staffByDate
+      };
+    });
+
+    setRows(updated);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
   // Filter rows of current branch context
   const filteredRows = useMemo(() => {
     const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
     return rows.filter(r => r.branchId === activeBranchId);
   }, [rows, localBranchId]);
 
-  // Calculations
+  const getHeadcount = (row: BudgetRow, dateStr: string, dayName: string) => {
+    if (row.staffByDate?.[dateStr] !== undefined) {
+      return row.staffByDate[dateStr];
+    }
+    return ['Viernes', 'Sábado'].includes(dayName) ? row.countGroupB : row.countGroupA;
+  };
+
+  // Math Calculations (Accumulate hours, costs, weekly costs breakdown)
   const budgetCalculations = useMemo(() => {
     let totalHours = 0;
     let totalCost = 0;
+    let regularHours = 0;
+    let holidayHours = 0;
+    let extraHolidayCost = 0;
 
-    filteredRows.forEach(row => {
-      const hoursA = countDaysGroupA * row.countGroupA * row.hoursPerDay;
-      const hoursB = countDaysGroupB * row.countGroupB * row.hoursPerDay;
-      const posMonthlyHs = hoursA + hoursB;
+    weeks.forEach(week => {
+      week.days.forEach(day => {
+        if (day.isInMonth) {
+          const isHoliday = holidaysList.includes(day.dateStr);
+          
+          filteredRows.forEach(row => {
+            const headcount = getHeadcount(row, day.dateStr, day.dayName);
+            if (headcount > 0) {
+              const hours = headcount * row.hoursPerDay;
+              const rate = isHoliday ? row.hourlyRate * 2 : row.hourlyRate;
+              const cost = hours * rate;
 
-      // Feriado extra cost double value assumption
-      const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
-      const holidayExtraCost = row.roleId === 'encargado' ? 0 : holidayHs * row.hourlyRate;
+              totalHours += hours;
+              totalCost += cost;
 
-      totalHours += posMonthlyHs;
-      totalCost += (posMonthlyHs * row.hourlyRate) + holidayExtraCost;
+              if (isHoliday) {
+                holidayHours += hours;
+                extraHolidayCost += hours * row.hourlyRate; // portion that double rate added
+              } else {
+                regularHours += hours;
+              }
+            }
+          });
+        }
+      });
     });
 
-    return { totalHours, totalCost };
-  }, [filteredRows, countDaysGroupA, countDaysGroupB, holidays]);
+    return { totalHours, totalCost, regularHours, holidayHours, extraHolidayCost };
+  }, [filteredRows, weeks, holidaysList]);
 
-  // Helper for rendering interactive map metrics
+  // Week-by-Week Metrics list for sidebar Constituion breakdown
+  const weeklyBreakdown = useMemo(() => {
+    return weeks.map(week => {
+      let weekHrs = 0;
+      let weekCost = 0;
+      
+      week.days.forEach(day => {
+        if (day.isInMonth) {
+          const isHoliday = holidaysList.includes(day.dateStr);
+          filteredRows.forEach(row => {
+            const headcount = getHeadcount(row, day.dateStr, day.dayName);
+            if (headcount > 0) {
+              const hours = headcount * row.hoursPerDay;
+              const rate = isHoliday ? row.hourlyRate * 2 : row.hourlyRate;
+              weekCost += hours * rate;
+              weekHrs += hours;
+            }
+          });
+        }
+      });
+
+      return {
+        weekIndex: week.weekIndex,
+        label: `Semana ${week.weekIndex}`,
+        dateRange: `${week.days[0].formattedDate} - ${week.days[6].formattedDate}`,
+        hours: weekHrs,
+        cost: weekCost
+      };
+    });
+  }, [weeks, filteredRows, holidaysList]);
+
+  // Active Week Row Calculations
+  const activeWeekCostSummary = useMemo(() => {
+    let weekHrs = 0;
+    let weekCost = 0;
+    activeWeek.days.forEach(day => {
+      if (day.isInMonth) {
+        const isHoliday = holidaysList.includes(day.dateStr);
+        filteredRows.forEach(row => {
+          const headcount = getHeadcount(row, day.dateStr, day.dayName);
+          if (headcount > 0) {
+            const hours = headcount * row.hoursPerDay;
+            const rate = isHoliday ? row.hourlyRate * 2 : row.hourlyRate;
+            weekCost += hours * rate;
+            weekHrs += hours;
+          }
+        });
+      }
+    });
+    return { hours: weekHrs, cost: weekCost };
+  }, [activeWeek, filteredRows, holidaysList]);
+
+  // Helper for rendering interactive map metrics of the SELECTED day
   const mapData = useMemo(() => {
-    const rolesPerRoom: Record<string, string[]> = {
-      cocina: ['jefe_cocina', 'segundo_cocina', 'cocinero'],
-      bacha: ['bacha'],
-      barra: ['barra'],
-      caja: ['caja'],
-      salon: ['encargado', 'mozos', 'runners']
-    };
+    const matchedDayObj = activeMonthDays.find(d => d.dateStr === mapDateStr);
+    const activeDayName = matchedDayObj ? matchedDayObj.dayName : 'Lunes';
+    const isHoliday = holidaysList.includes(mapDateStr);
 
     const roomTotals: Record<string, number> = { cocina: 0, bacha: 0, barra: 0, caja: 0, salon: 0 };
     const roomStaff: Record<string, Array<{ label: string; count: number }>> = { cocina: [], bacha: [], barra: [], caja: [], salon: [] };
 
     filteredRows.forEach(row => {
       if (row.shift === mapShift) {
-        const headcount = mapDayType === 'A' ? row.countGroupA : row.countGroupB;
+        const headcount = getHeadcount(row, mapDateStr, activeDayName);
         if (headcount > 0) {
           const room = ROLE_TO_ROOM[row.roleId];
           if (room) {
@@ -413,8 +598,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       }
     });
 
-    return { roomTotals, roomStaff };
-  }, [filteredRows, mapShift, mapDayType]);
+    return { roomTotals, roomStaff, isHoliday, activeDayName };
+  }, [filteredRows, mapShift, mapDateStr, activeMonthDays, holidaysList]);
 
   return (
     <motion.div 
@@ -432,18 +617,17 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             <h2 className="text-xl font-black text-text-main uppercase tracking-tight">
               Presupuestador de Horas {activeBranch ? `• ${activeBranch.name}` : ''}
             </h2>
-            <p className="text-text-dim text-[9px] font-bold uppercase tracking-widest mt-0.5">Planificación Mensual Estratégica & Rotaciones de Personal</p>
+            <p className="text-text-dim text-[9px] font-bold uppercase tracking-widest mt-0.5">Planificación Calendario Semana & Día por Día</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Sucursal selection dropdown */}
           <div className="bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 flex items-center gap-2.5">
             <Building2 size={14} className="text-brand-500" />
             <select
               value={localBranchId}
               onChange={(e) => setLocalBranchId(e.target.value)}
-              className="bg-transparent border-none text-[10px] font-sans text-text-main outline-none uppercase font-bold cursor-pointer pr-4"
+              className="bg-transparent border-none text-[10px] font-sans text-text-main outline-none uppercase font-bold cursor-pointer pr-4 border-r border-border-dim"
             >
               {branches.map(b => (
                 <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">
@@ -465,108 +649,115 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         </div>
       </div>
 
-      {/* Main Budget Panel Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Left Column Controls */}
         <div className="lg:col-span-1 space-y-6">
           
-          {/* Day Group Configurator */}
+          {/* Holiday (Feriados) Sidebar Manager */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4 shadow-sm">
             <h3 className="text-[10px] font-black uppercase text-brand-500 flex items-center gap-2 tracking-wider">
-              <Calculator size={13} className="stroke-[2.5]" /> Configuración de Repetición
+              <Flag size={13} className="text-brand-500" /> Feriados de este Mes (Valor x2)
             </h3>
             <p className="text-[9px] text-text-dim font-bold uppercase leading-relaxed">
-              Define qué días de la semana siguen el patrón de personal normal o se duplican por volumen comercial.
+              Registra los feriados nacionales del mes. El costo por hora para estas fechas se duplicará automáticamente.
             </p>
 
-            <div className="space-y-2 mt-4 font-sans">
-              {WEEK_DAYS.map((day) => {
-                const isGroupA = groupADays.includes(day);
-                const occurrences = dayCounts[day] || 0;
-                return (
-                  <div 
-                    key={day}
-                    onClick={() => handleToggleDayGroup(day)}
-                    className={cn(
-                      "flex items-center justify-between p-2.5 rounded-lg border cursor-pointer select-none transition-all",
-                      isGroupA 
-                        ? "bg-bg-main/40 hover:bg-bg-accent/60 border-border-dim/80 text-text-main" 
-                        : "bg-brand-50/70 border-brand-500/30 text-brand-600 hover:bg-brand-50 dark:bg-brand-500/10 dark:border-brand-500/30 dark:text-brand-500 dark:hover:bg-brand-500/15"
-                    )}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={cn(
-                        "w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black",
-                        isGroupA 
-                          ? "bg-bg-accent text-text-dim border border-border-dim/60" 
-                          : "bg-brand-500 text-white font-extrabold shadow-sm"
-                      )}>
-                        {isGroupA ? 'A' : 'B'}
-                      </div>
-                      <span className={cn(
-                        "font-extrabold text-[10.5px] uppercase tracking-wide",
-                        isGroupA ? "text-text-main" : "text-brand-600 dark:text-brand-500"
-                      )}>{day}</span>
-                    </div>
-                    <span className={cn(
-                      "font-mono text-[9.5px] font-bold uppercase",
-                      isGroupA ? "text-text-dim" : "text-brand-600/90 dark:text-brand-500/90"
-                    )}>
-                      {occurrences} {occurrences === 1 ? 'vez' : 'veces'}
-                    </span>
-                  </div>
-                );
-              })}
+            {/* Selector of month's dates */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-[9.5px] font-black text-text-dim uppercase tracking-widest">Añadir Fecha de Feriado:</label>
+              <select
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val && !holidaysList.includes(val)) {
+                    setHolidaysList([...holidaysList, val]);
+                  }
+                  e.target.value = '';
+                }}
+                className="w-full bg-bg-main border border-border-dim/80 rounded px-2.5 py-1.5 text-[11px] font-sans font-bold text-text-main focus:border-brand-500 outline-none uppercase"
+              >
+                <option value="">-- Seleccionar Día --</option>
+                {activeMonthDays.map(day => (
+                  <option key={day.dateStr} value={day.dateStr} disabled={holidaysList.includes(day.dateStr)}>
+                    {day.dayNumber} - {day.dayName} ({day.formattedDate})
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* Summarizer of computed days */}
-            <div className="pt-3.5 border-t border-border-dim/60 grid grid-cols-2 gap-2 text-center">
-              <div>
-                <p className="text-[8px] font-black text-text-dim uppercase tracking-wider">Patrón Normal (Grupo A)</p>
-                <p className="text-xs font-mono font-black text-text-main mt-1 bg-bg-main/35 py-1 px-2 rounded border border-border-dim/40 inline-block min-w-[60px]">{countDaysGroupA} días</p>
-              </div>
-              <div>
-                <p className="text-[8px] font-black text-brand-600 dark:text-brand-500 uppercase tracking-wider">Fin de Semana (Grupo B)</p>
-                <p className="text-xs font-mono font-black text-brand-600 dark:text-brand-500 mt-1 bg-brand-500/10 dark:bg-brand-500/15 py-1 px-2 border border-brand-500/25 rounded inline-block min-w-[60px]">{countDaysGroupB} días</p>
-              </div>
+            {/* List of registered holidays */}
+            <div className="space-y-1.5 max-h-[140px] overflow-y-auto">
+              <p className="text-[8.5px] font-black text-[#8B949E] uppercase tracking-wide">Feriados Cargados ({holidaysList.length}):</p>
+              {holidaysList.length === 0 ? (
+                <p className="text-[9px] text-text-dim italic">No hay feriados registrados para este mes.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {holidaysList.map(hDate => {
+                    const foundObj = activeMonthDays.find(d => d.dateStr === hDate);
+                    const formatted = foundObj ? `${foundObj.dayNumber} ${foundObj.dayName.substring(0,3)}` : hDate;
+                    return (
+                      <span 
+                        key={hDate} 
+                        className="inline-flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 text-red-400 font-bold px-2 py-0.5 rounded text-[8.5px] uppercase"
+                      >
+                        {formatted}
+                        <button 
+                          onClick={() => handleToggleHoliday(hDate)}
+                          className="hover:text-red-600 text-[10px] font-black leading-none"
+                          title="Quitar Feriado"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            <div className="space-y-1.5 pt-2">
-              <label className="text-[9px] font-black text-brand-600 dark:text-brand-500 uppercase tracking-widest">Feriados Proyectados</label>
-              <input 
-                type="number" 
-                value={holidays}
-                onChange={(e) => setHolidays(parseInt(e.target.value) || 0)}
-                className="w-full bg-bg-main border border-border-dim/80 rounded px-2.5 py-1.5 text-[11px] font-mono font-bold text-brand-600 dark:text-brand-500 focus:border-brand-500 outline-none"
-                min="0"
-              />
+            <div className="p-3 bg-red-500/5 border border-red-500/10 rounded-lg text-text-dim text-[8.5px] uppercase leading-relaxed font-bold">
+              Tip: Puedes marcar/desmarcar feriados directamente con los checkboxes sobre los encabezados de columnas en la tabla de presupuesto.
             </div>
           </div>
 
-          {/* Budget Metrics Card */}
-          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 relative overflow-hidden shadow-sm">
-            <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-              <TrendingUp size={60} className="text-brand-500" />
-            </div>
+          {/* Budget Metrics with Weekly Constitution */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 relative overflow-hidden shadow-sm space-y-4">
+            <h4 className="text-[10px] font-black uppercase tracking-widest text-[#8B949E] dark:text-text-dim mb-1 flex items-center gap-1.5">
+              <TrendingUp size={13} className="text-brand-500" /> Presupuesto Consolidado
+            </h4>
             
-            <h4 className="text-[10px] font-black uppercase tracking-widest text-[#8B949E] dark:text-text-dim mb-4">Total Presupuestado Sucursal</h4>
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div>
                 <p className="text-[8px] text-[#8B949E] uppercase font-black tracking-widest opacity-70">Horas Totales del Mes</p>
-                <p className="text-2xl font-mono font-black text-text-main mt-0.5">
+                <p className="text-xl font-mono font-black text-text-main mt-0.5">
                   {budgetCalculations.totalHours.toLocaleString()}h
                 </p>
               </div>
               
-              <div className="pt-4 border-t border-border-dim/50">
+              <div>
                 <p className="text-[8px] text-[#8B949E] uppercase font-black tracking-widest opacity-70">Costo Mensual Planificado</p>
-                <p className="text-3xl font-mono font-black text-brand-600 dark:text-brand-500 tracking-tighter italic">
+                <p className="text-2xl font-mono font-black text-brand-600 dark:text-brand-500 tracking-tighter italic">
                   ${budgetCalculations.totalCost.toLocaleString('es-AR')}
                 </p>
-                <span className="text-[8.5px] font-bold text-text-dim block mt-2.5 uppercase leading-relaxed">
-                  Basado en {WEEK_DAYS.length} rotaciones semanales con feriados
-                </span>
+              </div>
+            </div>
+
+            {/* Weekly Sum constitutes total month */}
+            <div className="pt-3.5 border-t border-border-dim/50 space-y-2">
+              <p className="text-[8.5px] font-black text-text-dim uppercase tracking-wider">Desglose de Suma Semanal:</p>
+              <div className="space-y-1">
+                {weeklyBreakdown.map((wb) => (
+                  <div key={wb.weekIndex} className="flex justify-between items-center text-[9px] py-1 border-b border-border-dim/20 last:border-none font-sans">
+                    <div className="flex flex-col">
+                      <span className="font-extrabold text-text-main">{wb.label}</span>
+                      <span className="text-[7.5px] text-[#8B949E]">{wb.dateRange}</span>
+                    </div>
+                    <div className="text-right font-mono">
+                      <span className="text-text-dim mr-1.5">{wb.hours}h</span>
+                      <span className="font-bold text-brand-500">${wb.cost.toLocaleString('es-AR')}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -588,7 +779,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 )}
               >
                 <span className="flex items-center gap-1.5">
-                  <Calculator size={13} /> Tabla de Dotación por Turno
+                  <Calculator size={13} /> Roster por Semanas Calendario
                 </span>
               </button>
               
@@ -602,7 +793,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 )}
               >
                 <span className="flex items-center gap-1.5">
-                  <Layers size={13} /> Visualizador: Mapa de Sucursal
+                  <Layers size={13} /> Visualizar en Planta Día x Día
                 </span>
               </button>
             </div>
@@ -633,59 +824,147 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 exit={{ opacity: 0, x: 10 }}
                 className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden"
               >
-                <div className="p-4 bg-[#1A1A1A] border-b border-border-dim flex justify-between items-center">
-                  <h3 className="text-xs font-black uppercase text-[#E0E0E0] flex items-center gap-1.5">
-                    <Users size={14} className="text-brand-500" /> Presupuestación de Puestos por Turno
-                  </h3>
-                  <button 
-                    onClick={handleAddRow}
-                    className="text-[10px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/10 px-3 py-1.5 bg-brand-500/[0.02] rounded"
-                  >
-                    <Plus size={13} className="stroke-[2.5]" /> Agregar Fila de Rotación
-                  </button>
+                {/* Week Tabs Sub-Navigation */}
+                <div className="p-3 bg-bg-main/50 border-b border-border-dim flex flex-wrap justify-between items-center gap-4">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-black uppercase text-text-dim tracking-wider mr-2">Elegir Semana:</span>
+                    <div className="flex gap-1">
+                      {weeks.map((week) => {
+                        const isCurrentWk = week.weekIndex === activeWeekIndex;
+                        const wStart = week.days[0].formattedDate;
+                        const wEnd = week.days[6].formattedDate;
+                        return (
+                          <button
+                            key={week.weekIndex}
+                            onClick={() => setActiveWeekIndex(week.weekIndex)}
+                            className={cn(
+                              "px-3 py-1.5 rounded text-[9.5px] font-bold uppercase transition-all flex flex-col items-center min-w-[75px]",
+                              isCurrentWk
+                                ? "bg-[#252525] text-brand-500 border border-brand-500/20 shadow-inner"
+                                : "hover:bg-bg-accent text-text-dim hover:text-text-main border border-transparent"
+                            )}
+                          >
+                            <span>Semana {week.weekIndex}</span>
+                            <span className="text-[7.5px] font-mono opacity-80 mt-0.5">{wStart} - {wEnd}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCopyWeekToMonth(activeWeekIndex)}
+                      className="text-[9px] font-black uppercase text-[#8B949E] hover:text-text-main bg-bg-main hover:bg-[#202020] transition-all flex items-center gap-1.5 border border-border-dim/85 px-3 py-1.5 rounded"
+                      title="Copiar estos valores de personal diario a todas las semanas de este mes"
+                    >
+                      <Copy size={12} /> Copiar a Todo el Mes
+                    </button>
+                    <button 
+                      onClick={handleAddRow}
+                      className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/15 px-3 py-1.5 bg-brand-500/[0.03] rounded"
+                    >
+                      <Plus size={12} className="stroke-[2.5]" /> Agregar Puesto
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse min-w-[900px]">
+                  <table className="w-full text-left border-collapse min-w-[950px]">
                     <thead>
+                      {/* Sub-Header Row with Dates & Holidays indicator */}
+                      <tr className="bg-bg-main/20 border-b border-border-dim/55 text-[8px] uppercase tracking-wider font-extrabold text-[#8B949E]">
+                        <th className="px-4 py-2 col-span-3"></th>
+                        <th className="px-4 py-2"></th>
+                        <th className="px-4 py-2"></th>
+                        {activeWeek.days.map((day) => {
+                          const isHoliday = holidaysList.includes(day.dateStr);
+                          return (
+                            <th 
+                              key={day.dateStr} 
+                              className={cn(
+                                "px-2 py-2 text-center select-none",
+                                day.isInMonth ? "bg-bg-main/10" : "bg-bg-main/5 text-text-dim/40"
+                              )}
+                            >
+                              {day.isInMonth && (
+                                <div className="flex flex-col items-center gap-1 justify-center py-1">
+                                  <input 
+                                    type="checkbox" 
+                                    id={`holcheckbox-${day.dateStr}`}
+                                    checked={isHoliday} 
+                                    onChange={() => handleToggleHoliday(day.dateStr)}
+                                    className="rounded text-brand-500 bg-bg-sidebar focus:ring-0 border-border-dim w-3.5 h-3.5 cursor-pointer accent-brand-500" 
+                                    title="Marcar como feriado (Valor Hora x2)"
+                                  />
+                                  <span className={cn(
+                                    "text-[7px] font-black tracking-tight uppercase leading-none mt-0.5", 
+                                    isHoliday ? "text-red-500 font-extrabold" : "text-text-dim"
+                                  )}>
+                                    {isHoliday ? "🚩 FERIADO" : "REGULAR"}
+                                  </span>
+                                </div>
+                              )}
+                            </th>
+                          );
+                        })}
+                        <th className="px-4 py-2 text-right"></th>
+                        <th className="px-4 py-2"></th>
+                      </tr>
+
+                      {/* Prime Headings */}
                       <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] uppercase text-text-dim tracking-widest font-black">
-                        <th className="px-4 py-4">Sucursal</th>
-                        <th className="px-4 py-4">Puesto</th>
-                        <th className="px-4 py-4 text-center">Turno</th>
-                        <th className="px-4 py-4 text-center">Pers. Normal (Grupo A)</th>
-                        <th className="px-4 py-4 text-center">Pers. Especial (Grupo B)</th>
-                        <th className="px-4 py-4 text-center">Hs Jornada</th>
-                        <th className="px-4 py-4 text-center">$ Hora/Mensual</th>
-                        <th className="px-4 py-4 text-right">Coste Proyectado</th>
-                        <th className="px-4 py-4 text-center"></th>
+                        <th className="px-4 py-3">Puesto</th>
+                        <th className="px-4 py-3 text-center">Turno</th>
+                        <th className="px-4 py-3 text-center">Hs Jornada</th>
+                        {activeWeek.days.map((day) => (
+                          <th 
+                            key={day.dateStr} 
+                            className={cn(
+                              "px-2 py-3 text-center",
+                              day.isInMonth ? "font-black" : "opacity-30 line-through"
+                            )}
+                          >
+                            {day.dayName.substring(0,3)} {day.dayNumber}
+                          </th>
+                        ))}
+                        <th className="px-4 py-3 text-right">Suma Semanal ($)</th>
+                        <th className="px-4 py-3 text-center">Acción</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border-dim/40">
                       {filteredRows.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-6 py-12 text-center text-text-dim uppercase font-black opacity-40">
+                          <td colSpan={13} className="px-6 py-12 text-center text-text-dim uppercase font-black opacity-40">
                             No hay filas de presupuesto para esta sucursal. ¡Crea una para comenzar!
                           </td>
                         </tr>
                       ) : (
                         filteredRows.map((row) => {
-                          const hoursPerMonth = (countDaysGroupA * row.countGroupA * row.hoursPerDay) + (countDaysGroupB * row.countGroupB * row.hoursPerDay);
-                          const holidayDoublePayCost = holidays * row.countGroupB * row.hoursPerDay * row.hourlyRate;
-                          const totalCostRow = (hoursPerMonth * row.hourlyRate) + holidayDoublePayCost;
+                          let rowHrsInActiveWeek = 0;
+                          let rowCostInActiveWeek = 0;
+
+                          activeWeek.days.forEach(day => {
+                            if (day.isInMonth) {
+                              const headcount = getHeadcount(row, day.dateStr, day.dayName);
+                              if (headcount > 0) {
+                                const hours = headcount * row.hoursPerDay;
+                                const isHoliday = holidaysList.includes(day.dateStr);
+                                const rate = isHoliday ? row.hourlyRate * 2 : row.hourlyRate;
+                                rowHrsInActiveWeek += hours;
+                                rowCostInActiveWeek += hours * rate;
+                              }
+                            }
+                          });
 
                           return (
                             <tr key={row.id} className="hover:bg-bg-accent/30 transition-colors group">
-                              {/* Sucursal Column */}
-                              <td className="px-4 py-3 text-text-dim uppercase font-sans font-black text-[9px] max-w-[150px] truncate">
-                                {activeBranch?.name}
-                              </td>
-
                               {/* Puesto Column */}
-                              <td className="px-4 py-3">
+                              <td className="px-4 py-2.5">
                                 <select
                                   value={row.roleId}
                                   onChange={(e) => handleRowChange(row.id, 'roleId', e.target.value)}
-                                  className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10.5px] font-bold text-text-main outline-none focus:border-brand-500 uppercase w-full max-w-[160px] h-8"
+                                  className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10.5px] font-bold text-text-main outline-none focus:border-brand-500 uppercase w-full max-w-[160px]"
                                 >
                                   {sucursalRolesList.map(rl => (
                                     <option key={rl.id} value={rl.id}>{rl.label}</option>
@@ -697,80 +976,82 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                               </td>
 
                               {/* Turno Column */}
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-2.5 text-center">
                                 <select
                                   value={row.shift}
                                   onChange={(e) => handleRowChange(row.id, 'shift', e.target.value as 'Mañana' | 'Tarde')}
-                                  className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10.5px] font-bold text-text-main outline-none focus:border-brand-500 uppercase h-8"
+                                  className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10.5px] font-bold text-text-main outline-none focus:border-brand-500 uppercase"
                                 >
                                   <option value="Mañana">Mañana</option>
                                   <option value="Tarde">Tarde</option>
                                 </select>
                               </td>
 
-                              {/* Pers. Normal Column */}
-                              <td className="px-4 py-3 text-center">
-                                <input
-                                  type="number"
-                                  value={row.countGroupA}
-                                  onChange={(e) => handleRowChange(row.id, 'countGroupA', parseFloat(e.target.value) || 0)}
-                                  className="w-14 bg-bg-accent border border-border-dim rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500"
-                                  min="0"
-                                  step="0.5"
-                                />
-                              </td>
-
-                              {/* Pers. Especial Column */}
-                              <td className="px-4 py-3 text-center">
-                                <input
-                                  type="number"
-                                  value={row.countGroupB}
-                                  onChange={(e) => handleRowChange(row.id, 'countGroupB', parseFloat(e.target.value) || 0)}
-                                  className="w-14 bg-bg-accent border border-brand-500/25 rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500"
-                                  min="0"
-                                  step="0.5"
-                                />
-                              </td>
-
                               {/* Hs Jornada Column */}
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-2.5 text-center">
                                 <input
                                   type="number"
                                   value={row.hoursPerDay}
                                   onChange={(e) => handleRowChange(row.id, 'hoursPerDay', parseInt(e.target.value) || 0)}
-                                  className="w-12 bg-bg-accent border border-border-dim rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500"
+                                  className="w-11 bg-bg-accent border border-border-dim rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500"
                                   min="0"
                                 />
                               </td>
 
-                              {/* Valor Hora Column */}
-                              <td className="px-4 py-3 text-center">
-                                <div className="inline-flex items-center gap-1 bg-bg-accent/40 px-2.5 py-1 rounded border border-border-dim/20 text-[#8B949E] select-none text-[11px]">
-                                  <span className="text-[9px] text-[#8B949E]">$</span>
-                                  <span className="text-center text-text-main font-mono text-[11px] font-bold">
-                                    {row.hourlyRate.toLocaleString('es-AR')}
-                                  </span>
-                                </div>
-                              </td>
+                              {/* Day Columns (Lunes to Domingo) */}
+                              {activeWeek.days.map((day) => {
+                                const isHoliday = holidaysList.includes(day.dateStr);
+                                const headcount = getHeadcount(row, day.dateStr, day.dayName);
+                                
+                                return (
+                                  <td 
+                                    key={day.dateStr} 
+                                    className={cn(
+                                      "px-1 py-2.5 text-center",
+                                      day.isInMonth ? "" : "bg-[#181818]/15"
+                                    )}
+                                  >
+                                    {day.isInMonth ? (
+                                      <input
+                                        type="number"
+                                        value={headcount}
+                                        onChange={(e) => handleStaffChange(row.id, day.dateStr, parseFloat(e.target.value) || 0)}
+                                        className={cn(
+                                          "w-11 bg-bg-main border rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500 transition-all",
+                                          isHoliday 
+                                            ? "border-red-500/40 text-red-500 bg-red-500/[0.04] focus:border-red-500" 
+                                            : "border-border-dim"
+                                        )}
+                                        min="0"
+                                        step="0.5"
+                                      />
+                                    ) : (
+                                      <div className="text-text-dim/35 text-[8px] font-mono tracking-tighter uppercase select-none">
+                                        FUERA
+                                      </div>
+                                    )}
+                                  </td>
+                                );
+                              })}
 
                               {/* Coste Proyectado Column */}
-                              <td className="px-4 py-3 text-right">
+                              <td className="px-4 py-2.5 text-right font-mono">
                                 <div className="flex flex-col items-end">
-                                  <span className="text-[11.5px] font-mono font-bold text-[#E6EDF0]">
-                                    ${totalCostRow.toLocaleString()}
+                                  <span className="text-[11.5px] font-black text-white">
+                                    ${rowCostInActiveWeek.toLocaleString('es-AR')}
                                   </span>
-                                  <span className="text-[8.5px] font-mono text-text-dim uppercase">
-                                    {hoursPerMonth}h / mes
+                                  <span className="text-[8px] text-text-dim uppercase font-bold text-[7px] mt-0.5">
+                                    {rowHrsInActiveWeek} h / semana
                                   </span>
                                 </div>
                               </td>
 
                               {/* Action Remove Column */}
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-2.5 text-center">
                                 <button
                                   onClick={() => handleRemoveRow(row.id)}
-                                  className="text-text-dim hover:text-red-400 p-1.5 rounded hover:bg-red-500/10 transition-colors"
-                                  title="Eliminar Fila"
+                                  className="text-text-dim hover:text-red-400 p-1 rounded hover:bg-red-500/10 transition-colors"
+                                  title="Eliminar Puesto"
                                 >
                                   <Trash2 size={12} />
                                 </button>
@@ -780,21 +1061,84 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                         })
                       )}
                     </tbody>
+
+                    {/* Footer Row summarizing daily details */}
+                    {filteredRows.length > 0 && (
+                      <tfoot className="bg-[#121212]/30 border-t border-border-dim/80 font-mono text-[9.5px]">
+                        {/* Summary: Total Headcount */}
+                        <tr className="border-b border-border-dim/20">
+                          <td colSpan={3} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
+                            Personal del Turno (Dotación):
+                          </td>
+                          {activeWeek.days.map(day => {
+                            const sumStaff = filteredRows.reduce((a, r) => a + (day.isInMonth ? getHeadcount(r, day.dateStr, day.dayName) : 0), 0);
+                            return (
+                              <td key={day.dateStr} className="px-1 py-2 text-center text-text-main font-extrabold text-[10.5px]">
+                                {day.isInMonth ? `${sumStaff}p` : '-'}
+                              </td>
+                            );
+                          })}
+                          <td colSpan={2}></td>
+                        </tr>
+
+                        {/* Summary: Total Hours */}
+                        <tr className="border-b border-border-dim/20">
+                          <td colSpan={3} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
+                            Horas Totales del Día:
+                          </td>
+                          {activeWeek.days.map(day => {
+                            const sumHrs = filteredRows.reduce((a, r) => a + (day.isInMonth ? getHeadcount(r, day.dateStr, day.dayName) * r.hoursPerDay : 0), 0);
+                            return (
+                              <td key={day.dateStr} className="px-1 py-2 text-center text-[#8B949E] font-bold text-[10px]">
+                                {day.isInMonth ? `${sumHrs}h` : '-'}
+                              </td>
+                            );
+                          })}
+                          <td colSpan={2}></td>
+                        </tr>
+
+                        {/* Summary: Cost */}
+                        <tr className="border-b border-border-dim/20 font-bold bg-[#1A1A1A]">
+                          <td colSpan={3} className="px-4 py-2 font-black text-brand-500 uppercase text-[8.5px] tracking-wider text-right">
+                            Costo Proyectado Por Día:
+                          </td>
+                          {activeWeek.days.map(day => {
+                            const isHoliday = holidaysList.includes(day.dateStr);
+                            const sumCost = filteredRows.reduce((a, r) => {
+                              if (!day.isInMonth) return a;
+                              const headcount = getHeadcount(r, day.dateStr, day.dayName);
+                              const rate = isHoliday ? r.hourlyRate * 2 : r.hourlyRate;
+                              return a + (headcount * r.hoursPerDay * rate);
+                            }, 0);
+                            return (
+                              <td key={day.dateStr} className={cn(
+                                "px-1 py-2.5 text-center text-[10px] font-black",
+                                isHoliday ? "text-red-400" : "text-brand-500"
+                              )}>
+                                {day.isInMonth ? `$${sumCost.toLocaleString()}` : '-'}
+                              </td>
+                            );
+                          })}
+                          <td colSpan={2}></td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
 
+                {/* Table Bottom Save bar */}
                 <div className="p-4 bg-[#141414] border-t border-border-dim flex justify-between items-center">
                   <div className="flex gap-4">
                     <div className="text-left">
-                      <p className="text-[8px] font-black text-[#8B949E] uppercase tracking-wider">Acumulado Horas Semanal</p>
-                      <p className="text-sm font-bold text-[#E6EDF0] mt-0.5 font-mono">
-                        {(budgetCalculations.totalHours / 4).toFixed(1)}h
+                      <p className="text-[8px] font-black text-[#8B949E] uppercase tracking-wider">Costo Semana {activeWeekIndex}</p>
+                      <p className="text-sm font-black text-white mt-0.5 font-mono">
+                        ${activeWeekCostSummary.cost.toLocaleString('es-AR')}
                       </p>
                     </div>
                     <div className="text-left border-l border-border-dim/50 pl-4">
-                      <p className="text-[8px] font-black text-brand-500 uppercase tracking-wider">Costo Feriados (Duplicados)</p>
-                      <p className="text-sm font-bold text-brand-500 mt-0.5 font-mono">
-                        ${filteredRows.reduce((a, r) => a + (holidays * r.countGroupB * r.hoursPerDay * r.hourlyRate), 0).toLocaleString()}
+                      <p className="text-[8px] font-black text-brand-500 uppercase tracking-wider">Horas Semana {activeWeekIndex}</p>
+                      <p className="text-sm font-black text-brand-500 mt-0.5 font-mono">
+                        {activeWeekCostSummary.hours}h
                       </p>
                     </div>
                   </div>
@@ -802,21 +1146,21 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                   <div className="flex gap-3">
                     {saveSuccess && (
                       <span className="text-[9px] font-bold text-emerald-500 uppercase bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded flex items-center">
-                        ¡Presupuesto de Horas Guardado!
+                        ¡Presupuesto Guardado Correctamente!
                       </span>
                     )}
                     <button
                       onClick={handleSaveBudget}
                       className="bg-brand-500 hover:bg-brand-600 text-black font-extrabold text-[10.5px] uppercase tracking-wider px-6 py-2.5 rounded shadow-lg shadow-brand-500/10 flex items-center gap-2"
                     >
-                      <Save size={14} className="stroke-[2.5]" /> Guardar Presupuesto {selectedMonth}
+                      <Save size={14} className="stroke-[2.5]" /> Guardar Todo el Mes {selectedMonth}
                     </button>
                   </div>
                 </div>
               </motion.div>
             )}
 
-            {/* View B: Hall Floor Graphic Map */}
+            {/* View B: Hall Floor Graphic Map with Exact Day selection */}
             {currentTab === 'map' && (
               <motion.div
                 key="map-view"
@@ -826,58 +1170,70 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 className="bg-[#1A1A1A] border border-border-dim rounded-lg p-6 space-y-6"
               >
                 {/* Map Control Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border-dim/60 pb-4">
-                  <div className="space-y-1">
-                    <h3 className="text-xs font-black uppercase text-text-main flex items-center gap-2">
-                      <MapPin size={14} className="text-brand-500" /> Distribución Práctica del Personal
-                    </h3>
-                    <p className="text-[8.5px] text-[#8C959F] uppercase font-bold tracking-tight">
-                      Visualiza dónde están ubicados físicamente los recursos y la dotación total para la combinación seleccionada.
-                    </p>
-                  </div>
-
-                  {/* Toggle Parameters */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex bg-[#121212]/80 p-1 rounded-md border border-border-dim/40">
-                      <button
-                        onClick={() => setMapDayType('A')}
-                        className={cn(
-                          "px-3 py-1.5 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
-                          mapDayType === 'A' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
-                        )}
-                      >
-                        Grupo A (Normal)
-                      </button>
-                      <button
-                        onClick={() => setMapDayType('B')}
-                        className={cn(
-                          "px-3 py-1.5 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
-                          mapDayType === 'B' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
-                        )}
-                      >
-                        Grupo B (Especial)
-                      </button>
+                <div className="space-y-4 border-b border-border-dim/60 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-black uppercase text-text-main flex items-center gap-2">
+                        <MapPin size={14} className="text-brand-500" /> Distribución en Planta (Visualización Diaria)
+                      </h3>
+                      <p className="text-[8.5px] text-[#8C959F] uppercase font-bold tracking-tight">
+                        Audita el despliegue físico de personal en cualquier día de este mes para verificar refuerzos u operaciones.
+                      </p>
                     </div>
 
-                    <div className="flex bg-[#121212]/80 p-1 rounded-md border border-border-dim/40">
-                      <button
-                        onClick={() => setMapShift('Mañana')}
-                        className={cn(
-                          "px-3 py-1.5 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
-                          mapShift === 'Mañana' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
-                        )}
-                      >
-                        Mañana
-                      </button>
-                      <button
-                        onClick={() => setMapShift('Tarde')}
-                        className={cn(
-                          "px-3 py-1.5 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
-                          mapShift === 'Tarde' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
-                        )}
-                      >
-                        Tarde
-                      </button>
+                    {/* Shift switch */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-[9px] font-black uppercase text-text-dim">Filtrar Turno:</span>
+                      <div className="flex bg-[#121212]/80 p-1 rounded-md border border-border-dim/40">
+                        <button
+                          onClick={() => setMapShift('Mañana')}
+                          className={cn(
+                            "px-3 py-1 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
+                            mapShift === 'Mañana' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
+                          )}
+                        >
+                          Mañana
+                        </button>
+                        <button
+                          onClick={() => setMapShift('Tarde')}
+                          className={cn(
+                            "px-3 py-1 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap",
+                            mapShift === 'Tarde' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main"
+                          )}
+                        >
+                          Tarde
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Day Pills horizontal selection Strip */}
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black uppercase text-brand-500 flex items-center gap-1">
+                      <Clock size={12} /> Selecciona el Día del Mes a Auditar:
+                    </span>
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-800">
+                      {activeMonthDays.map((day) => {
+                        const isSelected = mapDateStr === day.dateStr;
+                        return (
+                          <button
+                            key={day.dateStr}
+                            onClick={() => setMapDateStr(day.dateStr)}
+                            className={cn(
+                              "flex flex-col items-center px-4 py-2 rounded border text-[9.5px] uppercase font-bold shrink-0 transition-all min-w-[55px]",
+                              isSelected
+                                ? "bg-brand-500 text-black border-brand-500 shadow"
+                                : day.isHoliday
+                                  ? "bg-red-500/10 hover:bg-red-500/15 text-red-400 border-red-500/20"
+                                  : "bg-bg-sidebar hover:bg-bg-accent border-border-dim text-text-main"
+                            )}
+                          >
+                            <span className="text-[7.5px] opacity-75">{day.dayName.substring(0, 3)}</span>
+                            <span className="text-sm font-black mt-0.5">{day.dayNumber}</span>
+                            {day.isHoliday && <span className="text-[7.2px] text-red-500 font-extrabold mt-0.5">🚩 Feriado</span>}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -889,13 +1245,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                   <div className="xl:col-span-2 bg-[#121212] border border-border-dim rounded-xl p-4 flex items-center justify-center relative overflow-hidden shadow-2xl h-[380px]">
                     
                     <svg className="w-full h-full" viewBox="0 0 600 350" fill="none">
-                      {/* Grid background markers */}
                       <defs>
-                        <pattern id="dotGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <pattern id="dotGridMap" width="20" height="20" patternUnits="userSpaceOnUse">
                           <circle cx="2" cy="2" r="1" fill="#202020" />
                         </pattern>
                       </defs>
-                      <rect width="600" height="350" fill="url(#dotGrid)" rx="10" />
+                      <rect width="600" height="350" fill="url(#dotGridMap)" rx="10" />
 
                       {/* AREA 1: COCINA PRINCIPAL */}
                       <g 
@@ -919,10 +1274,6 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                         <text x="35" y="45" className="font-black text-[9px] fill-[#8B949E] uppercase tracking-wider">
                           Cocina Principal
                         </text>
-                        {/* Dot count container */}
-                        <g transform="translate(35, 65)">
-                          {/* We can plot dots */}
-                        </g>
                       </g>
 
                       {/* AREA 2: BACHA / LAVADO */}
@@ -1022,39 +1373,36 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                       </g>
                     </svg>
 
-                    {/* DYNAMIC AVATARS INTEGRATION OVERLAYING THE SVG */}
                     {/* Cocina Overlay */}
-                    <div className="absolute top-[65px] left-[55px] w-[140px] flex flex-wrap gap-1">
-                      {mapShift === 'Tarde' || mapShift === 'Mañana' ? (
-                        filteredRows
-                          .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'cocina')
-                          .map((r, i) => {
-                            const count = mapDayType === 'A' ? r.countGroupA : r.countGroupB;
-                            if (count <= 0) return null;
-                            return (
-                              <div 
-                                key={r.id + i} 
-                                className="bg-brand-500 text-black text-[8px] font-black px-1 rounded shadow cursor-help flex items-center gap-0.5 border border-black/10"
-                                title={`${r.roleLabel}: ${count}p`}
-                              >
-                                {r.roleLabel.substring(0, 3).toUpperCase()} {count}p
-                              </div>
-                            );
-                          })
-                      ) : null}
+                    <div className="absolute top-[65px] left-[45px] w-[140px] flex flex-wrap gap-1">
+                      {filteredRows
+                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'cocina')
+                        .map((r) => {
+                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                          if (count <= 0) return null;
+                          return (
+                            <div 
+                              key={r.id} 
+                              className="bg-brand-500 text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-black/10"
+                              title={`${r.roleLabel}: ${count}p`}
+                            >
+                              {r.roleLabel.substring(0, 3).toUpperCase()} {count}p
+                            </div>
+                          );
+                        })}
                     </div>
 
                     {/* Bacha Overlay */}
                     <div className="absolute top-[230px] left-[45px] w-[90px] flex flex-wrap gap-1">
                       {filteredRows
                         .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'bacha')
-                        .map((r, i) => {
-                          const count = mapDayType === 'A' ? r.countGroupA : r.countGroupB;
+                        .map((r) => {
+                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
                           if (count <= 0) return null;
                           return (
                             <div 
-                              key={r.id + i} 
-                              className="bg-[#C0C0C0] text-black text-[8px] font-black px-1 rounded shadow cursor-help"
+                              key={r.id} 
+                              className="bg-[#C0C0C0] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
                               title={`${r.roleLabel}: ${count}p`}
                             >
                               BAC {count}p
@@ -1064,16 +1412,16 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     </div>
 
                     {/* Barra Overlay */}
-                    <div className="absolute top-[65px] left-[235px] w-[55px] flex flex-wrap gap-1">
+                    <div className="absolute top-[65px] left-[225px] w-[65px] flex flex-wrap gap-1">
                       {filteredRows
                         .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'barra')
-                        .map((r, i) => {
-                          const count = mapDayType === 'A' ? r.countGroupA : r.countGroupB;
+                        .map((r) => {
+                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
                           if (count <= 0) return null;
                           return (
                             <div 
-                              key={r.id + i} 
-                              className="bg-[#D4AF37] text-black text-[8px] font-black px-1 rounded shadow cursor-help"
+                              key={r.id} 
+                              className="bg-[#D4AF37] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
                               title={`${r.roleLabel}: ${count}p`}
                             >
                               BAR {count}p
@@ -1083,16 +1431,16 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     </div>
 
                     {/* Caja Overlay */}
-                    <div className="absolute top-[230px] left-[175px] w-[110px] flex flex-wrap gap-1">
+                    <div className="absolute top-[230px] left-[165px] w-[110px] flex flex-wrap gap-1">
                       {filteredRows
                         .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'caja')
-                        .map((r, i) => {
-                          const count = mapDayType === 'A' ? r.countGroupA : r.countGroupB;
+                        .map((r) => {
+                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
                           if (count <= 0) return null;
                           return (
                             <div 
-                              key={r.id + i} 
-                              className="bg-[#4682B4] text-white text-[8px] font-black px-1 rounded shadow cursor-help"
+                              key={r.id} 
+                              className="bg-[#4682B4] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
                               title={`${r.roleLabel}: ${count}p`}
                             >
                               CAJ {count}p
@@ -1105,16 +1453,16 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     <div className="absolute top-[65px] left-[325px] w-[240px] flex flex-wrap gap-1.5 justify-start">
                       {filteredRows
                         .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'salon')
-                        .map((r, i) => {
-                          const count = mapDayType === 'A' ? r.countGroupA : r.countGroupB;
+                        .map((r) => {
+                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
                           if (count <= 0) return null;
                           return (
                             <div 
-                              key={r.id + i} 
+                              key={r.id} 
                               className="bg-zinc-700 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-border-dim"
                               title={`${r.roleLabel}: ${count}p`}
                             >
-                              {r.roleLabel.toUpperCase()} <span className="text-brand-500">{count}p</span>
+                              {r.roleLabel.toUpperCase()} <span className="text-brand-500 font-black">{count}p</span>
                             </div>
                           );
                         })}
@@ -1124,24 +1472,35 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                   {/* Room Metrics details (Sidebar inside map view) */}
                   <div className="bg-[#121212] border border-border-dim rounded-xl p-5 space-y-4">
                     <div className="border-b border-border-dim/40 pb-3 flex justify-between items-center">
-                      <h4 className="text-xs font-black uppercase text-[#E0E0E0] tracking-wider">
-                        Atención en {selectedRoom.toUpperCase()}
-                      </h4>
-                      <span className="text-[9px] font-mono font-bold text-brand-500 bg-brand-500/10 px-2.5 py-0.5 rounded-full">
-                        {mapData.roomTotals[selectedRoom] || 0} personas
+                      <div className="flex flex-col">
+                        <h4 className="text-xs font-black uppercase text-[#E0E0E0] tracking-wider">
+                          Personal en {selectedRoom.toUpperCase()}
+                        </h4>
+                        <span className="text-[7.5px] text-text-dim uppercase mt-0.5 font-sans font-black">
+                          Día seleccionado: {mapDateStr}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono font-bold text-brand-500 bg-brand-500/10 px-2.5 py-0.5 rounded-full shrink-0">
+                        {mapData.roomTotals[selectedRoom] || 0} p
                       </span>
                     </div>
+
+                    {mapData.isHoliday && (
+                      <div className="bg-red-500/10 border border-red-500/20 text-red-400 font-bold p-2.5 rounded text-[8.5px] uppercase flex items-center gap-2">
+                        <span>🚩 Feriado Activado (Hora Doble para este Día)</span>
+                      </div>
+                    )}
 
                     <div className="space-y-2 max-h-56 overflow-y-auto">
                       {(mapData.roomStaff[selectedRoom] || []).length === 0 ? (
                         <p className="text-[10px] text-text-dim uppercase font-black tracking-tight text-center py-6 opacity-40">
-                          Sin personal asignado en este turno/día
+                          Sin personal asignado en este turno para el sector {selectedRoom}
                         </p>
                       ) : (
                         (mapData.roomStaff[selectedRoom] || []).map((staff, i) => (
                           <div key={i} className="flex justify-between items-center p-2 rounded bg-bg-accent/40 border border-border-dim/40">
                             <span className="font-bold text-text-main uppercase text-[10px]">{staff.label}</span>
-                            <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count} personas</span>
+                            <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count}p</span>
                           </div>
                         ))
                       )}
@@ -1149,7 +1508,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                     <div className="bg-bg-card p-3 rounded border border-border-dim/40 text-[9.5px] leading-relaxed text-text-dim">
                       <p className="font-bold text-text-main uppercase mb-1">Guía del Supervisor:</p>
-                      Haz click sobre cualquier sector del mapa interactivo (<span className="text-brand-500 font-extrabold">Cocina, Salón, Barra, Caja, Bachas</span>) para inspeccionar la dotación instantánea de personal de ese salón. Elige la combinación de Turno y Tipo de Día arriba para auditar cómo se despliega tu equipo.
+                      Haz click sobre cualquier sector del plano (<span className="text-brand-500 font-extrabold">Cocina, Salón, Barra, Caja, Bachas</span>) para auditar la dotación. Tienes la libertad de configurar refuerzos para un día en particular (por ejemplo, si un lunes es feriado) en la pestaña del Roster Semanal; esta planta reflejará exactamente esos cambios.
                     </div>
                   </div>
                 </div>
@@ -1164,7 +1523,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       <div className="p-4.5 bg-orange-500/5 border border-orange-500/15 rounded-lg flex items-start gap-3 shadow-sm">
         <AlertCircle size={18} className="text-orange-500 shrink-0 mt-0.5" />
         <p className="text-[10px] text-orange-500/90 font-bold uppercase tracking-tight leading-relaxed">
-          Atención: Asegúrate de guardar los cambios haciendo click en el botón "Guardar Presupuesto". Cada cambio será transmitido automáticamente a Gerencia General para su correspondiente auditoría y aprobación.
+          Atención: Asegúrate de guardar los cambios haciendo click en el botón "Guardar Todo el Mes". Cada cambio de personal programado por día se integrará de inmediato para los reportes de control operacional e informes financieros de Gerencia.
         </p>
       </div>
     </motion.div>
