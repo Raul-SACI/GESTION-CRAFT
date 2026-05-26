@@ -8,13 +8,13 @@ import {
   AlertCircle, 
   Building2, 
   Calendar,
-  Sparkles,
   ChevronLeft,
   ChevronRight,
-  TrendingDown,
-  Info
+  Info,
+  Coffee,
+  Database
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
@@ -25,21 +25,24 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer, 
-  Legend 
+  ResponsiveContainer 
 } from 'recharts';
 
 interface PedidosYaViewProps {
   branches: Branch[];
 }
 
-interface WeeklyRating {
+interface TwoChannelRating {
   branch_id: string;
   month: string; // YYYY-MM
-  week_1: number | null;
-  week_2: number | null;
-  week_3: number | null;
-  week_4: number | null;
+  resto_week_1: number | null;
+  resto_week_2: number | null;
+  resto_week_3: number | null;
+  resto_week_4: number | null;
+  cafe_week_1: number | null;
+  cafe_week_2: number | null;
+  cafe_week_3: number | null;
+  cafe_week_4: number | null;
 }
 
 export default function PedidosYaView({ branches }: PedidosYaViewProps) {
@@ -54,31 +57,35 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
     return `${d.getFullYear()}-${mm}`;
   });
 
-  const [ratings, setRatings] = useState<Record<string, WeeklyRating>>({});
+  const [ratings, setRatings] = useState<Record<string, TwoChannelRating>>({});
+  const [rawInputs, setRawInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [activeChartTab, setActiveChartTab] = useState<'line' | 'summary'>('line');
 
-  // Load ratings for chosen month
+  // Load physical ratings for chosen month
   const fetchRatings = async () => {
     setLoading(true);
     try {
-      // Initialize empty default ratings for all active branches
-      const defaultState: Record<string, WeeklyRating> = {};
+      // Default empty state for all active branches
+      const defaultState: Record<string, TwoChannelRating> = {};
       activeBranches.forEach(b => {
         defaultState[b.id] = {
           branch_id: b.id,
           month: selectedMonth,
-          week_1: null,
-          week_2: null,
-          week_3: null,
-          week_4: null
+          resto_week_1: null,
+          resto_week_2: null,
+          resto_week_3: null,
+          resto_week_4: null,
+          cafe_week_1: null,
+          cafe_week_2: null,
+          cafe_week_3: null,
+          cafe_week_4: null
         };
       });
 
-      // 1. Try reading from LocalStorage as priority / fallback
-      const localKey = `craft_pedidos_ya_ratings_${selectedMonth}`;
-      let cachedRatings: Record<string, WeeklyRating> | null = null;
+      // 1. Try reading from LocalStorage as fallback
+      const localKey = `craft_pedidos_ya_ratings_v2_${selectedMonth}`;
+      let cachedRatings: Record<string, TwoChannelRating> | null = null;
       try {
         const localData = localStorage.getItem(localKey);
         if (localData) {
@@ -89,7 +96,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
       }
 
       // 2. Try fetching from Supabase Table `pedidos_ya_ratings`
-      let dbRatings: Record<string, WeeklyRating> = {};
+      const dbRatings: Record<string, TwoChannelRating> = {};
       try {
         const { data, error } = await supabase
           .from('pedidos_ya_ratings')
@@ -98,21 +105,51 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
 
         if (!error && data && data.length > 0) {
           data.forEach((row: any) => {
-            dbRatings[row.branch_id] = {
-              branch_id: row.branch_id,
-              month: row.month,
-              week_1: row.week_1 !== null ? Number(row.week_1) : null,
-              week_2: row.week_2 !== null ? Number(row.week_2) : null,
-              week_3: row.week_3 !== null ? Number(row.week_3) : null,
-              week_4: row.week_4 !== null ? Number(row.week_4) : null,
-            };
+            const rawBranchId = row.branch_id as string;
+            let branchId = rawBranchId;
+            let channel: 'resto' | 'cafe' = 'resto';
+
+            if (rawBranchId.endsWith('_resto')) {
+              branchId = rawBranchId.slice(0, -6);
+              channel = 'resto';
+            } else if (rawBranchId.endsWith('_cafe')) {
+              branchId = rawBranchId.slice(0, -5);
+              channel = 'cafe';
+            }
+
+            if (!dbRatings[branchId]) {
+              dbRatings[branchId] = {
+                branch_id: branchId,
+                month: selectedMonth,
+                resto_week_1: null,
+                resto_week_2: null,
+                resto_week_3: null,
+                resto_week_4: null,
+                cafe_week_1: null,
+                cafe_week_2: null,
+                cafe_week_3: null,
+                cafe_week_4: null,
+              };
+            }
+
+            if (channel === 'resto') {
+              dbRatings[branchId].resto_week_1 = row.week_1 !== null ? Number(row.week_1) : null;
+              dbRatings[branchId].resto_week_2 = row.week_2 !== null ? Number(row.week_2) : null;
+              dbRatings[branchId].resto_week_3 = row.week_3 !== null ? Number(row.week_3) : null;
+              dbRatings[branchId].resto_week_4 = row.week_4 !== null ? Number(row.week_4) : null;
+            } else {
+              dbRatings[branchId].cafe_week_1 = row.week_1 !== null ? Number(row.week_1) : null;
+              dbRatings[branchId].cafe_week_2 = row.week_2 !== null ? Number(row.week_2) : null;
+              dbRatings[branchId].cafe_week_3 = row.week_3 !== null ? Number(row.week_3) : null;
+              dbRatings[branchId].cafe_week_4 = row.week_4 !== null ? Number(row.week_4) : null;
+            }
           });
         }
       } catch (dbErr) {
-        console.warn('Supabase pedidos_ya_ratings retrieval failed or table not found. Using LocalStorage fallback:', dbErr);
+        console.warn('Supabase fetch failed, relying on local cache:', dbErr);
       }
 
-      // Merge defaults -> Local Cache -> DB Ratings
+      // Merge defaults -> local -> DB
       const finalRatings = { ...defaultState };
       if (cachedRatings) {
         Object.assign(finalRatings, cachedRatings);
@@ -122,6 +159,23 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
       }
 
       setRatings(finalRatings);
+
+      // Populate raw inputs with Argentine formatting (4,5)
+      const initialRaw: Record<string, string> = {};
+      Object.keys(finalRatings).forEach(branchId => {
+        const item = finalRatings[branchId];
+        const channels: ('resto' | 'cafe')[] = ['resto', 'cafe'];
+        channels.forEach(ch => {
+          ['week_1', 'week_2', 'week_3', 'week_4'].forEach(wk => {
+            const val = item[`${ch}_${wk}` as keyof TwoChannelRating] as number | null;
+            initialRaw[`${branchId}_${ch}_${wk}`] = val !== null && val !== undefined 
+              ? val.toFixed(1).replace('.', ',') 
+              : '';
+          });
+        });
+      });
+      setRawInputs(initialRaw);
+
     } catch (err) {
       console.error('Error in fetchRatings flow:', err);
     } finally {
@@ -135,83 +189,144 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
     }
   }, [selectedMonth, activeBranches]);
 
-  // Handle rating change in the inputs
-  const handleRatingChange = (branchId: string, week: 'week_1' | 'week_2' | 'week_3' | 'week_4', valString: string) => {
-    // If value is empty, set to null
-    if (valString === '') {
+  // Handle rating typing
+  const handleRatingInputChange = (branchId: string, channel: 'resto' | 'cafe', week: 'week_1' | 'week_2' | 'week_3' | 'week_4', typedValue: string) => {
+    const rawKey = `${branchId}_${channel}_${week}`;
+    
+    // Only allow typing digits, commas and dots
+    const sanitizedInput = typedValue.replace(/[^0-9.,]/g, '');
+    
+    setRawInputs(prev => ({
+      ...prev,
+      [rawKey]: sanitizedInput
+    }));
+
+    // Update ratings numeric state instantly if it forms a valid decimal number
+    const normStr = sanitizedInput.replace(',', '.');
+    if (normStr === '') {
       setRatings(prev => ({
         ...prev,
         [branchId]: {
           ...prev[branchId],
-          [week]: null
+          [`${channel}_${week}`]: null
         }
       }));
       return;
     }
 
-    // Replace comma with point
-    const sanitizedVal = valString.replace(',', '.');
-    const numericVal = parseFloat(sanitizedVal);
-
-    if (isNaN(numericVal)) return;
-
-    // Strict boundary checks
-    if (numericVal < 1.0 || numericVal > 5.0) return;
-
-    // Keep it up to 2 decimal places maximum
-    const formattedVal = Math.round(numericVal * 100) / 100;
-
-    setRatings(prev => ({
-      ...prev,
-      [branchId]: {
-        ...prev[branchId],
-        [week]: formattedVal
+    const numericVal = parseFloat(normStr);
+    if (!isNaN(numericVal)) {
+      if (numericVal >= 1.0 && numericVal <= 5.0) {
+        // Enforce max 1 decimal point
+        const rounded = Math.round(numericVal * 10) / 10;
+        setRatings(prev => ({
+          ...prev,
+          [branchId]: {
+            ...prev[branchId],
+            [`${channel}_${week}`]: rounded
+          }
+        }));
       }
-    }));
+    }
   };
 
-  // Bulk Save Ratings
+  // Finalize input value on focus out / blur
+  const handleInputBlur = (branchId: string, channel: 'resto' | 'cafe', week: 'week_1' | 'week_2' | 'week_3' | 'week_4') => {
+    const rawKey = `${branchId}_${channel}_${week}`;
+    const value = rawInputs[rawKey] || '';
+    const normStr = value.replace(',', '.');
+
+    if (normStr === '') {
+      setRatings(prev => ({
+        ...prev,
+        [branchId]: {
+          ...prev[branchId],
+          [`${channel}_${week}`]: null
+        }
+      }));
+      return;
+    }
+
+    const valNumeric = parseFloat(normStr);
+    if (isNaN(valNumeric) || valNumeric < 1.0 || valNumeric > 5.0) {
+      // Invalid input - clear
+      setRawInputs(prev => ({ ...prev, [rawKey]: '' }));
+      setRatings(prev => ({
+        ...prev,
+        [branchId]: {
+          ...prev[branchId],
+          [`${channel}_${week}`]: null
+        }
+      }));
+    } else {
+      // Round to 1 decimal place and format output
+      const rounded = Math.round(valNumeric * 10) / 10;
+      setRawInputs(prev => ({ ...prev, [rawKey]: rounded.toFixed(1).replace('.', ',') }));
+      setRatings(prev => ({
+        ...prev,
+        [branchId]: {
+          ...prev[branchId],
+          [`${channel}_${week}`]: rounded
+        }
+      }));
+    }
+  };
+
+  // Save changes
   const handleSaveAll = async () => {
     setSaving(true);
     try {
-      const payloads = (Object.values(ratings) as WeeklyRating[]).map(item => ({
-        branch_id: item.branch_id,
-        month: item.month,
-        week_1: item.week_1,
-        week_2: item.week_2,
-        week_3: item.week_3,
-        week_4: item.week_4
-      }));
+      const payloads: any[] = [];
+      Object.values(ratings).forEach((item: TwoChannelRating) => {
+        // Resto row
+        payloads.push({
+          branch_id: `${item.branch_id}_resto`,
+          month: item.month,
+          week_1: item.resto_week_1,
+          week_2: item.resto_week_2,
+          week_3: item.resto_week_3,
+          week_4: item.resto_week_4
+        });
+        // Café row
+        payloads.push({
+          branch_id: `${item.branch_id}_cafe`,
+          month: item.month,
+          week_1: item.cafe_week_1,
+          week_2: item.cafe_week_2,
+          week_3: item.cafe_week_3,
+          week_4: item.cafe_week_4
+        });
+      });
 
-      // Cache directly in LocalStorage to guarantee robust offline/re-refresh persistence
-      const localKey = `craft_pedidos_ya_ratings_${selectedMonth}`;
+      // Save locally
+      const localKey = `craft_pedidos_ya_ratings_v2_${selectedMonth}`;
       try {
         localStorage.setItem(localKey, JSON.stringify(ratings));
       } catch (localErr) {
-        console.error('Error cache writing Pedidos Ya ratings:', localErr);
+        console.error('Error caching ratings locally:', localErr);
       }
 
-      // Try writing to Supabase
+      // Try sending to Supabase
       const { error } = await supabase
         .from('pedidos_ya_ratings')
         .upsert(payloads, { onConflict: 'branch_id,month' });
 
       if (error) {
-        console.warn('Supabase ratings save failed, but synchronized locally on this browser:', error);
-        alert('Calificaciones guardadas correctamente de manera local.');
+        console.warn('Supabase save error, but fallback succeeded locally:', error);
+        alert('Calificaciones guardadas de manera local en el navegador.');
       } else {
-        alert('Calificaciones de Pedidos Ya guardadas de manera exitosa en el sistema.');
+        alert('Calificaciones de Resto y Café guardadas con éxito en el servidor.');
       }
       fetchRatings();
     } catch (err) {
       console.error('Error saving Pedidos Ya ratings:', err);
-      alert('Error al guardar en el servidor. Los datos se guardaron en la memoria local.');
+      alert('Error en conexión. Datos guardados en la memoria local.');
     } finally {
       setSaving(false);
     }
   };
 
-  // Helper rating badge color based on rating score
+  // Scoring badge visual state
   const getRatingStyle = (rating: number | null) => {
     if (rating === null) return { bg: 'bg-bg-accent/40 text-text-dim border-border-dim/40', label: 'PENDIENTE', textColor: 'text-text-dim' };
     if (rating >= 4.5) return { bg: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20', label: 'EXCELENTE', textColor: 'text-emerald-500' };
@@ -220,49 +335,76 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
     return { bg: 'bg-red-500/10 text-red-500 border-red-500/20', label: 'CRÍTICO', textColor: 'text-red-500' };
   };
 
-  // Month stats summaries
+  // Calculate stats for both Resto & Cafe
   const stats = useMemo(() => {
-    let sum = 0;
-    let count = 0;
-    let highestAvg = -1;
+    let restoSum = 0;
+    let restoCount = 0;
+    let cafeSum = 0;
+    let cafeCount = 0;
+    
+    let highestScore = -1;
     let starBranchName = 'Ninguna';
-    let lowestAvg = 6;
+    let starChannel = 'Resto';
+
+    let lowestScore = 6;
     let riskBranchName = 'Ninguna';
+    let riskChannel = 'Resto';
 
     activeBranches.forEach(b => {
       const row = ratings[b.id];
       if (!row) return;
 
-      const weeks = [row.week_1, row.week_2, row.week_3, row.week_4].filter((w): w is number => w !== null);
-      if (weeks.length > 0) {
-        const avg = weeks.reduce((acc, current) => acc + current, 0) / weeks.length;
-        sum += avg;
-        count++;
+      const restoWeeks = [row.resto_week_1, row.resto_week_2, row.resto_week_3, row.resto_week_4].filter((w): w is number => w !== null);
+      if (restoWeeks.length > 0) {
+        const avg = restoWeeks.reduce((acc, c) => acc + c, 0) / restoWeeks.length;
+        restoSum += avg;
+        restoCount++;
 
-        if (avg > highestAvg) {
-          highestAvg = avg;
+        if (avg > highestScore) {
+          highestScore = avg;
           starBranchName = b.name;
+          starChannel = 'Resto';
         }
-        if (avg < lowestAvg) {
-          lowestAvg = avg;
+        if (avg < lowestScore) {
+          lowestScore = avg;
           riskBranchName = b.name;
+          riskChannel = 'Resto';
+        }
+      }
+
+      const cafeWeeks = [row.cafe_week_1, row.cafe_week_2, row.cafe_week_3, row.cafe_week_4].filter((w): w is number => w !== null);
+      if (cafeWeeks.length > 0) {
+        const avg = cafeWeeks.reduce((acc, c) => acc + c, 0) / cafeWeeks.length;
+        cafeSum += avg;
+        cafeCount++;
+
+        if (avg > highestScore) {
+          highestScore = avg;
+          starBranchName = b.name;
+          starChannel = 'Café';
+        }
+        if (avg < lowestScore) {
+          lowestScore = avg;
+          riskBranchName = b.name;
+          riskChannel = 'Café';
         }
       }
     });
 
-    const finalAvg = count > 0 ? sum / count : null;
     return {
-      average: finalAvg !== null ? Math.round(finalAvg * 100) / 100 : null,
+      restoAvg: restoCount > 0 ? restoSum / restoCount : null,
+      cafeAvg: cafeCount > 0 ? cafeSum / cafeCount : null,
       starBranch: starBranchName,
-      starAvg: highestAvg !== -1 ? Math.round(highestAvg * 100) / 100 : null,
+      starChannel: starChannel,
+      starVal: highestScore !== -1 ? highestScore : null,
       riskBranch: riskBranchName,
-      riskAvg: lowestAvg !== 6 ? Math.round(lowestAvg * 100) / 100 : null,
+      riskChannel: riskChannel,
+      riskVal: lowestScore !== 6 ? lowestScore : null,
     };
   }, [ratings, activeBranches]);
 
-  // Generate Recharts trend data
+  // Generate charts trend data for both channels
   const chartData = useMemo(() => {
-    // Weeks structure
     const weeksList = [
       { name: 'Semana 1', key: 'week_1' as const },
       { name: 'Semana 2', key: 'week_2' as const },
@@ -273,35 +415,27 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
     return weeksList.map(week => {
       const entry: any = { name: week.name };
       activeBranches.forEach(b => {
-        const rating = ratings[b.id]?.[week.key];
-        entry[b.name] = rating !== null ? rating : undefined;
+        const ratingResto = ratings[b.id]?.[`resto_${week.key}` as keyof TwoChannelRating];
+        const ratingCafe = ratings[b.id]?.[`cafe_${week.key}` as keyof TwoChannelRating];
+        entry[`${b.name} (Resto)`] = ratingResto !== null ? ratingResto : undefined;
+        entry[`${b.name} (Café)`] = ratingCafe !== null ? ratingCafe : undefined;
       });
       return entry;
     });
   }, [ratings, activeBranches]);
 
-  // Assign nice distinct hues for chart lines
-  const branchHues = useMemo(() => {
-    const hues: Record<string, string> = {
-      'Palermo': '#10b981',
-      'Belgrano': '#3b82f6',
-      'Recoleta': '#f59e0b',
-      'Caballito': '#ec4899',
-      'Las Cañitas': '#8b5cf6',
-      'San Isidro': '#06b6d4'
-    };
-    
-    // Fallbacks
-    const colors = ['#10b981', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#14b8a6', '#f43f5e', '#a855f7', '#6366f1'];
-    activeBranches.forEach((b, i) => {
-      if (!hues[b.name]) {
-        hues[b.name] = colors[i % colors.length];
-      }
+  // Assign nice distinct colors
+  const chartLines = useMemo(() => {
+    const linesList: { dataKey: string; color: string }[] = [];
+    const colors = ['#f43f5e', '#ec4899', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#8b5cf6'];
+    activeBranches.forEach((b, idx) => {
+      const c = colors[idx % colors.length];
+      linesList.push({ dataKey: `${b.name} (Resto)`, color: c });
+      linesList.push({ dataKey: `${b.name} (Café)`, color: `${c}dd` }); // lighter dash
     });
-    return hues;
+    return linesList;
   }, [activeBranches]);
 
-  // Handle month picker change
   const handlePrevMonth = () => {
     const [year, month] = selectedMonth.split('-').map(Number);
     const prevDate = new Date(year, month - 2, 1);
@@ -331,10 +465,10 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
               <span className="px-2 py-0.5 bg-rose-500/10 text-[8px] font-black text-rose-500 rounded uppercase tracking-widest border border-rose-500/20">Pedidos Ya Delivery</span>
             </div>
             <h2 className="text-lg font-black text-text-main uppercase tracking-tight mt-1.5 flex items-center gap-2">
-              Calificaciones de Sucursales
+              Calificaciones de Canales - Pedidos Ya
             </h2>
             <p className="text-[10px] text-text-dim font-bold uppercase tracking-wider mt-0.5">
-              Carga y control semanal de valoraciones en la plataforma Pedidos Ya (1.0 a 5.0)
+              Carga y control semanal de valoraciones para los canales **Restó** y **Café** (1,0 a 5,0)
             </p>
           </div>
         </div>
@@ -369,37 +503,41 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Promedio General */}
-        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[115px]">
+        {/* Promedio General Canales */}
+        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[120px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">PROMEDIO GENERAL MES</span>
-              <p className="text-[8.5px] text-text-dim/80 font-bold uppercase tracking-wider mt-0.5">Puntaje global consolidado</p>
+              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">PROMEDIADOS GLOBAL</span>
+              <p className="text-[8.5px] text-text-dim/80 font-bold uppercase tracking-wider mt-0.5">Resultado mensual consolidado</p>
             </div>
             <div className="p-2 bg-rose-500/10 rounded-lg text-rose-500">
               <Star size={16} className="fill-rose-500/20" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-text-main font-mono">
-              {stats.average !== null ? `${stats.average.toFixed(2)}` : '---'}
-            </span>
-            {stats.average !== null && (
-              <span className="text-[9.5px] font-black uppercase px-2 py-0.5 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/10">
-                {stats.average >= 4.5 ? 'Excelente' : stats.average >= 4.0 ? 'Sobresaliente' : 'A mejorar'}
+          <div className="flex gap-4">
+            <div className="flex flex-col">
+              <span className="text-[8px] font-black text-rose-400 uppercase">🍔 RESTÓ</span>
+              <span className="text-xl font-black text-text-main font-mono">
+                {stats.restoAvg !== null ? `${stats.restoAvg.toFixed(2).replace('.', ',')}` : '---'}
               </span>
-            )}
+            </div>
+            <div className="flex flex-col border-l border-border-dim/40 pl-4">
+              <span className="text-[8px] font-black text-amber-400 uppercase">☕ CAFÉ</span>
+              <span className="text-xl font-black text-text-main font-mono">
+                {stats.cafeAvg !== null ? `${stats.cafeAvg.toFixed(2).replace('.', ',')}` : '---'}
+              </span>
+            </div>
           </div>
           <div className="absolute right-[-10px] bottom-[-15px] text-text-dim/5 pointer-events-none select-none">
             <Star size={100} className="fill-current" />
           </div>
         </div>
 
-        {/* Sucursal Estrella */}
-        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[115px]">
+        {/* Sucursal Estrella (Mejor Canal) */}
+        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[120px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">SUCURSAL ESTRELLA</span>
+              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">CANAL MÁS VALORADO</span>
               <p className="text-[8.5px] text-text-dim/80 font-bold uppercase tracking-wider mt-0.5">Mejor promedio acumulado</p>
             </div>
             <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
@@ -407,12 +545,12 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
             </div>
           </div>
           <div className="flex flex-col">
-            <span className="text-md font-black text-text-main uppercase tracking-tight truncate max-w-[200px]">
+            <span className="text-sm font-black text-text-main uppercase tracking-tight truncate max-w-[200px]">
               {stats.starBranch}
             </span>
-            {stats.starAvg !== null && (
-              <span className="text-xs font-bold font-mono text-emerald-500 flex items-center gap-1 mt-0.5">
-                ★ {stats.starAvg.toFixed(2)} / 5.0
+            {stats.starVal !== null && (
+              <span className="text-xs font-bold font-mono text-emerald-500 flex items-center gap-1 mt-1 uppercase">
+                ★ {stats.starVal.toFixed(2).replace('.', ',')} en {stats.starChannel}
               </span>
             )}
           </div>
@@ -421,27 +559,27 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
           </div>
         </div>
 
-        {/* Alerta de Desempeño Crítico */}
-        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[115px]">
+        {/* Alerta Desempeño Crítico */}
+        <div className="p-5 bg-bg-sidebar border border-border-dim rounded-xl shadow-lg relative overflow-hidden flex flex-col justify-between h-[120px]">
           <div className="flex justify-between items-start">
             <div>
-              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">ZONA BAJA CALIFICACIÓN</span>
-              <p className="text-[8.5px] text-text-dim/80 font-bold uppercase tracking-wider mt-0.5">Sucursal con menor valoración</p>
+              <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">ALERTA DE REVISIÓN</span>
+              <p className="text-[8.5px] text-text-dim/80 font-bold uppercase tracking-wider mt-0.5">Canal con menor puntaje</p>
             </div>
             <div className="p-2 bg-amber-500/10 rounded-lg text-amber-500">
               <AlertCircle size={16} />
             </div>
           </div>
           <div className="flex flex-col">
-            <span className="text-md font-black text-text-main uppercase tracking-tight truncate max-w-[200px]">
-              {stats.riskAvg !== null && stats.riskAvg < 4.0 ? stats.riskBranch : 'Ninguna menor a 4.0'}
+            <span className="text-sm font-black text-text-main uppercase tracking-tight truncate max-w-[200px]">
+              {stats.riskVal !== null && stats.riskVal < 4.0 ? stats.riskBranch : 'Todos los canales en regla'}
             </span>
-            {stats.riskAvg !== null && (
+            {stats.riskVal !== null && (
               <span className={cn(
-                "text-xs font-bold font-mono flex items-center gap-1 mt-0.5",
-                stats.riskAvg < 4.0 ? "text-amber-500" : "text-text-dim"
+                "text-xs font-bold font-mono flex items-center gap-1 mt-1 uppercase",
+                stats.riskVal < 4.0 ? "text-amber-500" : "text-text-dim"
               )}>
-                ★ {stats.riskAvg.toFixed(2)} / 5.0
+                ★ {stats.riskVal.toFixed(2).replace('.', ',')} en {stats.riskChannel}
               </span>
             )}
           </div>
@@ -459,9 +597,9 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
             <div>
               <h3 className="text-xs font-black text-text-main uppercase tracking-wider flex items-center gap-2">
                 <Building2 size={15} className="text-rose-500" />
-                Ingreso de Calificaciones Semanales
+                Ingreso de Calificaciones por Canal
               </h3>
-              <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Rango válido: 1.00 a 5.00 • Se calculan promedios al momento</p>
+              <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Formatos válidos: 1,0 a 5,0 (Por ej: 4,4 o 4,8). 4 semanas mensuales.</p>
             </div>
             
             <button
@@ -485,10 +623,11 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
                 <thead>
                   <tr className="border-b border-border-dim/60 bg-bg-accent/10 whitespace-nowrap">
                     <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">W1 (Semana 1)</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">W2 (Semana 2)</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">W3 (Semana 3)</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">W4 (Semana 4)</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Canal</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">SEM 1</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">SEM 2</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">SEM 3</th>
+                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">SEM 4</th>
                     <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-right">Promedio</th>
                   </tr>
                 </thead>
@@ -497,127 +636,212 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
                     const rowData = ratings[branch.id] || {
                       branch_id: branch.id,
                       month: selectedMonth,
-                      week_1: null,
-                      week_2: null,
-                      week_3: null,
-                      week_4: null
+                      resto_week_1: null, resto_week_2: null, resto_week_3: null, resto_week_4: null,
+                      cafe_week_1: null, cafe_week_2: null, cafe_week_3: null, cafe_week_4: null
                     };
 
-                    // Compute individual average
-                    const values = [rowData.week_1, rowData.week_2, rowData.week_3, rowData.week_4].filter((w): w is number => w !== null);
-                    const branchAvg = values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
-                    const styleMeta = getRatingStyle(branchAvg);
+                    // Resto Calculation and Styling
+                    const restoVals = [rowData.resto_week_1, rowData.resto_week_2, rowData.resto_week_3, rowData.resto_week_4].filter((w): w is number => w !== null);
+                    const restoAvg = restoVals.length > 0 ? restoVals.reduce((sum, v) => sum + v, 0) / restoVals.length : null;
+                    const styleResto = getRatingStyle(restoAvg);
+
+                    // Café Calculation and Styling
+                    const cafeVals = [rowData.cafe_week_1, rowData.cafe_week_2, rowData.cafe_week_3, rowData.cafe_week_4].filter((w): w is number => w !== null);
+                    const cafeAvg = cafeVals.length > 0 ? cafeVals.reduce((sum, v) => sum + v, 0) / cafeVals.length : null;
+                    const styleCafe = getRatingStyle(cafeAvg);
 
                     return (
-                      <tr 
-                        key={branch.id} 
-                        className="hover:bg-bg-accent/10 transition-colors"
-                      >
-                        {/* Branch Name & Indicator */}
-                        <td className="p-4 min-w-[140px]">
-                          <div className="flex flex-col">
-                            <span className="text-[11px] font-black text-text-main uppercase tracking-tight">{branch.name}</span>
-                            <span className="text-[8px] text-text-dim font-bold uppercase tracking-widest mt-0.5">{branch.location || 'Corporativa'}</span>
-                          </div>
-                        </td>
-
-                        {/* Week 1 Rating */}
-                        <td className="p-4">
-                          <div className="flex flex-col items-center">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="--.-"
-                              value={rowData.week_1 !== null ? rowData.week_1 : ''}
-                              onChange={(e) => handleRatingChange(branch.id, 'week_1', e.target.value)}
-                              className="w-16 px-2 py-1.5 bg-bg-accent border border-border-dim/80 hover:border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
-                            />
-                            {rowData.week_1 !== null && (
-                              <span className={cn("text-[7.5px] font-black uppercase mt-1", getRatingStyle(rowData.week_1).textColor)}>
-                                ★ {rowData.week_1.toFixed(1)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Week 2 Rating */}
-                        <td className="p-4">
-                          <div className="flex flex-col items-center">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="--.-"
-                              value={rowData.week_2 !== null ? rowData.week_2 : ''}
-                              onChange={(e) => handleRatingChange(branch.id, 'week_2', e.target.value)}
-                              className="w-16 px-2 py-1.5 bg-bg-accent border border-border-dim/80 hover:border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
-                            />
-                            {rowData.week_2 !== null && (
-                              <span className={cn("text-[7.5px] font-black uppercase mt-1", getRatingStyle(rowData.week_2).textColor)}>
-                                ★ {rowData.week_2.toFixed(1)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Week 3 Rating */}
-                        <td className="p-4">
-                          <div className="flex flex-col items-center">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="--.-"
-                              value={rowData.week_3 !== null ? rowData.week_3 : ''}
-                              onChange={(e) => handleRatingChange(branch.id, 'week_3', e.target.value)}
-                              className="w-16 px-2 py-1.5 bg-bg-accent border border-border-dim/80 hover:border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
-                            />
-                            {rowData.week_3 !== null && (
-                              <span className={cn("text-[7.5px] font-black uppercase mt-1", getRatingStyle(rowData.week_3).textColor)}>
-                                ★ {rowData.week_3.toFixed(1)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Week 4 Rating */}
-                        <td className="p-4">
-                          <div className="flex flex-col items-center">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="--.-"
-                              value={rowData.week_4 !== null ? rowData.week_4 : ''}
-                              onChange={(e) => handleRatingChange(branch.id, 'week_4', e.target.value)}
-                              className="w-16 px-2 py-1.5 bg-bg-accent border border-border-dim/80 hover:border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
-                            />
-                            {rowData.week_4 !== null && (
-                              <span className={cn("text-[7.5px] font-black uppercase mt-1", getRatingStyle(rowData.week_4).textColor)}>
-                                ★ {rowData.week_4.toFixed(1)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Calculated Row Average */}
-                        <td className="p-4 text-right min-w-[100px]">
-                          {branchAvg !== null ? (
-                            <div className="flex flex-col items-end">
-                              <span className={cn("text-xs font-mono font-bold px-2 py-0.5 border rounded uppercase", styleMeta.bg)}>
-                                {branchAvg.toFixed(2)}
-                              </span>
-                              <span className="text-[7px] text-text-dim font-black uppercase tracking-widest mt-1">
-                                {styleMeta.label}
-                              </span>
+                      <React.Fragment key={branch.id}>
+                        {/* RESTO ROW */}
+                        <tr className="hover:bg-bg-accent/5 select-none transition-colors border-t border-border-dim/40 bg-bg-accent/5">
+                          {/* Span Branch Column */}
+                          <td className="p-4 min-w-[150px] font-black border-r border-border-dim/30" rowSpan={2}>
+                            <div className="flex flex-col justify-center h-full">
+                              <span className="text-[12px] font-black text-text-main uppercase tracking-tight">{branch.name}</span>
+                              <span className="text-[8px] text-text-dim font-bold uppercase tracking-widest mt-0.5">{branch.location || 'Tucumán'}</span>
+                              <div className="mt-2 text-[7.5px] font-black text-rose-500/80 uppercase tracking-widest flex items-center gap-1">
+                                <Database size={10} /> 2 Canales PedidosYa
+                              </div>
                             </div>
-                          ) : (
-                            <span className="text-[10px] text-text-dim italic font-black uppercase tracking-wider">PENDIENTE</span>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+
+                          {/* Channel Badge Column */}
+                          <td className="p-4 min-w-[120px]">
+                            <div className="flex items-center gap-1.5 font-bold text-[9px] text-rose-500 uppercase tracking-wider bg-rose-500/5 px-2.5 py-1 rounded w-fit border border-rose-500/15">
+                              <Star size={11} className="fill-rose-500" />
+                              Pedidos Ya Restó
+                            </div>
+                          </td>
+
+                          {/* Resto W1 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_resto_week_1`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'resto', 'week_1', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'resto', 'week_1')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Resto W2 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_resto_week_2`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'resto', 'week_2', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'resto', 'week_2')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Resto W3 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_resto_week_3`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'resto', 'week_3', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'resto', 'week_3')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Resto W4 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_resto_week_4`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'resto', 'week_4', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'resto', 'week_4')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-rose-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Promedio Restó */}
+                          <td className="p-4 text-right">
+                            {restoAvg !== null ? (
+                              <div className="flex flex-col items-end">
+                                <span className={cn("text-xs font-mono font-black px-2 py-0.5 border rounded uppercase", styleResto.bg)}>
+                                  {restoAvg.toFixed(2).replace('.', ',')}
+                                </span>
+                                <span className="text-[6.5px] text-text-dim font-black uppercase tracking-widest mt-1">
+                                  {styleResto.label}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[8.5px] text-text-dim italic font-bold">VACÍO</span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* CAFÉ ROW */}
+                        <tr className="hover:bg-bg-accent/5 select-none transition-colors border-b border-border-dim/40">
+                          {/* Channel Badge Column */}
+                          <td className="p-4 min-w-[120px]">
+                            <div className="flex items-center gap-1.5 font-bold text-[9px] text-amber-500 uppercase tracking-wider bg-amber-500/5 px-2.5 py-1 rounded w-fit border border-amber-500/15">
+                              <Coffee size={11} className="text-amber-500" />
+                              Pedidos Ya Café
+                            </div>
+                          </td>
+
+                          {/* Cafe W1 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_cafe_week_1`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'cafe', 'week_1', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'cafe', 'week_1')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-amber-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Cafe W2 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_cafe_week_2`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'cafe', 'week_2', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'cafe', 'week_2')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-amber-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Cafe W3 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_cafe_week_3`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'cafe', 'week_3', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'cafe', 'week_3')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-amber-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Cafe W4 */}
+                          <td className="p-4">
+                            <div className="flex flex-col items-center">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="-,-"
+                                value={rawInputs[`${branch.id}_cafe_week_4`] || ''}
+                                onChange={(e) => handleRatingInputChange(branch.id, 'cafe', 'week_4', e.target.value)}
+                                onBlur={() => handleInputBlur(branch.id, 'cafe', 'week_4')}
+                                className="w-14 px-2 py-1.5 bg-bg-accent border border-border-dim rounded text-center text-xs font-mono font-bold text-text-main outline-none focus:border-amber-500 focus:bg-bg-sidebar transition-all"
+                              />
+                            </div>
+                          </td>
+
+                          {/* Promedio Café */}
+                          <td className="p-4 text-right">
+                            {cafeAvg !== null ? (
+                              <div className="flex flex-col items-end">
+                                <span className={cn("text-xs font-mono font-black px-2 py-0.5 border rounded uppercase", styleCafe.bg)}>
+                                  {cafeAvg.toFixed(2).replace('.', ',')}
+                                </span>
+                                <span className="text-[6.5px] text-text-dim font-black uppercase tracking-widest mt-1">
+                                  {styleCafe.label}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-[8.5px] text-text-dim italic font-bold">VACÍO</span>
+                            )}
+                          </td>
+                        </tr>
+                      </React.Fragment>
                     );
                   })}
                   {activeBranches.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center p-10 font-bold uppercase text-text-dim text-[11px]">No hay sucursales activas registradas</td>
+                      <td colSpan={7} className="text-center p-10 font-bold uppercase text-text-dim text-[11px]">No hay sucursales activas registradas</td>
                     </tr>
                   )}
                 </tbody>
@@ -637,7 +861,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
                     <TrendingUp size={15} className="text-rose-500" />
                     Tendencias de Calificación
                   </h3>
-                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Evolución de valoraciones por semana</p>
+                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Evolución de Restó y Café por semana</p>
                 </div>
               </div>
 
@@ -675,37 +899,40 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
                         }}
                         itemStyle={{ color: '#E6EDF2' }}
                       />
-                      {activeBranches.map(b => (
+                      {chartLines.map(line => (
                         <Line
-                          key={b.id}
+                          key={line.dataKey}
                           type="monotone"
-                          dataKey={b.name}
-                          stroke={branchHues[b.name]}
-                          strokeWidth={2.5}
-                          dot={{ r: 3, fill: branchHues[b.name], strokeWidth: 1 }}
-                          activeDot={{ r: 5 }}
+                          dataKey={line.dataKey}
+                          stroke={line.color}
+                          strokeWidth={line.dataKey.includes('Café') ? 1.5 : 2.5}
+                          strokeDasharray={line.dataKey.includes('Café') ? '4 4' : undefined}
+                          dot={{ r: 2, fill: line.color, strokeWidth: 1 }}
+                          activeDot={{ r: 4 }}
                           connectNulls={true}
                         />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex items-center justify-center h-full text-text-dim text-[10px] font-black uppercase">Faltan cargar datos para ver gráfica</div>
+                  <div className="flex items-center justify-center h-full text-text-dim text-[10px] font-black uppercase overflow-hidden">No hay gráficos para este mes</div>
                 )}
               </div>
             </div>
 
-            {/* Quick Chart Legend / Actions */}
-            <div className="pt-3 border-t border-border-dim/30 mt-3 flex flex-wrap gap-x-3 gap-y-1">
-              {activeBranches.slice(0, 4).map(b => (
-                <div key={b.id} className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: branchHues[b.name] }} />
-                  <span className="text-[8px] font-black uppercase tracking-wider text-text-dim">{b.name}</span>
+            {/* Quick Chart Legend */}
+            <div className="pt-3 border-t border-border-dim/30 mt-3">
+              <span className="text-[7.5px] font-black uppercase text-text-dim tracking-widest block mb-2">Canales de Tendencia:</span>
+              <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-1 bg-red-500 rounded-full" />
+                  <span className="text-[8px] font-black uppercase text-text-main">Línea Sólida: Restó</span>
                 </div>
-              ))}
-              {activeBranches.length > 4 && (
-                <span className="text-[8px] font-black uppercase text-text-dim/60">+{activeBranches.length - 4} sucursales</span>
-              )}
+                <div className="flex items-center gap-1">
+                  <span className="w-2.5 h-1 border-b border-dashed border-red-400" />
+                  <span className="text-[8px] font-black uppercase text-text-main">Línea Punteada: Café</span>
+                </div>
+              </div>
             </div>
           </div>
 

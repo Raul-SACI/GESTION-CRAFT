@@ -708,19 +708,44 @@ export default function PerformanceAdminView({
                           )}
                         </td>
 
-                        {/* Variables List summary breakdown */}
-                        <td className="p-4 max-w-[400px]">
+                        {/* Variables List summary breakdown with scales & tiers */}
+                        <td className="p-4 min-w-[320px] max-w-[500px]">
                           {config && variablesList.length > 0 ? (
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="space-y-3">
                               {variablesList.map((v, idx) => (
                                 <div 
                                   key={v.id || idx} 
-                                  className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/10 rounded flex items-center gap-1.5 text-[9px] font-mono font-black uppercase"
+                                  className="p-3 bg-bg-accent/40 rounded border border-border-dim/40 hover:border-border-dim transition-all"
                                 >
-                                  <span>{v.name}</span>
-                                  <span className="px-1 bg-blue-500/20 text-blue-300 rounded text-[8px] font-black">
-                                    {v.weight || 0}%
-                                  </span>
+                                  {/* Variable name & weight headers */}
+                                  <div className="flex justify-between items-center mb-1.5 pb-1 border-b border-border-dim/20">
+                                    <span className="text-[10px] font-black uppercase text-blue-400">
+                                      {v.name} ({v.unit})
+                                    </span>
+                                    {v.weight !== undefined && (
+                                      <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-300 rounded text-[8px] font-black uppercase">
+                                        Peso: {v.weight}%
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Tiers/Scales list for this variable */}
+                                  {v.tiers && v.tiers.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px] leading-tight">
+                                      {v.tiers.map((t: any, tIdx: number) => (
+                                        <div key={t.id || tIdx} className="flex justify-between items-center bg-bg-sidebar/50 px-1.5 py-0.5 rounded border border-border-dim/10">
+                                          <span className="text-text-dim font-bold">
+                                            {v.isLowerBetter ? '≤' : '≥'}{t.threshold} {v.unit}
+                                          </span>
+                                          <span className="text-green-400 font-extrabold ml-2">
+                                            ${t.prize?.toLocaleString('es-AR') || '0'}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-[8px] text-amber-500/70 italic font-bold">Sin escalas definidas</span>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -774,6 +799,14 @@ export default function PerformanceAdminView({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Volver a Vista General button */}
+          <button
+            onClick={() => setLocalBranchId('all')}
+            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-md shadow-blue-600/15 cursor-pointer"
+          >
+            ← Volver a Vista General
+          </button>
+
           {/* Sucursal filter dropdown */}
           <div className="flex items-center bg-bg-accent px-3 py-1.5 rounded border border-border-dim">
             <Building2 size={16} className="text-text-dim mr-2" />
@@ -782,6 +815,7 @@ export default function PerformanceAdminView({
               onChange={(e) => setLocalBranchId(e.target.value)}
               className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none cursor-pointer pr-4"
             >
+              <option value="all" className="bg-bg-sidebar text-text-main">← IR A VISTA GENERAL</option>
               {branches.map(b => (
                 <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">
                   {b.name.toUpperCase()}
