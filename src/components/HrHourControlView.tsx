@@ -546,9 +546,10 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
             <tbody className="divide-y divide-border-dim/40">
               {records.map(record => {
                 const deviation = record.definitiveHours - record.referenceHours;
-                const deviationPesos = deviation * record.valorHora;
+                const isEncargado = record.roleId === 'encargado';
+                const deviationPesos = isEncargado ? 0 : deviation * record.valorHora;
                 const isPositiveDeviation = deviation > 0;
-                const isZero = deviation === 0;
+                const isZero = isEncargado ? true : deviation === 0;
 
                 return (
                   <tr 
@@ -617,16 +618,27 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                     </td>
 
                     <td className="px-4 py-4 text-center">
-                      <span className={cn(
-                        "px-2 py-0.5 rounded font-mono font-black text-[10px]",
-                        isZero 
-                          ? "text-text-dim" 
-                          : isPositiveDeviation 
-                            ? "text-red-400" 
-                            : "text-emerald-400"
-                      )}>
-                        {isZero ? '$0' : `${isPositiveDeviation ? '+' : '-'}$${Math.abs(deviationPesos).toLocaleString('es-AR')}`}
-                      </span>
+                      {isEncargado ? (
+                        <span className={cn(
+                          "px-2.5 py-1 rounded-full text-[9px] font-black tracking-wider uppercase border",
+                          record.definitiveHours < record.referenceHours
+                            ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                            : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                        )}>
+                          {record.definitiveHours < record.referenceHours ? "Sueldo Fijo (Falta Cumplir Mínimo)" : "Sueldo Fijo (Cumple Mínimo)"}
+                        </span>
+                      ) : (
+                        <span className={cn(
+                          "px-2 py-0.5 rounded font-mono font-black text-[10px]",
+                          isZero 
+                            ? "text-text-dim" 
+                            : isPositiveDeviation 
+                              ? "text-red-400" 
+                              : "text-emerald-400"
+                        )}>
+                          {isZero ? '$0' : `${isPositiveDeviation ? '+' : '-'}$${Math.abs(deviationPesos).toLocaleString('es-AR')}`}
+                        </span>
+                      )}
                     </td>
 
                     <td className="px-4 py-4">

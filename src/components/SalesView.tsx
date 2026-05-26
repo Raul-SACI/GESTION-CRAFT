@@ -135,6 +135,7 @@ const findBestBranchMatch = (excelBranch: any, branches: Branch[], selectedBranc
 };
 
 export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
+  const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
@@ -145,10 +146,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterWeek, setFilterWeek] = useState<string>('all');
   
+  // Sync localBranchId with global selection when prop updates
+  React.useEffect(() => {
+    setLocalBranchId(selectedBranchId);
+  }, [selectedBranchId]);
+
   // Clear selections when filters change
   React.useEffect(() => {
     setSelectedRowIds([]);
-  }, [selectedBranchId, filterMonth, filterWeek]);
+  }, [localBranchId, filterMonth, filterWeek]);
   
   // Rankings State
   const [rankings, setRankings] = useState<any[]>([]);
@@ -167,12 +173,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [productRanking, setProductRanking] = useState<ProductRankingEntry[]>([]);
   const [rankingSearch, setRankingSearch] = useState('');
 
-  // Sync branchId with global selection when opening the form
+  // Sync branchId with selection when opening the form
   React.useEffect(() => {
-    if (selectedBranchId !== 'all') {
-      setBranchId(selectedBranchId);
+    if (localBranchId !== 'all') {
+      setBranchId(localBranchId);
     }
-  }, [selectedBranchId, isAdding]);
+  }, [localBranchId, isAdding]);
 
   // Fetch from Supabase
   const fetchData = async () => {
@@ -192,8 +198,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           .order('id', { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
           
-        if (selectedBranchId !== 'all') {
-          salesQuery = salesQuery.eq('branch_id', selectedBranchId);
+        if (localBranchId !== 'all') {
+          salesQuery = salesQuery.eq('branch_id', localBranchId);
         }
         
         const { data: salesData, error: salesError } = await salesQuery;
@@ -258,8 +264,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           .order('id', { ascending: true })
           .range(rankingPage * rankingPageSize, (rankingPage + 1) * rankingPageSize - 1);
           
-        if (selectedBranchId !== 'all') {
-          rankingQuery = rankingQuery.eq('branch_id', selectedBranchId);
+        if (localBranchId !== 'all') {
+          rankingQuery = rankingQuery.eq('branch_id', localBranchId);
         }
         
         const { data: rankingData, error: rankingError } = await rankingQuery;
@@ -292,7 +298,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   React.useEffect(() => {
     fetchData();
-  }, [selectedBranchId]);
+  }, [localBranchId]);
   
   const [values, setValues] = useState<Record<SaleType, { pesos: number, netSales: number, orders: number, covers: number }>>({
     'Turno Mañana': { pesos: 0, netSales: 0, orders: 0, covers: 0 },
@@ -383,8 +389,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   // Calculate totals and group for table
   const filteredSales = useMemo(() => {
     let base = salesRecords;
-    if (selectedBranchId !== 'all') {
-      base = base.filter(r => r.branchId === selectedBranchId);
+    if (localBranchId !== 'all') {
+      base = base.filter(r => r.branchId === localBranchId);
     }
 
     if (filterMonth !== 'all') {
@@ -405,7 +411,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     }
 
     return base;
-  }, [salesRecords, selectedBranchId, filterMonth, filterWeek]);
+  }, [salesRecords, localBranchId, filterMonth, filterWeek]);
 
   const allFilteredIds = useMemo(() => filteredSales.map(r => r.id), [filteredSales]);
   const isAllSelected = useMemo(() => {
@@ -1509,9 +1515,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
               <Building2 size={10} className="text-brand-500" /> Sucursal Activa
             </label>
-            <div className="px-3 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-bold uppercase truncate">
-              {branches.find(b => b.id === selectedBranchId)?.name || 'CONSOLIDADO (TODAS)'}
-            </div>
+            <select
+              value={localBranchId}
+              onChange={(e) => setLocalBranchId(e.target.value)}
+              className="w-full px-3 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-bold uppercase outline-none focus:border-brand-500 cursor-pointer"
+            >
+              <option value="all">CONSOLIDADO (TODAS)</option>
+              {branches.map(b => (
+                <option key={b.id} value={b.id}>{b.name.toUpperCase()}</option>
+              ))}
+            </select>
           </div>
 
           <div className="w-40 space-y-1.5">

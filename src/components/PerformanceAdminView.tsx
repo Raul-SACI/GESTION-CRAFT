@@ -19,7 +19,8 @@ import {
   Users,
   ChevronDown,
   ChevronUp,
-  GripVertical
+  GripVertical,
+  Building2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -34,16 +35,22 @@ export default function PerformanceAdminView({
   branches: Branch[], 
   selectedBranchId: string 
 }) {
+  const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
   const [activeRole, setActiveRole] = useState<'encargado' | 'jefe_cocina'>('encargado');
   const [activeTab, setActiveTab] = useState<'config' | 'results'>('config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Sync state when global selected branch props change
+  useEffect(() => {
+    setLocalBranchId(selectedBranchId);
+  }, [selectedBranchId]);
+
   const [configs, setConfigs] = useState<Record<'encargado' | 'jefe_cocina', PerformanceRoleConfig>>({
     encargado: {
       id: '',
-      branchId: selectedBranchId,
+      branchId: localBranchId,
       month: selectedMonth,
       role: 'encargado',
       variables: [],
@@ -52,7 +59,7 @@ export default function PerformanceAdminView({
     },
     jefe_cocina: {
       id: '',
-      branchId: selectedBranchId,
+      branchId: localBranchId,
       month: selectedMonth,
       role: 'jefe_cocina',
       variables: [],
@@ -62,15 +69,15 @@ export default function PerformanceAdminView({
   });
 
   const [reports, setReports] = useState<Record<'encargado' | 'jefe_cocina', PerformanceReport>>({
-    encargado: { id: '', branchId: selectedBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-    jefe_cocina: { id: '', branchId: selectedBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
+    encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
+    jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
   });
 
   useEffect(() => {
-    if (selectedBranchId && selectedBranchId !== 'all') {
+    if (localBranchId && localBranchId !== 'all') {
       fetchData();
     }
-  }, [selectedBranchId, selectedMonth]);
+  }, [localBranchId, selectedMonth]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -79,7 +86,7 @@ export default function PerformanceAdminView({
       const { data: configData } = await supabase
         .from('performance_role_configs')
         .select('*')
-        .match({ branch_id: selectedBranchId, month: selectedMonth });
+        .match({ branch_id: localBranchId, month: selectedMonth });
 
       const newConfigs = { ...configs };
       if (configData) {
@@ -101,7 +108,7 @@ export default function PerformanceAdminView({
       const { data: reportData } = await supabase
         .from('performance_reports')
         .select('*')
-        .match({ branch_id: selectedBranchId, month: selectedMonth });
+        .match({ branch_id: localBranchId, month: selectedMonth });
 
       const newReports = { ...reports };
       if (reportData) {
@@ -158,7 +165,7 @@ export default function PerformanceAdminView({
         const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;
 
         return {
-          branch_id: selectedBranchId,
+          branch_id: localBranchId,
           month: selectedMonth,
           role: rep.role,
           results: resultsWithPrizes,
@@ -279,7 +286,7 @@ export default function PerformanceAdminView({
     try {
       const configsArray = Object.values(configs) as PerformanceRoleConfig[];
       const payloads = configsArray.map(cfg => ({
-        branch_id: selectedBranchId,
+        branch_id: localBranchId,
         month: selectedMonth,
         role: cfg.role,
         variables: cfg.variables,
@@ -302,12 +309,25 @@ export default function PerformanceAdminView({
     }
   };
 
-  if (selectedBranchId === 'all') {
+  if (localBranchId === 'all') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-text-dim text-center p-8 bg-bg-sidebar/30 rounded-xl border border-dashed border-border-dim">
-        <Calculator size={48} className="mb-4 opacity-20" />
-        <h3 className="text-xl font-black uppercase mb-2">Administración de Premios</h3>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-text-dim text-center p-8 bg-bg-sidebar/30 rounded-xl border border-dashed border-border-dim space-y-4">
+        <Calculator size={48} className="opacity-20" />
+        <h3 className="text-xl font-black uppercase">Administración de Premios</h3>
         <p className="text-sm max-w-md">Por favor, selecciona una sucursal específica para definir sus objetivos mensuales y premios por rol.</p>
+        <div className="flex items-center bg-bg-accent px-4 py-2 rounded-lg border border-border-dim mt-2">
+          <Building2 size={16} className="text-blue-500 mr-2" />
+          <select
+            value={localBranchId}
+            onChange={(e) => setLocalBranchId(e.target.value)}
+            className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none cursor-pointer"
+          >
+            <option value="all" className="bg-bg-sidebar text-text-main">SELECCIONAR SUCURSAL...</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">{b.name.toUpperCase()}</option>
+            ))}
+          </select>
+        </div>
       </div>
     );
   }
@@ -329,7 +349,23 @@ export default function PerformanceAdminView({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Sucursal filter dropdown */}
+          <div className="flex items-center bg-bg-accent px-3 py-1.5 rounded border border-border-dim">
+            <Building2 size={16} className="text-text-dim mr-2" />
+            <select
+              value={localBranchId}
+              onChange={(e) => setLocalBranchId(e.target.value)}
+              className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none cursor-pointer pr-4"
+            >
+              {branches.map(b => (
+                <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">
+                  {b.name.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex items-center bg-bg-accent px-3 py-1.5 rounded border border-border-dim">
             <CalendarIcon size={16} className="text-text-dim mr-2" />
             <input 

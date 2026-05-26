@@ -17,7 +17,8 @@ import {
   MapPin,
   Clock,
   Layers,
-  HelpCircle
+  HelpCircle,
+  Building2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -116,9 +117,17 @@ const ROLE_TO_ROOM: Record<string, string> = {
 };
 
 export default function HourBudgetView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
-  const activeBranch = branches.find(b => b.id === selectedBranchId) || branches[0];
+  const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId === 'all' ? (branches[0]?.id || '') : selectedBranchId);
+  const activeBranch = branches.find(b => b.id === localBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
+  
+  // Synchronize local state with prop when it isn't "all"
+  useEffect(() => {
+    if (selectedBranchId !== 'all') {
+      setLocalBranchId(selectedBranchId);
+    }
+  }, [selectedBranchId]);
   
   // Custom groupings: Group A (regular) and Group B (weekend/specific)
   const [groupADays, setGroupADays] = useState<string[]>(['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo']);
@@ -178,7 +187,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
   // Load saved budget or defaults
   useEffect(() => {
-    const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
     const saved = localStorage.getItem(storageKey);
     
@@ -238,7 +247,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       }
     } else {
       // Load standard defaults
-      const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
+      const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
       const defWithBranch = DEFAULT_INITIAL_ROWS.map(r => ({
         ...r,
         id: `init-${r.id}-${Math.random().toString(36).substr(2, 5)}`,
@@ -251,11 +260,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       setHolidays(2);
       setBudgetStatus('pending');
     }
-  }, [selectedBranchId, selectedMonth]);
+  }, [localBranchId, selectedMonth]);
 
   // Sync state saved
   const handleSaveBudget = () => {
-    const branchIdKey = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const storageKey = `hour_budget_${branchIdKey}_${selectedMonth}`;
     const payload = {
       rows,
@@ -325,9 +334,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
   // Filter rows of current branch context
   const filteredRows = useMemo(() => {
-    const activeBranchId = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
     return rows.filter(r => r.branchId === activeBranchId);
-  }, [rows, selectedBranchId]);
+  }, [rows, localBranchId]);
 
   // Calculations
   const budgetCalculations = useMemo(() => {
@@ -341,7 +350,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
       // Feriado extra cost double value assumption
       const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
-      const holidayExtraCost = holidayHs * row.hourlyRate;
+      const holidayExtraCost = row.roleId === 'encargado' ? 0 : holidayHs * row.hourlyRate;
 
       totalHours += posMonthlyHs;
       totalCost += (posMonthlyHs * row.hourlyRate) + holidayExtraCost;
@@ -398,13 +407,29 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
           </div>
           <div>
             <h2 className="text-xl font-black text-text-main uppercase tracking-tight">
-              Presupuestador de Horas {activeBranch ? `• ${activeBranch.name}` : '(Todas las Sucursales)'}
+              Presupuestador de Horas {activeBranch ? `• ${activeBranch.name}` : ''}
             </h2>
             <p className="text-text-dim text-[9px] font-bold uppercase tracking-widest mt-0.5">Planificación Mensual Estratégica & Rotaciones de Personal</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Sucursal selection dropdown */}
+          <div className="bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 flex items-center gap-2.5">
+            <Building2 size={14} className="text-brand-500" />
+            <select
+              value={localBranchId}
+              onChange={(e) => setLocalBranchId(e.target.value)}
+              className="bg-transparent border-none text-[10px] font-sans text-text-main outline-none uppercase font-bold cursor-pointer pr-4"
+            >
+              {branches.map(b => (
+                <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">
+                  {b.name.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 flex items-center gap-2.5">
             <Calendar size={14} className="text-brand-500" />
             <input 
@@ -607,7 +632,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                         <th className="px-4 py-4 text-center">Pers. Normal (Grupo A)</th>
                         <th className="px-4 py-4 text-center">Pers. Especial (Grupo B)</th>
                         <th className="px-4 py-4 text-center">Hs Jornada</th>
-                        <th className="px-4 py-4 text-center">Valor Hora</th>
+                        <th className="px-4 py-4 text-center">$ Hora/Mensual</th>
                         <th className="px-4 py-4 text-right">Coste Proyectado</th>
                         <th className="px-4 py-4 text-center"></th>
                       </tr>
@@ -694,14 +719,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                               {/* Valor Hora Column */}
                               <td className="px-4 py-3 text-center">
-                                <div className="inline-flex items-center gap-1 bg-bg-accent px-2 py-1 rounded border border-border-dim/40">
+                                <div className="inline-flex items-center gap-1 bg-bg-accent/40 px-2.5 py-1 rounded border border-border-dim/20 text-[#8B949E] select-none text-[11px]">
                                   <span className="text-[9px] text-[#8B949E]">$</span>
-                                  <input
-                                    type="number"
-                                    value={row.hourlyRate}
-                                    onChange={(e) => handleRowChange(row.id, 'hourlyRate', parseFloat(e.target.value) || 0)}
-                                    className="w-16 bg-transparent text-center text-text-main font-mono text-[11px] font-bold outline-none"
-                                  />
+                                  <span className="text-center text-text-main font-mono text-[11px] font-bold">
+                                    {row.hourlyRate.toLocaleString('es-AR')}
+                                  </span>
                                 </div>
                               </td>
 
