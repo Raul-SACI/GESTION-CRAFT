@@ -103,6 +103,7 @@ const DocumentsView = lazy(() => import('./components/DocumentsView'));
 const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
+const PedidosYaView = lazy(() => import('./components/PedidosYaView'));
 
 import { NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
@@ -401,7 +402,7 @@ function AppContent() {
         name: 'ADMINISTRADOR',
         role: 'administrador',
         branch: 'Todas las Sucursales',
-        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
+        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'pedidos_ya', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
         isReadOnly: false,
         accessScope: 'all_branches' as 'all_branches' | 'single_branch'
       };
@@ -477,6 +478,7 @@ function AppContent() {
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
       { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
+      { id: 'pedidos_ya', label: 'Pedidos Ya', icon: Star },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
     ],
     'Gerencia General': [
@@ -528,6 +530,7 @@ function AppContent() {
           consumo: Calculator,
           control_desvios: ShieldCheck,
           supervision_banderas: Flag,
+          pedidos_ya: Star,
           papeles_administracion: FileText,
           precios: Tag,
           performance_admin: Trophy,
@@ -1006,6 +1009,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} />}
+              {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} />}
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}

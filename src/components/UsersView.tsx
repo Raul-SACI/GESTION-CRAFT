@@ -53,6 +53,7 @@ const SYSTEM_MODULES = [
   { id: 'consumo', label: 'CMV Mensual Sucursal', category: 'Administración' },
   { id: 'control_desvios', label: 'Control de Desvíos', category: 'Administración' },
   { id: 'supervision_banderas', label: 'Supervisiones y Banderas', category: 'Administración' },
+  { id: 'pedidos_ya', label: 'Pedidos Ya', category: 'Administración' },
   { id: 'papeles_administracion', label: 'Papeles Importantes (Admin)', category: 'Administración' },
   { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', category: 'Gerencia General' },
   { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', category: 'Gerencia General' },
