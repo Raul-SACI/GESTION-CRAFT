@@ -41,6 +41,12 @@ export default function PerformanceAdminView({
   const [activeTab, setActiveTab] = useState<'config' | 'results'>('config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
+  // States for copying branch configuration
+  const [showCopyBranchModal, setShowCopyBranchModal] = useState(false);
+  const [targetBranches, setTargetBranches] = useState<string[]>([]);
+  const [copySalesGoal, setCopySalesGoal] = useState(false);
+  const [copyRedFlagPenalty, setCopyRedFlagPenalty] = useState(true);
 
   // Sync state when global selected branch props change
   useEffect(() => {
@@ -426,6 +432,135 @@ export default function PerformanceAdminView({
     }
   };
 
+  const handleCopyToBranches = async () => {
+    if (targetBranches.length === 0) {
+      alert('Por favor, selecciona al menos una sucursal destino.');
+      return;
+    }
+
+    const targetBranchNames = targetBranches
+      .map(id => branches.find(b => b.id === id)?.name)
+      .filter(Boolean)
+      .join(', ');
+
+    if (!window.confirm(`¿Seguro que deseas copiar la configuración de "${activeRole.replace('_', ' ').toUpperCase()}" de esta sucursal a las siguientes sucursales:\n\n${targetBranchNames}?\n\nLas variables y escalas existentes de esas sucursales serán reemplazadas.`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Step 1: Fetch any existing configurations for these other branches to see if we should retain their custom values (like sales goal or penalties)
+      const { data: existingConfigs, error: fetchErr } = await supabase
+        .from('performance_role_configs')
+        .select('*')
+        .eq('month', selectedMonth)
+        .eq('role', activeRole);
+
+      if (fetchErr) {
+        console.warn('Could not fetch existing configurations to copy/merge:', fetchErr);
+      }
+
+      const currentConfig = configs[activeRole];
+
+      const payloads = targetBranches.map(targetBranchId => {
+        // Find existing configuration for target branch (if any)
+        const existing = existingConfigs?.find(cfg => cfg.branch_id === targetBranchId);
+        
+        // Load target branch existing values from localStorage as fallback
+        let localFallbackGoal = 0;
+        let localFallbackPenalty = 1000;
+        try {
+          const storageKey = `craft_performance_config_${targetBranchId}_${selectedMonth}`;
+          const localString = localStorage.getItem(storageKey);
+          if (localString) {
+            const parsed = JSON.parse(localString);
+            if (parsed[activeRole]) {
+              localFallbackGoal = parsed[activeRole].salesGoal || 0;
+              localFallbackPenalty = parsed[activeRole].redFlagPenalty || 1000;
+            }
+          }
+        } catch (e) {
+          console.error('Local storage merge error during copy:', e);
+        }
+
+        const finalGoal = copySalesGoal 
+          ? currentConfig.salesGoal 
+          : (existing?.sales_goal !== undefined ? Number(existing.sales_goal) : localFallbackGoal);
+
+        const finalPenalty = copyRedFlagPenalty 
+          ? currentConfig.redFlagPenalty 
+          : (existing?.red_flag_penalty !== undefined ? Number(existing.red_flag_penalty) : localFallbackPenalty);
+
+        return {
+          branch_id: targetBranchId,
+          month: selectedMonth,
+          role: activeRole,
+          variables: currentConfig.variables,
+          sales_goal: finalGoal,
+          red_flag_penalty: finalPenalty
+        };
+      });
+
+      // Step 2: Save to Supabase
+      const { error: upsertErr } = await supabase
+        .from('performance_role_configs')
+        .upsert(payloads, { onConflict: 'branch_id,month,role' });
+
+      if (upsertErr) {
+        console.warn('database upsert failed during copy branch config, but will sync locally:', upsertErr);
+      }
+
+      // Step 3: Write to LocalStorage for each target branch to prevent disappearing on refresh
+      targetBranches.forEach(targetBranchId => {
+        const storageKey = `craft_performance_config_${targetBranchId}_${selectedMonth}`;
+        
+        // Initialize or load target's full configuration object
+        let targetFullConfig = {
+          encargado: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'encargado', variables: [], salesGoal: 0, redFlagPenalty: 1000 },
+          jefe_cocina: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'jefe_cocina', variables: [], salesGoal: 0, redFlagPenalty: 1000 }
+        };
+
+        try {
+          const localString = localStorage.getItem(storageKey);
+          if (localString) {
+            targetFullConfig = JSON.parse(localString);
+          }
+        } catch (e) {
+          console.error('Error reading localStorage for target during sync', targetBranchId, e);
+        }
+
+        // Apply updated values
+        const payloadForThisBranch = payloads.find(p => p.branch_id === targetBranchId);
+        if (payloadForThisBranch) {
+          targetFullConfig[activeRole] = {
+            id: targetFullConfig[activeRole]?.id || '',
+            branchId: targetBranchId,
+            month: selectedMonth,
+            role: activeRole,
+            variables: payloadForThisBranch.variables,
+            salesGoal: payloadForThisBranch.sales_goal,
+            redFlagPenalty: payloadForThisBranch.red_flag_penalty
+          };
+        }
+
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(targetFullConfig));
+        } catch (localErr) {
+          console.error('Error caching target branch config', targetBranchId, localErr);
+        }
+      });
+
+      alert('Configuración copiada exitosamente a las sucursales seleccionadas.');
+      setShowCopyBranchModal(false);
+      setTargetBranches([]);
+    } catch (err) {
+      console.error('Error during branch copy process:', err);
+      alert('Ocurrió un error al copiar las configuraciones en el servidor, se guardó en memoria local.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (localBranchId === 'all') {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-text-dim text-center p-8 bg-bg-sidebar/30 rounded-xl border border-dashed border-border-dim space-y-4">
@@ -554,6 +689,18 @@ export default function PerformanceAdminView({
                       <span>⚡ Copiar de Encargado (Premios al 50%)</span>
                     </button>
                   )}
+                  <button 
+                    onClick={() => {
+                      setTargetBranches([]);
+                      setCopySalesGoal(false);
+                      setCopyRedFlagPenalty(true);
+                      setShowCopyBranchModal(true);
+                    }}
+                    className="flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/20 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all"
+                    title="Copiar estas variables y escalas de premios a otras sucursales"
+                  >
+                    <span>📤 Copiar a Sucursales</span>
+                  </button>
                   <button 
                     onClick={handleAddVariable}
                     className="flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors"
@@ -834,6 +981,160 @@ CREATE TABLE performance_reports (
           </div>
         </div>
       </div>
+
+      {/* Modal para copiar configuración a sucursales */}
+      {showCopyBranchModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-lg overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="p-6 border-b border-border-dim/60 bg-bg-accent/25 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-500">
+                  <Trophy size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-text-main uppercase tracking-tight">Copiar Configuración</h3>
+                  <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Rol: {activeRole.replace('_', ' ')}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowCopyBranchModal(false)}
+                className="text-text-dim hover:text-text-main transition-colors text-xs font-black uppercase"
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase text-text-dim block tracking-wider">
+                  Selecciona las Sucursales Destino <span className="text-red-500 font-black">*</span>
+                </span>
+                <p className="text-[9px] text-text-dim/80 font-bold uppercase block leading-tight mb-2">
+                  La configuración actual de {activeRole.replace('_', ' ')} se copiará a las sucursales que marques:
+                </p>
+
+                <div className="bg-bg-accent/40 rounded-lg border border-border-dim/80 p-3 max-h-48 overflow-y-auto space-y-2">
+                  {branches
+                    .filter(b => b.id !== localBranchId && b.id !== 'all')
+                    .map(b => {
+                      const isChecked = targetBranches.includes(b.id);
+                      return (
+                        <label 
+                          key={b.id} 
+                          className="flex items-center gap-2.5 p-2 rounded hover:bg-bg-sidebar cursor-pointer transition-colors text-[11px] font-bold text-text-main uppercase"
+                        >
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              if (isChecked) {
+                                setTargetBranches(targetBranches.filter(id => id !== b.id));
+                              } else {
+                                setTargetBranches([...targetBranches, b.id]);
+                              }
+                            }}
+                            className="rounded border border-border-dim/80 text-blue-500 focus:ring-0 cursor-pointer w-4 h-4 bg-bg-accent"
+                          />
+                          <span>{b.name}</span>
+                        </label>
+                      );
+                    })}
+                  
+                  {branches.filter(b => b.id !== localBranchId && b.id !== 'all').length === 0 && (
+                    <p className="text-[10px] text-text-dim text-center py-4 uppercase font-bold">No hay otras sucursales registradas</p>
+                  )}
+                </div>
+
+                {branches.filter(b => b.id !== localBranchId && b.id !== 'all').length > 0 && (
+                  <div className="flex gap-2 justify-end pt-1">
+                    <button 
+                      type="button"
+                      onClick={() => setTargetBranches(branches.filter(b => b.id !== localBranchId && b.id !== 'all').map(b => b.id))}
+                      className="text-[9px] font-black uppercase text-blue-500 hover:underline"
+                    >
+                      ✓ Marcar Todas
+                    </button>
+                    <span className="text-text-dim/40 text-[9px]">•</span>
+                    <button 
+                      type="button"
+                      onClick={() => setTargetBranches([])}
+                      className="text-[9px] font-black uppercase text-text-dim hover:underline"
+                    >
+                      ✕ Desmarcar Todas
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Advanced Copy Options */}
+              <div className="p-4 bg-bg-accent/40 rounded-lg border border-border-dim/60 space-y-3">
+                <span className="text-[9.5px] font-black uppercase text-text-dim block tracking-wider">Opciones de Copiado</span>
+                
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input 
+                    type="checkbox"
+                    checked={copySalesGoal}
+                    onChange={(e) => setCopySalesGoal(e.target.checked)}
+                    className="mt-0.5 rounded border border-border-dim/80 text-blue-500 focus:ring-0 cursor-pointer w-4 h-4 bg-bg-accent"
+                  />
+                  <div>
+                    <span className="text-[11px] font-bold text-text-main uppercase block leading-tight mt-0.5">Copiar también Metas de Ventas</span>
+                    <span className="text-[9px] text-amber-500 font-bold uppercase block leading-relaxed mt-1">
+                      ⚠️ ¡Recomendado desactivar! Las sucursales suelen tener objetivos de venta diferentes.
+                    </span>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-2.5 cursor-pointer select-none pt-2 border-t border-border-dim/30">
+                  <input 
+                    type="checkbox"
+                    checked={copyRedFlagPenalty}
+                    onChange={(e) => setCopyRedFlagPenalty(e.target.checked)}
+                    className="mt-0.5 rounded border border-border-dim/80 text-blue-500 focus:ring-0 cursor-pointer w-4 h-4 bg-bg-accent"
+                  />
+                  <div>
+                    <span className="text-[11px] font-bold text-text-main uppercase block leading-tight mt-0.5">Copiar Penalidad de Banderas Rojas</span>
+                    <span className="text-[9px] text-text-dim font-bold uppercase block leading-relaxed mt-1">
+                      Copia el costo por bandera roja para este rol.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 bg-bg-accent/25 border-t border-border-dim/60 flex items-center justify-between">
+              <span className="text-[10px] font-black text-text-dim uppercase">
+                {targetBranches.length} {targetBranches.length === 1 ? 'sucursal' : 'sucursales'} seleccionadas
+              </span>
+              <div className="flex items-center gap-3">
+                <button 
+                  type="button"
+                  onClick={() => setShowCopyBranchModal(false)}
+                  className="px-4 py-2 bg-transparent text-text-dim hover:text-text-main text-[10px] font-black uppercase tracking-wider"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleCopyToBranches}
+                  disabled={saving || targetBranches.length === 0}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/10"
+                >
+                  {saving ? <RefreshCcw size={14} className="animate-spin" /> : <Save size={14} />}
+                  <span>Guardar y Copiar</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
