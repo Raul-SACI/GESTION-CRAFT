@@ -217,6 +217,40 @@ export default function PerformanceAdminView({
     });
   };
 
+  const handleCopyFromEncargado = () => {
+    const encargadoConfig = configs.encargado;
+    if (!encargadoConfig || encargadoConfig.variables.length === 0) {
+      alert('La configuración del Encargado no contiene variables para copiar.');
+      return;
+    }
+
+    if (!window.confirm('¿Seguro que deseas copiar e importar las variables del Encargado para el Jefe de Cocina? Se reemplazarán las variables de Jefe de Cocina actuales y los premios se reducirán al 50% de forma automática.')) {
+      return;
+    }
+
+    // Clone variable objects and recalculate prizes to 50%
+    const clonedVariables = encargadoConfig.variables.map(variable => {
+      return {
+        ...variable,
+        id: uuidv4(), // generate a brand new variable id
+        tiers: variable.tiers.map(tier => ({
+          ...tier,
+          id: uuidv4(), // generate a brand new tier id
+          prize: Math.round(tier.prize * 0.5) // Halve the prize
+        }))
+      };
+    });
+
+    setConfigs({
+      ...configs,
+      jefe_cocina: {
+        ...configs.jefe_cocina,
+        variables: clonedVariables,
+        salesGoal: encargadoConfig.salesGoal
+      }
+    });
+  };
+
   const handleUpdateVariable = (varId: string, updates: Partial<PerformanceVariable>) => {
     setConfigs({
       ...configs,
@@ -422,17 +456,28 @@ export default function PerformanceAdminView({
         <div className="lg:col-span-8 space-y-6">
           {activeTab === 'config' ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-dim/40 pb-2">
                 <h3 className="text-[11px] font-black text-text-dim uppercase tracking-widest flex items-center gap-2">
                   <Target size={16} className="text-blue-500" />
                   Variables de Desempeño: {activeRole.replace('_', ' ')}
                 </h3>
-                <button 
-                  onClick={handleAddVariable}
-                  className="flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors"
-                >
-                  <Plus size={14} /> Nueva Variable
-                </button>
+                <div className="flex items-center gap-2">
+                  {activeRole === 'jefe_cocina' && (
+                    <button 
+                      onClick={handleCopyFromEncargado}
+                      className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all"
+                      title="Copiar las variables del Encargado y guardarlas para Jefe de Cocina al 50% de valor del premio"
+                    >
+                      <span>⚡ Copiar de Encargado (Premios al 50%)</span>
+                    </button>
+                  )}
+                  <button 
+                    onClick={handleAddVariable}
+                    className="flex items-center gap-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-500 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors"
+                  >
+                    <Plus size={14} /> Nueva Variable
+                  </button>
+                </div>
               </div>
 
               <AnimatePresence mode="popLayout">

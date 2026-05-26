@@ -62,6 +62,8 @@ export default function DecomisosView({
   const [referenceId, setReferenceId] = useState('');
   const [quantity, setQuantity] = useState<number | ''>('');
   const [reason, setReason] = useState('');
+  const [selectedPresetReason, setSelectedPresetReason] = useState('Vencimiento');
+  const [customReason, setCustomReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Metrics Month
@@ -115,6 +117,12 @@ export default function DecomisosView({
       return;
     }
 
+    const finalReason = selectedPresetReason === 'Otros' ? customReason : selectedPresetReason;
+    if (selectedPresetReason === 'Otros' && !customReason.trim()) {
+      alert('Por favor, especifique el motivo para la opción "Otros".');
+      return;
+    }
+
     setSaving(true);
     
     // Find cost if available
@@ -131,7 +139,7 @@ export default function DecomisosView({
         type,
         reference_id: referenceId,
         quantity,
-        reason,
+        reason: finalReason,
         cost: cost * Number(quantity)
       }])
       .select()
@@ -156,6 +164,8 @@ export default function DecomisosView({
       setReferenceId('');
       setQuantity('');
       setReason('');
+      setCustomReason('');
+      setSelectedPresetReason('Vencimiento');
       setSearchTerm('');
     }
     setSaving(false);
@@ -394,14 +404,35 @@ export default function DecomisosView({
               </div>
             </div>
             
-            <div className="mt-4 space-y-1.5">
-              <label className="text-[10px] font-black text-text-dim uppercase ml-1">Motivo / Notas (Opcional)</label>
-              <textarea 
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="EJ: VENCIMIENTO, CAÍDA, ERROR DE COCCIÓN..."
-                className="w-full px-4 py-2 bg-bg-accent border border-border-dim rounded text-[10px] font-bold uppercase text-text-main outline-none focus:border-brand-500 h-16 resize-none"
-              />
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-text-dim uppercase ml-1">Motivo</label>
+                <select
+                  value={selectedPresetReason}
+                  onChange={(e) => setSelectedPresetReason(e.target.value)}
+                  className="w-full px-4 py-2 bg-bg-accent border border-[#30363D]/80 rounded text-[11px] font-black text-text-main uppercase outline-none focus:border-brand-500 h-[38px] cursor-pointer"
+                >
+                  <option value="Vencimiento" className="bg-bg-sidebar">Vencimiento</option>
+                  <option value="Mal Estado" className="bg-bg-sidebar">Mal Estado</option>
+                  <option value="Rotura" className="bg-bg-sidebar">Rotura</option>
+                  <option value="Error Mozo/Caja" className="bg-bg-sidebar">Error Mozo/Caja</option>
+                  <option value="Error Cocina" className="bg-bg-sidebar">Error Cocina</option>
+                  <option value="Otros" className="bg-bg-sidebar">Otros (Especificar)</option>
+                </select>
+              </div>
+
+              {selectedPresetReason === 'Otros' && (
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-text-dim uppercase ml-1">Escriba el Motivo</label>
+                  <input
+                    type="text"
+                    value={customReason}
+                    onChange={(e) => setCustomReason(e.target.value)}
+                    placeholder="Especifique el motivo..."
+                    className="w-full px-4 py-2 bg-bg-accent border border-border-dim rounded text-[11px] font-bold text-text-main uppercase outline-none focus:border-brand-500 h-[38px]"
+                  />
+                </div>
+              )}
             </div>
           </div>
 

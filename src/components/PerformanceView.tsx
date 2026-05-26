@@ -373,6 +373,33 @@ export default function PerformanceView({
                 </div>
               </div>
 
+              {activeRole === 'jefe_cocina' && (
+                <div className="mt-4 p-4 bg-brand-500/10 border border-brand-500/20 rounded-md flex flex-col gap-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black uppercase text-brand-500">Segundo de cocina (80%)</span>
+                    <span className="text-[10px] font-black text-text-dim tracking-wide text-right">Referencial</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[9.5px] font-bold text-text-dim uppercase leading-relaxed">Premio Proyectado 80% del Jefe</span>
+                    <span className="text-2xl font-black text-brand-500 font-mono">
+                      ${(() => {
+                        const totalPrizes = config?.variables.reduce((acc, v) => {
+                          const result = report?.results.find(r => r.variableId === v.id);
+                          const tier = getAchievedTier(v, result?.actualValue || 0);
+                          return acc + (tier?.prize || 0);
+                        }, 0) || 0;
+                        
+                        const penalty = (report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0);
+                        const isSalesMet = (report?.actualSales || 0) >= (config?.salesGoal || 0);
+                        
+                        const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;
+                        return Math.round(finalPrize * 0.8).toLocaleString();
+                      })()}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-8 p-4 bg-bg-accent/40 rounded flex items-start gap-4">
                 <Info size={18} className="text-brand-500 shrink-0 mt-1" />
                 <p className="text-[10px] font-bold text-text-dim leading-relaxed uppercase">
