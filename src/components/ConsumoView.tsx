@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calculator, 
@@ -16,7 +16,8 @@ import {
   TrendingDown,
   DollarSign,
   FileSpreadsheet,
-  FileText
+  FileText,
+  ChevronLeft
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ConsumptionDetail, Branch } from '../types';
@@ -31,10 +32,48 @@ export default function ConsumoView({
   onBranchChange?: (id: string) => void 
 }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
+  
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
   const [initialExistence, setInitialExistence] = useState(0);
   const [finalExistence, setFinalExistence] = useState(0);
   const [purchases, setPurchases] = useState<ConsumptionDetail[]>([]);
   const [movements, setMovements] = useState<ConsumptionDetail[]>([]);
+
+  // Load saved state per branch & month
+  useEffect(() => {
+    const monthKey = selectedMonth;
+    const branchKey = selectedBranchId === 'all' ? 'bn' : selectedBranchId;
+    const localKey = `craft_cmv_v2_${branchKey}_${monthKey}`;
+    const saved = localStorage.getItem(localKey);
+    
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setInitialExistence(parsed.initialExistence || 0);
+        setFinalExistence(parsed.finalExistence || 0);
+        setPurchases(parsed.purchases || []);
+        setMovements(parsed.movements || []);
+      } catch (e) {
+        console.error('Error parsing saved CMV:', e);
+      }
+    } else {
+      // Clear out previous values on change
+      setInitialExistence(0);
+      setFinalExistence(0);
+      setPurchases([]);
+      setMovements([]);
+    }
+  }, [selectedBranchId, selectedMonth]);
+
+  const handleAdjustMonth = (offset: number) => {
+    const [yearStr, monthStr] = selectedMonth.split('-');
+    const date = new Date(parseInt(yearStr), parseInt(monthStr) - 1 + offset, 1);
+    setSelectedMonth(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+  };
   
   // New entry states
   const [newPurchase, setNewPurchase] = useState<Partial<ConsumptionDetail>>({
@@ -92,6 +131,23 @@ export default function ConsumoView({
     setNewMovement({ ...newMovement, documentNumber: '', amount: 0 });
   };
 
+  const handleSaveCMV = () => {
+    const monthKey = selectedMonth;
+    const branchKey = selectedBranchId === 'all' ? 'bn' : selectedBranchId;
+    const localKey = `craft_cmv_v2_${branchKey}_${monthKey}`;
+    const payload = {
+      initialExistence,
+      finalExistence,
+      purchases,
+      movements,
+      totalPurchases,
+      totalMovements,
+      totalCMV
+    };
+    localStorage.setItem(localKey, JSON.stringify(payload));
+    alert(`¡CMV de ${activeBranch?.name || ''} para el período ${selectedMonth} guardado correctamente! Impactando de inmediato al Dashboard del Encargado.`);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -123,36 +179,63 @@ export default function ConsumoView({
         </div>
       </div>
       
-      {onBranchChange && (
-        <div className="flex flex-wrap items-center gap-2 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
-          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
-          <button
-            onClick={() => onBranchChange('all')}
-            className={cn(
-              "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
-              selectedBranchId === 'all'
-                ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
-                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
-            )}
-          >
-            Consolidado (Todas)
-          </button>
-          {branches.map(b => (
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
+        {onBranchChange && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
             <button
-              key={b.id}
-              onClick={() => onBranchChange(b.id)}
+              onClick={() => onBranchChange('all')}
               className={cn(
                 "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
-                selectedBranchId === b.id
+                selectedBranchId === 'all'
                   ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
                   : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
               )}
             >
-              {b.name}
+              Consolidado (Todas)
             </button>
-          ))}
+            {branches.map(b => (
+              <button
+                key={b.id}
+                onClick={() => onBranchChange(b.id)}
+                className={cn(
+                  "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
+                  selectedBranchId === b.id
+                    ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
+                    : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
+                )}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Month Selector */}
+        <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded-md overflow-hidden p-1 self-start md:self-auto">
+          <button 
+            type="button"
+            onClick={() => handleAdjustMonth(-1)}
+            className="p-1 text-text-dim hover:text-text-main hover:bg-bg-sidebar/50 transition-all rounded cursor-pointer"
+          >
+            <ChevronLeft size={13} />
+          </button>
+          <span className="px-2 text-[10px] font-black text-text-main uppercase font-mono tracking-wider">
+            {(() => {
+              const [y, m] = selectedMonth.split('-');
+              const names = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+              return `${names[parseInt(m) - 1]} ${y}`;
+            })()}
+          </span>
+          <button 
+            type="button"
+            onClick={() => handleAdjustMonth(1)}
+            className="p-1 text-text-dim hover:text-text-main hover:bg-bg-sidebar/50 transition-all rounded cursor-pointer"
+          >
+            <ChevronRight size={13} />
+          </button>
         </div>
-      )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard 
@@ -332,7 +415,10 @@ export default function ConsumoView({
                </div>
             </div>
 
-            <button className="bg-brand-500 text-black px-12 py-4 rounded text-[12px] font-black uppercase tracking-[0.2em] hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 flex items-center justify-center gap-3">
+            <button 
+               onClick={handleSaveCMV}
+               className="bg-brand-500 text-black px-12 py-4 rounded text-[12px] font-black uppercase tracking-[0.2em] hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 flex items-center justify-center gap-3"
+            >
                <Save size={18} /> CERRAR MES & GUARDAR
             </button>
          </div>

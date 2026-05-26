@@ -104,6 +104,7 @@ const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
 const ProductionStockControlView = lazy(() => import('./components/ProductionStockControlView'));
 const PedidosYaView = lazy(() => import('./components/PedidosYaView'));
+const EncargadoDashboardView = lazy(() => import('./components/EncargadoDashboardView'));
 
 import { NewsView } from './components/ExtraViews';
 import { Key, ShieldCheck, FileText } from 'lucide-react';
@@ -967,11 +968,11 @@ function AppContent() {
                 <SociosDashboardView branches={branches} />
               )}
               {activeTab === 'dashboard' && (
-                <DashboardView 
-                  salesComparison={salesComparison} 
-                  performance={MOCK_PERFORMANCE}
+                <EncargadoDashboardView 
                   branches={branches}
                   selectedBranchId={selectedBranchId}
+                  onBranchChange={setSelectedBranchId}
+                  onNavigateToTab={setActiveTab}
                 />
               )}
               {activeTab === 'desempeño' && (
