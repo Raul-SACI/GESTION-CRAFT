@@ -75,16 +75,28 @@ export default function DeviationControlView({
         .lte('date', `${selectedMonth}-31`);
 
       if (data) {
-        setDailyLogs(data.map(d => ({
-          ...d,
-          itemId: d.item_id,
-          ei: d.ei,
-          purchases: d.compras,
-          waste: d.decomisos,
-          theoretical_sales: d.ventas_teorico,
-          staff_consumption: d.consumo_personal,
-          loans: d.prestamos
-        })));
+        setDailyLogs(data.map(d => {
+          let pEnviados = d.prestamos_enviados || 0;
+          let pRecibidos = d.prestamos_recibidos || 0;
+          if (d.prestamos !== undefined && d.prestamos !== null && d.prestamos !== 0 && !pEnviados && !pRecibidos) {
+            if (d.prestamos > 0) {
+              pRecibidos = d.prestamos;
+            } else {
+              pEnviados = Math.abs(d.prestamos);
+            }
+          }
+          return {
+            ...d,
+            itemId: d.item_id,
+            ei: d.ei,
+            purchases: d.compras,
+            waste: d.decomisos,
+            theoretical_sales: d.ventas_teorico,
+            staff_consumption: d.consumo_personal,
+            loansReceived: pRecibidos,
+            loansSent: pEnviados
+          };
+        }));
       }
     };
     if (selectedBranchId && selectedMonth) {
@@ -117,6 +129,15 @@ export default function DeviationControlView({
     if (data) {
       setDailyLogs(prev => {
         const otherLogs = prev.filter(l => !(l.date === date && l.item_id === itemId));
+        let pEnviados = data.prestamos_enviados || 0;
+        let pRecibidos = data.prestamos_recibidos || 0;
+        if (data.prestamos !== undefined && data.prestamos !== null && data.prestamos !== 0 && !pEnviados && !pRecibidos) {
+          if (data.prestamos > 0) {
+            pRecibidos = data.prestamos;
+          } else {
+            pEnviados = Math.abs(data.prestamos);
+          }
+        }
         return [...otherLogs, {
           ...data,
           itemId: data.item_id,
@@ -124,7 +145,8 @@ export default function DeviationControlView({
           waste: data.decomisos,
           theoretical_sales: data.ventas_teorico,
           staff_consumption: data.consumo_personal,
-          loans: data.prestamos
+          loansReceived: pRecibidos,
+          loansSent: pEnviados
         }];
       });
     }
@@ -502,13 +524,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
     
     const totals = itemLogs.reduce((acc, log) => ({
       purchases: acc.purchases + (log.purchases || 0),
-      loans: acc.loans + (log.loans || 0),
+      loansReceived: acc.loansReceived + (log.loansReceived || 0),
+      loansSent: acc.loansSent + (log.loansSent || 0),
       waste: acc.waste + (log.waste || 0),
       staff_consumption: acc.staff_consumption + (log.staff_consumption || 0),
       theoretical_sales: acc.theoretical_sales + (log.theoretical_sales || 0)
-    }), { purchases: 0, loans: 0, waste: 0, staff_consumption: 0, theoretical_sales: 0 });
+    }), { purchases: 0, loansReceived: 0, loansSent: 0, waste: 0, staff_consumption: 0, theoretical_sales: 0 });
 
-    const realConsumption = ei + totals.purchases + totals.loans - totals.waste - totals.staff_consumption - ef;
+    const realConsumption = ei + totals.purchases + totals.loansReceived - totals.loansSent - totals.waste - totals.staff_consumption - ef;
     
     return { 
       itemId: id, 
@@ -697,7 +720,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        {validControlledIds.map(id => {
                          const item = items.find(i => i.id === id);
                          return (
-                           <th key={id} colSpan={7} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[520px]">
+                           <th key={id} colSpan={8} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[580px]">
                              {item?.name}
                            </th>
                          );
@@ -712,7 +735,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                             <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">DECOMISOS</th>
                             <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">VENTAS</th>
                             <th className="px-2 py-2 text-center opacity-60">EF</th>
-                            <th className="px-2 py-2 text-center opacity-60">Prést.</th>
+                            <th className="px-2 py-2 text-center opacity-60">P. Recib</th>
+                             <th className="px-2 py-2 text-center opacity-60">P. Enviad</th>
                             <th className="px-2 py-2 text-center border-r border-border-dim opacity-60">C.Per</th>
                           </React.Fragment>
                         ))}
@@ -743,7 +767,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              const purchases = itemWeekLogs.reduce((sum, l) => sum + (l.purchases || 0), 0);
                              const waste = itemWeekLogs.reduce((sum, l) => sum + (l.waste || 0), 0);
                              const theoretical_sales = itemWeekLogs.reduce((sum, l) => sum + (l.theoretical_sales || 0), 0);
-                             const loans = itemWeekLogs.reduce((sum, l) => sum + (l.loans || 0), 0);
+                             const loansReceived = itemWeekLogs.reduce((sum, l) => sum + (l.loansReceived || 0), 0);
+                              const loansSent = itemWeekLogs.reduce((sum, l) => sum + (l.loansSent || 0), 0);
                              const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
 
                              const log = {
@@ -752,7 +777,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                purchases,
                                waste,
                                theoretical_sales,
-                               loans,
+                               loansReceived,
+                                loansSent,
                                staff_consumption
                              };
                              return (
@@ -796,7 +822,12 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                                    <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                      {log.loans || 0}
+                                      {log.loansReceived || 0}
+                                    </div>
+                                  </td>
+                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                                    <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
+                                       {log.loansSent || 0}
                                    </div>
                                  </td>
                                  <td className="p-0 border-r border-border-dim bg-bg-accent/20">

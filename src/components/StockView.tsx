@@ -68,7 +68,8 @@ export default function StockView({
   // Data state stored by Date and then by Item ID
   const [dailyData, setDailyData] = useState<Record<string, Record<string, {
     ei: number;
-    prestamos: number;
+    prestamosEnviados: number;
+    prestamosRecibidos: number;
     consumoPersonal: number;
     ef: number;
     ventasTeorico: number;
@@ -133,9 +134,20 @@ export default function StockView({
         const formatted: Record<string, any> = {};
         logsData.forEach(log => {
           if (!formatted[log.date]) formatted[log.date] = {};
+          let pEnviados = log.prestamos_enviados || 0;
+          let pRecibidos = log.prestamos_recibidos || 0;
+          // Legacy check
+          if (log.prestamos !== undefined && log.prestamos !== null && log.prestamos !== 0 && !pEnviados && !pRecibidos) {
+            if (log.prestamos > 0) {
+              pRecibidos = log.prestamos;
+            } else {
+              pEnviados = Math.abs(log.prestamos);
+            }
+          }
           formatted[log.date][log.item_id] = {
             ei: log.ei,
-            prestamos: log.prestamos,
+            prestamosEnviados: pEnviados,
+            prestamosRecibidos: pRecibidos,
             consumoPersonal: log.consumo_personal,
             ef: log.ef,
             ventasTeorico: log.ventas_teorico,
@@ -156,7 +168,8 @@ export default function StockView({
           Object.keys(prevDayEFs).forEach(itemId => {
             formatted[selectedDate][itemId] = {
               ei: prevDayEFs[itemId],
-              prestamos: 0,
+              prestamosEnviados: 0,
+              prestamosRecibidos: 0,
               consumoPersonal: 0,
               ef: 0,
               ventasTeorico: 0,
@@ -206,7 +219,7 @@ export default function StockView({
     // Optimistic update
     setDailyData(prev => {
       const currentDayData = {
-        ...(prev[targetDate]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+        ...(prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
         [field]: value
       };
 
@@ -223,7 +236,7 @@ export default function StockView({
         newState[nextDayStr] = {
           ...(newState[nextDayStr] || {}),
           [id]: {
-            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
             ei: value
           }
         };
@@ -235,7 +248,8 @@ export default function StockView({
     // Map frontend field to DB column
     const columnMap: Record<string, string> = {
       ei: 'ei',
-      prestamos: 'prestamos',
+      prestamosEnviados: 'prestamos_enviados',
+      prestamosRecibidos: 'prestamos_recibidos',
       consumoPersonal: 'consumo_personal',
       ef: 'ef',
       ventasTeorico: 'ventas_teorico',
@@ -298,26 +312,27 @@ export default function StockView({
 
   const calculateCMVReal = (itemId: string) => {
     if (viewMode === 'dia') {
-      const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
-      return data.ei + data.compras + data.prestamos - data.decomisos - data.consumoPersonal - data.ef;
+      const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+      return data.ei + data.compras + data.prestamosRecibidos - data.prestamosEnviados - data.decomisos - data.consumoPersonal - data.ef;
     } else {
       const dates = getDatesInRange(viewMode, selectedDate);
       const totals = dates.reduce((acc, d) => {
         const data = dailyData[d]?.[itemId];
         if (data) {
           acc.compras += data.compras;
-          acc.prestamos += data.prestamos;
+          acc.prestamosEnviados += data.prestamosEnviados || 0;
+          acc.prestamosRecibidos += data.prestamosRecibidos || 0;
           acc.consumoPersonal += data.consumoPersonal;
           acc.decomisos += data.decomisos;
           acc.ventasTeorico += data.ventasTeorico;
         }
         return acc;
-      }, { compras: 0, prestamos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
+      }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
 
       // For Semana/Mes: EI is first day, EF is last day
       const ei = dailyData[dates[0]]?.[itemId]?.ei || 0;
       const ef = dailyData[dates[dates.length - 1]]?.[itemId]?.ef || 0;
-      return ei + totals.compras + totals.prestamos - totals.decomisos - totals.consumoPersonal - ef;
+      return ei + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - ef;
     }
   };
 
@@ -329,13 +344,14 @@ export default function StockView({
       const data = dailyData[date]?.[itemId];
       if (data) {
         acc.compras += data.compras;
-        acc.prestamos += data.prestamos;
+        acc.prestamosEnviados += data.prestamosEnviados || 0;
+        acc.prestamosRecibidos += data.prestamosRecibidos || 0;
         acc.consumoPersonal += data.consumoPersonal;
         acc.decomisos += data.decomisos;
         acc.ventasTeorico += data.ventasTeorico;
       }
       return acc;
-    }, { compras: 0, prestamos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
+    }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
   };
 
   const isCurrentWeekClosed = (itemId: string) => {
@@ -457,7 +473,8 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 <th className="px-6 py-4 w-64 sticky left-0 bg-bg-accent z-10 tracking-widest uppercase">Insumo</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EI</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-emerald-500/5">Compras</th>
-                <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">+/- Préstamos</th>
+                <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">P. Recibidos</th>
+                <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">P. Enviados</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-orange-500/5">Consumo Pers.</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>
@@ -471,7 +488,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
               {controlledItems.map((item) => {
                 let data;
                 if (viewMode === 'dia') {
-                  data = dailyData[selectedDate]?.[item.id] || { ei: 0, prestamos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+                  data = dailyData[selectedDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
                 } else {
                   const dates = getDatesInRange(viewMode, selectedDate);
                   const totals = getPeriodTotals(item.id, dates);
@@ -512,11 +529,20 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       className="bg-emerald-500/5"
                     />
 
-                    {/* Prestamos (Encargado) */}
+                    {/* Préstamos Recibidos */}
                     <StockInputCell 
-                      value={data.prestamos} 
-                      onChange={val => updateItemData(item.id, 'prestamos', val)}
+                      value={data.prestamosRecibidos} 
+                      onChange={val => updateItemData(item.id, 'prestamosRecibidos', val)}
                       disabled={isSummary || isItemLocked}
+                      className="bg-brand-500/5"
+                    />
+
+                    {/* Préstamos Enviados */}
+                    <StockInputCell 
+                      value={data.prestamosEnviados} 
+                      onChange={val => updateItemData(item.id, 'prestamosEnviados', val)}
+                      disabled={isSummary || isItemLocked}
+                      className="bg-brand-500/5"
                     />
 
                     {/* Consumo Pers. (Encargado) */}
@@ -563,7 +589,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     </td>
 
                     {/* Week Closure Action */}
-                    <td className="px-6 py-4 text-right sticky right-0 bg-bg-sidebar group-hover:bg-bg-accent/50 z-10 border-l border-border-dim/20">
+                    <td className="px-6 py-4 text-right sticky right-0 bg-bg-sidebar group-hover:bg-bg-accent/50 z-10 border-l border-border-dim/20 font-bold">
                       {viewMode === 'semana' && (
                         isCurrentWeekClosed(item.id) ? (
                           <div className="flex flex-col items-end opacity-50">
@@ -595,7 +621,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
             <div>
               <p className="text-[10px] uppercase font-black tracking-widest text-text-main">Fórmula CMV Mensual</p>
               <p className="text-[9px] uppercase font-bold tracking-tight italic opacity-70 mt-1">
-                CMV = (EI + Compras + Mov) +/- Préstamos - Decomisos - Consumo Personal - EF
+                CMV = EI + Compras + Préstamos Recibidos - Préstamos Enviados - Consumo Personal - Decomisos - EF
               </p>
             </div>
           </div>
