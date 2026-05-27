@@ -36,6 +36,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
+import ReadOnlyPlantaView from './ReadOnlyPlantaView';
 
 interface EncargadoDashboardProps {
   selectedBranchId: string;
@@ -1026,6 +1027,13 @@ export default function EncargadoDashboardView({
               )}
             </div>
           </div>
+
+          {/* Planta de Personal en Planta (Sólo Lectura) */}
+          <ReadOnlyPlantaView 
+            selectedBranchId={selectedBranchId}
+            branches={branches}
+            selectedMonth={selectedMonth}
+          />
 
           {/* Social Reputación & Canales Delivery */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg shadow-xl p-6">

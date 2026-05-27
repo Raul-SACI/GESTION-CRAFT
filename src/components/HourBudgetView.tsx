@@ -329,17 +329,36 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     
     const computedWeeks = getWeeksForMonth(selectedMonth);
     
+    // Load holidays globally valid for all branches for this month
+    const globalHolidaysKey = `hour_budget_holidays_${selectedMonth}`;
+    const savedGlobalHolidays = localStorage.getItem(globalHolidaysKey);
+    let resolvedHolidays: string[] = [];
+    let hasGlobalHolidays = false;
+    
+    if (savedGlobalHolidays) {
+      try {
+        resolvedHolidays = JSON.parse(savedGlobalHolidays);
+        hasGlobalHolidays = true;
+      } catch (e) {
+        console.error('Error parsing global holidays:', e);
+      }
+    }
+
     if (savedV2) {
       try {
         const parsed = JSON.parse(savedV2);
         if (parsed.rows) {
           setRows(parsed.rows);
         }
-        if (parsed.holidaysList) {
-          setHolidaysList(parsed.holidaysList);
-        } else {
-          setHolidaysList([]);
+        
+        // Migrate to global key if not set yet, but exists in this branch V2 budget
+        if (!hasGlobalHolidays && parsed.holidaysList && Array.isArray(parsed.holidaysList) && parsed.holidaysList.length > 0) {
+          resolvedHolidays = parsed.holidaysList;
+          localStorage.setItem(globalHolidaysKey, JSON.stringify(resolvedHolidays));
+          hasGlobalHolidays = true;
         }
+        
+        setHolidaysList(resolvedHolidays);
         if (parsed.status) setBudgetStatus(parsed.status);
       } catch (e) {
         console.error('Error loading budget V2:', e);
@@ -350,19 +369,23 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         const legacyRows = parsed.rows || [];
         
         // Dynamic upgrade holidays
-        const legacyHolidaysCount = parsed.holidays || 0;
-        const generatedHolidays: string[] = [];
-        let count = 0;
-        
-        computedWeeks.forEach(week => {
-          week.days.forEach(day => {
-            if (day.isInMonth && day.dayName === 'Domingo' && count < legacyHolidaysCount) {
-              generatedHolidays.push(day.dateStr);
-              count++;
-            }
+        if (!hasGlobalHolidays) {
+          const legacyHolidaysCount = parsed.holidays || 0;
+          const generatedHolidays: string[] = [];
+          let count = 0;
+          
+          computedWeeks.forEach(week => {
+            week.days.forEach(day => {
+              if (day.isInMonth && day.dayName === 'Domingo' && count < legacyHolidaysCount) {
+                generatedHolidays.push(day.dateStr);
+                count++;
+              }
+            });
           });
-        });
-        setHolidaysList(generatedHolidays);
+          resolvedHolidays = generatedHolidays;
+          localStorage.setItem(globalHolidaysKey, JSON.stringify(resolvedHolidays));
+        }
+        setHolidaysList(resolvedHolidays);
 
         const upgradedRows = legacyRows.map((r: any) => {
           const staffByDate: Record<string, number> = {};
@@ -415,7 +438,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         };
       });
       setRows(defWithBranch);
-      setHolidaysList([]);
+      setHolidaysList(resolvedHolidays);
       setBudgetStatus('pending');
     }
   }, [localBranchId, selectedMonth, sucursalRolesList]);
@@ -430,16 +453,23 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     };
     
     localStorage.setItem(storageKeyV2, JSON.stringify(payload));
+    // Also save holidays globally
+    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(holidaysList));
+    
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
 
   const handleToggleHoliday = (dateStr: string) => {
+    let updated: string[];
     if (holidaysList.includes(dateStr)) {
-      setHolidaysList(holidaysList.filter(d => d !== dateStr));
+      updated = holidaysList.filter(d => d !== dateStr);
     } else {
-      setHolidaysList([...holidaysList, dateStr]);
+      updated = [...holidaysList, dateStr];
     }
+    setHolidaysList(updated);
+    // Persist holidays globally for all branches
+    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
   };
 
   const handleAddRow = () => {
@@ -997,7 +1027,10 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val && !holidaysList.includes(val)) {
-                    setHolidaysList([...holidaysList, val]);
+                    const updated = [...holidaysList, val];
+                    setHolidaysList(updated);
+                    // Persist global holidays valid for all branches
+                    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
                   }
                   e.target.value = '';
                 }}
