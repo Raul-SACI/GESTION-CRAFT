@@ -21,7 +21,9 @@ import {
   Building2,
   Copy,
   Flag,
-  CheckSquare
+  CheckSquare,
+  Download,
+  Upload
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -151,6 +153,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [rows, setRows] = useState<BudgetRow[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
+  
+  // Excel/CSV Import/Export States
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importModalSuccess, setImportModalSuccess] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [importPreview, setImportPreview] = useState<any[] | null>(null);
 
   // Interactive Map State
   const [mapDateStr, setMapDateStr] = useState<string>('');
@@ -483,6 +491,206 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
     return rows.filter(r => r.branchId === activeBranchId);
   }, [rows, localBranchId]);
+
+  // Download CSV template pre-populated with current month's dates and positions
+  const handleDownloadTemplate = () => {
+    const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
+    const branchName = activeBranch?.name || `Sucursal ${activeBranchId}`;
+    
+    const dateHeaders = activeMonthDays.map(d => d.dateStr);
+    const headers = ['Puesto', 'Turno', 'Horas_Jornada', ...dateHeaders];
+    
+    const csvRows = [];
+    csvRows.push('sep=,');
+    csvRows.push(headers.join(','));
+    
+    const rowsToExport = filteredRows.length > 0 ? filteredRows : DEFAULT_INITIAL_ROWS.map((r, index) => {
+      const staffByDate: Record<string, number> = {};
+      activeMonthDays.forEach(day => {
+        const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
+        staffByDate[day.dateStr] = isWeekend ? r.countGroupB : r.countGroupA;
+      });
+      return {
+        id: `temp-${index}`,
+        branchId: activeBranchId,
+        roleId: r.roleId,
+        roleLabel: r.roleLabel,
+        shift: r.shift as 'Mañana' | 'Tarde',
+        hoursPerDay: r.hoursPerDay,
+        hourlyRate: getMaestroRate(r.roleId, r.roleLabel),
+        staffByDate
+      };
+    });
+    
+    rowsToExport.forEach(row => {
+      const line = [
+        row.roleLabel || row.roleId,
+        row.shift,
+        row.hoursPerDay.toString()
+      ];
+      
+      dateHeaders.forEach(dateStr => {
+        const val = row.staffByDate?.[dateStr] !== undefined ? row.staffByDate[dateStr] : 0;
+        line.push(val.toString());
+      });
+      
+      csvRows.push(line.join(','));
+    });
+    
+    const csvBuffer = "\uFEFF" + csvRows.join('\n');
+    const blob = new Blob([csvBuffer], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    const fileName = `Plantilla_Presupuesto_${branchName.replace(/\s+/g, '_')}_${selectedMonth}.csv`;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSVLine = (line: string, delimiter: string): string[] => {
+    const result: string[] = [];
+    let currentCell = '';
+    let insideQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        insideQuotes = !insideQuotes;
+      } else if (char === delimiter && !insideQuotes) {
+        result.push(currentCell.trim());
+        currentCell = '';
+      } else {
+        currentCell += char;
+      }
+    }
+    result.push(currentCell.trim());
+    return result;
+  };
+
+  const processCSVFile = (fileText: string) => {
+    try {
+      const rawLines = fileText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+      if (rawLines.length === 0) {
+        alert("El archivo CSV está vacío.");
+        return;
+      }
+      
+      let delimiter = ',';
+      let dataStartIndex = 0;
+      if (rawLines[0].startsWith('sep=')) {
+        delimiter = rawLines[0].slice(4).trim();
+        dataStartIndex = 1;
+      } else if (!rawLines[0].includes(',') && rawLines[0].includes(';')) {
+        // Fallback guess if no sep= is declared but it has semicolons
+        delimiter = ';';
+      }
+      
+      if (rawLines.length <= dataStartIndex) {
+        alert("El archivo no contiene filas de datos.");
+        return;
+      }
+      
+      const headerLine = rawLines[dataStartIndex];
+      const headers = parseCSVLine(headerLine, delimiter);
+      
+      let roleColIdx = headers.findIndex(h => h.toLowerCase().includes('puesto'));
+      let shiftColIdx = headers.findIndex(h => h.toLowerCase().includes('turno'));
+      let hoursColIdx = headers.findIndex(h => h.toLowerCase().includes('jornada') || h.toLowerCase().includes('horas'));
+      
+      if (roleColIdx === -1) roleColIdx = 0;
+      if (shiftColIdx === -1) shiftColIdx = 1;
+      if (hoursColIdx === -1) hoursColIdx = 2;
+      
+      const dateColumns: { colIdx: number, dateStr: string }[] = [];
+      headers.forEach((header, idx) => {
+        if (idx !== roleColIdx && idx !== shiftColIdx && idx !== hoursColIdx) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(header.trim())) {
+            dateColumns.push({ colIdx: idx, dateStr: header.trim() });
+          }
+        }
+      });
+      
+      const parsedPreviewRows: any[] = [];
+      
+      for (let i = dataStartIndex + 1; i < rawLines.length; i++) {
+        const rowCells = parseCSVLine(rawLines[i], delimiter);
+        if (rowCells.length < 3) continue;
+        
+        const csvRoleName = rowCells[roleColIdx] || 'Personal';
+        const shiftVal = (rowCells[shiftColIdx] || 'Tarde').trim() as 'Mañana' | 'Tarde';
+        const hoursPerDayVal = parseInt(rowCells[hoursColIdx]) || 8;
+        
+        const matchedRole = sucursalRolesList.find((rl: any) => 
+          rl.label.toLowerCase().trim() === csvRoleName.toLowerCase().trim() ||
+          rl.id.toLowerCase().trim() === csvRoleName.toLowerCase().trim()
+        ) || { id: csvRoleName.toLowerCase().replace(/\s+/g, '_'), label: csvRoleName, defaultRate: 2500 };
+        
+        const staffByDate: Record<string, number> = {};
+        let totalAssignedHours = 0;
+        
+        dateColumns.forEach(({ colIdx, dateStr }) => {
+          const countVal = parseFloat(rowCells[colIdx]) || 0;
+          staffByDate[dateStr] = countVal;
+          if (countVal > 0) {
+            totalAssignedHours += countVal * hoursPerDayVal;
+          }
+        });
+        
+        parsedPreviewRows.push({
+          roleId: matchedRole.id,
+          roleLabel: matchedRole.label,
+          shift: ['Mañana', 'Tarde'].includes(shiftVal) ? shiftVal : 'Tarde',
+          countGroupA: 1,
+          countGroupB: 1,
+          hoursPerDay: hoursPerDayVal,
+          hourlyRate: getMaestroRate(matchedRole.id, matchedRole.label),
+          staffByDate,
+          totalHours: totalAssignedHours
+        });
+      }
+      
+      if (parsedPreviewRows.length === 0) {
+        alert("No se pudieron cargar filas válidas del CSV.");
+        return;
+      }
+      
+      setImportPreview(parsedPreviewRows);
+    } catch (err: any) {
+      console.error(err);
+      alert("Error al procesar el archivo CSV: " + err.message);
+    }
+  };
+
+  const handleConfirmImport = () => {
+    if (!importPreview) return;
+    const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
+    
+    const importedBudgetRows: BudgetRow[] = importPreview.map(preview => ({
+      id: `imported-${Math.random().toString(36).substr(2, 9)}`,
+      branchId: activeBranchId,
+      roleId: preview.roleId,
+      roleLabel: preview.roleLabel,
+      shift: preview.shift,
+      countGroupA: preview.countGroupA,
+      countGroupB: preview.countGroupB,
+      hoursPerDay: preview.hoursPerDay,
+      hourlyRate: preview.hourlyRate,
+      staffByDate: preview.staffByDate
+    }));
+    
+    const otherBranchesRows = rows.filter(r => r.branchId !== activeBranchId);
+    setRows([...otherBranchesRows, ...importedBudgetRows]);
+    
+    setImportModalSuccess(true);
+    setTimeout(() => {
+      setImportModalSuccess(false);
+      setIsImportModalOpen(false);
+      setImportPreview(null);
+    }, 2000);
+  };
 
   const getHeadcount = (row: BudgetRow, dateStr: string, dayName: string) => {
     if (row.staffByDate?.[dateStr] !== undefined) {
@@ -863,6 +1071,20 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                   </div>
 
                   <div className="flex gap-2">
+                    <button
+                      onClick={handleDownloadTemplate}
+                      className="text-[9px] font-black uppercase text-[#8B949E] hover:text-text-main bg-bg-main hover:bg-[#202020] transition-all flex items-center gap-1.5 border border-border-dim/85 px-3 py-1.5 rounded"
+                      title="Descargar Planilla Modelo en formato CSV para Excel"
+                    >
+                      <Download size={12} /> Descargar Plantilla
+                    </button>
+                    <button
+                      onClick={() => setIsImportModalOpen(true)}
+                      className="text-[9px] font-black uppercase text-[#8B949E] hover:text-text-main bg-bg-main hover:bg-[#202020] transition-all flex items-center gap-1.5 border border-border-dim/85 px-3 py-1.5 rounded"
+                      title="Importar Presupuesto mensual desde planilla Excel / CSV"
+                    >
+                      <Upload size={12} /> Importar Planilla
+                    </button>
                     <button
                       onClick={() => handleCopyWeekToMonth(activeWeekIndex)}
                       className="text-[9px] font-black uppercase text-[#8B949E] hover:text-text-main bg-bg-main hover:bg-[#202020] transition-all flex items-center gap-1.5 border border-border-dim/85 px-3 py-1.5 rounded"
@@ -1528,6 +1750,153 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
         </div>
       </div>
+
+      {/* Excel / CSV Import Modal */}
+      <AnimatePresence>
+        {isImportModalOpen && (
+          <div key="import-modal-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl overflow-hidden text-left"
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4.5 bg-[#171717] border-b border-border-dim flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Layers className="text-brand-500" size={18} />
+                  <h3 className="text-sm font-black uppercase text-white tracking-wider">Importador de Presupuesto (CSV / Excel)</h3>
+                </div>
+                <button 
+                  onClick={() => {
+                    setIsImportModalOpen(false);
+                    setImportPreview(null);
+                  }}
+                  className="text-text-dim hover:text-text-main font-black text-xs uppercase cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 space-y-4">
+                {importModalSuccess ? (
+                  <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-500">
+                      <CheckSquare size={24} />
+                    </div>
+                    <h4 className="text-sm font-black uppercase text-green-500">¡Importación Exitosa!</h4>
+                    <p className="text-[11px] text-text-dim uppercase max-w-sm">Los datos de presupuesto se han cargado para la sucursal activa. Haz click en "Guardar Todo el Mes" para confirmar la persistencia.</p>
+                  </div>
+                ) : !importPreview ? (
+                  <div className="space-y-4">
+                    <p className="text-[10.5px] text-text-dim uppercase leading-relaxed font-bold">
+                      Carga el presupuesto mensual de personal directamente guardándolo en Excel como <span className="text-white font-black">archivo CSV (delimitado por comas)</span>. 
+                      Utiliza nuestra plantilla descargada que ya contiene los puestos de tu sucursal y la estructura de fechas exacta para el mes seleccionado (<span className="text-brand-500 font-black">{selectedMonth}</span>).
+                    </p>
+
+                    {/* Drag and Drop Zone */}
+                    <div 
+                      onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+                      onDragLeave={(e) => { e.preventDefault(); setDragActive(false); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            if (event.target?.result) processCSVFile(event.target.result as string);
+                          };
+                          reader.readAsText(file);
+                        }
+                      }}
+                      className={cn(
+                        "border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center space-y-3 transition-colors cursor-pointer",
+                        dragActive ? "border-brand-500 bg-brand-500/[0.03]" : "border-border-dim/80 hover:border-brand-500/40 bg-bg-main/20"
+                      )}
+                      onClick={() => document.getElementById('csv-file-input')?.click()}
+                    >
+                      <input 
+                        type="file" 
+                        id="csv-file-input" 
+                        accept=".csv" 
+                        className="hidden" 
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              if (event.target?.result) processCSVFile(event.target.result as string);
+                            };
+                            reader.readAsText(file);
+                          }
+                        }}
+                      />
+                      <Upload className="text-text-dim/80" size={32} />
+                      <div className="space-y-1">
+                        <p className="text-xs font-black uppercase text-white">Arrastra aquí tu plantilla CSV o haz click para buscar</p>
+                        <p className="text-[9px] text-[#8B949E] uppercase font-black">Formatos soportados: .csv (delimitado por comas o punto y coma)</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-bg-main/30 border border-border-dim/60 p-4 rounded-lg flex items-start gap-3">
+                      <Info size={16} className="text-brand-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-left">
+                        <p className="text-[10px] font-black uppercase text-white font-black">¿Cómo operar con Excel?</p>
+                        <ol className="list-decimal list-inside text-[9px] text-text-dim uppercase space-y-1 font-bold">
+                          <li>Descarga la plantilla haciendo click en <span className="text-brand-500 font-extrabold">"Descargar Plantilla"</span></li>
+                          <li>Ábrela en Excel y completa la dotación diaria para cada puesto</li>
+                          <li>Guarda el archivo indicando tipo <span className="text-white">"Archivos CSV"</span> (delimitado por comas)</li>
+                          <li>Súbela aquí para auditar e integrar los datos de dotación</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  // Preview state
+                  <div className="space-y-4">
+                    <p className="text-[10.5px] text-text-dim uppercase font-bold">Filas detectadas en el archivo ({importPreview.length} puestos):</p>
+                    
+                    <div className="max-h-60 overflow-y-auto border border-border-dim rounded bg-bg-main/40 divide-y divide-[#202020]">
+                      {importPreview.map((preview, idx) => (
+                        <div key={idx} className="p-2.5 flex justify-between items-center text-[10px]">
+                          <div className="flex flex-col">
+                            <span className="font-black uppercase text-white">{preview.roleLabel}</span>
+                            <span className="text-[8px] text-text-dim uppercase mt-0.5 font-bold">
+                              Turno: {preview.shift} • Hs Jornada: {preview.hoursPerDay}h • Valor Hora aproximado: ${preview.hourlyRate.toLocaleString('es-AR', {maximumFractionDigits: 0})}/h
+                            </span>
+                          </div>
+                          <div className="text-right font-mono">
+                            <span className="text-brand-500 font-black tracking-tight">{preview.totalHours} HS</span>
+                            <div className="text-[7.5px] text-text-dim uppercase font-black tracking-tighter mt-0.5">horas totales / mes</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-3 border-t border-border-dim">
+                      <button 
+                        onClick={() => setImportPreview(null)}
+                        className="text-[10px] font-black uppercase text-text-dim hover:text-text-main border border-border-dim bg-bg-main px-4 py-2 rounded-lg"
+                      >
+                        Atrás / Limpiar
+                      </button>
+                      <button 
+                        onClick={handleConfirmImport}
+                        className="text-[10px] font-black uppercase bg-brand-500 hover:bg-brand-600 text-black px-4 py-2 rounded-lg"
+                      >
+                        Confirmar e Importar {importPreview.length} Puestos
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Standard warning notice below */}
       <div className="p-4.5 bg-orange-500/5 border border-orange-500/15 rounded-lg flex items-start gap-3 shadow-sm">
