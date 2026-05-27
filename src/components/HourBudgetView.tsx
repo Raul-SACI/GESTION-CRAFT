@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calendar, 
   Users, 
+  User,
   Calculator, 
   Info, 
   Save, 
@@ -1733,9 +1734,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           })}
                       </div>
                       {mapData.roomTotals.cocina > 0 && (
-                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                        <div className="flex flex-wrap gap-1 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
                           {Array.from({ length: Math.ceil(mapData.roomTotals.cocina) }).map((_, idx) => (
-                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[100ms]" title="Personal de Cocina">👤</span>
+                            <span key={idx} className="p-0.5 rounded bg-orange-500/10 border border-orange-500/30 flex items-center justify-center animate-pulse animate-delay-[100ms] shadow-sm shadow-orange-500/10" title="Personal de Cocina">
+                              <User size={12} className="text-orange-500 fill-orange-500/40 drop-shadow-[0_0_5px_rgba(249,115,22,0.8)]" />
+                            </span>
                           ))}
                         </div>
                       )}
@@ -1761,9 +1764,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           })}
                       </div>
                       {mapData.roomTotals.bacha > 0 && (
-                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                        <div className="flex flex-wrap gap-1 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
                           {Array.from({ length: Math.ceil(mapData.roomTotals.bacha) }).map((_, idx) => (
-                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[200ms]" title="Personal de Bacha">👤</span>
+                            <span key={idx} className="p-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center animate-pulse animate-delay-[200ms] shadow-sm shadow-emerald-500/10" title="Personal de Bacha">
+                              <User size={12} className="text-emerald-400 fill-emerald-400/40 drop-shadow-[0_0_5px_rgba(52,211,153,0.8)]" />
+                            </span>
                           ))}
                         </div>
                       )}
@@ -1789,9 +1794,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           })}
                       </div>
                       {mapData.roomTotals.barra > 0 && (
-                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                        <div className="flex flex-wrap gap-1 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
                           {Array.from({ length: Math.ceil(mapData.roomTotals.barra) }).map((_, idx) => (
-                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[300ms]" title="Personal de Barra">👤</span>
+                            <span key={idx} className="p-0.5 rounded bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center animate-pulse animate-delay-[300ms] shadow-sm shadow-yellow-500/10" title="Personal de Barra">
+                              <User size={12} className="text-yellow-400 fill-yellow-400/40 drop-shadow-[0_0_5px_rgba(250,204,21,0.8)]" />
+                            </span>
                           ))}
                         </div>
                       )}
@@ -1817,9 +1824,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           })}
                       </div>
                       {mapData.roomTotals.caja > 0 && (
-                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                        <div className="flex flex-wrap gap-1 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
                           {Array.from({ length: Math.ceil(mapData.roomTotals.caja) }).map((_, idx) => (
-                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[400ms]" title="Personal de Caja">👤</span>
+                            <span key={idx} className="p-0.5 rounded bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center animate-pulse animate-delay-[400ms] shadow-sm shadow-cyan-500/10" title="Personal de Caja">
+                              <User size={12} className="text-cyan-400 fill-cyan-400/40 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]" />
+                            </span>
                           ))}
                         </div>
                       )}
@@ -1845,9 +1854,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           })}
                       </div>
                       {mapData.roomTotals.salon > 0 && (
-                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                        <div className="flex flex-wrap gap-1 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
                           {Array.from({ length: Math.ceil(mapData.roomTotals.salon) }).map((_, idx) => (
-                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[500ms]" title="Personal de Salón">👤</span>
+                            <span key={idx} className="p-0.5 rounded bg-purple-500/15 border border-purple-500/30 flex items-center justify-center animate-pulse animate-delay-[500ms] shadow-sm shadow-purple-500/10" title="Personal de Salón">
+                              <User size={12} className="text-purple-400 fill-purple-400/40 drop-shadow-[0_0_5px_rgba(192,132,252,0.8)]" />
+                            </span>
                           ))}
                         </div>
                       )}
@@ -1882,21 +1893,42 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                           Sin personal asignado en este turno para el sector {selectedRoom}
                         </p>
                       ) : (
-                        (mapData.roomStaff[selectedRoom] || []).map((staff, i) => (
-                          <div key={i} className="p-2.5 rounded bg-bg-accent/40 border border-border-dim/40 space-y-1.5">
-                            <div className="flex justify-between items-center">
-                              <span className="font-bold text-text-main uppercase text-[10px]">{staff.label}</span>
-                              <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count}p</span>
+                        (mapData.roomStaff[selectedRoom] || []).map((staff, i) => {
+                          let bgClass = "bg-[#ffffff]/5 border-[#ffffff]/10";
+                          let svgClass = "text-text-main fill-text-main/20 drop-shadow-[0_0_2px_rgba(255,255,255,0.4)]";
+                          if (selectedRoom === 'cocina') {
+                            bgClass = "bg-orange-500/10 border-orange-500/30";
+                            svgClass = "text-orange-500 fill-orange-500/30 drop-shadow-[0_0_4px_rgba(249,115,22,0.8)]";
+                          } else if (selectedRoom === 'bacha') {
+                            bgClass = "bg-emerald-500/10 border-emerald-500/30";
+                            svgClass = "text-emerald-400 fill-emerald-400/30 drop-shadow-[0_0_4px_rgba(52,211,153,0.8)]";
+                          } else if (selectedRoom === 'barra') {
+                            bgClass = "bg-yellow-500/10 border-yellow-500/30";
+                            svgClass = "text-yellow-400 fill-yellow-400/30 drop-shadow-[0_0_4px_rgba(250,204,21,0.8)]";
+                          } else if (selectedRoom === 'caja') {
+                            bgClass = "bg-cyan-500/10 border-cyan-500/30";
+                            svgClass = "text-cyan-400 fill-cyan-400/30 drop-shadow-[0_0_4px_rgba(34,211,238,0.8)]";
+                          } else if (selectedRoom === 'salon') {
+                            bgClass = "bg-purple-500/10 border-purple-500/30";
+                            svgClass = "text-purple-400 fill-purple-400/30 drop-shadow-[0_0_4px_rgba(192,132,252,0.8)]";
+                          }
+
+                          return (
+                            <div key={i} className="p-2.5 rounded bg-bg-accent/40 border border-border-dim/40 space-y-1.5 animate-fadeIn">
+                              <div className="flex justify-between items-center">
+                                <span className="font-bold text-text-main uppercase text-[10px]">{staff.label}</span>
+                                <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count}p</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1 bg-[#121212]/50 p-1.5 rounded border border-border-dim/20">
+                                {Array.from({ length: Math.ceil(staff.count) }).map((_, idx) => (
+                                  <div key={idx} title={`${staff.label} #${idx + 1}`} className={cn("p-1.5 rounded flex items-center justify-center animate-pulse", bgClass)}>
+                                    <User size={13} className={svgClass} />
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                            <div className="flex flex-wrap gap-1 text-sm bg-[#121212]/50 p-1 rounded border border-border-dim/20">
-                              {Array.from({ length: Math.ceil(staff.count) }).map((_, idx) => (
-                                <span key={idx} title={`${staff.label} #${idx + 1}`} className="animate-pulse select-none">
-                                  👤
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
 
