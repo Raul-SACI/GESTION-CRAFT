@@ -497,40 +497,72 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
     const branchName = activeBranch?.name || `Sucursal ${activeBranchId}`;
     
-    const dateHeaders = activeMonthDays.map(d => d.dateStr);
+    // Create Date headers in spanish format, e.g. "Viernes 01/05/2026"
+    const dateHeaders = activeMonthDays.map(d => `${d.dayName} ${d.dateStr.split('-').reverse().join('/')}`);
     const headers = ['Puesto', 'Turno', 'Horas_Jornada', ...dateHeaders];
     
     const csvRows = [];
     csvRows.push('sep=,');
     csvRows.push(headers.join(','));
     
-    const rowsToExport = filteredRows.length > 0 ? filteredRows : DEFAULT_INITIAL_ROWS.map((r, index) => {
-      const staffByDate: Record<string, number> = {};
-      activeMonthDays.forEach(day => {
-        const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
-        staffByDate[day.dateStr] = isWeekend ? r.countGroupB : r.countGroupA;
+    // We export ALL possible sucursalRolesList positions for both Mañana & Tarde to make name selection simple
+    const allExpectedRows: any[] = [];
+    const shifts: ('Mañana' | 'Tarde')[] = ['Mañana', 'Tarde'];
+
+    sucursalRolesList.forEach(roleObj => {
+      shifts.forEach(sh => {
+        // Try to match with any configured row for activeBranch
+        const existingRow = filteredRows.find(
+          r => r.roleLabel.toLowerCase().trim() === roleObj.label.toLowerCase().trim() && r.shift === sh
+        );
+
+        if (existingRow) {
+          allExpectedRows.push(existingRow);
+        } else {
+          // Create an empty template row for this role and shift
+          const staffByDate: Record<string, number> = {};
+          activeMonthDays.forEach(day => {
+            staffByDate[day.dateStr] = 0;
+          });
+
+          let defaultHrs = 8;
+          if (roleObj.label.toLowerCase().includes('medio') || roleObj.label.toLowerCase().includes('4h')) {
+            defaultHrs = 4;
+          }
+
+          allExpectedRows.push({
+            id: `temp-${roleObj.id}-${sh}`,
+            branchId: activeBranchId,
+            roleId: roleObj.id,
+            roleLabel: roleObj.label,
+            shift: sh,
+            hoursPerDay: defaultHrs,
+            hourlyRate: roleObj.defaultRate,
+            staffByDate
+          });
+        }
       });
-      return {
-        id: `temp-${index}`,
-        branchId: activeBranchId,
-        roleId: r.roleId,
-        roleLabel: r.roleLabel,
-        shift: r.shift as 'Mañana' | 'Tarde',
-        hoursPerDay: r.hoursPerDay,
-        hourlyRate: getMaestroRate(r.roleId, r.roleLabel),
-        staffByDate
-      };
     });
-    
-    rowsToExport.forEach(row => {
+
+    // Also include other custom rows that weren't in sucursalRolesList originally
+    filteredRows.forEach(fRow => {
+      const isAlreadyAdded = allExpectedRows.some(
+        r => r.roleLabel.toLowerCase().trim() === fRow.roleLabel.toLowerCase().trim() && r.shift === fRow.shift
+      );
+      if (!isAlreadyAdded) {
+        allExpectedRows.push(fRow);
+      }
+    });
+
+    allExpectedRows.forEach(row => {
       const line = [
         row.roleLabel || row.roleId,
         row.shift,
         row.hoursPerDay.toString()
       ];
       
-      dateHeaders.forEach(dateStr => {
-        const val = row.staffByDate?.[dateStr] !== undefined ? row.staffByDate[dateStr] : 0;
+      activeMonthDays.forEach(day => {
+        const val = row.staffByDate?.[day.dateStr] !== undefined ? row.staffByDate[day.dateStr] : 0;
         line.push(val.toString());
       });
       
@@ -607,8 +639,28 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       const dateColumns: { colIdx: number, dateStr: string }[] = [];
       headers.forEach((header, idx) => {
         if (idx !== roleColIdx && idx !== shiftColIdx && idx !== hoursColIdx) {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(header.trim())) {
-            dateColumns.push({ colIdx: idx, dateStr: header.trim() });
+          const cleanHeader = header.trim();
+          
+          // Match header name with activeMonthDays
+          const matchedDay = activeMonthDays.find(day => {
+            const formattedExpected = `${day.dayName} ${day.dateStr.split('-').reverse().join('/')}`;
+            return cleanHeader === formattedExpected || cleanHeader === day.dateStr;
+          });
+
+          if (matchedDay) {
+            dateColumns.push({ colIdx: idx, dateStr: matchedDay.dateStr });
+          } else {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(cleanHeader)) {
+              dateColumns.push({ colIdx: idx, dateStr: cleanHeader });
+            } else {
+              const matchDDMMYYYY = cleanHeader.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+              if (matchDDMMYYYY) {
+                const [_, dd, mm, yyyy] = matchDDMMYYYY;
+                const paddedDD = dd.padStart(2, '0');
+                const paddedMM = mm.padStart(2, '0');
+                dateColumns.push({ colIdx: idx, dateStr: `${yyyy}-${paddedMM}-${paddedDD}` });
+              }
+            }
           }
         }
       });
