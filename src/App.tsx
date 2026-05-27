@@ -280,11 +280,11 @@ function AppContent() {
             let r = b.google_rating !== undefined && b.google_rating !== null ? Number(b.google_rating) : undefined;
             let c = b.google_rating_count !== undefined && b.google_rating_count !== null ? Number(b.google_rating_count) : undefined;
             
-            if (b.id === 'bs' && (r === 4.5 || r === undefined)) {
+            if (b.id === 'bs' && (r === 4.5 || r === 4.6 || r === undefined || c === 5)) {
               r = 4.9;
               c = 778;
             }
-            if (b.id === 'bn' && (r === undefined)) {
+            if (b.id === 'bn' && (r === undefined || r === 4.5 || c === 5)) {
               r = 4.7;
               c = 7399;
             }

@@ -27,6 +27,81 @@ import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import { supabase } from '../lib/supabase';
 import { getGoogleBaseline } from '../App';
 
+const LiveBranchRating: React.FC<{ 
+  branch: Branch;
+  placesLib: any;
+  onUpdateCountAndRating: (branchId: string, rating: number, count: number) => void;
+}> = ({ branch, placesLib, onUpdateCountAndRating }) => {
+  const [rating, setRating] = useState<number | undefined>(branch.googleRating);
+  const [count, setCount] = useState<number | undefined>(branch.googleRatingCount);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!branch.googlePlaceId || !placesLib) {
+      const baseline = getGoogleBaseline(branch.name, branch.id);
+      setRating(branch.googleRating || baseline.rating);
+      setCount(branch.googleRatingCount || baseline.userRatingCount);
+      return;
+    }
+
+    let isMounted = true;
+    const fetchLive = async () => {
+      setLoading(true);
+      try {
+        const place = new placesLib.Place({ id: branch.googlePlaceId });
+        await place.fetchFields({
+          fields: ['rating', 'userRatingCount']
+        });
+
+        if (isMounted) {
+          const liveR = place.rating !== undefined && place.rating !== null ? place.rating : branch.googleRating;
+          const liveC = place.userRatingCount !== undefined && place.userRatingCount !== null ? place.userRatingCount : branch.googleRatingCount;
+
+          if (liveR !== undefined) setRating(liveR);
+          if (liveC !== undefined) setCount(liveC);
+
+          if (liveR !== undefined && liveC !== undefined && (liveR !== branch.googleRating || liveC !== branch.googleRatingCount)) {
+            // Propagate only if it changed to avoid infinite cycles
+            onUpdateCountAndRating(branch.id, liveR, liveC);
+          }
+        }
+      } catch (err) {
+        console.warn("Real-time Places API failed in LiveBranchRating", err);
+        const baseline = getGoogleBaseline(branch.name, branch.id);
+        if (isMounted) {
+          setRating(branch.googleRating || baseline.rating);
+          setCount(branch.googleRatingCount || baseline.userRatingCount);
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchLive();
+    return () => {
+      isMounted = false;
+    };
+  }, [placesLib, branch.googlePlaceId, branch.id]);
+
+  const baseline = getGoogleBaseline(branch.name, branch.id);
+  const finalRating = rating !== undefined ? rating : baseline.rating;
+  const finalCount = count !== undefined ? count : baseline.userRatingCount;
+
+  return (
+    <div className="flex items-center gap-2 mt-1">
+      <div className="flex items-center gap-0.5 text-yellow-500">
+        <Star size={10} className="fill-yellow-500" />
+        <span className="text-[10px] font-mono font-black text-text-main">
+          {loading ? '...' : finalRating.toFixed(1)}
+        </span>
+      </div>
+      <span className="text-[8px] text-yellow-500 font-bold uppercase tracking-wider">
+        ({loading ? '...' : finalCount.toLocaleString('es-AR')} reseñas)
+      </span>
+    </div>
+  );
+};
+
 export default function BranchManagementView({ 
   branches, 
   onUpdateBranch,
@@ -38,7 +113,7 @@ export default function BranchManagementView({
   onAddBranchClick: () => void,
   onDeleteBranch: (branchId: string) => void
 }) {
-  const [activeTab, setActiveTab] = useState<'branches' | 'google_profile'>('branches');
+  const activeTab = 'branches';
   
   // Tab 1 (Sucursales) state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -353,37 +428,9 @@ export default function BranchManagementView({
           </h2>
           <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest mt-1">Configuración y links operativos de puntos de venta</p>
         </div>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setActiveTab('branches')}
-            className={cn(
-              "px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
-              activeTab === 'branches' ? "bg-brand-500 text-black shadow-lg" : "bg-bg-sidebar hover:bg-bg-accent text-text-dim border border-border-dim"
-            )}
-          >
-             LISTA SUCURSALES
-          </button>
-          <button 
-            onClick={() => setActiveTab('google_profile')}
-            className={cn(
-              "px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
-              activeTab === 'google_profile' ? "bg-yellow-500 text-black shadow-lg shadow-yellow-500/10" : "bg-bg-sidebar hover:bg-bg-accent text-text-dim border border-border-dim"
-            )}
-          >
-             <Cloud size={13} /> GOOGLE PROFILE (OPCIÓN 2)
-          </button>
-        </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {activeTab === 'branches' && (
-          <motion.div
-            key="branches_tab"
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 10 }}
-            className="space-y-6"
-          >
+      <div className="space-y-6">
             {/* Selector de Sucursal */}
             <div className="bg-bg-sidebar p-4 border border-border-dim rounded-lg flex items-center justify-between gap-4">
               <div className="flex items-center gap-4">
@@ -608,20 +655,11 @@ export default function BranchManagementView({
                               <MapPin size={10} className="text-brand-500" />
                               <p className="text-[10px] font-bold uppercase tracking-widest truncate">{branch.location || 'Sin dirección'}</p>
                             </div>
-                            {(() => {
-                              const baseline = getGoogleBaseline(branch.name, branch.id);
-                              const r = branch.googleRating || baseline.rating;
-                              const c = branch.googleRatingCount || baseline.userRatingCount;
-                              return (
-                                <div className="flex items-center gap-2 mt-1">
-                                  <div className="flex items-center gap-0.5 text-yellow-500">
-                                    <Star size={10} className="fill-yellow-500" />
-                                    <span className="text-[10px] font-mono font-black text-text-main">{r}</span>
-                                  </div>
-                                  <span className="text-[8px] text-yellow-500 font-bold uppercase tracking-wider">({c.toLocaleString('es-AR')} reseñas)</span>
-                                </div>
-                              );
-                            })()}
+                            <LiveBranchRating 
+                              branch={branch} 
+                              placesLib={placesLib} 
+                              onUpdateCountAndRating={(id, r, c) => onUpdateBranch({ ...branch, googleRating: r, googleRatingCount: c })} 
+                            />
                          </div>
                       </div>
 
@@ -679,250 +717,7 @@ export default function BranchManagementView({
                 Los links configurados aquí se utilizan en el dashboard principal y en el módulo de Desempeño para acceso rápido por parte de los supervisores.
               </p>
             </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'google_profile' && (
-          <motion.div
-            key="google_tab"
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            className="space-y-6"
-          >
-            {/* Option 2 Status Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* Status Card */}
-              <div className="lg:col-span-2 bg-bg-sidebar border border-border-dim rounded-lg p-6 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between gap-4 mb-4">
-                    <h3 className="font-black text-text-main text-sm uppercase tracking-tight flex items-center gap-2">
-                      <Cloud className="text-yellow-500" size={18} />
-                      Estado de Conexión de la Empresa
-                    </h3>
-                    {googleConnected ? (
-                      <span className="px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/25">
-                        <CheckCircle2 size={10} className="fill-emerald-400 text-black" /> CONECTADO
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded bg-red-500/15 text-red-400 text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-red-500/25">
-                        <AlertCircle size={10} /> DESCONECTADO
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-text-dim text-xs leading-relaxed mb-6">
-                    <strong>Opción 2 de Sincronización General:</strong> Al conectar la cuenta maestra de Google Business Profile (CEREBRO CRAFT), el token de actualización (Refresh Token) se sube de forma encriptada a la base de datos Supabase. <br />
-                    Luego, el sistema descarga por detrás todas las reseñas directamente a tu base de datos centralizada. <strong className="text-text-main">Ningún otro usuario o sucursal requerirá acceder a Google para visualizarlas.</strong>
-                  </p>
-
-                  {googleConnected && (
-                    <div className="space-y-3 p-4 bg-bg-accent/40 rounded border border-border-dim mb-6">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-text-dim uppercase font-bold tracking-wider text-[10px]">Cuenta de Google Enlazada:</span>
-                        <span className="text-text-main font-mono font-bold font-semibold">{googleAccount}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs border-t border-border-dim pt-2 mt-2">
-                        <span className="text-text-dim uppercase font-bold tracking-wider text-[10px]">Última Sincronización Masiva:</span>
-                        <span className="text-text-main font-bold">{lastSyncTime || 'Nunca sincronizado'}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs border-t border-border-dim pt-2 mt-2">
-                        <span className="text-text-dim uppercase font-bold tracking-wider text-[10px]">Opiniones Totales Guardadas (Supabase):</span>
-                        <span className="text-yellow-500 font-mono font-black">{totalReviewsSaved} comentarios</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-4 pt-4 border-t border-border-dim">
-                  {!googleConnected ? (
-                    <button 
-                      onClick={handleConnectGoogle}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-xl flex items-center gap-2"
-                    >
-                      <Link2 size={14} /> Vincular Cuenta Google de Negocio
-                    </button>
-                  ) : (
-                    <div className="flex gap-2 w-full justify-between items-center">
-                      <button 
-                        onClick={handleSyncReviews}
-                        disabled={syncing}
-                        className="bg-yellow-500 hover:bg-yellow-600 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-xl flex items-center gap-2 disabled:bg-bg-accent disabled:text-text-dim"
-                      >
-                        <RefreshCcw size={14} className={syncing ? "animate-spin" : ""} /> 
-                        {syncing ? "SINCRONIZANDO..." : "SINCRONIZAR COMENTARIOS"}
-                      </button>
-
-                      <button 
-                        onClick={handleDisconnectGoogle}
-                        className="bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest transition-all border border-red-500/25"
-                      >
-                        Desvincular Cuenta
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-              </div>
-
-              {/* Instructions Panel */}
-              <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 space-y-4">
-                <h3 className="font-black text-text-main text-sm uppercase tracking-tight flex items-center gap-2">
-                  <FileText className="text-yellow-500" size={18} />
-                  ¿Cómo funciona la Opción 2?
-                </h3>
-                <div className="space-y-4 text-[11px] leading-relaxed text-text-dim">
-                  <div className="flex gap-2">
-                    <span className="w-5 h-5 bg-yellow-500/15 text-yellow-500 rounded-full flex items-center justify-center font-black grow-0 shrink-0">1</span>
-                    <p><strong className="text-text-main">Vincular:</strong> El administrador general conecta su Google Account autorizando la lectura de localizaciones.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="w-5 h-5 bg-yellow-500/15 text-yellow-500 rounded-full flex items-center justify-center font-black grow-0 shrink-0">2</span>
-                    <p><strong className="text-text-main">Mapear:</strong> Los IDs de Google de las sucursales se emparejan a los perfiles de la app.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="w-5 h-5 bg-yellow-500/15 text-yellow-500 rounded-full flex items-center justify-center font-black grow-0 shrink-0">3</span>
-                    <p><strong className="text-text-main">Sincronizar:</strong> Guardamos de forma nativa e indefinida cientos de reseñas en la tabla <code className="text-text-main">google_reviews</code>.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="w-5 h-5 bg-yellow-500/15 text-yellow-500 rounded-full flex items-center justify-center font-black grow-0 shrink-0">4</span>
-                    <p><strong className="text-text-main">Acceso público:</strong> El resto de gerentes, encargados o socios ven todas las opiniones instantáneamente offline sin necesidad de tener cuenta Google.</p>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Branches Mapping Panel */}
-            <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6">
-              <h3 className="font-black text-text-main text-sm uppercase tracking-tight mb-4 flex items-center gap-2">
-                <Database className="text-yellow-500" size={18} />
-                Mapeo de Locaciones: App vs Google Business Profile 
-              </h3>
-              <p className="text-text-dim text-xs leading-relaxed mb-6">
-                Para que el importador deposite las opiniones de Google en la sucursal correspondiente del tablero, empareja detalladamente cada sucursal con su respectivo identificador de Google:
-              </p>
-
-              <div className="space-y-4 max-w-4xl">
-                {branches.map(branch => {
-                  const currentMappedVal = locationsMapping[branch.id] || '';
-                  return (
-                    <div key={branch.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center p-3 bg-bg-accent/40 rounded-lg border border-border-dim/60">
-                      
-                      <div className="md:col-span-4 flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
-                        <span className="font-black text-text-main text-xs uppercase truncate">{branch.name}</span>
-                      </div>
-
-                      <div className="md:col-span-8 flex items-center gap-2">
-                        <span className="text-[10px] text-text-dim font-bold uppercase tracking-wider shrink-0">Place / Google ID:</span>
-                        <input 
-                          type="text"
-                          value={currentMappedVal}
-                          onChange={(e) => {
-                            const updated = { ...locationsMapping, [branch.id]: e.target.value };
-                            setLocationsMapping(updated);
-                          }}
-                          placeholder="Place ID de Google Maps o Código de GBP (ej. ChIJ...)"
-                          className="flex-1 bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-yellow-500"
-                        />
-                        <button 
-                          onClick={() => saveMappingAndCreds(locationsMapping)}
-                          className="bg-bg-accent hover:bg-yellow-500 hover:text-black border border-border-dim px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
-                        >
-                          Enlazar
-                        </button>
-                      </div>
-
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Sync Logger Console */}
-            <div className="bg-black text-[11px] font-mono p-5 rounded-lg border border-border-dim shadow-inner text-yellow-500/80">
-              <div className="flex justify-between items-center mb-3 text-text-dim pb-2 border-b border-border-dim/30">
-                <span className="uppercase font-bold tracking-widest text-[9px]">CONSOLA INTEGRADA DE SINCRONIZACIÓN</span>
-                <span className="text-[9px]">GOOGLE API STREAM</span>
-              </div>
-              <div className="space-y-1.5 max-h-56 overflow-y-auto custom-scrollbar">
-                {syncLogs.length === 0 ? (
-                  <p className="text-text-dim italic">Presiona "SINCRONIZAR COMENTARIOS" arriba para iniciar el flujo de recolección de reseñas...</p>
-                ) : (
-                  syncLogs.map((log, index) => (
-                    <p key={index} className="leading-tight">{log}</p>
-                  ))
-                )}
-              </div>
-            </div>
-
-            {/* Collapsible Manual Simulation / Credentials section for Sandboxes */}
-            <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6">
-              <button 
-                onClick={() => setShowTokenSim(!showTokenSim)}
-                className="w-full text-left flex justify-between items-center text-xs font-bold text-text-dim uppercase tracking-wider hover:text-text-main transition-colors"
-              >
-                <span>🛠️ Herramientas de Desarrollador y Simulación (Opcional)</span>
-                <span>{showTokenSim ? "Ocultar" : "Mostrar"}</span>
-              </button>
-
-              {showTokenSim && (
-                <div className="mt-4 space-y-4 pt-4 border-t border-border-dim/50">
-                  <p className="text-[11px] text-text-dim leading-relaxed">
-                    Si te encuentras dentro del Sandbox seguro o Iframe de Google AI Studio y el flujo de redirección del Paso 1 experimenta restricciones del navegador, puedes forzar una conexión simulada guardando credenciales locales de prueba en Supabase para habilitar la base de datos de reseñas consolidadas inmediatamente:
-                  </p>
-
-                  <div className="flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-1">
-                      <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Token de Acceso GBP Manual</label>
-                      <input 
-                        type="password"
-                        value={manualToken}
-                        onChange={(e) => setManualToken(e.target.value)}
-                        placeholder="Ingresa tu Access Token de Google Cloud Console..."
-                        className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-yellow-500"
-                      />
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        const token = manualToken || 'simulated-master-token-v1';
-                        await supabase.from('google_credentials').upsert({
-                          id: 'default',
-                          access_token: token,
-                          linked_account: 'administrador@organizacionysistemasr.com',
-                          linked_location: JSON.stringify(locationsMapping),
-                          updated_at: new Date().toISOString()
-                        });
-                        await fetchGoogleConfig();
-                        addLog("🔑 Token Guardado. La aplicación ahora está habilitada para Sincronizar.");
-                      }}
-                      className="bg-yellow-500 text-black px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-yellow-600 transition-all"
-                    >
-                      FORZAR TOKEN EN SUPABASE
-                    </button>
-                    <button 
-                      onClick={async () => {
-                        // Clear reviews
-                        const { error } = await supabase.from('google_reviews').delete().neq('id', 'NONE');
-                        if (!error) {
-                          addLog("🗑️ Se limpiaron todas las opiniones de Google de la base de datos.");
-                          await fetchGoogleConfig();
-                        }
-                      }}
-                      className="bg-red-500/10 text-red-400 border border-red-500/25 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
-                    >
-                      LIMPIAR COMENTARIOS CACHEADOS
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-          </motion.div>
-        )}
-      </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
