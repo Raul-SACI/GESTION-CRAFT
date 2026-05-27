@@ -131,7 +131,7 @@ function getWeeksForMonth(yearMonth: string) {
   return weeks;
 }
 
-const ROLE_TO_ROOM: Record<string, string> = {
+const ROLE_TO_ROOM_DEFAULTS: Record<string, string> = {
   jefe_cocina: 'cocina',
   segundo_cocina: 'cocina',
   cocinero: 'cocina',
@@ -141,6 +141,62 @@ const ROLE_TO_ROOM: Record<string, string> = {
   encargado: 'salon',
   mozos: 'salon',
   runners: 'salon'
+};
+
+const getRoomForRole = (roleId?: string, roleLabel?: string): string => {
+  const normId = (roleId || '').toLowerCase().trim();
+  const normLabel = (roleLabel || '').toLowerCase().trim();
+  
+  // Salon Principal (Mozos, Runners, y Encargado Nivel A, Encargado Nivel B)
+  if (
+    normId.includes('mozo') || normLabel.includes('mozo') ||
+    normId.includes('runner') || normLabel.includes('runner') ||
+    normId.includes('encargado') || normLabel.includes('encargado') ||
+    normId.includes('salon') || normLabel.includes('salón') ||
+    normId.includes('atencion') || normLabel.includes('atención')
+  ) {
+    return 'salon';
+  }
+  
+  // Cocina Principal (Cocinero y Lider de Cocina, Jefe de Cocina, Segundo de Cocina, etc.)
+  if (
+    normId.includes('cocina') || normLabel.includes('cocina') ||
+    normId.includes('cocinero') || normLabel.includes('cocinero') ||
+    normId.includes('chef') || normLabel.includes('chef') ||
+    normId.includes('lider') || normLabel.includes('lider')
+  ) {
+    return 'cocina';
+  }
+  
+  // Barra
+  if (
+    normId.includes('barra') || normLabel.includes('barra') ||
+    normId.includes('bartender') || normLabel.includes('bartender') ||
+    normId.includes('barman') || normLabel.includes('barman')
+  ) {
+    return 'barra';
+  }
+  
+  // Bacha (Puesto: Bachero / Bacha)
+  if (
+    normId.includes('bacha') || normLabel.includes('bacha') ||
+    normId.includes('bachero') || normLabel.includes('bachero') ||
+    normId.includes('lavador') || normLabel.includes('lavador') ||
+    normId.includes('lavaplato') || normLabel.includes('lavaplato')
+  ) {
+    return 'bacha';
+  }
+  
+  // Caja (Puesto: Cajero)
+  if (
+    normId.includes('caja') || normLabel.includes('caja') ||
+    normId.includes('cajero') || normLabel.includes('cajero') ||
+    normId.includes('front') || normLabel.includes('front')
+  ) {
+    return 'caja';
+  }
+
+  return ROLE_TO_ROOM_DEFAULTS[normId] || '';
 };
 
 export default function HourBudgetView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
@@ -854,7 +910,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       if (row.shift === mapShift) {
         const headcount = getHeadcount(row, mapDateStr, activeDayName);
         if (headcount > 0) {
-          const room = ROLE_TO_ROOM[row.roleId];
+          const room = getRoomForRole(row.roleId, row.roleLabel);
           if (room) {
             roomTotals[room] += headcount;
             const existing = roomStaff[room].find(s => s.label === row.roleLabel);
@@ -1658,98 +1714,143 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     </svg>
 
                     {/* Cocina Overlay */}
-                    <div className="absolute top-[65px] left-[45px] w-[140px] flex flex-wrap gap-1">
-                      {filteredRows
-                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'cocina')
-                        .map((r) => {
-                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
-                          if (count <= 0) return null;
-                          return (
-                            <div 
-                              key={r.id} 
-                              className="bg-brand-500 text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-black/10"
-                              title={`${r.roleLabel}: ${count}p`}
-                            >
-                              {r.roleLabel.substring(0, 3).toUpperCase()} {count}p
-                            </div>
-                          );
-                        })}
+                    <div className="absolute top-[55px] left-[40px] w-[145px] flex flex-col gap-1.5 pointer-events-none">
+                      <div className="flex flex-wrap gap-1">
+                        {filteredRows
+                          .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'cocina')
+                          .map((r) => {
+                            const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                            if (count <= 0) return null;
+                            return (
+                              <div 
+                                key={r.id} 
+                                className="bg-brand-500 text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-black/10 pointer-events-auto"
+                                title={`${r.roleLabel}: ${count}p`}
+                              >
+                                {r.roleLabel.substring(0, 3).toUpperCase()} {count}p
+                              </div>
+                            );
+                          })}
+                      </div>
+                      {mapData.roomTotals.cocina > 0 && (
+                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                          {Array.from({ length: Math.ceil(mapData.roomTotals.cocina) }).map((_, idx) => (
+                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[100ms]" title="Personal de Cocina">👤</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Bacha Overlay */}
-                    <div className="absolute top-[230px] left-[45px] w-[90px] flex flex-wrap gap-1">
-                      {filteredRows
-                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'bacha')
-                        .map((r) => {
-                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
-                          if (count <= 0) return null;
-                          return (
-                            <div 
-                              key={r.id} 
-                              className="bg-[#C0C0C0] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
-                              title={`${r.roleLabel}: ${count}p`}
-                            >
-                              BAC {count}p
-                            </div>
-                          );
-                        })}
+                    <div className="absolute top-[230px] left-[30px] w-[95px] flex flex-col gap-1.5 pointer-events-none">
+                      <div className="flex flex-wrap gap-1">
+                        {filteredRows
+                          .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'bacha')
+                          .map((r) => {
+                            const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                            if (count <= 0) return null;
+                            return (
+                              <div 
+                                key={r.id} 
+                                className="bg-[#C0C0C0] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help pointer-events-auto"
+                                title={`${r.roleLabel}: ${count}p`}
+                              >
+                                BAC {count}p
+                              </div>
+                            );
+                          })}
+                      </div>
+                      {mapData.roomTotals.bacha > 0 && (
+                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                          {Array.from({ length: Math.ceil(mapData.roomTotals.bacha) }).map((_, idx) => (
+                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[200ms]" title="Personal de Bacha">👤</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Barra Overlay */}
-                    <div className="absolute top-[65px] left-[225px] w-[65px] flex flex-wrap gap-1">
-                      {filteredRows
-                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'barra')
-                        .map((r) => {
-                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
-                          if (count <= 0) return null;
-                          return (
-                            <div 
-                              key={r.id} 
-                              className="bg-[#D4AF37] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
-                              title={`${r.roleLabel}: ${count}p`}
-                            >
-                              BAR {count}p
-                            </div>
-                          );
-                        })}
+                    <div className="absolute top-[55px] left-[225px] w-[65px] flex flex-col gap-1.5 pointer-events-none">
+                      <div className="flex flex-wrap gap-1">
+                        {filteredRows
+                          .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'barra')
+                          .map((r) => {
+                            const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                            if (count <= 0) return null;
+                            return (
+                              <div 
+                                key={r.id} 
+                                className="bg-[#D4AF37] text-black text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help pointer-events-auto"
+                                title={`${r.roleLabel}: ${count}p`}
+                              >
+                                BAR {count}p
+                              </div>
+                            );
+                          })}
+                      </div>
+                      {mapData.roomTotals.barra > 0 && (
+                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                          {Array.from({ length: Math.ceil(mapData.roomTotals.barra) }).map((_, idx) => (
+                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[300ms]" title="Personal de Barra">👤</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Caja Overlay */}
-                    <div className="absolute top-[230px] left-[165px] w-[110px] flex flex-wrap gap-1">
-                      {filteredRows
-                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'caja')
-                        .map((r) => {
-                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
-                          if (count <= 0) return null;
-                          return (
-                            <div 
-                              key={r.id} 
-                              className="bg-[#4682B4] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help"
-                              title={`${r.roleLabel}: ${count}p`}
-                            >
-                              CAJ {count}p
-                            </div>
-                          );
-                        })}
+                    <div className="absolute top-[230px] left-[155px] w-[130px] flex flex-col gap-1.5 pointer-events-none">
+                      <div className="flex flex-wrap gap-1">
+                        {filteredRows
+                          .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'caja')
+                          .map((r) => {
+                            const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                            if (count <= 0) return null;
+                            return (
+                              <div 
+                                key={r.id} 
+                                className="bg-[#4682B4] text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help pointer-events-auto"
+                                title={`${r.roleLabel}: ${count}p`}
+                              >
+                                CAJ {count}p
+                              </div>
+                            );
+                          })}
+                      </div>
+                      {mapData.roomTotals.caja > 0 && (
+                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                          {Array.from({ length: Math.ceil(mapData.roomTotals.caja) }).map((_, idx) => (
+                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[400ms]" title="Personal de Caja">👤</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Salon Overlay */}
-                    <div className="absolute top-[65px] left-[325px] w-[240px] flex flex-wrap gap-1.5 justify-start">
-                      {filteredRows
-                        .filter(r => r.shift === mapShift && ROLE_TO_ROOM[r.roleId] === 'salon')
-                        .map((r) => {
-                          const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
-                          if (count <= 0) return null;
-                          return (
-                            <div 
-                              key={r.id} 
-                              className="bg-zinc-700 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-border-dim"
-                              title={`${r.roleLabel}: ${count}p`}
-                            >
-                              {r.roleLabel.toUpperCase()} <span className="text-brand-500 font-black">{count}p</span>
-                            </div>
-                          );
-                        })}
+                    <div className="absolute top-[55px] left-[320px] w-[250px] flex flex-col gap-1.5 pointer-events-none">
+                      <div className="flex flex-wrap gap-1.5 justify-start">
+                        {filteredRows
+                          .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'salon')
+                          .map((r) => {
+                            const count = getHeadcount(r, mapDateStr, mapData.activeDayName);
+                            if (count <= 0) return null;
+                            return (
+                              <div 
+                                key={r.id} 
+                                className="bg-zinc-700 text-white text-[8px] font-black px-1.5 py-0.5 rounded shadow cursor-help flex items-center gap-0.5 border border-border-dim pointer-events-auto"
+                                title={`${r.roleLabel}: ${count}p`}
+                              >
+                                {r.roleLabel.toUpperCase()} <span className="text-brand-500 font-black">{count}p</span>
+                              </div>
+                            );
+                          })}
+                      </div>
+                      {mapData.roomTotals.salon > 0 && (
+                        <div className="flex flex-wrap gap-0.5 bg-black/60 p-1.5 rounded border border-white/5 max-w-full justify-start pointer-events-auto">
+                          {Array.from({ length: Math.ceil(mapData.roomTotals.salon) }).map((_, idx) => (
+                            <span key={idx} className="text-[14px] leading-none animate-pulse select-none animate-delay-[500ms]" title="Personal de Salón">👤</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1782,9 +1883,18 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                         </p>
                       ) : (
                         (mapData.roomStaff[selectedRoom] || []).map((staff, i) => (
-                          <div key={i} className="flex justify-between items-center p-2 rounded bg-bg-accent/40 border border-border-dim/40">
-                            <span className="font-bold text-text-main uppercase text-[10px]">{staff.label}</span>
-                            <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count}p</span>
+                          <div key={i} className="p-2.5 rounded bg-bg-accent/40 border border-border-dim/40 space-y-1.5">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-text-main uppercase text-[10px]">{staff.label}</span>
+                              <span className="font-mono text-[10.5px] font-bold text-brand-500">{staff.count}p</span>
+                            </div>
+                            <div className="flex flex-wrap gap-1 text-sm bg-[#121212]/50 p-1 rounded border border-border-dim/20">
+                              {Array.from({ length: Math.ceil(staff.count) }).map((_, idx) => (
+                                <span key={idx} title={`${staff.label} #${idx + 1}`} className="animate-pulse select-none">
+                                  👤
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         ))
                       )}
