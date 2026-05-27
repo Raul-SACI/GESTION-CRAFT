@@ -60,13 +60,22 @@ function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
   if (saved) {
     try {
       const positions = JSON.parse(saved);
-      const hourlyPositions = positions.filter((p: any) => p.type === 'hourly');
       
-      const exactTitle = hourlyPositions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-      if (exactTitle) return exactTitle.baseValue;
+      const exactTitle = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+      if (exactTitle) {
+        if (exactTitle.type === 'monthly') {
+          return exactTitle.baseValue / 30 / 8;
+        }
+        return exactTitle.baseValue;
+      }
 
-      const approx = hourlyPositions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-      if (approx) return approx.baseValue;
+      const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
+      if (approx) {
+        if (approx.type === 'monthly') {
+          return approx.baseValue / 30 / 8;
+        }
+        return approx.baseValue;
+      }
     } catch (e) {
       console.error(e);
     }

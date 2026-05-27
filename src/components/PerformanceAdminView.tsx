@@ -1104,22 +1104,6 @@ export default function PerformanceAdminView({
             
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-text-dim uppercase ml-1">Meta de Venta del Mes ($)</label>
-                <div className="relative">
-                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-dim font-black">$</span>
-                   <input 
-                    type="number"
-                    value={currentConfig.salesGoal}
-                    onChange={(e) => setConfigs({
-                      ...configs,
-                      [activeRole]: { ...currentConfig, salesGoal: parseFloat(e.target.value) }
-                    })}
-                    className="w-full bg-bg-accent border border-border-dim rounded pl-8 pr-4 py-3 text-lg font-black text-text-main focus:border-blue-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-text-dim uppercase ml-1">Penalidad Banderas Rojas ($)</label>
                 <div className="relative">
                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-dim font-black">$</span>
@@ -1148,42 +1132,6 @@ export default function PerformanceAdminView({
                 Guardar Configuración {activeRole.replace('_', ' ')}
               </button>
             )}
-
-            <div className="glass-card p-4 border border-amber-500/30 bg-amber-500/5">
-               <div className="flex items-center gap-2 text-amber-500 mb-2">
-                  <AlertCircle size={14} />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[9px]">Actualización de Tablas</span>
-               </div>
-               <p className="text-[9px] text-text-dim font-bold uppercase leading-relaxed mb-3">Ejecuta este SQL corregido para soportar la configuración dinámica por rol:</p>
-               <pre className="text-[7px] bg-black/40 p-3 rounded text-amber-500/80 font-mono overflow-x-auto border border-amber-500/20 leading-tight">
-{`-- 1. Nueva tabla para configuración flexible
-DROP TABLE IF EXISTS performance_role_configs CASCADE;
-CREATE TABLE performance_role_configs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  branch_id TEXT NOT NULL,
-  month TEXT NOT NULL,
-  role TEXT NOT NULL, -- 'encargado' or 'jefe_cocina'
-  variables JSONB DEFAULT '[]', -- Matriz de objetivos y escalas
-  sales_goal NUMERIC DEFAULT 0,
-  red_flag_penalty NUMERIC DEFAULT 1000,
-  UNIQUE(branch_id, month, role)
-);
-
--- 2. Tabla para reporte de resultados
-DROP TABLE IF EXISTS performance_reports CASCADE;
-CREATE TABLE performance_reports (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  branch_id TEXT NOT NULL,
-  month TEXT NOT NULL,
-  role TEXT NOT NULL,
-  results JSONB DEFAULT '[]', -- Valores reales y premio obtenido
-  actual_sales NUMERIC DEFAULT 0,
-  red_flags_count INTEGER DEFAULT 0,
-  total_calculated_prize NUMERIC DEFAULT 0,
-  UNIQUE(branch_id, month, role)
-);`}
-               </pre>
-            </div>
           </div>
         </div>
       </div>

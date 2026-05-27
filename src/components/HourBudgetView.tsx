@@ -188,7 +188,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             return sucursalPositions.map((p: any) => ({
               id: p.id || p.title.toLowerCase().replace(/\s+/g, '_'),
               label: p.title,
-              defaultRate: p.baseValue
+              defaultRate: p.type === 'monthly' ? (p.baseValue / 30 / 8) : p.baseValue
             }));
           }
         }
@@ -204,13 +204,23 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     if (saved) {
       try {
         const positions = JSON.parse(saved);
-        const hourlyPositions = positions.filter((p: any) => p.type === 'hourly');
         
-        const exact = hourlyPositions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-        if (exact) return exact.baseValue;
+        // Buscar coincidencia exacta sin filtrar por 'hourly' para soportar sueldo mensual
+        const exact = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+        if (exact) {
+          if (exact.type === 'monthly') {
+            return exact.baseValue / 30 / 8;
+          }
+          return exact.baseValue;
+        }
 
-        const approx = hourlyPositions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-        if (approx) return approx.baseValue;
+        const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
+        if (approx) {
+          if (approx.type === 'monthly') {
+            return approx.baseValue / 30 / 8;
+          }
+          return approx.baseValue;
+        }
       } catch (e) {
         console.error(e);
       }
@@ -1037,7 +1047,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                               {/* Coste Proyectado Column */}
                               <td className="px-4 py-2.5 text-right font-mono">
                                 <div className="flex flex-col items-end">
-                                  <span className="text-[11.5px] font-black text-white">
+                                  <span className="text-[11.5px] font-black text-text-main">
                                     ${rowCostInActiveWeek.toLocaleString('es-AR')}
                                   </span>
                                   <span className="text-[8px] text-text-dim uppercase font-bold text-[7px] mt-0.5">
