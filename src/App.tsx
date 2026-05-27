@@ -237,6 +237,7 @@ function AppContent() {
   const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
   const [rolesConfigList, setRolesConfigList] = useState<any[]>([]);
   const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
+  const [selectedLoginProfileId, setSelectedLoginProfileId] = useState<string>('');
 
   // Access and Password Verification System
   const [profilePendingUnlock, setProfilePendingUnlock] = useState<any | null>(null);
@@ -246,8 +247,7 @@ function AppContent() {
   const [refreshUnlockTrigger, setRefreshUnlockTrigger] = useState(0);
 
   const isCurrentProfileLocked = useMemo(() => {
-    if (!currentUserProfile) return false;
-    if (!currentUserProfile.password) return false;
+    if (!currentUserProfile) return true;
     return sessionStorage.getItem(`unlocked_profile_${currentUserProfile.id}`) !== 'true';
   }, [currentUserProfile, refreshUnlockTrigger]);
 
@@ -261,11 +261,20 @@ function AppContent() {
       if (profilesData) {
         setAvailableProfiles(profilesData);
         setCurrentUserProfile((prev: any) => {
-          if (!prev) {
-            return profilesData.find((p: any) => p.id === 'usr-admin') || profilesData[0] || null;
+          const storedId = sessionStorage.getItem('active_profile_id');
+          if (storedId) {
+            const matched = profilesData.find((p: any) => p.id === storedId);
+            if (matched && sessionStorage.getItem(`unlocked_profile_${matched.id}`) === 'true') {
+              return matched;
+            }
           }
-          const latest = profilesData.find((p: any) => p.id === prev.id);
-          return latest || prev;
+          if (prev) {
+            const latest = profilesData.find((p: any) => p.id === prev.id);
+            if (latest && sessionStorage.getItem(`unlocked_profile_${latest.id}`) === 'true') {
+              return latest;
+            }
+          }
+          return null;
         });
       }
     } catch (e) {
@@ -415,12 +424,12 @@ function AppContent() {
   const currentUser = useMemo(() => {
     if (!currentUserProfile) {
       return {
-        id: 'usr-admin',
-        name: 'ADMINISTRADOR',
-        role: 'administrador',
+        id: 'usr-guest',
+        name: 'INVITADO',
+        role: 'guest',
         branch: 'Todas las Sucursales',
-        permissions: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'pedidos_ya', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios'],
-        isReadOnly: false,
+        permissions: [],
+        isReadOnly: true,
         accessScope: 'all_branches' as 'all_branches' | 'single_branch'
       };
     }
@@ -746,6 +755,9 @@ function AppContent() {
   ];
 
   if (isCurrentProfileLocked) {
+    const activeLoginProfileForForm = currentUserProfile || availableProfiles.find(p => p.id === selectedLoginProfileId);
+    const hasNoPasswordSet = activeLoginProfileForForm && (!activeLoginProfileForForm.password || activeLoginProfileForForm.password.trim() === '');
+
     return (
       <div className="flex h-screen w-screen bg-[#0e1117] items-center justify-center p-4 font-sans text-text-main relative overflow-hidden" id="full-lock-screen">
         {/* Subtle background nodes or meshes */}
@@ -761,34 +773,67 @@ function AppContent() {
           <div className="space-y-1.5">
             <h1 className="text-brand-500 font-extrabold text-2xl tracking-tighter italic animate-bounce">CRAFT<span className="text-white">.</span></h1>
             <h2 className="text-[10px] font-black uppercase text-text-dim tracking-widest leading-none">
-              Control de Seguridad
+              Control de Seguridad y Acceso
             </h2>
           </div>
 
-          <div className="bg-bg-accent/40 border border-border-dim rounded p-4 text-center">
-            <p className="text-[10px] font-black uppercase text-brand-500 tracking-wider">Perfil Activo</p>
-            <p className="text-[13px] font-black text-text-main uppercase mt-1 tracking-tight">{currentUserProfile.name}</p>
-            <p className="text-[8px] font-black text-text-dim uppercase mt-1 tracking-wider border-t border-border-dim/45 pt-1.5 leading-none">
-              En calidad de: {currentUserProfile.role.replace('_', ' ')}
-            </p>
-          </div>
+          {currentUserProfile ? (
+            <div className="bg-bg-accent/40 border border-border-dim rounded p-4 text-center">
+              <p className="text-[10px] font-black uppercase text-brand-500 tracking-wider">Perfil Activo</p>
+              <p className="text-[13px] font-black text-text-main uppercase mt-1 tracking-tight">{currentUserProfile.name}</p>
+              <p className="text-[8px] font-black text-text-dim uppercase mt-1 tracking-wider border-t border-border-dim/45 pt-1.5 leading-none">
+                En calidad de: {currentUserProfile.role.replace('_', ' ')}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2 text-left">
+              <label className="text-[9px] font-black text-text-dim uppercase tracking-wider block">Seleccionar Colaborador / Perfil</label>
+              <select
+                value={selectedLoginProfileId}
+                onChange={(e) => {
+                  setSelectedLoginProfileId(e.target.value);
+                  if (unlockError) setUnlockError('');
+                }}
+                className="w-full px-3 py-3 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 uppercase font-bold"
+              >
+                <option value="">-- SELECCIONE SU USUARIO --</option>
+                {availableProfiles.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-[#1c2331] text-text-main uppercase">
+                    {p.name} ({p.role.replace('_', ' ').toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <form 
             onSubmit={(e) => {
               e.preventDefault();
-              if (typedUnlockPassword.trim() === currentUserProfile.password) {
-                sessionStorage.setItem(`unlocked_profile_${currentUserProfile.id}`, 'true');
+              const profileToUnlock = currentUserProfile || availableProfiles.find(p => p.id === selectedLoginProfileId);
+              
+              if (!profileToUnlock) {
+                setUnlockError('Por favor, selecciona tu perfil o usuario de la lista.');
+                return;
+              }
+
+              const expectedPass = (profileToUnlock.password || '').trim();
+              const enteredPass = typedUnlockPassword.trim();
+
+              if (enteredPass === expectedPass) {
+                sessionStorage.setItem(`unlocked_profile_${profileToUnlock.id}`, 'true');
+                sessionStorage.setItem('active_profile_id', profileToUnlock.id);
+                setCurrentUserProfile(profileToUnlock);
                 setTypedUnlockPassword('');
                 setUnlockError('');
                 setRefreshUnlockTrigger(prev => prev + 1);
               } else {
-                setUnlockError('Contraseña incorrecta. Intente de nuevo.');
+                setUnlockError('Contraseña o clave de acceso incorrecta.');
               }
             }}
             className="space-y-4"
           >
             <div className="space-y-1.5 text-left">
-              <label className="text-[9px] font-black text-text-dim uppercase tracking-wider block">Ingrese su Clave o PIN</label>
+              <label className="text-[9px] font-black text-text-dim uppercase tracking-wider block">Clave o PIN de Acceso</label>
               <div className="relative">
                 <input 
                   type={showUnlockPassValue ? "text" : "password"}
@@ -810,6 +855,13 @@ function AppContent() {
                   {showUnlockPassValue ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
+
+              {hasNoPasswordSet && (
+                <p className="text-amber-400 text-[9px] font-black uppercase tracking-wider mt-1 text-center bg-amber-500/10 py-1.5 rounded border border-amber-500/20">
+                  💡 Este usuario no tiene clave. Pulse para validar.
+                </p>
+              )}
+
               {unlockError && (
                 <p className="text-red-400 text-[9.5px] uppercase font-bold tracking-wide mt-1 text-center">
                   ⚠️ {unlockError}
@@ -821,20 +873,22 @@ function AppContent() {
               type="submit"
               className="w-full bg-brand-500 hover:bg-brand-600 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest transition-all font-mono shadow-lg shadow-brand-500/10 cursor-pointer"
             >
-              VALIDAR ACCESO
+              INICIAR SESIÓN / VALIDAR
             </button>
           </form>
 
-          {/* Switch profiles directly from lock screen */}
-          <div className="border-t border-border-dim/50 pt-4">
-            <button 
-              type="button"
-              onClick={() => setShowProfileSwitcher(true)}
-              className="text-[9.5px] font-black text-brand-500 hover:underline uppercase tracking-widest cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <Users size={12} /> Cambiar de Perfil / Usuario
-            </button>
-          </div>
+          {/* Switch profiles directly from lock screen, only if they already have one active */}
+          {currentUserProfile && (
+            <div className="border-t border-border-dim/50 pt-4">
+              <button 
+                type="button"
+                onClick={() => setShowProfileSwitcher(true)}
+                className="text-[9.5px] font-black text-brand-500 hover:underline uppercase tracking-widest cursor-pointer inline-flex items-center gap-1.5"
+              >
+                <Users size={12} /> Cambiar de Perfil / Usuario
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Since the profile switcher might be requested, render it on absolute layout over lock screen */}
