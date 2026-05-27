@@ -50,7 +50,10 @@ import {
   ArrowDown,
   Landmark,
   Crown,
-  Lock
+  Lock,
+  Unlock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -234,6 +237,19 @@ function AppContent() {
   const [availableProfiles, setAvailableProfiles] = useState<any[]>([]);
   const [rolesConfigList, setRolesConfigList] = useState<any[]>([]);
   const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
+
+  // Access and Password Verification System
+  const [profilePendingUnlock, setProfilePendingUnlock] = useState<any | null>(null);
+  const [typedUnlockPassword, setTypedUnlockPassword] = useState('');
+  const [showUnlockPassValue, setShowUnlockPassValue] = useState(false);
+  const [unlockError, setUnlockError] = useState('');
+  const [refreshUnlockTrigger, setRefreshUnlockTrigger] = useState(0);
+
+  const isCurrentProfileLocked = useMemo(() => {
+    if (!currentUserProfile) return false;
+    if (!currentUserProfile.password) return false;
+    return sessionStorage.getItem(`unlocked_profile_${currentUserProfile.id}`) !== 'true';
+  }, [currentUserProfile, refreshUnlockTrigger]);
 
   // Load profiles and roles for switching representation
   const loadAccessControlData = useCallback(async () => {
@@ -729,6 +745,225 @@ function AppContent() {
     { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
   ];
 
+  if (isCurrentProfileLocked) {
+    return (
+      <div className="flex h-screen w-screen bg-[#0e1117] items-center justify-center p-4 font-sans text-text-main relative overflow-hidden" id="full-lock-screen">
+        {/* Subtle background nodes or meshes */}
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-500/5 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/5 rounded-full blur-[100px] pointer-events-none" />
+
+        <div className="w-full max-w-sm bg-bg-sidebar border border-border-dim rounded p-8 shadow-2xl relative z-10 text-center space-y-6">
+          <div className="mx-auto bg-brand-500/10 w-16 h-16 rounded-full border border-brand-500/20 flex items-center justify-center text-brand-500 relative">
+            <Lock className="w-6 h-6 animate-pulse" />
+            <div className="absolute inset-0 rounded-full border border-brand-500/10 animate-ping" />
+          </div>
+
+          <div className="space-y-1.5">
+            <h1 className="text-brand-500 font-extrabold text-2xl tracking-tighter italic animate-bounce">CRAFT<span className="text-white">.</span></h1>
+            <h2 className="text-[10px] font-black uppercase text-text-dim tracking-widest leading-none">
+              Control de Seguridad
+            </h2>
+          </div>
+
+          <div className="bg-bg-accent/40 border border-border-dim rounded p-4 text-center">
+            <p className="text-[10px] font-black uppercase text-brand-500 tracking-wider">Perfil Activo</p>
+            <p className="text-[13px] font-black text-text-main uppercase mt-1 tracking-tight">{currentUserProfile.name}</p>
+            <p className="text-[8px] font-black text-text-dim uppercase mt-1 tracking-wider border-t border-border-dim/45 pt-1.5 leading-none">
+              En calidad de: {currentUserProfile.role.replace('_', ' ')}
+            </p>
+          </div>
+
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (typedUnlockPassword.trim() === currentUserProfile.password) {
+                sessionStorage.setItem(`unlocked_profile_${currentUserProfile.id}`, 'true');
+                setTypedUnlockPassword('');
+                setUnlockError('');
+                setRefreshUnlockTrigger(prev => prev + 1);
+              } else {
+                setUnlockError('Contraseña incorrecta. Intente de nuevo.');
+              }
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-1.5 text-left">
+              <label className="text-[9px] font-black text-text-dim uppercase tracking-wider block">Ingrese su Clave o PIN</label>
+              <div className="relative">
+                <input 
+                  type={showUnlockPassValue ? "text" : "password"}
+                  value={typedUnlockPassword}
+                  onChange={(e) => {
+                    setTypedUnlockPassword(e.target.value);
+                    if (unlockError) setUnlockError('');
+                  }}
+                  autoFocus
+                  className="w-full px-4 py-3 bg-bg-accent border border-border-dim rounded text-text-main text-xs text-center outline-none focus:border-brand-500 font-mono text-base tracking-widest"
+                  placeholder="••••••••"
+                  maxLength={32}
+                />
+                <button 
+                  type="button"
+                  onClick={() => setShowUnlockPassValue(!showUnlockPassValue)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main p-1 rounded"
+                >
+                  {showUnlockPassValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              {unlockError && (
+                <p className="text-red-400 text-[9.5px] uppercase font-bold tracking-wide mt-1 text-center">
+                  ⚠️ {unlockError}
+                </p>
+              )}
+            </div>
+
+            <button 
+              type="submit"
+              className="w-full bg-brand-500 hover:bg-brand-600 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest transition-all font-mono shadow-lg shadow-brand-500/10 cursor-pointer"
+            >
+              VALIDAR ACCESO
+            </button>
+          </form>
+
+          {/* Switch profiles directly from lock screen */}
+          <div className="border-t border-border-dim/50 pt-4">
+            <button 
+              type="button"
+              onClick={() => setShowProfileSwitcher(true)}
+              className="text-[9.5px] font-black text-brand-500 hover:underline uppercase tracking-widest cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <Users size={12} /> Cambiar de Perfil / Usuario
+            </button>
+          </div>
+        </div>
+
+        {/* Since the profile switcher might be requested, render it on absolute layout over lock screen */}
+        {showProfileSwitcher && availableProfiles.length > 0 && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setShowProfileSwitcher(false)} />
+            <div className="relative w-full max-w-sm bg-bg-sidebar border border-border-dim rounded shadow-2xl p-6 space-y-4">
+              <div className="flex justify-between items-center border-b border-border-dim pb-3">
+                <span className="text-[10px] font-black uppercase text-brand-500 tracking-widest">Simulación de Rol</span>
+                <span className="text-[9px] text-text-dim uppercase font-bold cursor-pointer hover:text-text-main" onClick={() => setShowProfileSwitcher(false)}>Cerrar</span>
+              </div>
+              <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                {availableProfiles.map((p: any) => (
+                  <button
+                    key={p.id}
+                    onClick={() => {
+                      if (p.password && sessionStorage.getItem(`unlocked_profile_${p.id}`) !== 'true') {
+                        setProfilePendingUnlock(p);
+                        setTypedUnlockPassword('');
+                        setUnlockError('');
+                        setShowProfileSwitcher(false);
+                      } else {
+                        setCurrentUserProfile(p);
+                        setShowProfileSwitcher(false);
+                      }
+                    }}
+                    className={cn(
+                      "w-full text-left px-4 py-3 rounded transition-all text-xs font-bold border flex justify-between items-center bg-transparent cursor-pointer",
+                      currentUserProfile?.id === p.id 
+                        ? "bg-brand-500 text-black border-brand-500" 
+                        : "text-text-main hover:bg-white/5 border-border-dim/40"
+                    )}
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="uppercase tracking-tight">{p.name || 'Sin Nombre'}</span>
+                      <span className={cn(
+                        "text-[8px] uppercase font-black tracking-wider leading-none",
+                        currentUserProfile?.id === p.id ? "text-black/60" : "text-text-dim"
+                      )}>{p.role.replace('_', ' ')} • {p.branch_name || 'Todas'}</span>
+                    </div>
+                    {p.password && (
+                      <Lock size={12} className={currentUserProfile?.id === p.id ? "text-black/60 shrink-0" : "text-brand-500 shrink-0"} />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Profile Switcher Password Prompt (Pending Switch) */}
+        {profilePendingUnlock && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/85 backdrop-blur-md" onClick={() => setProfilePendingUnlock(null)} />
+            <div className="relative w-full max-w-xs bg-bg-card border border-border-dim rounded shadow-2xl p-6 text-center space-y-4 z-10">
+              <div className="bg-brand-500/10 w-12 h-12 rounded-full mx-auto flex items-center justify-center text-brand-500">
+                <Lock size={18} className="animate-pulse" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase text-brand-500 tracking-wider">Validación Requerida</p>
+                <p className="text-xs font-black text-text-main uppercase mt-1">{profilePendingUnlock.name}</p>
+              </div>
+
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (typedUnlockPassword.trim() === profilePendingUnlock.password) {
+                    sessionStorage.setItem(`unlocked_profile_${profilePendingUnlock.id}`, 'true');
+                    setCurrentUserProfile(profilePendingUnlock);
+                    setProfilePendingUnlock(null);
+                    setTypedUnlockPassword('');
+                    setUnlockError('');
+                    setRefreshUnlockTrigger(prev => prev + 1);
+                  } else {
+                    setUnlockError('Contraseña incorrecta.');
+                  }
+                }}
+                className="space-y-3"
+              >
+                <div className="relative">
+                  <input 
+                    type={showUnlockPassValue ? "text" : "password"}
+                    value={typedUnlockPassword}
+                    onChange={(e) => {
+                      setTypedUnlockPassword(e.target.value);
+                      if (unlockError) setUnlockError('');
+                    }}
+                    autoFocus
+                    className="w-full px-3 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs text-center outline-none focus:border-brand-500 font-mono"
+                    placeholder="Contraseña"
+                    maxLength={32}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowUnlockPassValue(!showUnlockPassValue)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main p-1 rounded"
+                  >
+                    {showUnlockPassValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+                {unlockError && (
+                  <p className="text-red-400 text-[9px] uppercase font-bold tracking-wide">
+                    ⚠️ {unlockError}
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button 
+                    type="submit"
+                    className="flex-1 bg-brand-500 hover:bg-brand-600 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest font-mono shadow cursor-pointer"
+                  >
+                    Ingresar
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setProfilePendingUnlock(null)}
+                    className="px-3 py-2 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen bg-bg-main font-sans text-text-main">
       {/* Sidebar */}
@@ -834,21 +1069,32 @@ function AppContent() {
                 <button
                   key={p.id}
                   onClick={() => {
-                    setCurrentUserProfile(p);
-                    setShowProfileSwitcher(false);
+                    if (p.password && sessionStorage.getItem(`unlocked_profile_${p.id}`) !== 'true') {
+                      setProfilePendingUnlock(p);
+                      setTypedUnlockPassword('');
+                      setUnlockError('');
+                    } else {
+                      setCurrentUserProfile(p);
+                      setShowProfileSwitcher(false);
+                    }
                   }}
                   className={cn(
-                    "w-full text-left px-2 py-1.5 rounded transition-all text-[11px] font-bold flex flex-col gap-0.5",
+                    "w-full text-left px-2 py-1.5 rounded transition-all text-[11px] font-bold flex items-center justify-between gap-2",
                     currentUserProfile?.id === p.id 
                       ? "bg-brand-500 text-black" 
                       : "text-text-main hover:bg-white/5"
                   )}
                 >
-                  <span className="truncate uppercase">{p.name || 'Sin Nombre'}</span>
-                  <span className={cn(
-                    "text-[8px] uppercase font-black tracking-wider leading-none",
-                    currentUserProfile?.id === p.id ? "text-black/60" : "text-text-dim"
-                  )}>{p.role.replace('_', ' ')} • {p.branch_name || 'Todas'}</span>
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <span className="truncate uppercase">{p.name || 'Sin Nombre'}</span>
+                    <span className={cn(
+                      "text-[8px] uppercase font-black tracking-wider leading-none",
+                      currentUserProfile?.id === p.id ? "text-black/60" : "text-text-dim"
+                    )}>{p.role.replace('_', ' ')} • {p.branch_name || 'Todas'}</span>
+                  </div>
+                  {p.password && (
+                    <Lock size={11} className={currentUserProfile?.id === p.id ? "text-black/65 shrink-0" : "text-brand-500 shrink-0"} />
+                  )}
                 </button>
               ))}
             </div>
@@ -1142,6 +1388,97 @@ function AppContent() {
                       Cerrar
                     </button>
                   </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* Profile Switcher Password Prompt (Pending Switch) */}
+          <AnimatePresence>
+            {profilePendingUnlock && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setProfilePendingUnlock(null)}
+                  className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                  id="unlock-switcher-overlay"
+                />
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="relative w-full max-w-xs bg-bg-card border border-border-dim rounded-lg shadow-2xl p-6 text-center space-y-4 z-10"
+                  id="unlock-switcher-content"
+                >
+                  <div className="bg-brand-500/10 w-12 h-12 rounded-full mx-auto flex items-center justify-center text-brand-500 border border-brand-500/20">
+                    <Lock size={18} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black uppercase text-brand-500 tracking-wider">Validación de Perfil</p>
+                    <p className="text-xs font-black text-text-main uppercase mt-1">{profilePendingUnlock.name}</p>
+                  </div>
+
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (typedUnlockPassword.trim() === profilePendingUnlock.password) {
+                        sessionStorage.setItem(`unlocked_profile_${profilePendingUnlock.id}`, 'true');
+                        setCurrentUserProfile(profilePendingUnlock);
+                        setProfilePendingUnlock(null);
+                        setTypedUnlockPassword('');
+                        setUnlockError('');
+                        setRefreshUnlockTrigger(prev => prev + 1);
+                      } else {
+                        setUnlockError('Contraseña incorrecta.');
+                      }
+                    }}
+                    className="space-y-3"
+                  >
+                    <div className="relative">
+                      <input 
+                        type={showUnlockPassValue ? "text" : "password"}
+                        value={typedUnlockPassword}
+                        onChange={(e) => {
+                          setTypedUnlockPassword(e.target.value);
+                          if (unlockError) setUnlockError('');
+                        }}
+                        autoFocus
+                        className="w-full px-3 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs text-center outline-none focus:border-brand-500 font-mono"
+                        placeholder="Contraseña"
+                        maxLength={32}
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowUnlockPassValue(!showUnlockPassValue)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main p-1 rounded"
+                      >
+                        {showUnlockPassValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                      </button>
+                    </div>
+                    {unlockError && (
+                      <p className="text-red-400 text-[9px] uppercase font-bold tracking-wide">
+                        ⚠️ {unlockError}
+                      </p>
+                    )}
+
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        type="submit"
+                        className="flex-1 bg-brand-500 hover:bg-brand-600 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest font-mono shadow cursor-pointer"
+                      >
+                        Ingresar
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setProfilePendingUnlock(null)}
+                        className="px-3 py-2 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
                 </motion.div>
               </div>
             )}

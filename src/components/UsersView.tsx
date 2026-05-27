@@ -20,7 +20,9 @@ import {
   Plus,
   Compass,
   FileCheck,
-  AlertCircle
+  AlertCircle,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { User, Branch, RoleConfig } from '../types';
 import { cn } from '../lib/utils';
@@ -92,6 +94,33 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
     allowed_modules: []
   });
 
+  // Password setting states
+  const [showPassModal, setShowPassModal] = useState(false);
+  const [selectedUserForPass, setSelectedUserForPass] = useState<User | null>(null);
+  const [tempPassVal, setTempPassVal] = useState('');
+  const [showPassValue, setShowPassValue] = useState(false);
+  const [isSavingPass, setIsSavingPass] = useState(false);
+
+  const handleSavePassword = async () => {
+    if (!selectedUserForPass) return;
+    setIsSavingPass(true);
+    try {
+      const { error } = await supabase.from('profiles').update({
+        password: tempPassVal.trim()
+      }).eq('id', selectedUserForPass.id);
+      
+      if (error) throw error;
+      
+      setShowPassModal(false);
+      setSelectedUserForPass(null);
+      await fetchData();
+    } catch (e: any) {
+      alert(`Error al guardar contraseña: ${e.message || e}`);
+    } finally {
+      setIsSavingPass(false);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -118,7 +147,8 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
           name: u.name,
           role: u.role,
           branch: u.branch_name,
-          permissions: u.permissions || []
+          permissions: u.permissions || [],
+          password: u.password || ''
         })));
       }
 
@@ -432,7 +462,24 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2 text-text-dim">
+                            <div className="flex items-center justify-end gap-2.5 text-text-dim">
+                              <button 
+                                onClick={() => {
+                                  setSelectedUserForPass(user);
+                                  setTempPassVal(user.password || '');
+                                  setShowPassValue(false);
+                                  setShowPassModal(true);
+                                }}
+                                className={cn(
+                                  "p-1 transition-colors rounded",
+                                  user.password 
+                                    ? "text-brand-500 hover:text-brand-400" 
+                                    : "text-text-dim hover:text-brand-500 opacity-40 hover:opacity-100"
+                                )}
+                                title={user.password ? `Contraseña: ${user.password}` : "Establecer Contraseña Temporal"}
+                              >
+                                {user.password ? <Lock size={14} className="fill-brand-500/10" /> : <Unlock size={14} />}
+                              </button>
                               <button 
                                 onClick={() => startEditUser(user)}
                                 className="hover:text-brand-500 transition-colors p-1"
@@ -840,6 +887,102 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
               )}
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Password Management Modal */}
+      <AnimatePresence>
+        {showPassModal && selectedUserForPass && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowPassModal(false);
+                setSelectedUserForPass(null);
+              }}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              id="password-modal-overlay"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-bg-card border border-border-dim rounded shadow-2xl p-6 overflow-hidden z-10"
+              id="password-modal-content"
+            >
+              <div className="flex items-center gap-3 border-b border-border-dim pb-4 mb-4">
+                <div className="bg-brand-500/10 p-2.5 text-brand-500 border border-brand-500/20 rounded">
+                  <Lock size={18} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black uppercase text-text-main tracking-widest">
+                    Contraseña Temporal
+                  </h3>
+                  <p className="text-[10px] text-brand-500 uppercase font-bold tracking-wider leading-none mt-1">
+                    {selectedUserForPass.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-[10px] text-text-dim uppercase leading-relaxed font-semibold">
+                  Establece una contraseña o clave temporal para que el usuario pueda validarse al cambiar de perfil. Déjala en blanco si deseas que no requiera contraseña.
+                </p>
+
+                <div className="space-y-1.5">
+                  <label className="text-[9px] font-black text-text-dim uppercase tracking-wider block">Establecer Clave</label>
+                  <div className="relative">
+                    <input 
+                      type={showPassValue ? "text" : "password"}
+                      value={tempPassVal}
+                      onChange={(e) => setTempPassVal(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-mono"
+                      placeholder="Ej: craft123, 1234, etc."
+                      maxLength={32}
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowPassValue(!showPassValue)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main p-1 rounded"
+                    >
+                      {showPassValue ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-bg-accent/50 border border-border-dim p-3 rounded text-[9.5px] uppercase font-bold text-text-dim flex gap-2">
+                  <Shield size={14} className="text-brand-500 shrink-0" />
+                  <span>Como Administrador del sistema, puedes ver y modificar las claves para soporte de personal.</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-2">
+                <button 
+                  onClick={handleSavePassword}
+                  disabled={isSavingPass}
+                  className="flex-1 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-black py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all font-mono shadow-lg shadow-brand-500/10 flex items-center justify-center gap-2"
+                >
+                  {isSavingPass ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />
+                      Guardando...
+                    </>
+                  ) : 'Guardar Clave'}
+                </button>
+                <button 
+                  onClick={() => {
+                    setShowPassModal(false);
+                    setSelectedUserForPass(null);
+                  }}
+                  className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </motion.div>
