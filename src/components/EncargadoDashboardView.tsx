@@ -443,18 +443,47 @@ export default function EncargadoDashboardView({
   // 2. HR Hours calculations
   const positionHoursBreakdown = useMemo(() => {
     return hourBudgetRows.map(row => {
+      const positionId = row.roleId || row.positionId;
+      const positionName = row.roleLabel || row.positionName;
+
       // calculate budget for the month
-      const budgetedHours = (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0);
+      let budgetedHours = (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0);
       
+      // If zero (e.g., from V2 budget structure), compute dynamic calendar budget
+      if (budgetedHours === 0) {
+        try {
+          const [yearStr, monthStr] = selectedMonth.split('-');
+          const year = parseInt(yearStr) || 2026;
+          const month = (parseInt(monthStr) || 6) - 1; // 0-indexed
+          const daysInMonth = new Date(year, month + 1, 0).getDate();
+          
+          for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            let headcount = 0;
+            if (row.staffByDate && row.staffByDate[dateStr] !== undefined) {
+              headcount = row.staffByDate[dateStr];
+            } else {
+              const dayOfWeek = new Date(year, month, d).getDay();
+              const dayName = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][dayOfWeek];
+              const isWeekend = ['Viernes', 'Sábado'].includes(dayName);
+              headcount = isWeekend ? (row.countGroupB ?? row.countGroupA ?? 0) : (row.countGroupA ?? 0);
+            }
+            budgetedHours += headcount * (row.hoursPerDay || 8);
+          }
+        } catch (e) {
+          console.error("Error calculating V2 dynamic hours budget for dashboard:", e);
+        }
+      }
+
       // calculate actually worked hours from w1-w4
       let actualHours = 0;
       for (let w = 1; w <= 4; w++) {
         const weekEntries = weeklyHoursLogs[`w${w}`] || [];
         // find matching records for this job id or name template
         const match = weekEntries.find((ent: any) => 
-          ent.positionId === row.positionId || 
-          ent.positionName === row.positionName || 
-          ent.name === row.positionName
+          (positionId && ent.positionId === positionId) || 
+          (positionName && ent.positionName === positionName) || 
+          (positionName && ent.name === positionName)
         );
         if (match) {
           actualHours += (match.definitiveHours !== undefined ? Number(match.definitiveHours) : (match.referenceHours || 0));
@@ -471,15 +500,15 @@ export default function EncargadoDashboardView({
       const pct = budgetedHours > 0 ? (actualHours / budgetedHours) * 100 : 0;
 
       return {
-        positionId: row.positionId,
-        positionName: row.positionName,
+        positionId,
+        positionName,
         budgeted: budgetedHours,
         worked: actualHours,
         remaining: remainingHours,
         percent: pct
       };
     });
-  }, [hourBudgetRows, weeklyHoursLogs]);
+  }, [hourBudgetRows, weeklyHoursLogs, selectedMonth]);
 
   const totalHourBudget = useMemo(() => {
     return positionHoursBreakdown.reduce((sum, item) => sum + item.budgeted, 0);
