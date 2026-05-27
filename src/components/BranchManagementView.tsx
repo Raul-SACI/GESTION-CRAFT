@@ -522,29 +522,33 @@ export default function BranchManagementView({
 
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Estrellas Google (ej. 4.7)</label>
+                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block flex items-center gap-1">
+                              <span>Estrellas Google</span>
+                              <Lock size={10} className="text-yellow-500" />
+                            </label>
                             <input 
-                              type="number"
-                              step="0.1"
-                              min="1"
-                              max="5"
-                              value={editValues.googleRating !== undefined && editValues.googleRating !== null ? editValues.googleRating : ''}
-                              onChange={(e) => setEditValues({...editValues, googleRating: e.target.value ? Number(e.target.value) : undefined})}
-                              placeholder="4.7"
-                              className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-brand-500"
+                              type="text"
+                              disabled
+                              value={editValues.googleRating !== undefined && editValues.googleRating !== null ? `${editValues.googleRating} ⭐` : 'Sincronizando...'}
+                              className="w-full bg-bg-accent/40 border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-dim/60 outline-none cursor-not-allowed select-none"
                             />
                           </div>
                           <div>
-                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block">Total Reseñas (ej. 7399)</label>
+                            <label className="text-[8px] font-bold text-text-dim uppercase mb-1 block flex items-center gap-1">
+                              <span>Total Reseñas</span>
+                              <Lock size={10} className="text-yellow-500" />
+                            </label>
                             <input 
-                              type="number"
-                              value={editValues.googleRatingCount !== undefined && editValues.googleRatingCount !== null ? editValues.googleRatingCount : ''}
-                              onChange={(e) => setEditValues({...editValues, googleRatingCount: e.target.value ? Number(e.target.value) : undefined})}
-                              placeholder="7399"
-                              className="w-full bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-main outline-none focus:border-brand-500"
+                              type="text"
+                              disabled
+                              value={editValues.googleRatingCount !== undefined && editValues.googleRatingCount !== null ? editValues.googleRatingCount.toLocaleString('es-AR') : 'Sincronizando...'}
+                              className="w-full bg-bg-accent/40 border border-border-dim rounded px-3 py-1.5 text-xs font-mono text-text-dim/60 outline-none cursor-not-allowed select-none"
                             />
                           </div>
                         </div>
+                        <p className="text-[8.5px] text-text-dim font-medium italic">
+                          * Los datos de calificación y total de reseñas se obtienen directamente de Google Maps para garantizar transparencia absoluta.
+                        </p>
                       </div>
 
                       <div className="pt-4 border-t border-border-dim flex justify-between items-center">

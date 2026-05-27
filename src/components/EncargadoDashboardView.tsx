@@ -29,11 +29,13 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
-  BarChart4
+  BarChart4,
+  Lock
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
+import { useMapsLibrary } from '@vis.gl/react-google-maps';
 
 interface EncargadoDashboardProps {
   selectedBranchId: string;
@@ -48,6 +50,7 @@ export default function EncargadoDashboardView({
   onBranchChange,
   onNavigateToTab 
 }: EncargadoDashboardProps) {
+  const placesLib = useMapsLibrary('places');
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -76,6 +79,7 @@ export default function EncargadoDashboardView({
   
   // Reputación State
   const [googleRating, setGoogleRating] = useState(4.5);
+  const [googleRatingCount, setGoogleRatingCount] = useState(0);
   const [pedidosYaRestoRating, setPedidosYaRestoRating] = useState(4.5);
   const [pedidosYaCafeRating, setPedidosYaCafeRating] = useState(4.5);
 
@@ -305,6 +309,7 @@ export default function EncargadoDashboardView({
       // Google rating from active branch config
       if (activeBranch) {
         setGoogleRating(activeBranch.googleRating || 4.5);
+        setGoogleRatingCount(activeBranch.googleRatingCount || 0);
       }
 
       // Supervision responses for Red/Yellow/Green flags
@@ -377,6 +382,50 @@ export default function EncargadoDashboardView({
   useEffect(() => {
     loadAllData();
   }, [selectedBranchId, selectedMonth, activeBranch]);
+
+  useEffect(() => {
+    if (!activeBranch || !activeBranch.googlePlaceId || !placesLib) {
+      if (activeBranch) {
+        setGoogleRating(activeBranch.googleRating || 4.5);
+        // Also ensure fallback count is set
+        setGoogleRatingCount(activeBranch.googleRatingCount || 0);
+      }
+      return;
+    }
+
+    const fetchLiveGoogleData = async () => {
+      try {
+        const place = new placesLib.Place({ id: activeBranch.googlePlaceId });
+        await place.fetchFields({
+          fields: ['rating', 'userRatingCount']
+        });
+
+        if (place.rating !== undefined && place.rating !== null) {
+          setGoogleRating(place.rating);
+          // Also automatically propagate/save so other views are synced
+          supabase
+            .from('branches')
+            .update({
+              google_rating: place.rating,
+              google_rating_count: place.userRatingCount || activeBranch.googleRatingCount
+            })
+            .eq('id', activeBranch.id)
+            .then(({ error }) => {
+              if (error) console.error("Error updates realtime branch stats in dashboard:", error);
+            });
+        }
+        if (place.userRatingCount !== undefined && place.userRatingCount !== null) {
+          setGoogleRatingCount(place.userRatingCount);
+        }
+      } catch (err) {
+        console.warn("Real-time Places API failed in branch dashboard, rendering cached values:", err);
+        setGoogleRating(activeBranch.googleRating || 4.5);
+        setGoogleRatingCount(activeBranch.googleRatingCount || 0);
+      }
+    };
+
+    fetchLiveGoogleData();
+  }, [placesLib, activeBranch.googlePlaceId, activeBranch.id]);
 
   // COMBINED OPERATIVE COMPUTATIONS:
   // 1. CMV Final value
@@ -988,7 +1037,7 @@ export default function EncargadoDashboardView({
               {/* Google Maps Card */}
               <div className="bg-bg-accent/30 border border-border-dim p-4 rounded hover:border-yellow-500/30 transition-all flex flex-col justify-between">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[9px] font-black uppercase text-text-dim">Google Maps</span>
+                  <span className="text-[9px] font-black uppercase text-text-dim">Google Maps (Sincronizado)</span>
                   <div className="bg-yellow-500 text-black text-[8px] px-1.5 py-0.5 rounded font-black">G</div>
                 </div>
                 <div className="space-y-1">
@@ -996,7 +1045,10 @@ export default function EncargadoDashboardView({
                     {liveGoogleScore}
                     <Star size={18} className="text-yellow-500 fill-current" />
                   </h2>
-                  <p className="text-[8px] text-text-dim uppercase font-bold">Estrellas en Sucursal</p>
+                  <div className="flex justify-between items-center text-[9px] text-text-dim uppercase font-bold mt-1">
+                    <span>Estrellas</span>
+                    <span className="font-mono text-text-main">({googleRatingCount.toLocaleString('es-AR')} reseñas)</span>
+                  </div>
                 </div>
               </div>
 
