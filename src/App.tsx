@@ -239,6 +239,17 @@ function AppContent() {
   const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
   const [selectedLoginProfileId, setSelectedLoginProfileId] = useState<string>('');
 
+  const handleLogout = useCallback(() => {
+    sessionStorage.removeItem('active_profile_id');
+    if (currentUserProfile) {
+      sessionStorage.removeItem(`unlocked_profile_${currentUserProfile.id}`);
+    }
+    setCurrentUserProfile(null);
+    setSelectedLoginProfileId('');
+    setTypedUnlockPassword('');
+    setShowProfileSwitcher(false);
+  }, [currentUserProfile]);
+
   // Access and Password Verification System
   const [profilePendingUnlock, setProfilePendingUnlock] = useState<any | null>(null);
   const [typedUnlockPassword, setTypedUnlockPassword] = useState('');
@@ -1116,7 +1127,7 @@ function AppContent() {
         </nav>
 
         <div className="p-4 border-t border-sidebar-border bg-sidebar-border/10 relative">
-          {showProfileSwitcher && availableProfiles.length > 0 && (
+          {currentUser.role === 'administrador' && showProfileSwitcher && availableProfiles.length > 0 && (
             <div className="absolute bottom-full left-4 right-4 mb-2 bg-bg-sidebar border border-border-dim rounded-lg shadow-2xl p-2 max-h-60 overflow-y-auto z-50 space-y-1">
               <p className="text-[9px] font-black uppercase text-brand-500 px-2 pb-1.5 border-b border-border-dim mb-1 tracking-widest leading-none">Simulación de Rol</p>
               {availableProfiles.map((p: any) => (
@@ -1154,28 +1165,45 @@ function AppContent() {
             </div>
           )}
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button 
-              onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}
-              className="w-8 h-8 rounded-full bg-brand-500 hover:scale-105 transition-all text-black font-extrabold text-[10px] uppercase flex items-center justify-center shrink-0 shadow-lg shadow-brand-500/20"
-              title="Cambiar Perfil"
+              disabled={currentUser.role !== 'administrador'}
+              onClick={() => currentUser.role === 'administrador' && setShowProfileSwitcher(!showProfileSwitcher)}
+              className={cn(
+                "w-8 h-8 rounded-full bg-brand-500 text-black font-extrabold text-[10px] uppercase flex items-center justify-center shrink-0 shadow-lg shadow-brand-500/20",
+                currentUser.role === 'administrador' && "hover:scale-105 cursor-pointer"
+              )}
+              title={currentUser.role === 'administrador' ? "Cambiar Perfil" : undefined}
             >
               {currentUser.name ? currentUser.name.substring(0, 2).toUpperCase() : 'US'}
             </button>
-            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}>
-              <p className="text-xs font-bold truncate text-sidebar-text leading-tight uppercase font-sans">{currentUser.name}</p>
-              <p className="text-[9px] text-brand-500 font-black uppercase tracking-wider mt-0.5">{currentUser.role.replace('_', ' ')}</p>
-              <p className="text-[8px] text-sidebar-dim font-bold uppercase tracking-wider mt-0.5">{currentUser.branch}</p>
-            </div>
-            <button 
-              onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}
-              className={cn(
-                "p-1.5 rounded text-sidebar-dim hover:text-brand-500 hover:bg-white/5 transition-all",
-                showProfileSwitcher && "text-brand-500 bg-white/5"
-              )}
-              title="Seleccionar Usuario"
+            <div 
+              className={cn("flex-1 min-w-0", currentUser.role === 'administrador' && "cursor-pointer")} 
+              onClick={() => currentUser.role === 'administrador' && setShowProfileSwitcher(!showProfileSwitcher)}
             >
-              <Users size={14} />
+              <p className="text-xs font-bold truncate text-sidebar-text leading-tight uppercase font-sans text-left">{currentUser.name}</p>
+              <p className="text-[9px] text-brand-500 font-black uppercase tracking-wider mt-0.5 text-left">{currentUser.role.replace('_', ' ')}</p>
+              <p className="text-[8px] text-sidebar-dim font-bold uppercase tracking-wider mt-0.5 text-left">{currentUser.branch}</p>
+            </div>
+            {currentUser.role === 'administrador' && (
+              <button 
+                onClick={() => setShowProfileSwitcher(!showProfileSwitcher)}
+                className={cn(
+                  "p-1.5 rounded text-sidebar-dim hover:text-brand-500 hover:bg-white/5 transition-all cursor-pointer",
+                  showProfileSwitcher && "text-brand-500 bg-white/5"
+                )}
+                title="Seleccionar Usuario"
+              >
+                <Users size={14} />
+              </button>
+            )}
+            <button 
+              onClick={handleLogout}
+              className="p-1.5 rounded text-red-500 hover:text-red-650 hover:bg-red-500/10 transition-all cursor-pointer"
+              title="Cerrar Sesión"
+              id="logout-button"
+            >
+              <LogOut size={14} className="stroke-[2.5]" />
             </button>
           </div>
         </div>
