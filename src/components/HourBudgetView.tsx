@@ -211,6 +211,14 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
   
+  // Selected Row IDs for bulk actions
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+
+  // Clear selected rows when branch or month changes
+  useEffect(() => {
+    setSelectedRowIds([]);
+  }, [localBranchId, selectedMonth]);
+  
   // Excel/CSV Import/Export States
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importModalSuccess, setImportModalSuccess] = useState(false);
@@ -1003,6 +1011,33 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
               className="bg-transparent border-none text-[10px] font-mono text-text-main outline-none uppercase font-bold"
             />
           </div>
+
+          <button
+            onClick={() => {
+              if (confirm('⚠️ ¿Estás seguro de que deseas eliminar TODOS los presupuestos cargados hasta ahora en todas las sucursales y meses? Esta acción no se puede deshacer y te permitirá realizar una importación limpia.')) {
+                // Clear all keys from localStorage that start with hour_budget
+                const keysToRemove: string[] = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                  const key = localStorage.key(i);
+                  if (key && (key.startsWith('hour_budget_') || key.startsWith('hour_budget'))) {
+                    keysToRemove.push(key);
+                  }
+                }
+                keysToRemove.forEach(k => localStorage.removeItem(k));
+                
+                // Reset state
+                setRows([]);
+                setHolidaysList([]);
+                setSelectedRowIds([]);
+                alert('¡Datos correspondientes a todos los presupuestos vaciados con éxito! Procediendo a recargar la página.');
+                window.location.reload();
+              }
+            }}
+            className="text-[9.5px] font-black uppercase text-red-550 hover:text-red-400 bg-red-500/5 hover:bg-red-500/10 transition-all flex items-center gap-1.5 border border-red-500/20 px-3.5 py-1.5 rounded shrink-0 cursor-pointer"
+            title="Eliminar absolutamente todos los datos de presupuestos cargados para re-importar de cero"
+          >
+            <Trash2 size={13} className="stroke-[2.5]" /> Limpiar Todo
+          </button>
         </div>
       </div>
 
@@ -1234,6 +1269,20 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     >
                       <Copy size={12} /> Copiar a Todo el Mes
                     </button>
+                    {selectedRowIds.some(id => filteredRows.some(r => r.id === id)) && (
+                      <button
+                        onClick={() => {
+                          const toDelete = selectedRowIds.filter(id => filteredRows.some(r => r.id === id));
+                          if (confirm(`⚠️ ¿Estás seguro de que deseas eliminar los ${toDelete.length} puestos seleccionados?`)) {
+                            setRows(prev => prev.filter(r => !toDelete.includes(r.id)));
+                            setSelectedRowIds(prev => prev.filter(id => !toDelete.includes(id)));
+                          }
+                        }}
+                        className="text-[9px] font-black uppercase text-red-400 hover:text-white bg-red-500/10 hover:bg-red-500 transition-all flex items-center gap-1.5 border border-red-500/30 px-3 py-1.5 rounded"
+                      >
+                        <Trash2 size={12} className="stroke-[2.5]" /> Eliminar Seleccionados ({selectedRowIds.filter(id => filteredRows.some(r => r.id === id)).length})
+                      </button>
+                    )}
                     <button 
                       onClick={handleAddRow}
                       className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/15 px-3 py-1.5 bg-brand-500/[0.03] rounded"
@@ -1248,7 +1297,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     <thead>
                       {/* Sub-Header Row with Dates & Holidays indicator */}
                       <tr className="bg-bg-main/20 border-b border-border-dim/55 text-[8px] uppercase tracking-wider font-extrabold text-[#8B949E]">
-                        <th className="px-4 py-2 col-span-3"></th>
+                        <th className="px-4 py-2 w-10"></th>
+                        <th className="px-4 py-2"></th>
                         <th className="px-4 py-2"></th>
                         <th className="px-4 py-2"></th>
                         {activeWeek.days.map((day) => {
@@ -1288,6 +1338,21 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                       {/* Prime Headings */}
                       <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] uppercase text-text-dim tracking-widest font-black">
+                        <th className="px-4 py-3 text-center w-10">
+                          <input 
+                            type="checkbox" 
+                            checked={filteredRows.length > 0 && filteredRows.every(r => selectedRowIds.includes(r.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedRowIds(prev => [...new Set([...prev, ...filteredRows.map(r => r.id)])]);
+                              } else {
+                                setSelectedRowIds(prev => prev.filter(id => !filteredRows.some(r => r.id === id)));
+                              }
+                            }}
+                            className="rounded text-brand-500 bg-bg-sidebar focus:ring-0 border-border-dim w-3.5 h-3.5 cursor-pointer accent-brand-500"
+                            title="Seleccionar todos los puestos"
+                          />
+                        </th>
                         <th className="px-4 py-3">Puesto</th>
                         <th className="px-4 py-3 text-center">Turno</th>
                         <th className="px-4 py-3 text-center">Hs Jornada</th>
@@ -1309,7 +1374,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     <tbody className="divide-y divide-border-dim/40">
                       {filteredRows.length === 0 ? (
                         <tr>
-                          <td colSpan={13} className="px-6 py-12 text-center text-text-dim uppercase font-black opacity-40">
+                          <td colSpan={14} className="px-6 py-12 text-center text-text-dim uppercase font-black opacity-40">
                             No hay filas de presupuesto para esta sucursal. ¡Crea una para comenzar!
                           </td>
                         </tr>
@@ -1333,6 +1398,21 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                           return (
                             <tr key={row.id} className="hover:bg-bg-accent/30 transition-colors group">
+                              {/* Selection Checkbox */}
+                              <td className="px-4 py-2.5 text-center w-10">
+                                <input 
+                                  type="checkbox" 
+                                  checked={selectedRowIds.includes(row.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedRowIds(prev => [...prev, row.id]);
+                                    } else {
+                                      setSelectedRowIds(prev => prev.filter(id => id !== row.id));
+                                    }
+                                  }}
+                                  className="rounded text-brand-500 bg-bg-sidebar focus:ring-0 border-border-dim w-3.5 h-3.5 cursor-pointer accent-brand-500"
+                                />
+                              </td>
                               {/* Puesto Column */}
                               <td className="px-4 py-2.5">
                                 <select
@@ -1441,7 +1521,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                       <tfoot className="bg-[#121212]/30 border-t border-border-dim/80 font-mono text-[9.5px]">
                         {/* Summary: Total Headcount */}
                         <tr className="border-b border-border-dim/20">
-                          <td colSpan={3} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
+                          <td colSpan={4} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
                             Personal del Turno (Dotación):
                           </td>
                           {activeWeek.days.map(day => {
@@ -1457,7 +1537,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                         {/* Summary: Total Hours */}
                         <tr className="border-b border-border-dim/20">
-                          <td colSpan={3} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
+                          <td colSpan={4} className="px-4 py-2 font-bold text-text-dim uppercase text-[8px] tracking-wider text-right">
                             Horas Totales del Día:
                           </td>
                           {activeWeek.days.map(day => {
@@ -1473,7 +1553,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
                         {/* Summary: Cost */}
                         <tr className="border-b border-border-dim/20 font-bold bg-[#1A1A1A]">
-                          <td colSpan={3} className="px-4 py-2 font-black text-brand-500 uppercase text-[8.5px] tracking-wider text-right">
+                          <td colSpan={4} className="px-4 py-2 font-black text-brand-500 uppercase text-[8.5px] tracking-wider text-right">
                             Costo Proyectado Por Día:
                           </td>
                           {activeWeek.days.map(day => {
