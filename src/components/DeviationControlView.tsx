@@ -59,6 +59,7 @@ export default function DeviationControlView({
   const [loading, setLoading] = useState(false);
   const [recipeViewMode, setRecipeViewMode] = useState<'individual' | 'table'>('individual');
   const [recipeTableSearch, setRecipeTableSearch] = useState('');
+  const [selectorSearch, setSelectorSearch] = useState('');
 
   // Daily Logs State
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
@@ -447,6 +448,52 @@ export default function DeviationControlView({
 Para solucionar esto, copie y ejecute el siguiente comando en el SQL Editor de Supabase:
 ALTER TABLE monthly_controlled_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) WITH CHECK (true);`);
+    }
+  };
+
+  const saveMonthlyControlForAllBranches = async () => {
+    if (controlledIds.length === 0) {
+      if (!confirm('⚠️ No has seleccionado ningún insumo. ¿Estás seguro de que deseas vaciar el control mensual para TODAS las sucursales?')) {
+        return;
+      }
+    } else {
+      if (!confirm(`⚠️ ¿Estás seguro de que deseas aplicar estos ${controlledIds.length} insumos seleccionados a TODAS las sucursales para el mes ${selectedMonth}?`)) {
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      const targetBranches = branches.filter(b => b.id !== 'all');
+      if (targetBranches.length === 0) {
+        alert('No se encontraron sucursales a las cuales aplicar la selección.');
+        return;
+      }
+
+      const upsertPromises = targetBranches.map(async (branch) => {
+        return supabase
+          .from('monthly_controlled_items')
+          .upsert({
+            branch_id: branch.id,
+            month: selectedMonth,
+            item_ids: controlledIds
+          }, { onConflict: 'branch_id,month' });
+      });
+
+      const results = await Promise.all(upsertPromises);
+      const errors = results.filter(r => r.error);
+
+      if (errors.length === 0) {
+        alert(`¡Éxito! Selección de insumos copiada y confirmada para todas las sucursales (${targetBranches.length}) en el mes ${selectedMonth}.`);
+      } else {
+        console.error('Errors copying controls to all branches:', errors);
+        alert(`Se guardó con algunos errores: ${errors[0].error?.message}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al guardar para todas las sucursales: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -858,10 +905,10 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                  </div>
                )}
              </div>
-          </motion.div>
-        )}
+           </motion.div>
+         )}
 
-        {activeTab === 'selector' && (
+         {activeTab === 'selector' && (
           <motion.div key="selector" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
             <div className="bg-bg-sidebar border border-border-dim p-8 rounded-lg max-w-2xl mx-auto shadow-2xl">
               <div className="flex justify-between items-center mb-6">
@@ -874,41 +921,98 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {items.map(item => (
+              {/* Buscador de Insumos Rápido */}
+              <div className="flex gap-2 mb-6">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+                  <input 
+                    type="text"
+                    value={selectorSearch}
+                    onChange={(e) => setSelectorSearch(e.target.value)}
+                    placeholder="Escriba el nombre del insumo para buscar..."
+                    className="w-full pl-9 pr-12 py-2.5 bg-bg-accent border border-border-dim rounded text-[10px] font-black uppercase tracking-widest outline-none focus:border-brand-500 placeholder-text-dim/60"
+                  />
+                  {selectorSearch && (
+                    <button 
+                      onClick={() => setSelectorSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text-main transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                {selectorSearch && (
                   <button
-                    key={item.id}
                     onClick={() => {
-                        if (controlledIds.includes(item.id)) {
-                          setControlledIds(prev => prev.filter(id => id !== item.id));
-                        } else {
-                          setControlledIds(prev => [...prev, item.id]);
-                        }
+                      const filtered = items.filter(item => item.name.toLowerCase().includes(selectorSearch.toLowerCase()));
+                      const itemsToSelect = filtered.map(item => item.id);
+                      setControlledIds(prev => {
+                        const next = [...prev];
+                        itemsToSelect.forEach(id => {
+                          if (!next.includes(id)) {
+                            next.push(id);
+                          }
+                        });
+                        return next;
+                      });
                     }}
-                    className={cn(
-                      "flex items-center justify-between p-4 rounded border transition-all text-left uppercase tracking-widest text-[10px] font-black group",
-                      controlledIds.includes(item.id) 
-                        ? "bg-brand-500/10 border-brand-500 text-brand-500 shadow-lg shadow-brand-500/5" 
-                        : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
-                    )}
+                    className="px-4 py-2.5 bg-brand-500/10 hover:bg-brand-500/20 text-brand-500 rounded border border-brand-500/30 text-[10px] font-black uppercase tracking-widest transition-all shrink-0"
                   >
-                    <span>{item.name}</span>
-                    <div className={cn(
-                      "w-4 h-4 rounded flex items-center justify-center border",
-                      controlledIds.includes(item.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
-                    )}>
-                       {controlledIds.includes(item.id) && <X size={10} className="text-black rotate-45" />}
-                    </div>
+                    Marcar Todos
                   </button>
-                ))}
+                )}
               </div>
 
-              <button 
-                onClick={saveMonthlyControl}
-                className="w-full mt-8 bg-brand-500 text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 font-bold"
-              >
-                CONFIRMAR CONTROL MENSUAL PARA {selectedMonth}
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
+                {items.filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase())).length > 0 ? (
+                  items.filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase())).map(item => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                          if (controlledIds.includes(item.id)) {
+                            setControlledIds(prev => prev.filter(id => id !== item.id));
+                          } else {
+                            setControlledIds(prev => [...prev, item.id]);
+                          }
+                      }}
+                      className={cn(
+                        "flex items-center justify-between p-4 rounded border transition-all text-left uppercase tracking-widest text-[10px] font-black group",
+                        controlledIds.includes(item.id) 
+                          ? "bg-brand-500/10 border-brand-500 text-brand-500 shadow-lg shadow-brand-500/5" 
+                          : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
+                      )}
+                    >
+                      <span>{item.name}</span>
+                      <div className={cn(
+                        "w-4 h-4 rounded flex items-center justify-center border",
+                        controlledIds.includes(item.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                      )}>
+                         {controlledIds.includes(item.id) && <X size={10} className="text-black rotate-45" />}
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="col-span-2 py-8 text-center text-text-dim text-[10px] font-bold uppercase tracking-wider">
+                    No se encontraron insumos que coincidan con la búsqueda
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-8 space-y-3">
+                <button 
+                  onClick={saveMonthlyControl}
+                  className="w-full bg-brand-500 text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10 font-bold"
+                >
+                  CONFIRMAR CONTROL MENSUAL SUCURSAL ACTUAL
+                </button>
+
+                <button 
+                  onClick={saveMonthlyControlForAllBranches}
+                  className="w-full bg-bg-accent border border-brand-500/20 text-brand-500 py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-500/10 hover:border-brand-500 transition-all font-bold"
+                >
+                  APLICAR ESTOS INSUMOS A TODAS LAS SUCURSALES
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
