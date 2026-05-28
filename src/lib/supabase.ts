@@ -192,7 +192,12 @@ class MockQueryBuilder {
       if (res.ok) {
         const payload = await res.json();
         if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
-          items = payload.data;
+          let serverItems = payload.data;
+          if (this.table === 'profiles') {
+            const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
+            serverItems = serverItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id));
+          }
+          items = serverItems;
           loadedFromServer = true;
           // Sync to localStorage as local cache
           try {
@@ -209,20 +214,12 @@ class MockQueryBuilder {
       try {
         const saved = localStorage.getItem(storageKey);
         if (saved) {
-          items = JSON.parse(saved);
-          
-          // Migrate localStorage data to server so it becomes central
-          if (items.length > 0) {
-            try {
-              await fetch(`/api/mock-db/${this.table}/save`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ data: items }),
-              });
-            } catch (err) {
-              console.warn(`[Mock DB] Failed to save/migrate offline data of '${this.table}' to server:`, err);
-            }
+          let cachedItems = JSON.parse(saved);
+          if (this.table === 'profiles') {
+            const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
+            cachedItems = cachedItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id));
           }
+          items = cachedItems;
         }
       } catch (e) {
         console.error(e);
