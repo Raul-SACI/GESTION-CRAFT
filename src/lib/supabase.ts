@@ -192,92 +192,12 @@ class MockQueryBuilder {
       if (res.ok) {
         const payload = await res.json();
         if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
-          let useServerData = true;
-
-          // Smart synchronization & merging of local state with server state
+          items = payload.data;
+          loadedFromServer = true;
+          // Sync to localStorage as local cache
           try {
-            const saved = localStorage.getItem(storageKey);
-            if (saved) {
-              const localItems = JSON.parse(saved);
-              if (Array.isArray(localItems) && localItems.length > 0) {
-                const serverItems = payload.data;
-                
-                // Let's check if the server has ONLY default seed items/profiles.
-                // If the server has custom records, we should NEVER allow stale client storage to overwrite it!
-                let isServerEmptyOrDefaultsOnly = false;
-                if (this.table === 'profiles') {
-                  const defaultProfileIds = ['usr-raul', 'usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica'];
-                  isServerEmptyOrDefaultsOnly = serverItems.every((item: any) => defaultProfileIds.includes(item.id));
-                } else if (this.table === 'branches') {
-                  isServerEmptyOrDefaultsOnly = serverItems.length <= 5;
-                } else if (this.table === 'roles_config') {
-                  isServerEmptyOrDefaultsOnly = serverItems.length <= 6;
-                } else {
-                  const defaultSeeds = this.getDefaultSeeds();
-                  isServerEmptyOrDefaultsOnly = serverItems.every((item: any) => defaultSeeds.some(s => s.id === item.id));
-                }
-
-                // We only perform client-side recovery/merging if the server database has nothing but defaults
-                // AND the client browser actually has custom records (to migrate them to the server once).
-                if (isServerEmptyOrDefaultsOnly) {
-                  let hasCustomLocal = false;
-                  if (this.table === 'profiles') {
-                    const defaultProfileIds = ['usr-raul', 'usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica'];
-                    hasCustomLocal = localItems.some((item: any) => !defaultProfileIds.includes(item.id) || (item.password && item.password.trim() !== ''));
-                  } else {
-                    const defaultSeeds = this.getDefaultSeeds();
-                    hasCustomLocal = localItems.some((item: any) => !defaultSeeds.some(s => s.id === item.id));
-                  }
-
-                  if (hasCustomLocal) {
-                    console.log(`[Smart DB Sync] Server table '${this.table}' has defaults, but client has custom elements. Restoring and merging local cache to server.`);
-                    const mergedMap = new Map<string, any>();
-                    
-                    // Add server items
-                    for (const item of serverItems) {
-                      if (item && item.id) mergedMap.set(item.id, item);
-                    }
-                    
-                    // Merge local items
-                    for (const localItem of localItems) {
-                      if (!localItem || !localItem.id) continue;
-                      const serverItem = mergedMap.get(localItem.id);
-                      if (serverItem) {
-                        mergedMap.set(localItem.id, { ...serverItem, ...localItem });
-                      } else {
-                        mergedMap.set(localItem.id, localItem);
-                      }
-                    }
-                    
-                    items = Array.from(mergedMap.values());
-                    useServerData = false;
-                    loadedFromServer = true;
-
-                    // Sync immediately to localStorage as local cache
-                    localStorage.setItem(storageKey, JSON.stringify(items));
-
-                    console.log(`[Smart DB Sync] Restoring custom items back to server:`, items);
-                    fetch(`/api/mock-db/${this.table}/save`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ data: items }),
-                    }).catch(err => console.warn(`[Smart DB Sync] Failed to sync merged data for ${this.table}:`, err));
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.error(`[Smart DB Sync] Error synchronizing data for ${this.table}:`, e);
-          }
-
-          if (useServerData) {
-            items = payload.data;
-            loadedFromServer = true;
-            // Sync to localStorage as local cache
-            try {
-              localStorage.setItem(storageKey, JSON.stringify(items));
-            } catch (e) {}
-          }
+            localStorage.setItem(storageKey, JSON.stringify(items));
+          } catch (e) {}
         }
       }
     } catch (e) {
@@ -587,11 +507,7 @@ class MockQueryBuilder {
     }
     if (this.table === 'profiles') {
       return [
-        { id: 'usr-raul', name: 'RAUL DIAZ', role: 'administrador', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
-        { id: 'usr-patricio', name: 'PATRICIO BERNAT', role: 'lider_operativo', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
-        { id: 'usr-samuel', name: 'SAMUEL RACEDO', role: 'administracion', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
-        { id: 'usr-marcela', name: 'MARCELA ROLDAN', role: 'encargado', branch_name: 'CRAFT Barrio Norte', permissions: [], password: '' },
-        { id: 'usr-veronica', name: 'VERONICA CREMONA', role: 'recursos_humanos', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' }
+        { id: 'usr-raul', name: 'RAUL DIAZ', role: 'administrador', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' }
       ];
     }
     return [];

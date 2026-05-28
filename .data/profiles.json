@@ -6,37 +6,5 @@
     "branch_name": "TODAS LAS SUCURSALES",
     "permissions": [],
     "password": ""
-  },
-  {
-    "id": "usr-patricio",
-    "name": "PATRICIO BERNAT",
-    "role": "lider_operativo",
-    "branch_name": "TODAS LAS SUCURSALES",
-    "permissions": [],
-    "password": ""
-  },
-  {
-    "id": "usr-samuel",
-    "name": "SAMUEL RACEDO",
-    "role": "administracion",
-    "branch_name": "TODAS LAS SUCURSALES",
-    "permissions": [],
-    "password": ""
-  },
-  {
-    "id": "usr-marcela",
-    "name": "MARCELA ROLDAN",
-    "role": "encargado",
-    "branch_name": "CRAFT Barrio Norte",
-    "permissions": [],
-    "password": ""
-  },
-  {
-    "id": "usr-veronica",
-    "name": "VERONICA CREMONA",
-    "role": "recursos_humanos",
-    "branch_name": "TODAS LAS SUCURSALES",
-    "permissions": [],
-    "password": ""
   }
 ]
