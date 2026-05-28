@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Plus,
   X,
+  Check,
   Search,
   BookOpen,
   Info,
@@ -60,6 +61,7 @@ export default function DeviationControlView({
   const [recipeViewMode, setRecipeViewMode] = useState<'individual' | 'table'>('individual');
   const [recipeTableSearch, setRecipeTableSearch] = useState('');
   const [selectorSearch, setSelectorSearch] = useState('');
+  const [showOnlySelected, setShowOnlySelected] = useState(false);
 
   // Daily Logs State
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
@@ -963,9 +965,74 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 )}
               </div>
 
+              {/* Resumen de Insumos Seleccionados */}
+              {validControlledIds.length > 0 && (
+                <div className="mb-6 p-4 bg-brand-50/[0.04] dark:bg-brand-500/[0.04] border border-brand-500/20 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[9px] font-black uppercase text-brand-500 tracking-wider">
+                      Insumos actualmente controlados ({validControlledIds.length})
+                    </span>
+                    <button 
+                      onClick={() => setControlledIds([])}
+                      className="text-[9px] font-black text-text-dim hover:text-brand-500 uppercase transition-colors"
+                    >
+                      Deseleccionar Todos
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto custom-scrollbar pr-1">
+                    {items.filter(item => controlledIds.includes(item.id)).map(item => (
+                      <span 
+                        key={item.id}
+                        onClick={() => setControlledIds(prev => prev.filter(id => id !== item.id))}
+                        className="inline-flex items-center gap-1.5 px-2 py-1 bg-brand-500 text-white rounded text-[8px] font-black uppercase tracking-wider cursor-pointer hover:bg-brand-600 transition-all hover:scale-[1.03] shadow-md shadow-brand-500/10"
+                      >
+                        {item.name}
+                        <X size={10} className="stroke-[3]" />
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Encabezado de la grilla y Filtro */}
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">
+                  Disponibles en catálogo (Priorizados arriba)
+                </span>
+                <button
+                  onClick={() => setShowOnlySelected(!showOnlySelected)}
+                  className={cn(
+                    "px-3 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all border",
+                    showOnlySelected 
+                      ? "bg-brand-500 text-white border-brand-600 shadow shadow-brand-500/20 font-bold" 
+                      : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
+                  )}
+                >
+                  {showOnlySelected ? "Ver Todos" : "Ver Solo Seleccionados"}
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
-                {items.filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase())).length > 0 ? (
-                  items.filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase())).map(item => (
+                {items
+                  .filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase()))
+                  .filter(item => !showOnlySelected || controlledIds.includes(item.id))
+                  .sort((a, b) => {
+                    const aSel = controlledIds.includes(a.id);
+                    const bSel = controlledIds.includes(b.id);
+                    if (aSel && !bSel) return -1;
+                    if (!aSel && bSel) return 1;
+                    return a.name.localeCompare(b.name);
+                  }).length > 0 ? (
+                  items
+                    .filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase()))
+                    .filter(item => !showOnlySelected || controlledIds.includes(item.id))
+                    .sort((a, b) => {
+                      const aSel = controlledIds.includes(a.id);
+                      const bSel = controlledIds.includes(b.id);
+                      if (aSel && !bSel) return -1;
+                      if (!aSel && bSel) return 1;
+                      return a.name.localeCompare(b.name);
+                    }).map(item => (
                     <button
                       key={item.id}
                       onClick={() => {
@@ -978,16 +1045,22 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                       className={cn(
                         "flex items-center justify-between p-4 rounded border transition-all text-left uppercase tracking-widest text-[10px] font-black group",
                         controlledIds.includes(item.id) 
-                          ? "bg-brand-500/10 border-brand-500 text-brand-500 shadow-lg shadow-brand-500/5" 
+                          ? "bg-brand-500 text-white border-brand-600 shadow-md shadow-brand-500/15" 
                           : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
                       )}
                     >
-                      <span>{item.name}</span>
+                      <span className={cn(controlledIds.includes(item.id) ? "text-white font-black" : "text-text-dim group-hover:text-text-main")}>
+                        {item.name}
+                      </span>
                       <div className={cn(
-                        "w-4 h-4 rounded flex items-center justify-center border",
-                        controlledIds.includes(item.id) ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                        "w-5 h-5 rounded flex items-center justify-center border transition-all shrink-0",
+                        controlledIds.includes(item.id) ? "bg-white border-white text-brand-500 shadow-sm" : "border-border-dim bg-transparent"
                       )}>
-                         {controlledIds.includes(item.id) && <X size={10} className="text-black rotate-45" />}
+                         {controlledIds.includes(item.id) ? (
+                           <Check size={11} className="text-brand-500 stroke-[3.5]" />
+                         ) : (
+                           <Plus size={11} className="text-text-dim/60 group-hover:text-text-main" />
+                         )}
                       </div>
                     </button>
                   ))
