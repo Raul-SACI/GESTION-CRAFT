@@ -577,6 +577,12 @@ try {
       list.forEach(t => failedRemoteTables.add(t));
     }
   }
+  // Force delete profiles from failed list to ensure real Supabase retry since column is added
+  if (failedRemoteTables.has('profiles')) {
+    failedRemoteTables.delete('profiles');
+    localStorage.setItem(LOADED_FAILED_TABLES_KEY, JSON.stringify(Array.from(failedRemoteTables)));
+    console.log('[Supabase Failover Cache] Evicted profiles table to force real database retry.');
+  }
 } catch (e) {
   console.error('[Supabase Fallback] Error reading initially failed tables:', e);
 }
@@ -689,7 +695,7 @@ if (isMissingCredentials) {
   console.warn('Supabase credentials missing or invalid. Utilizing fully-functional client-side Local/Offline Emulator for seamless storage operations.');
 }
 
-const realSupabaseClient = isMissingCredentials
+export const realSupabaseClient = isMissingCredentials
   ? localSupabaseEmulator
   : createClient(supabaseUrl, supabaseAnonKey);
 
@@ -707,3 +713,5 @@ export const supabase = new Proxy(realSupabaseClient, {
     return (target as any)[prop];
   }
 }) as any;
+
+export { isMissingCredentials };

@@ -74,7 +74,7 @@ import {
   StockItem,
   Product
 } from './types';
-import { supabase } from './lib/supabase';
+import { supabase, realSupabaseClient, isMissingCredentials } from './lib/supabase';
 
 // Lazy load views for better performance
 const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'));
@@ -312,6 +312,27 @@ function AppContent() {
               console.warn(`[Access Control Sync] Failed to purge user ${p.name || p.id}:`, err);
             });
           });
+        }
+
+        // Maintain real Supabase profiles if credentials are configured
+        if (!isMissingCredentials) {
+          (async () => {
+            try {
+              // Ensure Raul is inserted in the real Supabase table if missing - using standard upsert without invalid UUID id if key format doesn't match
+              const { data: existingRaul } = await realSupabaseClient.from('profiles').select('*').eq('name', 'RAUL DIAZ').maybeSingle();
+              if (!existingRaul) {
+                // If it doesn't exist, we insert him. Since id is UUID PK default, we let database generate it
+                await realSupabaseClient.from('profiles').insert([{ 
+                  name: 'RAUL DIAZ', 
+                  role: 'administrador', 
+                  branch_name: 'TODAS LAS SUCURSALES' 
+                }]);
+                console.log('[Access Control Sync] Inserted default administrator Raul Diaz.');
+              }
+            } catch (err) {
+              console.warn('[Access Control Sync] Failed to sync default profiles in real database:', err);
+            }
+          })();
         }
 
         setAvailableProfiles(cleanProfiles);
