@@ -20,7 +20,8 @@ import {
   ChevronDown,
   ChevronUp,
   GripVertical,
-  Building2
+  Building2,
+  CalendarDays
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -455,6 +456,100 @@ export default function PerformanceAdminView({
     }
   };
 
+  const handleCopyToNextMonth = async () => {
+    if (localBranchId === 'all') return;
+
+    // Parse selectedMonth (YYYY-MM)
+    const [yearStr, monthStr] = selectedMonth.split('-');
+    let year = parseInt(yearStr, 10);
+    let month = parseInt(monthStr, 10);
+    if (isNaN(year) || isNaN(month)) {
+      alert('El mes seleccionado contiene un formato inválido.');
+      return;
+    }
+
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+
+    const nextMonthString = `${year}-${String(month).padStart(2, '0')}`;
+
+    const confirmMessage = `¿Seguro que deseas copiar la configuración de variables y premios de este mes (${selectedMonth}) al mes siguiente (${nextMonthString}) para esta sucursal?\n\nLa configuración existente del mes siguiente será reemplazada.`;
+    if (!window.confirm(confirmMessage)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Prepare payload for next month for both roles
+      const configsArray = Object.values(configs) as PerformanceRoleConfig[];
+      const payloads = configsArray.map(cfg => ({
+        branch_id: localBranchId,
+        month: nextMonthString,
+        role: cfg.role,
+        variables: cfg.variables.map(v => ({
+          ...v,
+          // Generate new IDs to prevent overlap issues, but keep structure and tiers
+          id: uuidv4(),
+          tiers: v.tiers.map(t => ({
+            ...t,
+            id: uuidv4()
+          }))
+        })),
+        sales_goal: cfg.salesGoal,
+        red_flag_penalty: cfg.redFlagPenalty
+      }));
+
+      // Cache locally
+      try {
+        const storageKeyConfig = `craft_performance_config_${localBranchId}_${nextMonthString}`;
+        const nextMonthLocalConfigs = {
+          encargado: {
+            ...configs.encargado,
+            month: nextMonthString,
+            variables: configs.encargado.variables.map(v => ({
+              ...v,
+              id: uuidv4(),
+              tiers: v.tiers.map(t => ({ ...t, id: uuidv4() }))
+            })),
+            id: ''
+          },
+          jefe_cocina: {
+            ...configs.jefe_cocina,
+            month: nextMonthString,
+            variables: configs.jefe_cocina.variables.map(v => ({
+              ...v,
+              id: uuidv4(),
+              tiers: v.tiers.map(t => ({ ...t, id: uuidv4() }))
+            })),
+            id: ''
+          }
+        };
+        localStorage.setItem(storageKeyConfig, JSON.stringify(nextMonthLocalConfigs));
+      } catch (localErr) {
+        console.error('Error saving next month local config fallback:', localErr);
+      }
+
+      const { error } = await supabase
+        .from('performance_role_configs')
+        .upsert(payloads, { onConflict: 'branch_id,month,role' });
+
+      if (error) {
+        console.warn('Supabase upsert for config failed, but saved locally:', error);
+      }
+
+      alert(`¡Éxito! Las variables y escalas de premios se copiaron exitosamente a ${nextMonthString}. Cambiaremos de mes automáticamente para revisar/guardar.`);
+      setSelectedMonth(nextMonthString);
+    } catch (err) {
+      console.error('Error copying config to next month:', err);
+      alert('Error al copiar la configuración de premios al mes siguiente.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCopyToBranches = async () => {
     if (targetBranches.length === 0) {
       alert('Por favor, selecciona al menos una sucursal destino.');
@@ -833,9 +928,21 @@ export default function PerformanceAdminView({
               className="bg-transparent border-none text-[12px] font-black uppercase text-blue-500 focus:outline-none"
             />
           </div>
-          <button onClick={fetchData} className="p-2 text-text-dim hover:text-blue-500 transition-colors">
+          <button onClick={fetchData} className="p-2 text-text-dim hover:text-blue-500 transition-colors" title="Actualizar datos">
             <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
           </button>
+
+          {localBranchId !== 'all' && activeTab === 'config' && (
+            <button
+              onClick={handleCopyToNextMonth}
+              disabled={saving}
+              className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-600 border border-emerald-500/20 text-emerald-400 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50 cursor-pointer"
+              title="Copiar las variables y escalas de premios de este mes al mes siguiente si lo deseas"
+            >
+              <CalendarDays size={14} className="stroke-[2.5]" />
+              <span>Copiar al Mes Siguiente</span>
+            </button>
+          )}
         </div>
       </div>
 
