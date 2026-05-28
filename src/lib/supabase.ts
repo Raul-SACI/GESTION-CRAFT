@@ -184,17 +184,65 @@ class MockQueryBuilder {
   private async execute() {
     const storageKey = `supabase_mock_${this.table}`;
     let items: any[] = [];
+    let loadedFromServer = false;
+
+    // Try fetching from server first
     try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) items = JSON.parse(saved);
+      const res = await fetch(`/api/mock-db/${this.table}`);
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
+          items = payload.data;
+          loadedFromServer = true;
+          // Sync to localStorage as local cache
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(items));
+          } catch (e) {}
+        }
+      }
     } catch (e) {
-      console.error(e);
+      console.warn(`[Mock DB] Failed to fetch table '${this.table}' from server:`, e);
+    }
+
+    // Fallback to local storage if server didn't return any data (or request failed)
+    if (!loadedFromServer) {
+      try {
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          items = JSON.parse(saved);
+          
+          // Migrate localStorage data to server so it becomes central
+          if (items.length > 0) {
+            try {
+              await fetch(`/api/mock-db/${this.table}/save`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: items }),
+              });
+            } catch (err) {
+              console.warn(`[Mock DB] Failed to save/migrate offline data of '${this.table}' to server:`, err);
+            }
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
     }
 
     if (items.length === 0) {
       items = this.getDefaultSeeds();
       if (items.length > 0) {
-        localStorage.setItem(storageKey, JSON.stringify(items));
+        // Save seeds to server
+        try {
+          await fetch(`/api/mock-db/${this.table}/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: items }),
+          });
+        } catch (err) {}
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(items));
+        } catch (e) {}
       }
     } else if (this.table === 'roles_config') {
       const defaultSeeds = this.getDefaultSeeds();
@@ -218,7 +266,16 @@ class MockQueryBuilder {
         return item;
       });
       if (changed) {
-        localStorage.setItem(storageKey, JSON.stringify(items));
+        try {
+          await fetch(`/api/mock-db/${this.table}/save`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: items }),
+          });
+        } catch (err) {}
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(items));
+        } catch (e) {}
       }
     }
 
@@ -271,7 +328,18 @@ class MockQueryBuilder {
         ...item
       }));
       items = [...items, ...itemsToInsert];
-      localStorage.setItem(storageKey, JSON.stringify(items));
+      
+      try {
+        await fetch(`/api/mock-db/${this.table}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: items }),
+        });
+      } catch (err) {}
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+      } catch (e) {}
+      
       return { data: itemsToInsert, error: null };
     }
 
@@ -285,7 +353,18 @@ class MockQueryBuilder {
         }
         return item;
       });
-      localStorage.setItem(storageKey, JSON.stringify(items));
+      
+      try {
+        await fetch(`/api/mock-db/${this.table}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: items }),
+        });
+      } catch (err) {}
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+      } catch (e) {}
+      
       return { data: items, error: null, count: updatedCount };
     }
 
@@ -300,7 +379,18 @@ class MockQueryBuilder {
           remaining.push(item);
         }
       }
-      localStorage.setItem(storageKey, JSON.stringify(remaining));
+      
+      try {
+        await fetch(`/api/mock-db/${this.table}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: remaining }),
+        });
+      } catch (err) {}
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(remaining));
+      } catch (e) {}
+      
       return { data: deleted, error: null };
     }
 
@@ -322,7 +412,18 @@ class MockQueryBuilder {
           upserted.push(newItem);
         }
       }
-      localStorage.setItem(storageKey, JSON.stringify(items));
+      
+      try {
+        await fetch(`/api/mock-db/${this.table}/save`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: items }),
+        });
+      } catch (err) {}
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(items));
+      } catch (e) {}
+      
       return { data: upserted, error: null };
     }
 
