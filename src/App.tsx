@@ -270,17 +270,61 @@ function AppContent() {
       
       if (rolesData) setRolesConfigList(rolesData);
       if (profilesData) {
-        setAvailableProfiles(profilesData);
+        // Obsolete/unwanted original default users that must be erased
+        const obsoleteNames = [
+          'FRANCO LEON',
+          'MANUEL NOUGUES',
+          'MARCELA ROLDAN',
+          'PATRICIO BERNAT',
+          'SAMUEL RACEDO',
+          'VERONICA CREMONA',
+          'SOCIO'
+        ];
+        const obsoleteIds = [
+          'usr-patricio',
+          'usr-samuel',
+          'usr-marcela',
+          'usr-veronica',
+          'usr-franco',
+          'usr-manuel',
+          'usr-socio'
+        ];
+
+        const cleanProfiles = profilesData.filter((p: any) => {
+          if (!p || !p.id) return false;
+          if (obsoleteIds.includes(p.id)) return false;
+          if (p.name && obsoleteNames.includes(p.name.toUpperCase())) return false;
+          return true;
+        });
+
+        // Trigger dynamic deletion of these user profiles from both remote/local databases if detected
+        const obsoleteFound = profilesData.filter((p: any) => {
+          if (!p || !p.id) return false;
+          return obsoleteIds.includes(p.id) || (p.name && obsoleteNames.includes(p.name.toUpperCase()));
+        });
+
+        if (obsoleteFound.length > 0) {
+          console.log('[Access Control Sync] Detected stale/obsolete users. Performing automatic database purge...');
+          obsoleteFound.forEach((p: any) => {
+            supabase.from('profiles').delete().eq('id', p.id).then(() => {
+              console.log(`[Access Control Sync] Permanently purged user: ${p.name || p.id}`);
+            }).catch((err: any) => {
+              console.warn(`[Access Control Sync] Failed to purge user ${p.name || p.id}:`, err);
+            });
+          });
+        }
+
+        setAvailableProfiles(cleanProfiles);
         setCurrentUserProfile((prev: any) => {
           const storedId = sessionStorage.getItem('active_profile_id');
           if (storedId) {
-            const matched = profilesData.find((p: any) => p.id === storedId);
+            const matched = cleanProfiles.find((p: any) => p.id === storedId);
             if (matched && sessionStorage.getItem(`unlocked_profile_${matched.id}`) === 'true') {
               return matched;
             }
           }
           if (prev) {
-            const latest = profilesData.find((p: any) => p.id === prev.id);
+            const latest = cleanProfiles.find((p: any) => p.id === prev.id);
             if (latest && sessionStorage.getItem(`unlocked_profile_${latest.id}`) === 'true') {
               return latest;
             }

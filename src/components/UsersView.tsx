@@ -144,7 +144,33 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
       // 2. Fetch profiles
       const { data: profilesData } = await supabase.from('profiles').select('*').order('name');
       if (profilesData) {
-        setUsers(profilesData.map(u => ({
+        const obsoleteNames = [
+          'FRANCO LEON',
+          'MANUEL NOUGUES',
+          'MARCELA ROLDAN',
+          'PATRICIO BERNAT',
+          'SAMUEL RACEDO',
+          'VERONICA CREMONA',
+          'SOCIO'
+        ];
+        const obsoleteIds = [
+          'usr-patricio',
+          'usr-samuel',
+          'usr-marcela',
+          'usr-veronica',
+          'usr-franco',
+          'usr-manuel',
+          'usr-socio'
+        ];
+        
+        const filteredProfiles = profilesData.filter((u: any) => {
+          if (!u || !u.id) return false;
+          if (obsoleteIds.includes(u.id)) return false;
+          if (u.name && obsoleteNames.includes(u.name.toUpperCase())) return false;
+          return true;
+        });
+
+        setUsers(filteredProfiles.map(u => ({
           id: u.id,
           name: u.name,
           role: u.role,

@@ -195,7 +195,8 @@ class MockQueryBuilder {
           let serverItems = payload.data;
           if (this.table === 'profiles') {
             const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
-            serverItems = serverItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id));
+            const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
+            serverItems = serverItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
           }
           items = serverItems;
           loadedFromServer = true;
@@ -217,7 +218,8 @@ class MockQueryBuilder {
           let cachedItems = JSON.parse(saved);
           if (this.table === 'profiles') {
             const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
-            cachedItems = cachedItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id));
+            const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
+            cachedItems = cachedItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
           }
           items = cachedItems;
         }
@@ -610,7 +612,7 @@ class SmartQueryChain {
               return mockRes;
             }
             try {
-              const res = await target.realChain;
+              let res = await target.realChain;
               if (res && res.error) {
                 const errMsg = String(res.error.message || '');
                 const errCode = String(res.error.code || '');
@@ -630,6 +632,12 @@ class SmartQueryChain {
                   if (onfulfilled) return onfulfilled(mockRes);
                   return mockRes;
                 }
+              }
+              // Intercept real Supabase query results to filter out obsolete profiles
+              if (res && Array.isArray(res.data) && target.table === 'profiles') {
+                const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
+                const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
+                res.data = res.data.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
               }
               if (onfulfilled) return onfulfilled(res);
               return res;
