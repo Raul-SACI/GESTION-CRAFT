@@ -324,10 +324,10 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
   };
 
   const filteredUsers = useMemo(() => {
-    if (selectedBranchId === 'all') return users;
-    const activeBranchName = activeBranch?.name.toUpperCase();
-    return users.filter(u => u.branch?.toUpperCase() === activeBranchName || u.branch?.toUpperCase() === 'TODAS LAS SUCURSALES');
-  }, [users, selectedBranchId, activeBranch]);
+    // Show all users in the administration control panel so they are always visible to edit/manage,
+    // avoiding confusion when a branch filter is globally active in the dashboard header.
+    return users;
+  }, [users]);
 
   // Modules categorized for structured display
   const categorizedModules = useMemo(() => {

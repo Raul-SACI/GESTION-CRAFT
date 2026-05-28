@@ -201,57 +201,68 @@ class MockQueryBuilder {
               const localItems = JSON.parse(saved);
               if (Array.isArray(localItems) && localItems.length > 0) {
                 const serverItems = payload.data;
-                const mergedMap = new Map<string, any>();
-
-                // 1. Put all server items in the map
-                for (const item of serverItems) {
-                  if (item && item.id) {
-                    mergedMap.set(item.id, item);
-                  }
+                
+                // Let's check if the server has ONLY default seed items/profiles.
+                // If the server has custom records, we should NEVER allow stale client storage to overwrite it!
+                let isServerEmptyOrDefaultsOnly = false;
+                if (this.table === 'profiles') {
+                  const defaultProfileIds = ['usr-raul', 'usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica'];
+                  isServerEmptyOrDefaultsOnly = serverItems.every((item: any) => defaultProfileIds.includes(item.id));
+                } else if (this.table === 'branches') {
+                  isServerEmptyOrDefaultsOnly = serverItems.length <= 5;
+                } else if (this.table === 'roles_config') {
+                  isServerEmptyOrDefaultsOnly = serverItems.length <= 6;
+                } else {
+                  const defaultSeeds = this.getDefaultSeeds();
+                  isServerEmptyOrDefaultsOnly = serverItems.every((item: any) => defaultSeeds.some(s => s.id === item.id));
                 }
 
-                // 2. Superimpose and add local items
-                let hasChangesToPost = false;
-                for (const localItem of localItems) {
-                  if (!localItem || !localItem.id) continue;
-                  const serverItem = mergedMap.get(localItem.id);
-                  if (serverItem) {
-                    // Item exists in both - merge fields intelligently
-                    const mergedItem = { ...serverItem, ...localItem };
-
-                    // Carry passwords and other actual state
-                    if (localItem.password && !serverItem.password) {
-                      mergedItem.password = localItem.password;
-                    }
-                    if (serverItem.password && !localItem.password) {
-                      mergedItem.password = serverItem.password;
-                    }
-
-                    if (JSON.stringify(mergedItem) !== JSON.stringify(serverItem)) {
-                      hasChangesToPost = true;
-                    }
-                    mergedMap.set(localItem.id, mergedItem);
+                // We only perform client-side recovery/merging if the server database has nothing but defaults
+                // AND the client browser actually has custom records (to migrate them to the server once).
+                if (isServerEmptyOrDefaultsOnly) {
+                  let hasCustomLocal = false;
+                  if (this.table === 'profiles') {
+                    const defaultProfileIds = ['usr-raul', 'usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica'];
+                    hasCustomLocal = localItems.some((item: any) => !defaultProfileIds.includes(item.id) || (item.password && item.password.trim() !== ''));
                   } else {
-                    // Exists locally but missing from server (e.g. server was ephemeral/reset)
-                    mergedMap.set(localItem.id, localItem);
-                    hasChangesToPost = true;
+                    const defaultSeeds = this.getDefaultSeeds();
+                    hasCustomLocal = localItems.some((item: any) => !defaultSeeds.some(s => s.id === item.id));
                   }
-                }
 
-                items = Array.from(mergedMap.values());
-                useServerData = false;
-                loadedFromServer = true;
+                  if (hasCustomLocal) {
+                    console.log(`[Smart DB Sync] Server table '${this.table}' has defaults, but client has custom elements. Restoring and merging local cache to server.`);
+                    const mergedMap = new Map<string, any>();
+                    
+                    // Add server items
+                    for (const item of serverItems) {
+                      if (item && item.id) mergedMap.set(item.id, item);
+                    }
+                    
+                    // Merge local items
+                    for (const localItem of localItems) {
+                      if (!localItem || !localItem.id) continue;
+                      const serverItem = mergedMap.get(localItem.id);
+                      if (serverItem) {
+                        mergedMap.set(localItem.id, { ...serverItem, ...localItem });
+                      } else {
+                        mergedMap.set(localItem.id, localItem);
+                      }
+                    }
+                    
+                    items = Array.from(mergedMap.values());
+                    useServerData = false;
+                    loadedFromServer = true;
 
-                // Sync immediately to localStorage as local cache
-                localStorage.setItem(storageKey, JSON.stringify(items));
+                    // Sync immediately to localStorage as local cache
+                    localStorage.setItem(storageKey, JSON.stringify(items));
 
-                if (hasChangesToPost) {
-                  console.log(`[Smart DB Sync] Local custom elements detected for ${this.table}. Restoring & syncing to server.`);
-                  fetch(`/api/mock-db/${this.table}/save`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ data: items }),
-                  }).catch(err => console.warn(`[Smart DB Sync] Failed to sync merged data for ${this.table}:`, err));
+                    console.log(`[Smart DB Sync] Restoring custom items back to server:`, items);
+                    fetch(`/api/mock-db/${this.table}/save`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ data: items }),
+                    }).catch(err => console.warn(`[Smart DB Sync] Failed to sync merged data for ${this.table}:`, err));
+                  }
                 }
               }
             }
