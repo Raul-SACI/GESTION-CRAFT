@@ -219,7 +219,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
         finalBranch = 'Todas las Sucursales';
       }
 
-      const payload = {
+      const payload: any = {
         name: userForm.name.toUpperCase(),
         role: userForm.role,
         branch_name: finalBranch,
@@ -232,6 +232,12 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
         if (error) throw error;
       } else {
         // Add Mode
+        // Generate a standard client-side UUID to avoid depending on database-side default generators
+        const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+          var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+        payload.id = newId;
         const { error } = await supabase.from('profiles').insert([payload]);
         if (error) throw error;
       }
