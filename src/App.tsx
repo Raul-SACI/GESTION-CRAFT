@@ -295,7 +295,7 @@ function AppContent() {
 
   useEffect(() => {
     loadAccessControlData();
-  }, [activeTab, loadAccessControlData]);
+  }, [activeTab, isCurrentProfileLocked, loadAccessControlData]);
 
   // Fetch items, products and branches from Supabase
   React.useEffect(() => {
@@ -809,7 +809,7 @@ function AppContent() {
               >
                 <option value="">-- SELECCIONE SU USUARIO --</option>
                 {availableProfiles.map((p) => (
-                  <option key={p.id} value={p.id} className="bg-[#1c2331] text-text-main uppercase">
+                  <option key={p.id} value={p.id} className="bg-bg-sidebar text-text-main uppercase">
                     {p.name} ({p.role.replace('_', ' ').toUpperCase()})
                   </option>
                 ))}
@@ -1323,7 +1323,7 @@ function AppContent() {
                   items={items}
                 />
               )}
-              {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} />}
+              {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} />}
               {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} />}
               {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" />}
               {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" />}

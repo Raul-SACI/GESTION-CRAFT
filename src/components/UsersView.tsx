@@ -66,7 +66,7 @@ const SYSTEM_MODULES = [
   { id: 'usuarios', label: 'Usuarios/Roles', category: 'Configuración' },
 ];
 
-export default function UsersView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
+export default function UsersView({ selectedBranchId, branches, onUsersChanged }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'roles'>('users');
   
@@ -114,6 +114,7 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
       setShowPassModal(false);
       setSelectedUserForPass(null);
       await fetchData();
+      onUsersChanged?.();
     } catch (e: any) {
       alert(`Error al guardar contraseña: ${e.message || e}`);
     } finally {
@@ -210,6 +211,7 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
       setIsAddingUser(false);
       setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales' });
       await fetchData();
+      onUsersChanged?.();
     } catch (e: any) {
       alert(`Error al guardar el usuario: ${e.message || e}`);
     } finally {
@@ -236,6 +238,7 @@ export default function UsersView({ selectedBranchId, branches }: { selectedBran
       const { error } = await supabase.from('profiles').delete().eq('id', id);
       if (error) throw error;
       await fetchData();
+      onUsersChanged?.();
     } catch (e: any) {
       alert(`Error al eliminar usuario: ${e.message || e}`);
     } finally {
