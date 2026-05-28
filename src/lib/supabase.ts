@@ -194,28 +194,69 @@ class MockQueryBuilder {
         if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
           let useServerData = true;
 
-          // Smart synchronization: if local has custom profiles and server only has defaults, upload client profiles
+          // Smart synchronization & merging of local state with server state
           try {
             const saved = localStorage.getItem(storageKey);
             if (saved) {
               const localItems = JSON.parse(saved);
               if (Array.isArray(localItems) && localItems.length > 0) {
-                if (this.table === 'profiles') {
-                  const obsoleteIds = ['usr-admin', 'usr-socio', 'usr-norte', 'usr-sur', 'usr-lider-o', 'usr-lider-c', 'usr-rrhh'];
-                  const hasCustomLocal = localItems.some((item: any) => !obsoleteIds.includes(item.id));
-                  const serverHasOnlyDefaults = payload.data.every((item: any) => obsoleteIds.includes(item.id));
+                const serverItems = payload.data;
+                const mergedMap = new Map<string, any>();
 
-                  if (hasCustomLocal && serverHasOnlyDefaults) {
-                    console.log("[Mock DB Sync] Client has custom profiles in localStorage. Syncing/uploading to server database.");
-                    items = localItems;
-                    useServerData = false;
-                    loadedFromServer = false; // Force migration upload to server below
+                // 1. Put all server items in the map
+                for (const item of serverItems) {
+                  if (item && item.id) {
+                    mergedMap.set(item.id, item);
                   }
+                }
+
+                // 2. Superimpose and add local items
+                let hasChangesToPost = false;
+                for (const localItem of localItems) {
+                  if (!localItem || !localItem.id) continue;
+                  const serverItem = mergedMap.get(localItem.id);
+                  if (serverItem) {
+                    // Item exists in both - merge fields intelligently
+                    const mergedItem = { ...serverItem, ...localItem };
+
+                    // Carry passwords and other actual state
+                    if (localItem.password && !serverItem.password) {
+                      mergedItem.password = localItem.password;
+                    }
+                    if (serverItem.password && !localItem.password) {
+                      mergedItem.password = serverItem.password;
+                    }
+
+                    if (JSON.stringify(mergedItem) !== JSON.stringify(serverItem)) {
+                      hasChangesToPost = true;
+                    }
+                    mergedMap.set(localItem.id, mergedItem);
+                  } else {
+                    // Exists locally but missing from server (e.g. server was ephemeral/reset)
+                    mergedMap.set(localItem.id, localItem);
+                    hasChangesToPost = true;
+                  }
+                }
+
+                items = Array.from(mergedMap.values());
+                useServerData = false;
+                loadedFromServer = true;
+
+                // Sync immediately to localStorage as local cache
+                localStorage.setItem(storageKey, JSON.stringify(items));
+
+                if (hasChangesToPost) {
+                  console.log(`[Smart DB Sync] Local custom elements detected for ${this.table}. Restoring & syncing to server.`);
+                  fetch(`/api/mock-db/${this.table}/save`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ data: items }),
+                  }).catch(err => console.warn(`[Smart DB Sync] Failed to sync merged data for ${this.table}:`, err));
                 }
               }
             }
           } catch (e) {
-            console.error(e);
+            console.error(`[Smart DB Sync] Error synchronizing data for ${this.table}:`, e);
           }
 
           if (useServerData) {

@@ -82,6 +82,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
     name: '',
     role: '',
     branch: 'Todas las Sucursales',
+    password: '',
   });
 
   // Form states for creating/editing Roles
@@ -196,6 +197,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
         name: userForm.name.toUpperCase(),
         role: userForm.role,
         branch_name: finalBranch,
+        password: userForm.password,
       };
 
       if (userForm.id) {
@@ -209,7 +211,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
       }
       
       setIsAddingUser(false);
-      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales' });
+      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
       await fetchData();
       onUsersChanged?.();
     } catch (e: any) {
@@ -225,7 +227,8 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
       id: user.id,
       name: user.name,
       role: user.role,
-      branch: user.branch || 'Todas las Sucursales'
+      branch: user.branch || 'Todas las Sucursales',
+      password: user.password || ''
     });
     setIsAddingUser(true);
   };
@@ -402,7 +405,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                   </span>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales' });
+                      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
                       setIsAddingUser(true);
                     }}
                     className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
@@ -571,6 +574,19 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                     )}
                   </div>
 
+                  {/* Password Input */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider block">Contraseña o Clave de Acceso</label>
+                    <input 
+                      type="text"
+                      value={userForm.password}
+                      onChange={(e) => setUserForm({...userForm, password: e.target.value})}
+                      className="w-full px-4 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-mono tracking-widest text-center font-bold"
+                      placeholder="SIN CLAVE (PULSE PARA ESCRIBIR)"
+                      maxLength={32}
+                    />
+                  </div>
+
                   {/* Information block based on active role */}
                   {selectedRoleConfig && (
                     <div className="bg-bg-accent border border-border-dim p-4 rounded-lg space-y-2 mt-4 text-[10px]">
@@ -598,7 +614,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                     <button 
                       onClick={() => {
                         setIsAddingUser(false);
-                        setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales' });
+                        setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
                       }}
                       className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                     >
