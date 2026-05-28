@@ -420,32 +420,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         console.error('Error upgrading budget V1:', e);
       }
     } else {
-      // Create new budget populated with defaults
-      const defWithBranch = DEFAULT_INITIAL_ROWS.map((r, index) => {
-        const staffByDate: Record<string, number> = {};
-        computedWeeks.forEach(week => {
-          week.days.forEach(day => {
-            if (day.isInMonth) {
-              const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
-              staffByDate[day.dateStr] = isWeekend ? r.countGroupB : r.countGroupA;
-            }
-          });
-        });
-        
-        return {
-          id: `init-${r.id}-${index}-${Math.random().toString(36).substr(2, 5)}`,
-          branchId: branchIdKey,
-          roleId: r.roleId,
-          roleLabel: r.roleLabel,
-          shift: r.shift as 'Mañana' | 'Tarde',
-          countGroupA: r.countGroupA,
-          countGroupB: r.countGroupB,
-          hoursPerDay: r.hoursPerDay,
-          hourlyRate: getMaestroRate(r.roleId, r.roleLabel),
-          staffByDate
-        };
-      });
-      setRows(defWithBranch);
+      // By user request, show months and weeks that don't have saved data empty by default
+      setRows([]);
       setHolidaysList(resolvedHolidays);
       setBudgetStatus('pending');
     }
@@ -478,6 +454,39 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setHolidaysList(updated);
     // Persist holidays globally for all branches
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
+  };
+
+  const handleLoadDefaultTemplate = () => {
+    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
+    const computedWeeks = getWeeksForMonth(selectedMonth);
+    const defWithBranch = DEFAULT_INITIAL_ROWS.map((r, index) => {
+      const staffByDate: Record<string, number> = {};
+      computedWeeks.forEach(week => {
+        week.days.forEach(day => {
+          if (day.isInMonth) {
+            const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
+            staffByDate[day.dateStr] = isWeekend ? r.countGroupB : r.countGroupA;
+          }
+        });
+      });
+      
+      return {
+        id: `init-${r.id}-${index}-${Math.random().toString(36).substr(2, 5)}`,
+        branchId: branchIdKey,
+        roleId: r.roleId,
+        roleLabel: r.roleLabel,
+        shift: r.shift as 'Mañana' | 'Tarde',
+        countGroupA: r.countGroupA,
+        countGroupB: r.countGroupB,
+        hoursPerDay: r.hoursPerDay,
+        hourlyRate: getMaestroRate(r.roleId, r.roleLabel),
+        staffByDate
+      };
+    });
+    setRows(prev => {
+      const otherBranchesRows = prev.filter(r => r.branchId !== branchIdKey);
+      return [...otherBranchesRows, ...defWithBranch];
+    });
   };
 
   const handleAddRow = () => {
@@ -1283,6 +1292,15 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                         <Trash2 size={12} className="stroke-[2.5]" /> Eliminar Seleccionados ({selectedRowIds.filter(id => filteredRows.some(r => r.id === id)).length})
                       </button>
                     )}
+                    {filteredRows.length === 0 && (
+                      <button
+                        onClick={handleLoadDefaultTemplate}
+                        className="text-[9px] font-black uppercase text-brand-500 hover:text-white bg-brand-500/[0.04] hover:bg-brand-500 transition-all flex items-center gap-1.5 border border-brand-500/15 px-3 py-1.5 rounded shadow-sm"
+                        title="Cargar la distribución estándar de puestos y personal de esta sucursal"
+                      >
+                        <Layers size={12} className="stroke-[2.5]" /> Cargar Plantilla
+                      </button>
+                    )}
                     <button 
                       onClick={handleAddRow}
                       className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/15 px-3 py-1.5 bg-brand-500/[0.03] rounded"
@@ -1374,8 +1392,32 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     <tbody className="divide-y divide-border-dim/40">
                       {filteredRows.length === 0 ? (
                         <tr>
-                          <td colSpan={14} className="px-6 py-12 text-center text-text-dim uppercase font-black opacity-40">
-                            No hay filas de presupuesto para esta sucursal. ¡Crea una para comenzar!
+                          <td colSpan={14} className="px-6 py-16 text-center text-text-dim">
+                            <div className="flex flex-col items-center justify-center max-w-md mx-auto py-8">
+                              <Calendar size={40} className="text-text-dim/20 mb-3" />
+                              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1.5">
+                                Mes - Semana Sin Datos
+                              </h3>
+                              <p className="text-[9px] text-text-dim uppercase tracking-wider mb-6 font-medium leading-relaxed">
+                                No se encontraron puestos ni datos guardados para esta combinación de mes y sucursal.
+                              </p>
+                              <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
+                                <button
+                                  type="button"
+                                  onClick={handleLoadDefaultTemplate}
+                                  className="text-[9.5px] font-black uppercase tracking-widest text-[#22c55e] border border-[#22c55e]/20 hover:bg-[#22c55e] hover:text-white bg-[#22c55e]/[0.02] px-4 py-2.5 rounded transition-all shadow-sm"
+                                >
+                                  Cargar Plantilla por Defecto
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={handleAddRow}
+                                  className="text-[9.5px] font-black uppercase tracking-widest text-text-main hover:text-white hover:bg-[#252525] transition-all border border-border-dim px-4 py-2.5 rounded bg-bg-main shadow-sm"
+                                >
+                                  <Plus size={11} className="inline mr-1 -mt-0.5" /> Agregar Puesto Manual
+                                </button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       ) : (
