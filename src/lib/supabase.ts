@@ -192,12 +192,40 @@ class MockQueryBuilder {
       if (res.ok) {
         const payload = await res.json();
         if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
-          items = payload.data;
-          loadedFromServer = true;
-          // Sync to localStorage as local cache
+          let useServerData = true;
+
+          // Smart synchronization: if local has custom profiles and server only has defaults, upload client profiles
           try {
-            localStorage.setItem(storageKey, JSON.stringify(items));
-          } catch (e) {}
+            const saved = localStorage.getItem(storageKey);
+            if (saved) {
+              const localItems = JSON.parse(saved);
+              if (Array.isArray(localItems) && localItems.length > 0) {
+                if (this.table === 'profiles') {
+                  const obsoleteIds = ['usr-admin', 'usr-socio', 'usr-norte', 'usr-sur', 'usr-lider-o', 'usr-lider-c', 'usr-rrhh'];
+                  const hasCustomLocal = localItems.some((item: any) => !obsoleteIds.includes(item.id));
+                  const serverHasOnlyDefaults = payload.data.every((item: any) => obsoleteIds.includes(item.id));
+
+                  if (hasCustomLocal && serverHasOnlyDefaults) {
+                    console.log("[Mock DB Sync] Client has custom profiles in localStorage. Syncing/uploading to server database.");
+                    items = localItems;
+                    useServerData = false;
+                    loadedFromServer = false; // Force migration upload to server below
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.error(e);
+          }
+
+          if (useServerData) {
+            items = payload.data;
+            loadedFromServer = true;
+            // Sync to localStorage as local cache
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(items));
+            } catch (e) {}
+          }
         }
       }
     } catch (e) {
@@ -507,13 +535,11 @@ class MockQueryBuilder {
     }
     if (this.table === 'profiles') {
       return [
-        { id: 'usr-admin', name: 'ADMINISTRADOR', role: 'administrador', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
-        { id: 'usr-socio', name: 'SOCIO GENERAL', role: 'socio', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
-        { id: 'usr-norte', name: 'ENCARGADO BARRIO NORTE', role: 'encargado', branch_name: 'BARRIO NORTE', permissions: [] },
-        { id: 'usr-sur', name: 'ENCARGADO BARRIO SUR', role: 'encargado', branch_name: 'BARRIO SUR', permissions: [] },
-        { id: 'usr-lider-o', name: 'LÍDER OPERATIVO 1', role: 'lider_operativo', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
-        { id: 'usr-lider-c', name: 'LÍDER DE COCINA 1', role: 'lider_cocina', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
-        { id: 'usr-rrhh', name: 'RECURSOS HUMANOS', role: 'recursos_humanos', branch_name: 'TODAS LAS SUCURSALES', permissions: [] },
+        { id: 'usr-raul', name: 'RAUL DIAZ', role: 'administrador', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
+        { id: 'usr-patricio', name: 'PATRICIO BERNAT', role: 'lider_operativo', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
+        { id: 'usr-samuel', name: 'SAMUEL RACEDO', role: 'administracion', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' },
+        { id: 'usr-marcela', name: 'MARCELA ROLDAN', role: 'encargado', branch_name: 'CRAFT Barrio Norte', permissions: [], password: '' },
+        { id: 'usr-veronica', name: 'VERONICA CREMONA', role: 'recursos_humanos', branch_name: 'TODAS LAS SUCURSALES', permissions: [], password: '' }
       ];
     }
     return [];
