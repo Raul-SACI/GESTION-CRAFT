@@ -477,12 +477,16 @@ function AppContent() {
     const roleId = currentUserProfile.role;
     const roleCfg = rolesConfigList.find((r: any) => r.id === roleId);
     
-    let allowed = roleCfg ? roleCfg.allowed_modules : (currentUserProfile.permissions || []);
-    if (roleId === 'administrador' || roleId === 'dueño') {
-      if (allowed && !allowed.includes('pedidos_ya')) {
-        allowed = [...allowed, 'pedidos_ya'];
-      }
+    let allowedModules = roleCfg ? roleCfg.allowed_modules : {};
+    // Normalizar a Record<string, 'edit' | 'view'>
+    let modulesRecord: Record<string, 'edit' | 'view'> = {};
+    if (Array.isArray(allowedModules)) {
+      allowedModules.forEach((m: string) => { modulesRecord[m] = 'edit'; });
+    } else {
+      modulesRecord = allowedModules as Record<string, 'edit' | 'view'>;
     }
+    // Lista de IDs con acceso (para compatibilidad)
+    const allowed = Object.keys(modulesRecord);
 
     return {
       id: currentUserProfile.id,
@@ -490,6 +494,7 @@ function AppContent() {
       role: roleId,
       branch: currentUserProfile.branch_name || 'Todas las Sucursales',
       permissions: allowed,
+      modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
       accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch'
     };
