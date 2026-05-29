@@ -149,10 +149,6 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         hoursByPosOnly[log.position_id] = (hoursByPosOnly[log.position_id] || 0) + (Number(log.hours_rrhh) || 0);
       });
 
-      console.log('[Sync] hoursMap:', hoursMap);
-      console.log('[Sync] hoursByPosOnly:', hoursByPosOnly);
-      console.log('[Sync] payrollItems branchIds:', payrollItems.map(i => i.branchId));
-
       let countUpdated = 0;
       const updatedItems = payrollItems.map(item => {
         if (item.salaryType !== 'hourly') return item;
@@ -163,8 +159,6 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         // Try exact branch+position match first, then position-only fallback
         const totalHours = hoursMap[`${item.branchId}|${posId}`] ||
                            hoursByPosOnly[posId] || 0;
-
-        console.log(`[Sync] ${item.employeeName} | branchId=${item.branchId} | pos=${posId} | hours=${totalHours}`);
 
         if (totalHours > 0) {
           countUpdated++;
