@@ -911,12 +911,24 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       });
       const upsertData = Object.values(grouped);
 
-      await supabase.from('hour_budgets').delete().eq('branch_id', activeBranchId).eq('month', selectedMonth);
+      // Delete all existing rows for this branch+month first, then insert fresh
+      const { error: delError } = await supabase
+        .from('hour_budgets')
+        .delete()
+        .eq('branch_id', activeBranchId)
+        .eq('month', selectedMonth);
+      
+      if (delError) console.warn('Delete warning:', delError.message);
+      
       if (upsertData.length > 0) {
-        const { error } = await supabase.from('hour_budgets').insert(upsertData);
-        if (error) throw error;
+        // Insert in batches of 10 to avoid issues
+        for (let i = 0; i < upsertData.length; i += 10) {
+          const batch = upsertData.slice(i, i + 10);
+          const { error } = await supabase.from('hour_budgets').insert(batch);
+          if (error) throw error;
+        }
       }
-      console.log('[Budget] Saved', upsertData.length, 'rows to Supabase');
+      console.log('[Budget] Saved', upsertData.length, 'rows to Supabase for', activeBranchId, selectedMonth);
     } catch (e: any) {
       console.error('Error saving budget to Supabase:', e);
       alert(`Error al guardar en Supabase: ${e.message}`);

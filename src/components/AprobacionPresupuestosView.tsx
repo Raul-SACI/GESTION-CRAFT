@@ -130,7 +130,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
           try { loaded[b.id] = JSON.parse(saved); } catch (e) {}
         }
         if (!loaded[b.id]) {
-          loaded[b.id] = { rows: null, status: 'pending' };
+          loaded[b.id] = { rows: [], status: 'pending' };
         }
       }
     });
@@ -486,8 +486,8 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
                     );
                   })
                 ) : (
-                  // Legacy fallback
-                  (budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).map((pos: LegacyBudgetPosition) => {
+                  // No legacy data
+                  [].map((pos: LegacyBudgetPosition) => {
                     const bInfo = budgetsState[selectedBranch.id] || {
                       daysInMonth: 30,
                       fridays: 4,
