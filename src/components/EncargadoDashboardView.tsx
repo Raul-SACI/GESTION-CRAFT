@@ -125,6 +125,7 @@ export default function EncargadoDashboardView({
           .from('sales_tickets')
           .select('net_sales, gross_sales, orders, covers')
           .eq('month', month)
+          .order('id', { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
 
         if (branchId !== 'all') {
