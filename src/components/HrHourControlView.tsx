@@ -274,12 +274,44 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
     setRecords(prev => prev.map(r => ({ ...r, status: 'verified' })));
   };
 
-  // Save changes to LocalStorage
-  const handleSaveChanges = () => {
+  // Save changes to Supabase + localStorage backup
+  const handleSaveChanges = async () => {
+    try {
+      // Guardar en Supabase
+      const upsertData = records.map((r: any) => ({
+        branch_id: selectedBranch,
+        month: selectedMonth,
+        week_number: parseInt(selectedWeek),
+        position_id: r.positionId || r.id || 'unknown',
+        position_name: r.positionName || r.position || 'Sin cargo',
+        employee_name: r.employeeName || r.name || 'Sin nombre',
+        hours_planned: r.hoursPlanned || r.budgetedHours || 0,
+        hours_branch: r.hoursBranch || r.hoursWorked || 0,
+        hours_rrhh: r.hoursRrhh || r.hoursActual || r.hoursWorked || 0,
+        hourly_rate: r.hourlyRate || r.rate || 0,
+        deviation_hours: r.deviationHours || 0,
+        deviation_pesos: r.deviationPesos || 0,
+        status: r.status || 'pending',
+        observations: r.observations || ''
+      }));
+      
+      // Borrar semana anterior y reinsertar
+      await supabase.from('hr_hour_logs')
+        .delete()
+        .eq('branch_id', selectedBranch)
+        .eq('month', selectedMonth)
+        .eq('week_number', parseInt(selectedWeek));
+      
+      if (upsertData.length > 0) {
+        await supabase.from('hr_hour_logs').insert(upsertData);
+      }
+    } catch (e) {
+      console.error('Error guardando horas en Supabase:', e);
+    }
+    
+    // Backup local
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
     localStorage.setItem(storageKey, JSON.stringify(records));
-    
-    // Also save simple log that this week is controlled
     const statusKey = `hr_week_status_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
     localStorage.setItem(statusKey, 'controlled');
 
