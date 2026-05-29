@@ -72,19 +72,12 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
         defaultState[b.id] = {
           branch_id: b.id,
           month: selectedMonth,
-          resto_week_1: null,
-          resto_week_2: null,
-          resto_week_3: null,
-          resto_week_4: null,
-          cafe_week_1: null,
-          cafe_week_2: null,
-          cafe_week_3: null,
-          cafe_week_4: null
+          resto_week_1: null, resto_week_2: null, resto_week_3: null, resto_week_4: null,
+          cafe_week_1: null, cafe_week_2: null, cafe_week_3: null, cafe_week_4: null
         };
       });
 
-      // Cargar desde Supabase
-      const dbRatings: Record<string, TwoChannelRating> = {};
+      // Cargar desde Supabase - real schema: one row per branch/week/channel
       try {
         const { data, error } = await supabase
           .from('pedidos_ya_ratings')
@@ -93,77 +86,32 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
 
         if (!error && data && data.length > 0) {
           data.forEach((row: any) => {
-            const rawBranchId = row.branch_id as string;
-            let branchId = rawBranchId;
-            let channel: 'resto' | 'cafe' = 'resto';
+            const branchId = row.branch_id as string;
+            const channel = row.channel as string; // 'resto' or 'cafe'
+            const weekNum = row.week_number as number; // 1, 2, 3, 4
+            const rating = row.rating !== null ? Math.round(Number(row.rating) * 10) / 10 : null;
 
-            if (rawBranchId.endsWith('_resto')) {
-              branchId = rawBranchId.slice(0, -6);
-              channel = 'resto';
-            } else if (rawBranchId.endsWith('_cafe')) {
-              branchId = rawBranchId.slice(0, -5);
-              channel = 'cafe';
-            }
+            if (!defaultState[branchId]) return; // skip unknown branches
+            if (weekNum < 1 || weekNum > 4) return;
 
-            if (!dbRatings[branchId]) {
-              dbRatings[branchId] = {
-                branch_id: branchId,
-                month: selectedMonth,
-                resto_week_1: null,
-                resto_week_2: null,
-                resto_week_3: null,
-                resto_week_4: null,
-                cafe_week_1: null,
-                cafe_week_2: null,
-                cafe_week_3: null,
-                cafe_week_4: null,
-              };
-            }
-
-            const parseWeek = (v: any): number | null => {
-              if (v === null || v === undefined || v === '') return null;
-              const n = parseFloat(String(v).replace(',', '.'));
-              return isNaN(n) ? null : Math.round(n * 10) / 10;
-            };
-            if (channel === 'resto') {
-              dbRatings[branchId].resto_week_1 = parseWeek(row.week_1);
-              dbRatings[branchId].resto_week_2 = parseWeek(row.week_2);
-              dbRatings[branchId].resto_week_3 = parseWeek(row.week_3);
-              dbRatings[branchId].resto_week_4 = parseWeek(row.week_4);
-            } else {
-              dbRatings[branchId].cafe_week_1 = parseWeek(row.week_1);
-              dbRatings[branchId].cafe_week_2 = parseWeek(row.week_2);
-              dbRatings[branchId].cafe_week_3 = parseWeek(row.week_3);
-              dbRatings[branchId].cafe_week_4 = parseWeek(row.week_4);
-            }
+            const key = `${channel}_week_${weekNum}` as keyof TwoChannelRating;
+            (defaultState[branchId] as any)[key] = rating;
           });
         }
       } catch (dbErr) {
-        console.warn('Supabase fetch failed, relying on local cache:', dbErr);
+        console.warn('Supabase fetch failed:', dbErr);
       }
 
-      // Merge defaults -> local -> DB
-      const finalRatings = { ...defaultState };
-      if (cachedRatings) {
-        Object.assign(finalRatings, cachedRatings);
-      }
-      if (Object.keys(dbRatings).length > 0) {
-        Object.assign(finalRatings, dbRatings);
-      }
-
-      setRatings(finalRatings);
+      setRatings(defaultState);
 
       // Populate raw inputs with Argentine formatting (4,5)
       const initialRaw: Record<string, string> = {};
-      Object.keys(finalRatings).forEach(branchId => {
-        const item = finalRatings[branchId];
-        const channels: ('resto' | 'cafe')[] = ['resto', 'cafe'];
-        channels.forEach(ch => {
-          ['week_1', 'week_2', 'week_3', 'week_4'].forEach(wk => {
+      Object.keys(defaultState).forEach(branchId => {
+        const item = defaultState[branchId];
+        (['resto', 'cafe'] as const).forEach(ch => {
+          (['week_1', 'week_2', 'week_3', 'week_4'] as const).forEach(wk => {
             const val = item[`${ch}_${wk}` as keyof TwoChannelRating] as number | null;
-            initialRaw[`${branchId}_${ch}_${wk}`] = val !== null && val !== undefined 
-              ? val.toFixed(1).replace('.', ',') 
-              : '';
+            initialRaw[`${branchId}_${ch}_${wk}`] = val !== null ? val.toFixed(1).replace('.', ',') : '';
           });
         });
       });
@@ -265,47 +213,56 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
     }
   };
 
-  // Save changes
+  // Save changes - uses real schema: one row per branch/week/channel
   const handleSaveAll = async () => {
     setSaving(true);
     try {
       const payloads: any[] = [];
       Object.values(ratings).forEach((item: TwoChannelRating) => {
-        // Resto row
-        payloads.push({
-          branch_id: `${item.branch_id}_resto`,
-          month: item.month,
-          week_1: item.resto_week_1,
-          week_2: item.resto_week_2,
-          week_3: item.resto_week_3,
-          week_4: item.resto_week_4
-        });
-        // Café row
-        payloads.push({
-          branch_id: `${item.branch_id}_cafe`,
-          month: item.month,
-          week_1: item.cafe_week_1,
-          week_2: item.cafe_week_2,
-          week_3: item.cafe_week_3,
-          week_4: item.cafe_week_4
+        (['resto', 'cafe'] as const).forEach(channel => {
+          ([1, 2, 3, 4] as const).forEach(weekNum => {
+            const val = item[`${channel}_week_${weekNum}` as keyof TwoChannelRating] as number | null;
+            if (val !== null) {
+              payloads.push({
+                branch_id: item.branch_id,
+                month: item.month,
+                channel,
+                week_number: weekNum,
+                rating: val
+              });
+            }
+          });
         });
       });
 
-      // Guardar en Supabase
+      if (payloads.length === 0) {
+        alert('No hay calificaciones para guardar.');
+        setSaving(false);
+        return;
+      }
+
+      // Delete existing rows for this month then insert fresh
+      const branchIds = [...new Set(Object.values(ratings).map(r => r.branch_id))];
+      await supabase
+        .from('pedidos_ya_ratings')
+        .delete()
+        .eq('month', selectedMonth)
+        .in('branch_id', branchIds);
+
       const { error } = await supabase
         .from('pedidos_ya_ratings')
-        .upsert(payloads, { onConflict: 'branch_id,month' });
+        .insert(payloads);
 
       if (error) {
-        console.warn('Supabase save error, but fallback succeeded locally:', error);
-        alert('Calificaciones guardadas de manera local en el navegador.');
+        alert(`Error al guardar: ${error.message}`);
+        console.error('Supabase save error:', error);
       } else {
-        alert('Calificaciones de Resto y Café guardadas con éxito en el servidor.');
+        alert('Calificaciones de Resto y Café guardadas con éxito.');
       }
       fetchRatings();
     } catch (err) {
       console.error('Error saving Pedidos Ya ratings:', err);
-      alert('Error en conexión. Datos guardados en la memoria local.');
+      alert('Error de conexión al guardar.');
     } finally {
       setSaving(false);
     }

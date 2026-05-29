@@ -274,17 +274,22 @@ export default function EncargadoDashboardView({
           }
         } catch(e) {}
       } else {
-        // Query database `pedidos_ya_ratings` table
+        // Query database `pedidos_ya_ratings` table - real schema: branch_id, channel, week_number, rating
         const { data: dbData } = await supabase
           .from('pedidos_ya_ratings')
-          .select('*')
-          .eq('month', month);
+          .select('channel, week_number, rating')
+          .eq('month', month)
+          .eq('branch_id', branchId);
           
         if (dbData && dbData.length > 0) {
-          const matchedResto = dbData.find(row => row.branch_id === `${branchId}_resto` || row.branch_id === branchId);
-          const matchedCafe = dbData.find(row => row.branch_id === `${branchId}_cafe`);
-          if (matchedResto) pyResto = matchedResto.rating ?? 0;
-          if (matchedCafe) pyCafe = matchedCafe.rating ?? 0;
+          const restoRows = dbData.filter(r => r.channel === 'resto' && r.rating !== null);
+          const cafeRows = dbData.filter(r => r.channel === 'cafe' && r.rating !== null);
+          if (restoRows.length > 0) {
+            pyResto = Math.round((restoRows.reduce((s: number, r: any) => s + Number(r.rating), 0) / restoRows.length) * 10) / 10;
+          }
+          if (cafeRows.length > 0) {
+            pyCafe = Math.round((cafeRows.reduce((s: number, r: any) => s + Number(r.rating), 0) / cafeRows.length) * 10) / 10;
+          }
         }
       }
       setPedidosYaRestoRating(pyResto);
