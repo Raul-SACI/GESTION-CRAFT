@@ -95,35 +95,46 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [budgetsState, setBudgetsState] = useState<Record<string, any>>({});
 
-  // Fetch budgets from LocalStorage for all branches
-  const loadAllBudgets = () => {
+  // Fetch budgets from Supabase
+  const loadAllBudgets = async () => {
     const loaded: Record<string, any> = {};
+    
+    // Intentar Supabase primero
+    try {
+      const { data } = await supabase
+        .from('hour_budgets')
+        .select('*')
+        .eq('month', selectedMonth);
+      
+      if (data && data.length > 0) {
+        // Agrupar por branch_id
+        data.forEach((row: any) => {
+          if (!loaded[row.branch_id]) {
+            loaded[row.branch_id] = { rows: [], status: row.status || 'pending' };
+          }
+          loaded[row.branch_id].rows = loaded[row.branch_id].rows || [];
+          loaded[row.branch_id].rows.push(row);
+          loaded[row.branch_id].status = row.status || 'pending';
+        });
+      }
+    } catch(e) {
+      console.error('Error loading budgets from Supabase:', e);
+    }
+
+    // Para las sucursales sin datos en Supabase, intentar localStorage
     branches.forEach(b => {
-      const storageKey = `hour_budget_${b.id}_${selectedMonth}`;
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        try {
-          loaded[b.id] = JSON.parse(saved);
-        } catch (e) {
-          console.error(e);
+      if (!loaded[b.id]) {
+        const storageKey = `hour_budget_v2_${b.id}_${selectedMonth}`;
+        const saved = localStorage.getItem(storageKey);
+        if (saved) {
+          try { loaded[b.id] = JSON.parse(saved); } catch (e) {}
         }
-      } else {
-        // Fallback structures
-        const fallbackId = b.id;
-        loaded[b.id] = {
-          rows: null, // fallback flag
-          positions: DEFAULT_POSITIONS,
-          daysInMonth: 30,
-          fridays: 4,
-          saturdays: 4,
-          sundays: 4,
-          holidays: 2,
-          groupADays: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'],
-          groupBDays: ['Viernes', 'Sábado'],
-          status: 'pending'
-        };
+        if (!loaded[b.id]) {
+          loaded[b.id] = { rows: null, status: 'pending' };
+        }
       }
     });
+    
     setBudgetsState(loaded);
   };
 
@@ -131,7 +142,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     loadAllBudgets();
   }, [branches, selectedMonth]);
 
-  const handleToggleApprove = (branchId: string) => {
+  const handleToggleApprove = async (branchId: string) => {
     const current = budgetsState[branchId] || {
       positions: DEFAULT_POSITIONS,
       daysInMonth: 30,
@@ -150,7 +161,17 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       status: nextStatus
     };
 
-    // Save back to LocalStorage
+    // Guardar estado en Supabase
+    try {
+      await supabase.from('hour_budgets')
+        .update({ status: nextStatus })
+        .eq('branch_id', branchId)
+        .eq('month', selectedMonth);
+    } catch(e) {
+      console.error('Error actualizando estado en Supabase:', e);
+    }
+    
+    // Backup localStorage
     localStorage.setItem(`hour_budget_${branchId}_${selectedMonth}`, JSON.stringify(updated));
     
     // Update local state
