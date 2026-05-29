@@ -40,7 +40,8 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     holidayDaysCount: 0,
     additionalBonus: 0,
     novedades: '',
-    paymentMethod: 'transferencia'
+    amountTransfer: 0,
+    amountCash: 0
   });
 
   const payrollBranches = [
@@ -166,7 +167,8 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
           additionalBonus: 0,
           novedades: '',
           totalToCollect: computed,
-          paymentMethod: 'transferencia', // default
+          amountTransfer: computed, // default: all by transfer
+          amountCash: 0,
         };
       });
 
@@ -198,9 +200,9 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       return;
     }
     
-    const headers = "Sucursal\tNombre Colaborador\tPuesto\tModalidad\tHoras Reales\tSueldo/Valor Base\tFeriados Trab.\tBono/Adicional\tNovedades\tForma de Pago\tTotal a Cobrar";
+    const headers = "Sucursal\tNombre Colaborador\tPuesto\tModalidad\tHoras Reales\tSueldo/Valor Base\tFeriados Trab.\tBono/Adicional\tNovedades\tTransferencia\tEfectivo\tTotal a Cobrar";
     const rows = filtered.map(item => {
-      return `${item.branchName}\t${item.employeeName}\t${item.positionLabel}\t${item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL'}\t${item.salaryType === 'hourly' ? item.hoursWorked : '-'}\t${item.baseRateOrSalary}\t${item.holidayDaysCount}\t${item.additionalBonus}\t${item.novedades || ''}\t${(item.paymentMethod || 'transferencia').toUpperCase()}\t${item.totalToCollect}`;
+      return `${item.branchName}\t${item.employeeName}\t${item.positionLabel}\t${item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL'}\t${item.salaryType === 'hourly' ? item.hoursWorked : '-'}\t${item.baseRateOrSalary}\t${item.holidayDaysCount}\t${item.additionalBonus}\t${item.novedades || ''}\t${item.amountTransfer ?? item.totalToCollect ?? 0}\t${item.amountCash ?? 0}\t${item.totalToCollect}`;
     });
     
     const content = [headers, ...rows].join('\n');
