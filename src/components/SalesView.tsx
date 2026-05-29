@@ -772,12 +772,24 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     if (!file) return;
     e.target.value = '';
 
-    const branchMap: Record<string, string> = {
-      'CRAFT BARRIO NORTE': 'bn', 'CRAFT BARRIO SUR': 'bs',
-      'CRAFT MERCATO': 'mt', 'CRAFT CASCO VIEJO': 'mt',
-      'CRAFT PERON': 'pn', 'CRAFT PERÓN': 'pn',
-      'CRAFT MATE DE LUNA': 'ml',
-    };
+    // Build branch map from real branch data passed as props (uses actual Supabase IDs)
+    const branchMap: Record<string, string> = {};
+    branches.forEach(b => {
+      const norm = b.name.toUpperCase().trim();
+      branchMap[norm] = b.id;
+      // Also map common aliases
+      if (norm.includes('BARRIO NORTE')) branchMap['CRAFT BARRIO NORTE'] = b.id;
+      if (norm.includes('BARRIO SUR'))   branchMap['CRAFT BARRIO SUR'] = b.id;
+      if (norm.includes('CASCO VIEJO') || norm.includes('MERCATO')) {
+        branchMap['CRAFT CASCO VIEJO'] = b.id;
+        branchMap['CRAFT MERCATO'] = b.id;
+      }
+      if (norm.includes('PERON') || norm.includes('PERÓN')) {
+        branchMap['CRAFT PERON'] = b.id;
+        branchMap['CRAFT PERÓN'] = b.id;
+      }
+      if (norm.includes('MATE DE LUNA') || norm.includes('MATE')) branchMap['CRAFT MATE DE LUNA'] = b.id;
+    });
     const shiftMap: Record<string, string> = {
       'MED': 'Mañana', 'NOC': 'Noche', 'NOC ': 'Noche'
     };
@@ -794,9 +806,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     setLoading(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { raw: true }) as any[];
+      // raw:false converts time cells to formatted strings like "8:28" avoiding timezone issues
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: false }) as any[];
 
       const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
       const tickets: any[] = [];
@@ -806,36 +819,27 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const branchId = branchMap[sucursal];
         if (!branchId) continue;
 
-        // Parse date
+        // Parse date - with raw:false comes as formatted string e.g. "4/1/2026" or "2026-04-01"
         let dateStr = '';
         const rawDate = row['FECHA'];
-        if (rawDate instanceof Date) {
-          dateStr = rawDate.toISOString().split('T')[0];
-        } else if (typeof rawDate === 'number') {
-          const d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-          dateStr = d.toISOString().split('T')[0];
-        } else {
-          dateStr = String(rawDate || '').split('T')[0];
+        const rawDateStr = String(rawDate || '').trim();
+        if (rawDateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+          dateStr = rawDateStr.substring(0, 10);
+        } else if (rawDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)) {
+          const m = rawDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+          if (m) dateStr = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+        } else if (rawDateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/)) {
+          const m = rawDateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+          if (m) dateStr = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
         }
         if (!dateStr || dateStr.length < 10) continue;
 
-        // Parse hour - Excel time cells come as Date(1899-12-30 + time) with cellDates:true
-        // Must use UTC to avoid timezone shifts
+        // Parse hour - with raw:false comes as string "8:28:00" or "8:28" - no timezone issues
         let hourStr = '00:00';
-        const rawHour = row['HORA'];
-        if (rawHour instanceof Date) {
-          // Use UTC hours/minutes to avoid local timezone offset corruption
-          const hh = String(rawHour.getUTCHours()).padStart(2, '0');
-          const mm = String(rawHour.getUTCMinutes()).padStart(2, '0');
-          hourStr = `${hh}:${mm}`;
-        } else if (typeof rawHour === 'number') {
-          // Raw Excel fraction: 0.5 = 12:00
-          const totalMins = Math.round(rawHour * 24 * 60);
-          const hh = String(Math.floor(totalMins / 60) % 24).padStart(2, '0');
-          const mm = String(totalMins % 60).padStart(2, '0');
-          hourStr = `${hh}:${mm}`;
-        } else if (typeof rawHour === 'string' && rawHour.includes(':')) {
-          hourStr = rawHour.substring(0, 5);
+        const rawHour = String(row['HORA'] || '').trim();
+        if (rawHour.includes(':')) {
+          const parts = rawHour.split(':');
+          hourStr = `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}`;
         }
 
         const d = new Date(dateStr + 'T12:00:00');
