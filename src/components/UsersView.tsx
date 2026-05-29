@@ -32,7 +32,6 @@ const SYSTEM_MODULES = [
   { id: 'socios_dashboard', label: 'Dashboard de Socios', category: 'Socios' },
   { id: 'dashboard', label: 'Dashboard General', category: 'Gestión Sucursal' },
   { id: 'stock', label: 'Control Stock', category: 'Gestión Sucursal' },
-  { id: 'desempeño', label: 'Desempeño', category: 'Gestión Sucursal' },
   { id: 'vajilla', label: 'Vajilla', category: 'Gestión Sucursal' },
   { id: 'horas', label: 'Carga de Horas', category: 'Gestión Sucursal' },
   { id: 'novedades', label: 'Novedades / Bitácora', category: 'Gestión Sucursal' },
