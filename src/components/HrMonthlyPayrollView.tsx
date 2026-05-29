@@ -268,19 +268,22 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
   };
 
   // Export payroll list to CSV text/spreadsheet
-  const handleExportPayrollCSV = () => {
-    const filtered = payrollItems.filter(item => 
-      payrollFilterBranch === 'all' || item.branchId === payrollFilterBranch
-    );
+  const handleExportPayrollCSV = (mode: 'branch' | 'consolidated' = 'branch') => {
+    const filtered = mode === 'consolidated'
+      ? payrollItems
+      : payrollItems.filter(item => payrollFilterBranch === 'all' || item.branchId === payrollFilterBranch);
     
     if (filtered.length === 0) {
       alert("No hay registros en la liquidación para exportar.");
       return;
     }
-    
-    const headers = "Sucursal\tNombre Colaborador\tPuesto\tModalidad\tHoras Reales\tSueldo/Valor Base\tFeriados Trab.\tBono/Adicional\tNovedades\tTransferencia\tEfectivo\tTotal a Cobrar";
+
+    const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
+    const headers = "SUCURSAL\tNOMBRE / PUESTO\tPUESTO\tTIPO\tHORAS REALES\tVALOR HORA\tFERIADOS\tBONOS\tNOVEDADES\tTRANSFERENCIA\tEFECTIVO\tTOTAL A COBRAR";
     const rows = filtered.map(item => {
-      return `${item.branchName}\t${item.employeeName}\t${item.positionLabel}\t${item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL'}\t${item.salaryType === 'hourly' ? item.hoursWorked : '-'}\t${item.baseRateOrSalary}\t${item.holidayDaysCount}\t${item.additionalBonus}\t${item.novedades || ''}\t${item.amountTransfer ?? item.totalToCollect ?? 0}\t${item.amountCash ?? 0}\t${item.totalToCollect}`;
+      const transfer = item.amountTransfer ?? item.totalToCollect ?? 0;
+      const cash = item.amountCash ?? 0;
+      return `${item.branchName}\t${item.employeeName}\t${item.positionLabel}\t${item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL'}\t${item.salaryType === 'hourly' ? item.hoursWorked : '-'}\t${item.salaryType === 'hourly' ? fmt(item.baseRateOrSalary) : '-'}\t${item.holidayDaysCount}\t${fmt(item.additionalBonus)}\t${item.novedades || ''}\t${fmt(transfer)}\t${fmt(cash)}\t${fmt(item.totalToCollect)}`;
     });
     
     const content = [headers, ...rows].join('\n');
@@ -382,10 +385,16 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
           </button>
 
           <button 
-            onClick={handleExportPayrollCSV}
+            onClick={() => handleExportPayrollCSV('branch')}
             className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim hover:text-text-main rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
           >
-            <FileSpreadsheet size={13} /> Exportar Planilla Modelo
+            <FileSpreadsheet size={13} /> Exportar Sucursal
+          </button>
+          <button 
+            onClick={() => handleExportPayrollCSV('consolidated')}
+            className="px-4 py-3 bg-bg-accent border border-border-dim text-text-dim hover:text-teal-400 hover:border-teal-500/40 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <FileSpreadsheet size={13} /> Exportar Consolidado
           </button>
         </div>
       </div>
@@ -405,6 +414,8 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                 <th className="px-5 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Feriados Trab. (Días)</th>
                 <th className="px-5 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Bonos / Adicionales ($)</th>
                 <th className="px-5 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Novedades / Observación</th>
+                <th className="px-5 py-4 text-[9px] font-black uppercase text-teal-500 tracking-widest text-right">Transferencia ($)</th>
+                <th className="px-5 py-4 text-[9px] font-black uppercase text-amber-500 tracking-widest text-right">Efectivo ($)</th>
                 <th className="px-5 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-right">Monto Líquido a Cobrar</th>
                 <th className="px-5 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Acciones</th>
               </tr>
@@ -510,6 +521,26 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                         onChange={e => handleUpdatePayrollField(item.id, 'novedades', e.target.value)}
                         placeholder="Ej. Trabajó feriado, guardias..."
                         className="w-full bg-transparent border-b border-border-dim/40 hover:border-border-dim focus:border-brand-500 text-[10.5px] text-text-main px-1 py-1 focus:text-text-main outline-none transition-all"
+                      />
+                    </td>
+
+                    {/* Transferencia */}
+                    <td className="px-3 py-4 text-right">
+                      <input
+                        type="number"
+                        value={item.amountTransfer ?? item.totalToCollect ?? 0}
+                        onChange={e => handleUpdatePayrollField(item.id, 'amountTransfer', parseFloat(e.target.value) || 0)}
+                        className="w-32 bg-bg-accent border border-teal-500/30 rounded px-2 py-1 text-[10px] font-mono text-teal-400 outline-none focus:border-teal-500 text-right"
+                      />
+                    </td>
+
+                    {/* Efectivo */}
+                    <td className="px-3 py-4 text-right">
+                      <input
+                        type="number"
+                        value={item.amountCash ?? 0}
+                        onChange={e => handleUpdatePayrollField(item.id, 'amountCash', parseFloat(e.target.value) || 0)}
+                        className="w-32 bg-bg-accent border border-amber-500/30 rounded px-2 py-1 text-[10px] font-mono text-amber-400 outline-none focus:border-amber-500 text-right"
                       />
                     </td>
 
