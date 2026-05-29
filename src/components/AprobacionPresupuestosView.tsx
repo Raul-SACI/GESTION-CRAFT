@@ -135,6 +135,11 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       }
     });
     
+    // Debug
+    Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
+      const hrs = info.rows?.reduce((s: number, r: any) => s + (Number(r.week1)||0)+(Number(r.week2)||0)+(Number(r.week3)||0)+(Number(r.week4)||0)+(Number(r.week5)||0), 0) || 0;
+      console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
+    });
     setBudgetsState(loaded);
   };
 
