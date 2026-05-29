@@ -11,7 +11,7 @@ export interface RoleConfig {
   id: string;
   name: string;
   description: string;
-  allowed_modules: string[];
+  allowed_modules: Record<string, 'edit' | 'view'> | string[];
   is_read_only: boolean;
   access_scope: 'all_branches' | 'single_branch';
 }
