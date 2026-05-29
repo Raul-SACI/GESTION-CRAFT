@@ -265,18 +265,21 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     const fetchEmployees = async () => {
       const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('employees')
           .select('*')
           .eq('branch_id', branchIdToFetch)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('name');
+        
+        console.log('[HourControl] branch:', branchIdToFetch, 'employees found:', data?.length, 'error:', error?.message);
         
         if (data && data.length > 0) {
           const mapped = data.map(e => ({
             id: e.id,
             name: e.name,
             position: e.position,
-            hourly_rate: getPositionRateFromMaestro(e.position, ROLES.find(r => r.id === e.position)?.label || e.position)
+            hourly_rate: getPositionRateFromMaestro(e.position, e.position)
           }));
           setStaffPool(mapped);
           localStorage.setItem(`staff_pool_${branchIdToFetch}`, JSON.stringify(mapped));
@@ -286,24 +289,16 @@ export default function HourControlView({ selectedBranchId, branches }: { select
         console.error('Supabase query failed', err);
       }
 
-      // Offline Fallback
+      // Offline Fallback - use localStorage cache only, no fake data
       const savedStaff = localStorage.getItem(`staff_pool_${branchIdToFetch}`);
       if (savedStaff) {
-        setStaffPool(JSON.parse(savedStaff));
+        try { setStaffPool(JSON.parse(savedStaff)); } catch(e) { setStaffPool([]); }
       } else {
-        const fallbackTeam = [
-          { id: 'emp1', name: 'JUAN PEREZ', position: 'cocinero', hourly_rate: 3200 },
-          { id: 'emp2', name: 'MARIA GOMEZ', position: 'mozos', hourly_rate: 2800 },
-          { id: 'emp3', name: 'CARLOS LOPEZ', position: 'jefe_cocina', hourly_rate: 4500 },
-          { id: 'emp4', name: 'ANTONIA DIAZ', position: 'bacha', hourly_rate: 2000 },
-          { id: 'emp5', name: 'PEDRO SANCHEZ', position: 'caja', hourly_rate: 2500 }
-        ];
-        setStaffPool(fallbackTeam);
-        localStorage.setItem(`staff_pool_${branchIdToFetch}`, JSON.stringify(fallbackTeam));
+        setStaffPool([]);
       }
     };
     fetchEmployees();
-  }, [selectedBranchId]);
+  }, [localBranchId]);
 
   // Fetch records
   useEffect(() => {
@@ -361,7 +356,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     };
 
     fetchRecords();
-  }, [selectedBranchId, selectedDate, staffPool]);
+  }, [localBranchId, selectedDate, staffPool]);
 
   // Sync state for new employee rate display
   useEffect(() => {
