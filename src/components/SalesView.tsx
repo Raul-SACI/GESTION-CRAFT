@@ -766,6 +766,137 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   }, [groupedDailySales, chartMetric]);
 
+  // ── Import full ticket detail from system export (SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA)
+  const handleImportTicketsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const branchMap: Record<string, string> = {
+      'CRAFT BARRIO NORTE': 'bn', 'CRAFT BARRIO SUR': 'bs',
+      'CRAFT MERCATO': 'mt', 'CRAFT CASCO VIEJO': 'mt',
+      'CRAFT PERON': 'pn', 'CRAFT PERÓN': 'pn',
+      'CRAFT MATE DE LUNA': 'ml',
+    };
+    const shiftMap: Record<string, string> = {
+      'MED': 'Mañana', 'NOC': 'Noche', 'NOC ': 'Noche'
+    };
+    const normalizePayment = (c: string): string => {
+      const u = c.toUpperCase().trim();
+      if (u.includes('EFECTIVO')) return 'EFECTIVO';
+      if (u.includes('VISA DEB')) return 'VISA DEBITO';
+      if (u.includes('VISA')) return 'VISA';
+      if (u.includes('MASTER')) return 'MASTERCARD';
+      if (u === 'QR') return 'QR';
+      if (u.includes('ONLINE') || u.includes('PAGO ONLINE')) return 'PAGO ONLINE';
+      if (u.includes('AMEX') || u.includes('AMERICAN')) return 'AMEX';
+      if (u.includes('NARANJA')) return 'NARANJA';
+      if (u.includes('CABAL')) return 'CABAL';
+      if (u.includes('TRANSF')) return 'TRANSFERENCIA';
+      if (u.includes('PEYA')) return 'PEDIDOS YA';
+      if (u.startsWith('FCB') || u.startsWith('NCB') || u.startsWith('TIC')) return 'CUENTA CORRIENTE';
+      return u;
+    };
+
+    setLoading(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: true }) as any[];
+
+      const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+      const tickets: any[] = [];
+
+      for (const row of rows) {
+        const sucursal = String(row['SUCURSAL'] || '').trim().toUpperCase();
+        const branchId = branchMap[sucursal];
+        if (!branchId) continue;
+
+        // Parse date
+        let dateStr = '';
+        const rawDate = row['FECHA'];
+        if (rawDate instanceof Date) {
+          dateStr = rawDate.toISOString().split('T')[0];
+        } else if (typeof rawDate === 'number') {
+          const d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+          dateStr = d.toISOString().split('T')[0];
+        } else {
+          dateStr = String(rawDate || '').split('T')[0];
+        }
+        if (!dateStr || dateStr.length < 10) continue;
+
+        // Parse hour
+        let hourStr = '00:00';
+        const rawHour = row['HORA'];
+        if (rawHour instanceof Date) {
+          hourStr = rawHour.toTimeString().substring(0, 5);
+        } else if (typeof rawHour === 'number') {
+          const totalMins = Math.round(rawHour * 24 * 60);
+          hourStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
+        } else if (typeof rawHour === 'string' && rawHour.includes(':')) {
+          hourStr = rawHour.substring(0, 5);
+        }
+
+        const d = new Date(dateStr + 'T12:00:00');
+        const dayName = dias[d.getDay()];
+        const weekNum = parseInt(String(row['SEMANA'] || '1')) || Math.ceil(d.getDate() / 7);
+        const shift = shiftMap[String(row['TURNO'] || '').toUpperCase().trim()] || 'Mañana';
+        const month = dateStr.substring(0, 7);
+
+        tickets.push({
+          id: `tk-${Date.now()}-${Math.random().toString(36).substr(2,8)}`,
+          branch_id: branchId,
+          date: dateStr,
+          month,
+          week_number: weekNum,
+          day_name: dayName,
+          shift,
+          hour: hourStr,
+          covers: Math.round(Number(row['CUBIERTOS'] || 0)),
+          orders: Math.round(Number(row['ORDENES'] || 0)),
+          payment_method: normalizePayment(String(row['COBRO'] || '')),
+          gross_sales: Math.round(Number(row['Ventas Brutas'] || 0) * 100) / 100,
+          net_sales: Math.round(Number(row['Ventas Netas'] || 0) * 100) / 100,
+          iva: Math.round(Number(row['IVA'] || 0) * 100) / 100,
+        });
+      }
+
+      if (!tickets.length) {
+        alert('No se encontraron filas válidas. Verificá que el archivo tenga las columnas: SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA');
+        setLoading(false);
+        return;
+      }
+
+      // Delete existing tickets for the months in this file, then insert
+      const months = [...new Set(tickets.map(t => t.month))];
+      const branchIds = [...new Set(tickets.map(t => t.branch_id))];
+
+      for (const month of months) {
+        await supabase.from('sales_tickets').delete()
+          .eq('month', month)
+          .in('branch_id', branchIds);
+      }
+
+      // Insert in batches of 500
+      let inserted = 0;
+      const batchSize = 500;
+      for (let i = 0; i < tickets.length; i += batchSize) {
+        const batch = tickets.slice(i, i + batchSize);
+        const { error } = await supabase.from('sales_tickets').insert(batch);
+        if (error) throw error;
+        inserted += batch.length;
+      }
+
+      alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${months.join(', ')})`);
+    } catch (err: any) {
+      console.error('Error importando tickets:', err);
+      alert(`Error al importar: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleImportRankingExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1303,6 +1434,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                   accept=".xlsx, .xls, .csv" 
                   className="hidden" 
                   onChange={handleImportExcel}
+                />
+              </label>
+              <label className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2" title="Importa el detalle completo de tickets para análisis por hora, día y medio de cobro">
+                <FileUp size={16} /> IMPORTAR TICKETS DETALLE
+                <input 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  className="hidden" 
+                  onChange={handleImportTicketsExcel}
                 />
               </label>
               <button 
