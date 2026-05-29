@@ -806,10 +806,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     setLoading(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      // raw:false converts time cells to formatted strings like "8:28" avoiding timezone issues
-      const rows = XLSX.utils.sheet_to_json(ws, { raw: false }) as any[];
+      // raw:true keeps numbers as numbers (HORA as fraction 0.352=8:28, Ventas as pure numbers)
+      // cellDates:true converts FECHA cells to Date objects
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: true }) as any[];
 
       const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
       const tickets: any[] = [];
@@ -819,27 +820,35 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const branchId = branchMap[sucursal];
         if (!branchId) continue;
 
-        // Parse date - with raw:false comes as formatted string e.g. "4/1/2026" or "2026-04-01"
+        // Parse date - cellDates:true gives Date objects for date cells
         let dateStr = '';
         const rawDate = row['FECHA'];
-        const rawDateStr = String(rawDate || '').trim();
-        if (rawDateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-          dateStr = rawDateStr.substring(0, 10);
-        } else if (rawDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)) {
-          const m = rawDateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-          if (m) dateStr = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
-        } else if (rawDateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/)) {
-          const m = rawDateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
-          if (m) dateStr = `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+        if (rawDate instanceof Date) {
+          // Use UTC to avoid timezone shift (Excel dates are timezone-naive)
+          const y = rawDate.getUTCFullYear();
+          const m = String(rawDate.getUTCMonth() + 1).padStart(2, '0');
+          const d = String(rawDate.getUTCDate()).padStart(2, '0');
+          dateStr = `${y}-${m}-${d}`;
+        } else if (typeof rawDate === 'number') {
+          // Fallback: raw Excel serial number
+          const d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+          dateStr = d.toISOString().split('T')[0];
         }
         if (!dateStr || dateStr.length < 10) continue;
 
-        // Parse hour - with raw:false comes as string "8:28:00" or "8:28" - no timezone issues
+        // Parse hour - raw:true keeps time cells as fraction numbers (0.35277 = 8:28)
+        // cellDates:true does NOT convert time-only fractions to Date objects
         let hourStr = '00:00';
-        const rawHour = String(row['HORA'] || '').trim();
-        if (rawHour.includes(':')) {
-          const parts = rawHour.split(':');
-          hourStr = `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}`;
+        const rawHour = row['HORA'];
+        if (typeof rawHour === 'number' && rawHour >= 0 && rawHour < 1) {
+          // Excel time fraction: multiply by 1440 minutes in a day
+          const totalMins = Math.round(rawHour * 1440);
+          hourStr = `${String(Math.floor(totalMins / 60)).padStart(2,'0')}:${String(totalMins % 60).padStart(2,'0')}`;
+        } else if (rawHour instanceof Date) {
+          // Some XLSX versions convert time to Date - use UTC
+          hourStr = `${String(rawHour.getUTCHours()).padStart(2,'0')}:${String(rawHour.getUTCMinutes()).padStart(2,'0')}`;
+        } else if (typeof rawHour === 'string' && rawHour.includes(':')) {
+          hourStr = rawHour.substring(0, 5).padStart(5, '0');
         }
 
         const d = new Date(dateStr + 'T12:00:00');
@@ -862,9 +871,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           covers: Math.round(Number(row['CUBIERTOS'] || 0)),
           orders: Math.round(Number(row['ORDENES'] || 0)),
           payment_method: normalizePayment(String(row['COBRO'] || '')),
-          gross_sales: Math.round(Number(row['Ventas Brutas'] || 0) * 100) / 100,
-          net_sales: Math.round(Number(row['Ventas Netas'] || 0) * 100) / 100,
-          iva: Math.round(Number(row['IVA'] || 0) * 100) / 100,
+          gross_sales: Math.round((parseFloat(row['Ventas Brutas']) || 0) * 100) / 100,
+          net_sales: Math.round((parseFloat(row['Ventas Netas']) || 0) * 100) / 100,
+          iva: Math.round((parseFloat(row['IVA']) || 0) * 100) / 100,
         });
       }
 
