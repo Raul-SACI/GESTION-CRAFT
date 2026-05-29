@@ -441,7 +441,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         week1: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(0, 7).reduce((a: number, b: number) => a + b, 0) : (r.week1 || 0),
         week2: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(7, 14).reduce((a: number, b: number) => a + b, 0) : (r.week2 || 0),
         week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b, 0) : (r.week3 || 0),
-        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21).reduce((a: number, b: number) => a + b, 0) : (r.week4 || 0),
+        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21, 28).reduce((a: number, b: number) => a + b, 0) : (r.week4 || 0),
+        week5: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(28).reduce((a: number, b: number) => a + b, 0) : (r.week5 || 0),
         hourly_rate: r.hourlyRate || 0,
         status: 'pending' // Always pending until approved by Gerente
       }));
@@ -864,7 +865,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     // Auto-save to Supabase on import confirm
     try {
       // Calculate weekly hours from staffByDate
-      const getWeekHours = (row: BudgetRow, weekDays: string[]) => {
+      const getWeekHours = (row: BudgetRow, weekDays: string[] | undefined) => {
+        if (!weekDays || weekDays.length === 0) return 0;
         return weekDays.reduce((sum, dateStr) => {
           const count = row.staffByDate?.[dateStr] ?? 0;
           return sum + (count * (row.hoursPerDay || 0));
