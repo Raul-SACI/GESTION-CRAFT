@@ -249,7 +249,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       try {
         const { data: budgets } = await supabase
           .from('hour_budgets')
-          .select('position_id, position_name, week1, week2, week3, week4, shift, hours_per_day, planned_hours, status')
+          .select('position_id, position_name, week1, week2, week3, week4, week5, shift, hours_per_day, planned_hours, status')
           .eq('branch_id', selectedBranch)
           .eq('month', selectedMonth)
           .eq('status', 'approved'); // Only use approved budgets
@@ -258,7 +258,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
           // Build budget map by position_id
           const budgetMap: Record<string, number> = {};
           budgets.forEach((b: any) => {
-            const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4';
+            const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4'|'week5';
             const planned = b[weekKey] || b.planned_hours || 0;
             const posId = b.position_id;
             budgetMap[posId] = (budgetMap[posId] || 0) + Number(planned);

@@ -217,7 +217,8 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
         // If row has week1-4 (imported from CSV), use those directly
         if (row.week1 !== undefined || row.week2 !== undefined) {
           posMonthlyHs = (Number(row.week1) || 0) + (Number(row.week2) || 0) +
-                         (Number(row.week3) || 0) + (Number(row.week4) || 0);
+                         (Number(row.week3) || 0) + (Number(row.week4) || 0) +
+                         (Number(row.week5) || 0);
         } else {
           // Legacy manual budget format
           const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);

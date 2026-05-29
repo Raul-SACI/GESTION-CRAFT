@@ -895,7 +895,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             shift: r.shift,
             hours_per_day: r.hoursPerDay,
             hourly_rate: r.hourlyRate || 0,
-            week1: 0, week2: 0, week3: 0, week4: 0,
+            week1: 0, week2: 0, week3: 0, week4: 0, week5: 0,
             total_hours: 0,
             status: 'pending'
           };
@@ -904,9 +904,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         grouped[key].week2 += Math.round(getWeekHours(r, weekDates[1]));
         grouped[key].week3 += Math.round(getWeekHours(r, weekDates[2]));
         grouped[key].week4 += Math.round(getWeekHours(r, weekDates[3]));
+        grouped[key].week5 += Math.round(getWeekHours(r, weekDates[4]));
         grouped[key].total_hours += Math.round(
           getWeekHours(r, weekDates[0]) + getWeekHours(r, weekDates[1]) +
-          getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3])
+          getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3]) +
+          getWeekHours(r, weekDates[4])
         );
       });
       const upsertData = Object.values(grouped);
