@@ -500,6 +500,17 @@ function AppContent() {
     };
   }, [currentUserProfile, rolesConfigList]);
 
+  // Calcular si el módulo activo es solo lectura para el usuario actual
+  const isCurrentTabReadOnly = useMemo(() => {
+    if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return false;
+    if (isCurrentTabReadOnly) return true;
+    const modulePerms = currentUser.modulePermissions as Record<string, 'edit' | 'view'> | undefined;
+    if (!modulePerms) return false;
+    const perm = modulePerms[activeTab];
+    if (!perm) return true; // sin acceso = solo lectura por defecto
+    return perm === 'view';
+  }, [currentUser, activeTab]);
+
   // Find current user's branch ID
   const currentUserBranchId = useMemo(() => {
     if (!currentUser.branch || currentUser.branch === 'Todas las Sucursales') return 'all';
@@ -1327,7 +1338,7 @@ function AppContent() {
 
         {/* Dynamic View */}
         <div className="p-6 flex-1">
-          {currentUser.isReadOnly && (
+          {isCurrentTabReadOnly && (
             <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest animate-pulse">
               <Lock size={16} />
               <span>MODO SOLO LECTURA ACTIVO • LOS CAMBIOS DE ESCRITURA ESTÁN RESTRINGIDOS PARA ESTE PERFIL</span>
@@ -1344,6 +1355,7 @@ function AppContent() {
                   selectedBranchId={selectedBranchId}
                   onBranchChange={currentUser.accessScope === 'single_branch' ? undefined : setSelectedBranchId}
                   onNavigateToTab={setActiveTab}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'desempeño' && (
@@ -1352,10 +1364,10 @@ function AppContent() {
               {activeTab === 'performance_admin' && (
                 <PerformanceAdminView branches={branches} selectedBranchId={selectedBranchId} />
               )}
-              {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} />}
+              {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} />}
-              {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} />}
+              {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
                 <StockView 
                   key="stock" 
@@ -1404,7 +1416,7 @@ function AppContent() {
               {activeTab === 'precios' && <PriceListView key="precios" />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
-              {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={currentUser.isReadOnly} />}
+              {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" />}
               {activeTab === 'papeles_sucursal' && (
                 <DocumentsView 
@@ -1414,7 +1426,7 @@ function AppContent() {
                   branchName={selectedBranchId === 'all' ? 'Todas' : branches.find(b => b.id === selectedBranchId)?.name}
                   branches={branches}
                   onBranchSelect={(id) => setSelectedBranchId(id)}
-                  isReadOnly={currentUser.isReadOnly}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
@@ -1423,7 +1435,7 @@ function AppContent() {
                 <DocumentsView 
                   key="papeles_administracion" 
                   mode="administracion" 
-                  isReadOnly={currentUser.isReadOnly}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} />}
