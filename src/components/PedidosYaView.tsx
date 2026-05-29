@@ -120,16 +120,21 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
               };
             }
 
+            const parseWeek = (v: any): number | null => {
+              if (v === null || v === undefined || v === '') return null;
+              const n = parseFloat(String(v).replace(',', '.'));
+              return isNaN(n) ? null : Math.round(n * 10) / 10;
+            };
             if (channel === 'resto') {
-              dbRatings[branchId].resto_week_1 = row.week_1 !== null ? Number(row.week_1) : null;
-              dbRatings[branchId].resto_week_2 = row.week_2 !== null ? Number(row.week_2) : null;
-              dbRatings[branchId].resto_week_3 = row.week_3 !== null ? Number(row.week_3) : null;
-              dbRatings[branchId].resto_week_4 = row.week_4 !== null ? Number(row.week_4) : null;
+              dbRatings[branchId].resto_week_1 = parseWeek(row.week_1);
+              dbRatings[branchId].resto_week_2 = parseWeek(row.week_2);
+              dbRatings[branchId].resto_week_3 = parseWeek(row.week_3);
+              dbRatings[branchId].resto_week_4 = parseWeek(row.week_4);
             } else {
-              dbRatings[branchId].cafe_week_1 = row.week_1 !== null ? Number(row.week_1) : null;
-              dbRatings[branchId].cafe_week_2 = row.week_2 !== null ? Number(row.week_2) : null;
-              dbRatings[branchId].cafe_week_3 = row.week_3 !== null ? Number(row.week_3) : null;
-              dbRatings[branchId].cafe_week_4 = row.week_4 !== null ? Number(row.week_4) : null;
+              dbRatings[branchId].cafe_week_1 = parseWeek(row.week_1);
+              dbRatings[branchId].cafe_week_2 = parseWeek(row.week_2);
+              dbRatings[branchId].cafe_week_3 = parseWeek(row.week_3);
+              dbRatings[branchId].cafe_week_4 = parseWeek(row.week_4);
             }
           });
         }
@@ -621,12 +626,12 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
                     };
 
                     // Resto Calculation and Styling
-                    const restoVals = [rowData.resto_week_1, rowData.resto_week_2, rowData.resto_week_3, rowData.resto_week_4].filter((w): w is number => w !== null);
+                    const restoVals = [rowData.resto_week_1, rowData.resto_week_2, rowData.resto_week_3, rowData.resto_week_4].filter((w): w is number => w !== null && !isNaN(w));
                     const restoAvg = restoVals.length > 0 ? restoVals.reduce((sum, v) => sum + v, 0) / restoVals.length : null;
                     const styleResto = getRatingStyle(restoAvg);
 
                     // Café Calculation and Styling
-                    const cafeVals = [rowData.cafe_week_1, rowData.cafe_week_2, rowData.cafe_week_3, rowData.cafe_week_4].filter((w): w is number => w !== null);
+                    const cafeVals = [rowData.cafe_week_1, rowData.cafe_week_2, rowData.cafe_week_3, rowData.cafe_week_4].filter((w): w is number => w !== null && !isNaN(w));
                     const cafeAvg = cafeVals.length > 0 ? cafeVals.reduce((sum, v) => sum + v, 0) / cafeVals.length : null;
                     const styleCafe = getRatingStyle(cafeAvg);
 
