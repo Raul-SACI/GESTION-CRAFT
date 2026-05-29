@@ -16,6 +16,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
 interface HrMonthlyPayrollViewProps {
@@ -57,109 +58,8 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         console.error(e);
       }
     } else {
-      // Setup master high fidelity base demo data for May 2026 / current selection
-      const fallbackPayroll = [
-        {
-          id: `payitem-1-${selectedMonth}`,
-          branchId: '1',
-          branchName: branches[0]?.name || 'Yerba Buena',
-          employeeName: 'MARIA GOMEZ',
-          positionLabel: 'Mozo',
-          salaryType: 'hourly',
-          hoursWorked: 148,
-          baseRateOrSalary: 2800,
-          holidayDaysCount: 1,
-          additionalBonus: 12000,
-          novedades: '100% Presentismo + Desempeño Sobresaliente',
-          totalToCollect: 0
-        },
-        {
-          id: `payitem-2-${selectedMonth}`,
-          branchId: '1',
-          branchName: branches[0]?.name || 'Yerba Buena',
-          employeeName: 'JUAN PEREZ',
-          positionLabel: 'Cocinero',
-          salaryType: 'hourly',
-          hoursWorked: 160,
-          baseRateOrSalary: 3200,
-          holidayDaysCount: 0,
-          additionalBonus: 0,
-          novedades: 'Turno Rotativo Cocina Principal',
-          totalToCollect: 0
-        },
-        {
-          id: `payitem-3-${selectedMonth}`,
-          branchId: 'admin',
-          branchName: 'Administración',
-          employeeName: 'ANTONIO BENITEZ',
-          positionLabel: 'Responsable Control de Gestión',
-          salaryType: 'monthly',
-          hoursWorked: 0,
-          baseRateOrSalary: 950000,
-          holidayDaysCount: 1,
-          additionalBonus: 50000,
-          novedades: 'Cumplió guardia remota feriado 25/5. Premio por objetivos.',
-          totalToCollect: 0
-        },
-        {
-          id: `payitem-4-${selectedMonth}`,
-          branchId: 'admin',
-          branchName: 'Administración',
-          employeeName: 'HILDA GONZALEZ',
-          positionLabel: 'Analista de Cuentas a Pagar',
-          salaryType: 'monthly',
-          hoursWorked: 0,
-          baseRateOrSalary: 800000,
-          holidayDaysCount: 0,
-          additionalBonus: 0,
-          novedades: 'Liquidación impositiva al día',
-          totalToCollect: 0
-        },
-        {
-          id: `payitem-5-${selectedMonth}`,
-          branchId: 'deposito',
-          branchName: 'Depósito Central',
-          employeeName: 'RODRIGO MARTINEZ',
-          positionLabel: 'Operario de Expedición',
-          salaryType: 'monthly',
-          hoursWorked: 0,
-          baseRateOrSalary: 720000,
-          holidayDaysCount: 2,
-          additionalBonus: 25000,
-          novedades: 'Guardia Depósito feriados 1ro Mayo y 25/5.',
-          totalToCollect: 0
-        },
-        {
-          id: `payitem-6-${selectedMonth}`,
-          branchId: branches[1]?.id || '2',
-          branchName: branches[1]?.name || 'Sucursal Norte',
-          employeeName: 'CARLOS LOPEZ',
-          positionLabel: 'Jefe de Cocina',
-          salaryType: 'hourly',
-          hoursWorked: 168,
-          baseRateOrSalary: 4500,
-          holidayDaysCount: 1,
-          additionalBonus: 35000,
-          novedades: 'Premio por bajo margen de desperdicios en Cocina.',
-          totalToCollect: 0
-        }
-      ].map(e => {
-        let computed = 0;
-        const hours = e.hoursWorked;
-        const rate = e.baseRateOrSalary;
-        const holidays = e.holidayDaysCount;
-        const bonus = e.additionalBonus;
-        if (e.salaryType === 'hourly') {
-          computed = (hours * rate) + (holidays * 8 * rate);
-        } else {
-          computed = rate + (holidays * (rate / 25));
-        }
-        computed += bonus;
-        return { ...e, totalToCollect: computed };
-      });
-
-      setPayrollItems(fallbackPayroll);
-      localStorage.setItem(key, JSON.stringify(fallbackPayroll));
+      // No data loaded yet - show empty list
+      setPayrollItems([]);
     }
   }, [selectedMonth, branches]);
 
@@ -212,65 +112,67 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
   };
 
   // Sync with actual weekly hours audited in localStorage
-  const handleSyncWithWeeklyControl = () => {
-    let countUpdated = 0;
-    const updatedItems = payrollItems.map(item => {
-      if (item.salaryType !== 'hourly') return item;
-      
-      let sumDefinitive = 0;
-      let matchedAny = false;
+  const handleSyncWithWeeklyControl = async () => {
+    try {
+      // Read audited hours from Supabase hr_hour_logs (saved by RRHH in Control Semanal)
+      const { data: hrLogs, error } = await supabase
+        .from('hr_hour_logs')
+        .select('branch_id, role_id, week1, week2, week3, week4, definitive_hours')
+        .eq('month', selectedMonth);
+
+      if (error) throw error;
+      if (!hrLogs || hrLogs.length === 0) {
+        alert('No se hallaron registros auditados en Control Semanal para este mes.');
+        return;
+      }
+
+      let countUpdated = 0;
       const roleIdMap: Record<string, string> = {
-        'encargado': 'encargado',
-        'jefe de cocina': 'jefe_cocina',
-        'segundo de cocina': 'segundo_cocina',
-        'cocinero': 'cocinero',
-        'caja': 'caja',
-        'barra': 'barra',
-        'mozo': 'mozos',
-        'mozos': 'mozos',
-        'runner': 'runners',
-        'runners': 'runners',
-        'bacha': 'bacha',
-        'bachero': 'bacha'
+        'encargado': 'encargado', 'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
+        'segundo de cocina': 'segundo_cocina', 'cocinero': 'cocinero', 'caja': 'caja',
+        'cajero': 'caja', 'barra': 'barra', 'bartender': 'barra',
+        'mozo': 'mozos', 'mozos': 'mozos', 'runner': 'runners', 'runners': 'runners',
+        'bacha': 'bacha', 'bachero': 'bacha'
       };
 
-      const mappedRoleId = roleIdMap[item.positionLabel.toLowerCase()] || 'cocinero';
-      
-      for (let w = 1; w <= 4; w++) {
-        const storageKey = `hr_hours_${item.branchId}_${selectedMonth}_w${w}`;
-        const saved = localStorage.getItem(storageKey);
-        if (saved) {
-          try {
-            const list = JSON.parse(saved);
-            const found = list.find((r: any) => r.roleId === mappedRoleId);
-            if (found) {
-              sumDefinitive += found.definitiveHours;
-              matchedAny = true;
-            }
-          } catch(e) {
-            console.error(e);
+      const updatedItems = payrollItems.map(item => {
+        if (item.salaryType !== 'hourly') return item;
+
+        const mappedRoleId = roleIdMap[item.positionLabel.toLowerCase()] || item.positionLabel.toLowerCase();
+
+        // Find matching log for this employee's branch and role
+        const matchingLog = hrLogs.find((log: any) =>
+          log.branch_id === item.branchId &&
+          (log.role_id === mappedRoleId || log.role_id === item.positionLabel.toLowerCase())
+        );
+
+        if (matchingLog) {
+          // Sum all 4 weeks of audited hours
+          const totalHours = (matchingLog.week1 || 0) + (matchingLog.week2 || 0) +
+                             (matchingLog.week3 || 0) + (matchingLog.week4 || 0) ||
+                             matchingLog.definitive_hours || 0;
+
+          if (totalHours > 0) {
+            countUpdated++;
+            const computed = (totalHours * item.baseRateOrSalary) +
+                             (item.holidayDaysCount * 8 * item.baseRateOrSalary) +
+                             item.additionalBonus;
+            return { ...item, hoursWorked: totalHours, totalToCollect: computed };
           }
         }
-      }
+        return item;
+      });
 
-      if (matchedAny && sumDefinitive > 0) {
-        countUpdated++;
-        const computed = (sumDefinitive * item.baseRateOrSalary) + (item.holidayDaysCount * 8 * item.baseRateOrSalary) + item.additionalBonus;
-        return {
-          ...item,
-          hoursWorked: sumDefinitive,
-          totalToCollect: computed
-        };
+      if (countUpdated > 0) {
+        setPayrollItems(updatedItems);
+        localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updatedItems));
+        alert(`Sincronización exitosa: ${countUpdated} colaboradores actualizados con horas auditadas de Control Semanal.`);
+      } else {
+        alert('No se encontraron coincidencias entre la liquidación y los registros auditados.');
       }
-      return item;
-    });
-
-    if (countUpdated > 0) {
-      setPayrollItems(updatedItems);
-      localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updatedItems));
-      alert(`Sincronización Exitosa: Se coordinaron ${countUpdated} colaboradores con los totales reales de las 4 semanas auditadas.`);
-    } else {
-      alert("No se hallaron registros auditados semanales de este mes en las sucursales involucradas.");
+    } catch (err: any) {
+      console.error('Error syncing with weekly control:', err);
+      alert(`Error al sincronizar: ${err.message}`);
     }
   };
 
