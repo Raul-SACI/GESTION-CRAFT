@@ -222,14 +222,30 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
       }
 
-      // Also fetch tickets detail for hora/medioCobro display
-      let ticketsQuery = supabase
-        .from('sales_tickets')
-        .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name')
-        .order('date', { ascending: false })
-        .order('hour', { ascending: true });
-      if (localBranchId !== 'all') ticketsQuery = ticketsQuery.eq('branch_id', localBranchId);
-      const { data: ticketsData } = await ticketsQuery;
+      // Fetch tickets with pagination (16k+ rows, Supabase default limit = 1000)
+      let allTicketsData: any[] = [];
+      let tkPage = 0;
+      const tkPageSize = 1000;
+      let tkHasMore = true;
+      while (tkHasMore) {
+        let tkQuery = supabase
+          .from('sales_tickets')
+          .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name')
+          .order('date', { ascending: false })
+          .order('hour', { ascending: true })
+          .range(tkPage * tkPageSize, (tkPage + 1) * tkPageSize - 1);
+        if (localBranchId !== 'all') tkQuery = tkQuery.eq('branch_id', localBranchId);
+        const { data: tkData } = await tkQuery;
+        if (tkData && tkData.length > 0) {
+          allTicketsData = [...allTicketsData, ...tkData];
+          tkHasMore = tkData.length === tkPageSize;
+          tkPage++;
+        } else {
+          tkHasMore = false;
+        }
+        if (tkPage > 50) break; // safety: max 50k tickets
+      }
+      const ticketsData = allTicketsData;
 
       if (ticketsData && ticketsData.length > 0) {
         // Group tickets by branch+date+shift to show in historial
@@ -266,7 +282,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             week: `Semana ${first.week_number || 1}`,
             dayName: first.day_name || '',
             cash: 0, card: 0, qr: 0,
-            hora: first.hour ? String(first.hour).substring(0, 5) : '—',
+            hora: (() => {
+              const hours = tickets
+                .map((t: any) => String(t.hour || '').substring(0, 5))
+                .filter((h: string) => h && h !== '00:00')
+                .sort();
+              if (hours.length === 0) return '—';
+              const first = hours[0];
+              const last = hours[hours.length - 1];
+              return first === last ? first : `${first}-${last}`;
+            })(),
             medioCobro: dominantPayment,
             productRanking: []
           });
