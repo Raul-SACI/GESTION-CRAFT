@@ -503,11 +503,11 @@ function AppContent() {
   // Calcular si el módulo activo es solo lectura para el usuario actual
   const isCurrentTabReadOnly = useMemo(() => {
     if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return false;
-    if (isCurrentTabReadOnly) return true;
+    if (currentUser.isReadOnly) return true;
     const modulePerms = currentUser.modulePermissions as Record<string, 'edit' | 'view'> | undefined;
-    if (!modulePerms) return false;
+    if (!modulePerms || Object.keys(modulePerms).length === 0) return false;
     const perm = modulePerms[activeTab];
-    if (!perm) return true; // sin acceso = solo lectura por defecto
+    if (!perm) return false;
     return perm === 'view';
   }, [currentUser, activeTab]);
 
