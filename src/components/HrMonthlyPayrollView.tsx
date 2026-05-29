@@ -147,11 +147,12 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         const bonus = parseFloat(newItem.additionalBonus) || 0;
 
         if (newItem.salaryType === 'hourly') {
-          // Pay hours + Double pay premium for Holiday hours (equivalent to +8 hours of pay per holiday worked)
+          // Jornalero: horas normales + 8h extra por feriado (doble pago = +1 jornada por feriado)
           computed = (hours * rateOrSueldo) + (holidays * 8 * rateOrSueldo) + bonus;
         } else {
-          // Pay Monthly + Divisor 25 double holiday day extra pay (+1 extra day factor)
-          computed = rateOrSueldo + (holidays * (rateOrSueldo / 25)) + bonus;
+          // Mensualizado: sueldo + feriados × (sueldo/30) = valor diario extra por feriado
+          // Regla: sueldo/30/8 = valor hora → feriado = valor_hora × 8 × 2 = sueldo/30
+          computed = rateOrSueldo + (holidays * (rateOrSueldo / 30)) + bonus;
         }
         newItem.totalToCollect = computed;
         return newItem;
@@ -226,6 +227,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       const newItems = Object.values(groupMap).map((g: any) => {
         const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel);
         const computed = Math.round(g.totalHours * rate);
+        // Holiday calculation happens when RRHH edits the feriados field
         return {
           id: `sync-${g.branchId}-${g.employeeName?.replace(/\s+/g,'-')}-${g.positionId}-${selectedMonth}`,
           branchId: g.branchId,
@@ -711,7 +713,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                   if (item.salaryType === 'hourly') {
                     holidayPremium = holidays * 8 * rateOrSueldo;
                   } else {
-                    holidayPremium = holidays * (rateOrSueldo / 25);
+                    holidayPremium = holidays * (rateOrSueldo / 30); // sueldo/30 = valor día
                   }
                   return sum + holidayPremium + (item.additionalBonus || 0);
                 }, 0).toLocaleString('es-AR')}
@@ -739,7 +741,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         </h4>
         <ul className="text-[11px] text-text-main leading-relaxed space-y-1 bg-opacity-10 pl-2">
           <li>• <span className="font-bold">Personal Jornalero (Por Hora)</span>: <code className="font-mono text-brand-400 bg-bg-accent/40 px-1 rounded">Sueldo = (Horas reales * Valor Hora Base) + (Feriados trabajados * 8 horas * Valor Hora Base) + Adicionales</code>. El jornal del feriado se calcula abonando jornada doble (8 hs adicionales continuas por jornada).</li>
-          <li>• <span className="font-bold">Personal Mensualizado (Fijo)</span>: <code className="font-mono text-brand-400 bg-bg-accent/40 px-1 rounded">Sueldo = Sueldo Base + (Feriados trabajados * (Sueldo Base / 25)) + Adicionales</code>. Por ley, el día de feriado trabajado se liquida con el plus divisorio de 25 por jornal continuo, sumando el valor íntegro extra al sueldo neto.</li>
+          <li>• <span className="font-bold">Personal Mensualizado (Fijo)</span>: <code className="font-mono text-brand-400 bg-bg-accent/40 px-1 rounded">Sueldo = Sueldo Base + (Feriados trabajados * (Sueldo Base / 30)) + Adicionales</code>. El día feriado se paga doble: Sueldo/30 = valor día, ese valor se abona como plus adicional al sueldo mensual.</li>
         </ul>
       </div>
 
@@ -898,7 +900,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                     if (newPayrollItem.salaryType === 'hourly') {
                       computed = (hoursVal * rateVal) + (holidayVal * 8 * rateVal) + bonusVal;
                     } else {
-                      computed = rateVal + (holidayVal * (rateVal / 25)) + bonusVal;
+                      computed = rateVal + (holidayVal * (rateVal / 30)) + bonusVal; // mensual: +sueldo/30 por feriado
                     }
 
                     const newItem = {
