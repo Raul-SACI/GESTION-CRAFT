@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { ScheduledPayment } from '../types';
+import { supabase } from '../lib/supabase';
 
 // Constants to translate categories
 const CATEGORY_LABELS: Record<string, { label: string; bg: string; text: string; border: string }> = {
@@ -66,25 +67,35 @@ export default function PaymentScheduleView() {
   const [formTaxType, setFormTaxType] = useState('');
   const [formInstallment, setFormInstallment] = useState('');
 
-  // Load payments from localStorage
+  // Load payments from Supabase
   useEffect(() => {
-    const saved = localStorage.getItem('craft_scheduled_payments');
-    if (saved) {
-      try {
-        setPayments(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error loading payments', e);
-        setPayments(SEED_PAYMENTS);
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('payment_schedule')
+        .select('*')
+        .order('date');
+      if (!error && data && data.length > 0) {
+        setPayments(data.map((p: any) => ({
+          id: p.id,
+          description: p.provider,
+          dueDate: p.date,
+          amount: p.amount,
+          status: p.status,
+          category: p.category || 'other',
+          bank: p.notes?.bank,
+          entity: p.notes?.entity,
+          taxType: p.notes?.taxType,
+          installmentNumber: p.notes?.installmentNumber,
+        })));
+      } else {
+        setPayments([]);
       }
-    } else {
-      setPayments(SEED_PAYMENTS);
-      localStorage.setItem('craft_scheduled_payments', JSON.stringify(SEED_PAYMENTS));
-    }
+    };
+    load();
   }, []);
 
-  const savePayments = (updatedList: ScheduledPayment[]) => {
+  const savePayments = async (updatedList: ScheduledPayment[]) => {
     setPayments(updatedList);
-    localStorage.setItem('craft_scheduled_payments', JSON.stringify(updatedList));
   };
 
   // Check if date belongs to the current week (Argentine Mon-Sun)
@@ -256,21 +267,29 @@ export default function PaymentScheduleView() {
       payload.taxType = formTaxType.trim().toUpperCase() || 'VARIOS';
     }
 
-    let newList = [];
-    if (editingPayment) {
-      newList = payments.map(p => p.id === editingPayment.id ? { ...p, ...payload } : p);
-    } else {
-      newList = [...payments, payload];
-    }
+    const dbPayload = {
+      provider: payload.description,
+      date: payload.dueDate,
+      amount: payload.amount,
+      status: payload.status,
+      category: payload.category,
+      notes: JSON.stringify({ bank: payload.bank, entity: payload.entity, taxType: payload.taxType, installmentNumber: payload.installmentNumber })
+    };
 
-    savePayments(newList);
+    if (editingPayment) {
+      await supabase.from('payment_schedule').update(dbPayload).eq('id', editingPayment.id);
+      setPayments(payments.map(p => p.id === editingPayment.id ? { ...p, ...payload } : p));
+    } else {
+      const { data } = await supabase.from('payment_schedule').insert([dbPayload]).select().single();
+      if (data) setPayments([...payments, { ...payload, id: data.id }]);
+    }
     setShowModal(false);
   };
 
-  const handleDeleteCommitment = (id: string) => {
+  const handleDeleteCommitment = async (id: string) => {
     if (window.confirm('¿Está seguro de eliminar este compromiso de pago?')) {
-      const newList = payments.filter(p => p.id !== id);
-      savePayments(newList);
+      await supabase.from('payment_schedule').delete().eq('id', id);
+      setPayments(payments.filter(p => p.id !== id));
     }
   };
 
@@ -453,12 +472,9 @@ export default function PaymentScheduleView() {
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => {
-                          const updated = payments.map(item => 
-                            item.id === p.id 
-                              ? { ...item, status: (item.status === 'paid' ? 'pending' : 'paid') as any } 
-                              : item
-                          );
-                          savePayments(updated);
+                          const newStatus = p.status === 'paid' ? 'pending' : 'paid';
+                          await supabase.from('payment_schedule').update({ status: newStatus }).eq('id', p.id);
+                          setPayments(payments.map(item => item.id === p.id ? { ...item, status: newStatus as any } : item));
                         }}
                         className={cn(
                           "inline-flex items-center gap-1 px-2.5 py-0.5 rounded border text-[9px] font-black uppercase tracking-tighter cursor-pointer select-none transition-all",
