@@ -79,10 +79,10 @@ export default function EncargadoDashboardView({
   const [weeklyHoursLogs, setWeeklyHoursLogs] = useState<Record<string, any[]>>({});
   
   // Reputación State
-  const [googleRating, setGoogleRating] = useState(4.5);
+  const [googleRating, setGoogleRating] = useState(0);
   const [googleRatingCount, setGoogleRatingCount] = useState(0);
-  const [pedidosYaRestoRating, setPedidosYaRestoRating] = useState(4.5);
-  const [pedidosYaCafeRating, setPedidosYaCafeRating] = useState(4.5);
+  const [pedidosYaRestoRating, setPedidosYaRestoRating] = useState(0);
+  const [pedidosYaCafeRating, setPedidosYaCafeRating] = useState(0);
 
   // Supervision Flags State
   const [supervisionFlags, setSupervisionFlags] = useState({ red: 0, yellow: 0, green: 0 });
@@ -262,15 +262,15 @@ export default function EncargadoDashboardView({
       // Pedidos Ya Double Channel ratings
       const pyKey = `craft_pedidos_ya_ratings_v2_${month}`;
       const pySaved = localStorage.getItem(pyKey);
-      let pyResto = 4.5;
-      let pyCafe = 4.4;
+      let pyResto = 0;
+      let pyCafe = 0;
       
       if (pySaved) {
         try {
           const parsed = JSON.parse(pySaved);
           if (parsed[branchId]) {
-            pyResto = parsed[branchId].restoRating || 4.5;
-            pyCafe = parsed[branchId].cafeRating || 4.4;
+            pyResto = parsed[branchId].restoRating ?? 0;
+            pyCafe = parsed[branchId].cafeRating ?? 0;
           }
         } catch(e) {}
       } else {
@@ -283,8 +283,8 @@ export default function EncargadoDashboardView({
         if (dbData && dbData.length > 0) {
           const matchedResto = dbData.find(row => row.branch_id === `${branchId}_resto` || row.branch_id === branchId);
           const matchedCafe = dbData.find(row => row.branch_id === `${branchId}_cafe`);
-          if (matchedResto) pyResto = matchedResto.rating || 4.5;
-          if (matchedCafe) pyCafe = matchedCafe.rating || 4.4;
+          if (matchedResto) pyResto = matchedResto.rating ?? 0;
+          if (matchedCafe) pyCafe = matchedCafe.rating ?? 0;
         }
       }
       setPedidosYaRestoRating(pyResto);
@@ -292,7 +292,7 @@ export default function EncargadoDashboardView({
 
       // Google rating from active branch config
       if (activeBranch) {
-        setGoogleRating(activeBranch.googleRating || 4.5);
+        setGoogleRating(activeBranch.googleRating || 0);
         setGoogleRatingCount(activeBranch.googleRatingCount || 0);
       }
 
@@ -373,7 +373,7 @@ export default function EncargadoDashboardView({
   useEffect(() => {
     if (!activeBranch || !activeBranch.googlePlaceId || !placesLib) {
       if (activeBranch) {
-        setGoogleRating(activeBranch.googleRating || 4.5);
+        setGoogleRating(activeBranch.googleRating || 0);
         // Also ensure fallback count is set
         setGoogleRatingCount(activeBranch.googleRatingCount || 0);
       }
@@ -406,7 +406,7 @@ export default function EncargadoDashboardView({
         }
       } catch (err) {
         console.warn("Real-time Places API failed in branch dashboard, rendering cached values:", err);
-        setGoogleRating(activeBranch.googleRating || 4.5);
+        setGoogleRating(activeBranch.googleRating || 0);
         setGoogleRatingCount(activeBranch.googleRatingCount || 0);
       }
     };
@@ -650,11 +650,9 @@ export default function EncargadoDashboardView({
   }, [selectedBranchId, selectedMonth]);
 
   const activeConfigs = useMemo(() => {
-    if (performanceConfigs.length > 0) {
-      return performanceConfigs;
-    }
-    return generatedFallbackConfigs;
-  }, [performanceConfigs, generatedFallbackConfigs]);
+    // Only use real configs from DB - never show generated/fake data to encargados
+    return performanceConfigs;
+  }, [performanceConfigs]);
 
   const calculatedPrizesBreakdown = useMemo(() => {
     const result: Record<string, any> = {};
@@ -1172,7 +1170,22 @@ export default function EncargadoDashboardView({
 
             {/* List calculated bonuses */}
             <div className="space-y-6">
-              {['encargado', 'jefe_cocina', 'segundo_cocina'].map(role => {
+              {activeConfigs.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
+                  <span className="text-3xl">⚙️</span>
+                  <p className="text-[10px] font-black text-text-dim uppercase tracking-wider">Sin configuración de premios</p>
+                  <p className="text-[9px] text-text-dim/70">La administración aún no cargó los objetivos y premios para este mes y sucursal.</p>
+                  {onNavigateToTab && (
+                    <button
+                      onClick={() => onNavigateToTab('performance_admin')}
+                      className="mt-2 bg-brand-500/10 text-brand-500 border border-brand-500/20 px-3 py-1.5 rounded text-[8px] font-black uppercase tracking-wider hover:bg-brand-500/20 transition-all cursor-pointer"
+                    >
+                      Ir a Configuración
+                    </button>
+                  )}
+                </div>
+              )}
+              {activeConfigs.length > 0 && ['encargado', 'jefe_cocina', 'segundo_cocina'].map(role => {
                 const breakdown = calculatedPrizesBreakdown[role];
                 if (!breakdown) return null;
 
