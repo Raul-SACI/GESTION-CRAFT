@@ -114,25 +114,40 @@ export default function EncargadoDashboardView({
   // 1. Fetch sales from Supabase
   const fetchSalesData = async (branchId: string, month: string) => {
     try {
-      let query = supabase
-        .from('sales_tickets')
-        .select('net_sales, gross_sales, orders, covers')
-        .eq('month', month);
+      // Paginate to get all tickets (Supabase default limit = 1000, we have 16k+)
+      let allData: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
 
-      // Only filter by branch if not 'all' - let Supabase sum all branches
-      if (branchId !== 'all') {
-        query = query.eq('branch_id', branchId);
+      while (hasMore) {
+        let query = supabase
+          .from('sales_tickets')
+          .select('net_sales, gross_sales, orders, covers')
+          .eq('month', month)
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (branchId !== 'all') {
+          query = query.eq('branch_id', branchId);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          hasMore = data.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
+        }
+        if (page > 50) break; // safety
       }
 
-      const { data, error } = await query;
-
-      if (!error && data && data.length > 0) {
-        const netSum = data.reduce((sum, item) => sum + (Number(item.net_sales) || 0), 0);
-        const grossSum = data.reduce((sum, item) => sum + (Number(item.gross_sales) || 0), 0);
-        const ordersSum = data.reduce((sum, item) => sum + (Number(item.orders) || 0), 0);
-        setSalesNet(netSum);
-        setSalesGross(grossSum);
-        setSalesOrdersCount(ordersSum);
+      if (allData.length > 0) {
+        setSalesNet(allData.reduce((s, i) => s + (Number(i.net_sales) || 0), 0));
+        setSalesGross(allData.reduce((s, i) => s + (Number(i.gross_sales) || 0), 0));
+        setSalesOrdersCount(allData.reduce((s, i) => s + (Number(i.orders) || 0), 0));
       } else {
         setSalesNet(0);
         setSalesGross(0);
