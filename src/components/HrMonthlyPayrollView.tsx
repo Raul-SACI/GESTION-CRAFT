@@ -83,10 +83,17 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         const { data, error } = await query;
 
         if (!error && data && data.length > 0) {
-          // Filter out fake/invalid records (no position or zero total)
-          const valid = data.filter((r: any) => 
-            r.position_name && r.position_name !== 'Sin cargo' && r.position_name !== 'SIN CARGO'
-          );
+          // Filter out fake/invalid records:
+          // - no position (SIN CARGO)  
+          // - employee_name same as position_name (means it was set from puesto, not real person)
+          const valid = data.filter((r: any) => {
+            if (!r.position_name || r.position_name === 'Sin cargo' || r.position_name === 'SIN CARGO') return false;
+            const empUpper = (r.employee_name || '').toUpperCase().trim();
+            const posUpper = (r.position_name || '').toUpperCase().trim();
+            // If employee name equals position name, it's fake data
+            if (empUpper === posUpper) return false;
+            return true;
+          });
           if (valid.length === 0) { setPayrollItems([]); return; }
           // Map Supabase columns back to payrollItem shape
           const mapped = valid.map((r: any) => ({
@@ -220,7 +227,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel);
         const computed = Math.round(g.totalHours * rate);
         return {
-          id: `sync-${g.branchId}-${g.positionId}-${selectedMonth}`,
+          id: `sync-${g.branchId}-${g.employeeName?.replace(/\s+/g,'-')}-${g.positionId}-${selectedMonth}`,
           branchId: g.branchId,
           branchName: g.branchName,
           employeeName: g.employeeName || g.positionLabel.toUpperCase(),
