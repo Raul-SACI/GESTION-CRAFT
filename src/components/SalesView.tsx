@@ -225,7 +225,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       }
 
       // Fetch tickets with pagination (16k+ rows, Supabase default limit = 1000)
-      let allTicketsData: any[] = [];
+      let fetchedTickets: any[] = [];
       let tkPage = 0;
       const tkPageSize = 1000;
       let tkHasMore = true;
@@ -239,7 +239,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         if (localBranchId !== 'all') tkQuery = tkQuery.eq('branch_id', localBranchId);
         const { data: tkData } = await tkQuery;
         if (tkData && tkData.length > 0) {
-          allTicketsData = [...allTicketsData, ...tkData];
+          fetchedTickets = [...fetchedTickets, ...tkData];
           tkHasMore = tkData.length === tkPageSize;
           tkPage++;
         } else {
@@ -247,7 +247,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
         if (tkPage > 50) break; // safety: max 50k tickets
       }
-      const ticketsData = allTicketsData;
+      const ticketsData = fetchedTickets;
+      setAllTicketsData(fetchedTickets); // store for hour filter
 
       if (ticketsData && ticketsData.length > 0) {
         // Group tickets by branch+date+shift to show in historial
