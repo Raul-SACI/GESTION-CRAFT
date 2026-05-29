@@ -579,52 +579,39 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     const otherLogs = allLogs.filter(log => !(log.branchId === branchIdToUse && log.date === selectedDate));
     const mergedLogs = [...otherLogs, ...confirmedRecords];
     localStorage.setItem('craft_branch_daily_hours', JSON.stringify(mergedLogs));
-    // Guardar en Supabase
+
+    // Save to Supabase hour_logs - one row per employee per day per position
     try {
-      const upsertData = mergedLogs.map((log: any) => ({
-        branch_id: log.branchId || branchIdToFetch,
-        employee_name: log.employeeName || log.name || 'Sin nombre',
-        position: log.position || log.role || 'Sin cargo',
-        date: log.date,
-        month: log.date ? log.date.substring(0, 7) : selectedMonth,
-        hours_planned: log.hoursPlanned || 0,
-        hours_actual: log.hoursActual || log.hours || 0,
-      }));
-      if (upsertData.length > 0) {
-        await supabase.from('hour_logs').upsert(upsertData, { onConflict: 'branch_id,employee_name,date' });
-      }
-    } catch(e) { console.error('Error sync hour_logs:', e); }
-
-    // Async post to Supabase database as persistent backup
-    const saveToSupabase = async () => {
       for (const r of confirmedRecords) {
+        const roleLabel = ROLES.find((rol: any) => rol.id === r.roleId)?.label || r.roleId;
         const dbData = {
-          branch_id: branchIdToUse,
-          employee_name: r.employeeName,
-          position: r.roleId,
+          branch_id: r.branchId || branchIdToUse,
+          employee_name: r.employeeName || 'Sin nombre',
+          position: roleLabel,
+          position_id: r.roleId || 'unknown',
           date: r.date,
-          hours_actual: r.hours
+          month: r.date ? r.date.substring(0, 7) : selectedMonth,
+          week_number: r.weekNum || getWeekFromDate(r.date),
+          hours_planned: 0,
+          hours_actual: r.hours || 0,
         };
-        try {
-          const { data } = await supabase
-            .from('hour_logs')
-            .select('id')
-            .eq('branch_id', branchIdToUse)
-            .eq('employee_name', r.employeeName)
-            .eq('date', r.date)
-            .maybeSingle();
+        // Check if exists then update or insert
+        const { data: existing } = await supabase
+          .from('hour_logs')
+          .select('id')
+          .eq('branch_id', dbData.branch_id)
+          .eq('employee_name', dbData.employee_name)
+          .eq('date', dbData.date)
+          .eq('position_id', dbData.position_id)
+          .maybeSingle();
 
-          if (data) {
-            await supabase.from('hour_logs').update(dbData).eq('id', data.id);
-          } else {
-            await supabase.from('hour_logs').insert(dbData);
-          }
-        } catch (err) {
-          console.error('Postgres backup error', err);
+        if (existing) {
+          await supabase.from('hour_logs').update(dbData).eq('id', existing.id);
+        } else {
+          await supabase.from('hour_logs').insert(dbData);
         }
       }
-    };
-    saveToSupabase();
+    } catch(e) { console.error('Error saving hour_logs:', e); }
 
     // Sum hours by position/roleId for the entire active week (across all days of this week)
     const weekConfirmedLogs = mergedLogs.filter(log => 

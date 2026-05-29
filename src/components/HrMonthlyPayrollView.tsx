@@ -185,17 +185,19 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         return;
       }
 
-      // Group by branch + position_id and sum hours_rrhh across all 4 weeks
+      // Group by branch + employee_name + position_id and sum hours_rrhh
       const groupMap: Record<string, any> = {};
       hrLogs.forEach((log: any) => {
         if (!log.hours_rrhh || Number(log.hours_rrhh) === 0) return;
-        const key = `${log.branch_id}|${log.position_id}`;
+        const empName = log.employee_name && log.employee_name !== 'Sin nombre' ? log.employee_name : null;
+        const key = `${log.branch_id}|${empName || log.position_id}|${log.position_id}`;
         if (!groupMap[key]) {
           groupMap[key] = {
             branchId: log.branch_id,
             branchName: branches.find(b => b.id === log.branch_id)?.name || log.branch_id,
             positionId: log.position_id,
             positionLabel: log.position_name || log.position_id,
+            employeeName: empName ? empName.toUpperCase() : (log.position_name || log.position_id).toUpperCase(),
             hourlyRate: Number(log.hourly_rate) || 0,
             totalHours: 0,
           };
@@ -210,7 +212,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
           id: `sync-${g.branchId}-${g.positionId}-${selectedMonth}`,
           branchId: g.branchId,
           branchName: g.branchName,
-          employeeName: g.positionLabel.toUpperCase(),
+          employeeName: g.employeeName || g.positionLabel.toUpperCase(),
           positionLabel: g.positionLabel,
           salaryType: 'hourly',
           hoursWorked: g.totalHours,

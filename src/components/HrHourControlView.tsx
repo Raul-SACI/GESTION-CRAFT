@@ -143,7 +143,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
     };
   };
 
-  // Load records from local storage or set defaults when selectors change
+  // Load records from Supabase hour_logs + local storage
   useEffect(() => {
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
     const saved = localStorage.getItem(storageKey);
@@ -244,7 +244,69 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       setRecords(mergedList);
     };
 
-    loadRecords();
+    // Also load individual employee hours from Supabase hour_logs
+    const loadFromSupabase = async () => {
+      try {
+        const { data: logs } = await supabase
+          .from('hour_logs')
+          .select('employee_name, position, position_id, hours_actual, week_number')
+          .eq('branch_id', selectedBranch)
+          .eq('month', selectedMonth)
+          .eq('week_number', parseInt(selectedWeek));
+
+        if (logs && logs.length > 0) {
+          // Group by employee+position and sum hours
+          const empMap: Record<string, any> = {};
+          logs.forEach((log: any) => {
+            const key = `${log.employee_name}|${log.position_id || log.position}`;
+            if (!empMap[key]) {
+              empMap[key] = {
+                id: key,
+                roleId: log.position_id || log.position,
+                roleLabel: log.position || log.position_id,
+                employeeName: log.employee_name,
+                referenceHours: 0,
+                horasSucursal: 0,
+                definitiveHours: 0,
+                valorHora: getPositionRateFromMaestro(log.position_id || '', log.position || ''),
+                status: 'pending',
+                notes: ''
+              };
+            }
+            empMap[key].horasSucursal += Number(log.hours_actual || 0);
+            empMap[key].definitiveHours += Number(log.hours_actual || 0);
+          });
+
+          // Check if we have existing saved definitiveHours
+          const existingStr = localStorage.getItem(storageKey);
+          if (existingStr) {
+            try {
+              const existing = JSON.parse(existingStr);
+              Object.values(empMap).forEach((emp: any) => {
+                const found = existing.find((e: any) => e.id === emp.id);
+                if (found) {
+                  emp.definitiveHours = found.definitiveHours;
+                  emp.status = found.status;
+                  emp.notes = found.notes;
+                }
+              });
+            } catch(e) {}
+          }
+
+          const empRecords = Object.values(empMap).filter((e: any) => e.horasSucursal > 0 || e.definitiveHours > 0);
+          if (empRecords.length > 0) {
+            setRecords(empRecords as any);
+            return;
+          }
+        }
+      } catch(e) {
+        console.error('Error loading from hour_logs:', e);
+      }
+      // Fallback to position-based view
+      loadRecords();
+    };
+
+    loadFromSupabase();
   }, [selectedBranch, selectedMonth, selectedWeek]);
 
   // Handle single record hours change
@@ -283,8 +345,9 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         branch_id: selectedBranch,
         month: selectedMonth,
         week_number: parseInt(selectedWeek),
-        position_id: r.positionId || r.id || 'unknown',
+        position_id: r.roleId || r.positionId || r.id || 'unknown',
         position_name: r.roleLabel || r.positionName || r.position || 'Sin cargo',
+        employee_name: (r as any).employeeName || r.positionName || r.roleLabel || 'Sin nombre',
         employee_name: r.employeeName || r.name || 'Sin nombre',
         hours_planned: r.referenceHours || r.hoursPlanned || r.budgetedHours || 0,
         hours_branch: r.horasSucursal || r.hoursBranch || r.hoursWorked || 0,
