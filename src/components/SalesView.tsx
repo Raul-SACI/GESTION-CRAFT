@@ -826,14 +826,21 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
         if (!dateStr || dateStr.length < 10) continue;
 
-        // Parse hour
+        // Parse hour - Excel time cells come as Date(1899-12-30 + time) with cellDates:true
+        // Must use UTC to avoid timezone shifts
         let hourStr = '00:00';
         const rawHour = row['HORA'];
         if (rawHour instanceof Date) {
-          hourStr = rawHour.toTimeString().substring(0, 5);
+          // Use UTC hours/minutes to avoid local timezone offset corruption
+          const hh = String(rawHour.getUTCHours()).padStart(2, '0');
+          const mm = String(rawHour.getUTCMinutes()).padStart(2, '0');
+          hourStr = `${hh}:${mm}`;
         } else if (typeof rawHour === 'number') {
+          // Raw Excel fraction: 0.5 = 12:00
           const totalMins = Math.round(rawHour * 24 * 60);
-          hourStr = `${String(Math.floor(totalMins/60)).padStart(2,'0')}:${String(totalMins%60).padStart(2,'0')}`;
+          const hh = String(Math.floor(totalMins / 60) % 24).padStart(2, '0');
+          const mm = String(totalMins % 60).padStart(2, '0');
+          hourStr = `${hh}:${mm}`;
         } else if (typeof rawHour === 'string' && rawHour.includes(':')) {
           hourStr = rawHour.substring(0, 5);
         }
