@@ -860,6 +860,8 @@ function AppContent() {
               const enteredPass = typedUnlockPassword.trim();
 
               if (enteredPass === expectedPass) {
+                // Limpiar menú guardado para que cada usuario vea solo sus módulos
+                localStorage.removeItem('craft_sidebar_order');
                 sessionStorage.setItem(`unlocked_profile_${profileToUnlock.id}`, 'true');
                 sessionStorage.setItem('active_profile_id', profileToUnlock.id);
                 setCurrentUserProfile(profileToUnlock);
@@ -1103,7 +1105,9 @@ function AppContent() {
           {Object.entries(menuConfig).map(([sectionName, items]) => {
             const typedItems = items as MenuItem[];
             const filteredItems = typedItems.filter(item => 
-              currentUser.role === 'dueño' || currentUser.permissions?.includes(item.id)
+              currentUser.role === 'dueño' || 
+              currentUser.role === 'administrador' ||
+              currentUser.permissions?.includes(item.id)
             );
 
             if (filteredItems.length === 0) return null;
