@@ -64,84 +64,11 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   // Cargar puestos desde Supabase
   const [positions, setPositions] = useState<SalaryPosition[]>(() => {
     // Fallback vacío, se carga async
-    if (false) {
-    return [
-      { 
-        id: '1', 
-        area: 'OPERACIONES', 
-        sector: 'COCINA', 
-        title: 'Cocinero A', 
-        type: 'hourly', 
-        baseValue: 3500, 
-        baseMonth: '2026-05',
-        prevBaseValue: 3100, 
-        prevBaseMonth: '2026-02', 
-        notes: 'Incluye premio puntualidad ($500)',
-        history: [
-          { date: '2026-01', value: 2900 },
-          { date: '2026-02', value: 3100 },
-          { date: '2026-03', value: 3100 },
-          { date: '2026-04', value: 3300 },
-          { date: '2026-05', value: 3500 },
-        ]
-      },
-      { 
-        id: '2', 
-        area: 'OPERACIONES', 
-        sector: 'SALON', 
-        title: 'Mozo Salon', 
-        type: 'hourly', 
-        baseValue: 2800, 
-        baseMonth: '2026-05',
-        prevBaseValue: 2500, 
-        prevBaseMonth: '2026-02', 
-        notes: '+ Propinas variables',
-        history: [
-          { date: '2026-01', value: 2300 },
-          { date: '2026-02', value: 2500 },
-          { date: '2026-03', value: 2500 },
-          { date: '2026-04', value: 2700 },
-          { date: '2026-05', value: 2800 },
-        ]
-      },
-      { 
-        id: '3', 
-        area: 'ADMINISTRACION', 
-        sector: 'GERENCIA', 
-        title: 'Gerente Operativo', 
-        type: 'monthly', 
-        baseValue: 850000, 
-        baseMonth: '2026-05',
-        prevBaseValue: 780000, 
-        prevBaseMonth: '2026-01', 
-        notes: 'Bono por objetivos trimestral',
-        history: [
-          { date: '2026-01', value: 780000 },
-          { date: '2026-02', value: 780000 },
-          { date: '2026-03', value: 800000 },
-          { date: '2026-04', value: 820000 },
-          { date: '2026-05', value: 850000 },
-        ]
-      },
-      { 
-        id: '4', 
-        area: 'ADMINISTRACION', 
-        sector: 'GESTION', 
-        title: 'Sub-Encargado', 
-        type: 'monthly', 
-        baseValue: 620000, 
-        baseMonth: '2026-05',
-        prevBaseValue: 580000, 
-        prevBaseMonth: '2026-01',
-        history: [
-          { date: '2026-01', value: 580000 },
-          { date: '2026-02', value: 580000 },
-          { date: '2026-03', value: 595000 },
-          { date: '2026-04', value: 610000 },
-          { date: '2026-05', value: 620000 },
-        ]
-      },
-    ];
+    const saved = localStorage.getItem('craft_salary_positions');
+    if (saved) {
+      try { return JSON.parse(saved); } catch(e) {}
+    }
+    return [];
   });
 
   // Persist data whenever it changes

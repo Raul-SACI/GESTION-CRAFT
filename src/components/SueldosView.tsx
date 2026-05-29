@@ -451,7 +451,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   };
 
   // Helper to save a draft (local only, does not affect HR)
-  const saveDraft = () => {
+  const saveDraft = async () => {
     setSaving(true);
     setSaveSuccess(false);
 
@@ -506,7 +506,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   };
 
   // Helper to confirm and push to Resources Humanos Control Board
-  const confirmDay = () => {
+  const confirmDay = async () => {
     setSaving(true);
     setSaveSuccess(false);
 

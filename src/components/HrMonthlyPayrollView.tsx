@@ -164,7 +164,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
   }, [selectedMonth, branches]);
 
   // Handle inline updates of fields
-  const handleUpdatePayrollField = (itemId: string, field: string, value: any) => {
+  const handleUpdatePayrollField = async (itemId: string, field: string, value: any) => {
     const updated = payrollItems.map(item => {
       if (item.id === itemId) {
         const newItem = { ...item, [field]: value };
@@ -544,7 +544,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                     {/* Trash remove row */}
                     <td className="px-5 py-4 text-center">
                       <button 
-                        onClick={() => {
+                        onClick={async () => {
                           const conf = window.confirm(`¿Está seguro que desea levantar a ${item.employeeName} de las liquidaciones de este mes?`);
                           if (!conf) return;
                           const updated = payrollItems.filter(p => p.id !== item.id);
@@ -787,7 +787,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                  </div>
 
                  <button 
-                  onClick={() => {
+                  onClick={async () => {
                     if (!newPayrollItem.employeeName.trim()) {
                       alert('Ingrese el nombre de la persona a liquidar.');
                       return;

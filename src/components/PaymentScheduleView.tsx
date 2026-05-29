@@ -241,7 +241,7 @@ export default function PaymentScheduleView() {
     setShowModal(true);
   };
 
-  const handleSaveCommitment = () => {
+  const handleSaveCommitment = async () => {
     if (!formDescription.trim() || formAmount <= 0 || !formDueDate) {
       alert('Por favor complete la descripción, un monto válido y la fecha de vencimiento.');
       return;
@@ -471,7 +471,7 @@ export default function PaymentScheduleView() {
                     </td>
                     <td className="px-6 py-4 text-center">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const newStatus = p.status === 'paid' ? 'pending' : 'paid';
                           await supabase.from('payment_schedule').update({ status: newStatus }).eq('id', p.id);
                           setPayments(payments.map(item => item.id === p.id ? { ...item, status: newStatus as any } : item));
