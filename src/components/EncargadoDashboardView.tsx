@@ -294,30 +294,33 @@ export default function EncargadoDashboardView({
       }
 
       // Supervision responses for Red/Yellow/Green flags
-      const { data: responses, error: respError } = await supabase
-        .from('supervision_responses')
-        .select('*')
-        .eq('branch_id', branchId)
-        .gte('date', `${month}-01`)
-        .lte('date', `${month}-31`);
+      try {
+        const { data: responses, error: respError } = await supabase
+          .from('supervision_responses')
+          .select('*')
+          .eq('branch_id', branchId)
+          .gte('date', `${month}-01`)
+          .lte('date', `${month}-31`);
 
-      if (!respError && responses) {
-        setSupervisionResponses(responses);
-        let redSum = 0;
-        let yellowSum = 0;
-        let greenSum = 0;
-        responses.forEach(r => {
-          const flagsObj = r.scores?.flags;
-          if (flagsObj) {
-            redSum += (flagsObj.red || 0);
-            yellowSum += (flagsObj.yellow || 0);
-            greenSum += (flagsObj.green || 0);
-          }
-        });
-        setSupervisionFlags({ red: redSum, yellow: yellowSum, green: greenSum });
-      } else {
-        // Defaults if database table is missing or empty
-        setSupervisionFlags({ red: branchId === 'bn' ? 0 : 1, yellow: 2, green: 24 });
+        if (!respError && responses) {
+          setSupervisionResponses(responses);
+          let redSum = 0, yellowSum = 0, greenSum = 0;
+          responses.forEach(r => {
+            const flagsObj = r.scores?.flags;
+            if (flagsObj) {
+              redSum += (flagsObj.red || 0);
+              yellowSum += (flagsObj.yellow || 0);
+              greenSum += (flagsObj.green || 0);
+            }
+          });
+          setSupervisionFlags({ red: redSum, yellow: yellowSum, green: greenSum });
+        } else {
+          setSupervisionFlags({ red: 0, yellow: 0, green: 0 });
+          setSupervisionResponses([]);
+        }
+      } catch (supErr) {
+        // Tabla puede no existir todavía
+        setSupervisionFlags({ red: 0, yellow: 0, green: 0 });
         setSupervisionResponses([]);
       }
 
