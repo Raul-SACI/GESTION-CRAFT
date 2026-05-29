@@ -198,8 +198,22 @@ export function SearchableEmployeeSelect({ value, onChange, staffPool, disabled 
 }
 
 export default function HourControlView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
-  const activeBranch = branches.find(b => b.id === selectedBranchId);
-  const [selectedDate, setSelectedDate] = useState('2026-05-22'); // May 22, 2026 default
+  const activeBranches = branches.filter(b => b.isActive && b.id !== 'all');
+  
+  // When admin has 'all' selected, show a branch selector inside the module
+  const [localBranchId, setLocalBranchId] = useState<string>(
+    selectedBranchId === 'all' ? (activeBranches[0]?.id || '') : selectedBranchId
+  );
+  
+  // Sync when parent changes (encargado switching branches)
+  const prevBranchRef = React.useRef(selectedBranchId);
+  if (selectedBranchId !== 'all' && selectedBranchId !== prevBranchRef.current) {
+    prevBranchRef.current = selectedBranchId;
+    if (localBranchId !== selectedBranchId) setLocalBranchId(selectedBranchId);
+  }
+
+  const activeBranch = branches.find(b => b.id === localBranchId);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -249,7 +263,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   // Fetch employees
   useEffect(() => {
     const fetchEmployees = async () => {
-      const branchIdToFetch = selectedBranchId === 'all' ? '1' : selectedBranchId;
+      const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
       try {
         const { data } = await supabase
           .from('employees')
@@ -294,7 +308,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   // Fetch records
   useEffect(() => {
     const fetchRecords = () => {
-      const branchIdToFetch = selectedBranchId === 'all' ? '1' : selectedBranchId;
+      const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
       setLoading(true);
 
       const savedStr = localStorage.getItem('craft_branch_daily_hours') || '[]';
@@ -359,7 +373,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     if (!newStaff.name.trim()) return;
     const nameUpper = newStaff.name.trim().toUpperCase();
     const resolvedRate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position);
-    const branchIdToFetch = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
 
     let newEmp = {
       id: `emp-${Math.random().toString(36).substr(2, 9)}`,
@@ -399,7 +413,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   };
 
   const handleAddRow = () => {
-    const branchIdToUse = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdToUse = localBranchId || activeBranches[0]?.id || '';
     const newRecord: HourRecord = {
       id: `temp-${Math.random().toString(36).substr(2, 9)}`,
       branchId: branchIdToUse,
@@ -455,7 +469,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     setSaving(true);
     setSaveSuccess(false);
 
-    const branchIdToUse = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdToUse = localBranchId || activeBranches[0]?.id || '';
     const validRecords = records.filter(r => r.employeeName);
     
     const draftRecords = validRecords.map(r => ({
@@ -510,7 +524,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     setSaving(true);
     setSaveSuccess(false);
 
-    const branchIdToUse = selectedBranchId === 'all' ? '1' : selectedBranchId;
+    const branchIdToUse = localBranchId || activeBranches[0]?.id || '';
     const validRecords = records.filter(r => r.employeeName);
     
     // Set all as confirmed = true
@@ -694,6 +708,18 @@ export default function HourControlView({ selectedBranchId, branches }: { select
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
+          {/* Branch selector for admin */}
+          {selectedBranchId === 'all' && (
+            <select
+              value={localBranchId}
+              onChange={e => setLocalBranchId(e.target.value)}
+              className="px-3 py-2 bg-bg-accent border border-brand-500/40 rounded text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer"
+            >
+              {activeBranches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          )}
           <div className="flex gap-1.5 mr-2">
             <button 
               className="flex items-center gap-2 px-3 py-2 bg-emerald-500/5 text-emerald-400 border border-emerald-500/20 rounded text-[9px] font-black uppercase tracking-wider hover:bg-emerald-500/10 transition-all font-mono"
