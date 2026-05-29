@@ -639,12 +639,7 @@ class SmartQueryChain {
                   return mockRes;
                 }
               }
-              // Intercept real Supabase query results to filter out obsolete profiles
-              if (res && Array.isArray(res.data) && target.table === 'profiles') {
-                const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
-                const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
-                res.data = res.data.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
-              }
+
               if (onfulfilled) return onfulfilled(res);
               return res;
             } catch (err: any) {
