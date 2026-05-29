@@ -244,8 +244,33 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       setRecords(mergedList);
     };
 
+    // Load budget from Supabase hour_budgets for planned hours
+    const loadBudgetFromSupabase = async () => {
+      try {
+        const { data: budgets } = await supabase
+          .from('hour_budgets')
+          .select('position_id, position_name, week1, week2, week3, week4, shift, hours_per_day, planned_hours')
+          .eq('branch_id', selectedBranch)
+          .eq('month', selectedMonth);
+
+        if (budgets && budgets.length > 0) {
+          // Build budget map by position_id
+          const budgetMap: Record<string, number> = {};
+          budgets.forEach((b: any) => {
+            const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4';
+            const planned = b[weekKey] || b.planned_hours || 0;
+            const posId = b.position_id;
+            budgetMap[posId] = (budgetMap[posId] || 0) + Number(planned);
+          });
+          return budgetMap;
+        }
+      } catch(e) { console.error('Error loading budget:', e); }
+      return {};
+    };
+
     // Also load individual employee hours from Supabase hour_logs
     const loadFromSupabase = async () => {
+      const budgetMap = await loadBudgetFromSupabase();
       try {
         const { data: logs } = await supabase
           .from('hour_logs')
@@ -259,16 +284,17 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
           const empMap: Record<string, any> = {};
           logs.forEach((log: any) => {
             const key = `${log.employee_name}|${log.position_id || log.position}`;
+            const posId = log.position_id || log.position || '';
             if (!empMap[key]) {
               empMap[key] = {
                 id: key,
-                roleId: log.position_id || log.position,
+                roleId: posId,
                 roleLabel: log.position || log.position_id,
                 employeeName: log.employee_name,
-                referenceHours: 0,
+                referenceHours: budgetMap[posId] || 0,
                 horasSucursal: 0,
                 definitiveHours: 0,
-                valorHora: getPositionRateFromMaestro(log.position_id || '', log.position || ''),
+                valorHora: getPositionRateFromMaestro(posId, log.position || ''),
                 status: 'pending',
                 notes: ''
               };
@@ -302,8 +328,32 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       } catch(e) {
         console.error('Error loading from hour_logs:', e);
       }
-      // Fallback to position-based view
-      loadRecords();
+      // Fallback to position-based view with budget from Supabase
+      // Update referenceHours from budgetMap if available
+      if (Object.keys(budgetMap).length > 0) {
+        const savedStr = localStorage.getItem(storageKey);
+        let existingList: any[] = [];
+        if (savedStr) {
+          try { existingList = JSON.parse(savedStr); } catch(e) {}
+        }
+        const mergedList = POSITIONS.map((p: any) => {
+          const existing = existingList.find((r: any) => r.roleId === p.id);
+          const plannedFromBudget = budgetMap[p.id] || 0;
+          const dailySum = filteredDaily.filter((log: any) => log.roleId === p.id).reduce((sum: number, log: any) => sum + (log.hours || 0), 0);
+          return {
+            id: p.id, roleId: p.id, roleLabel: p.label,
+            referenceHours: plannedFromBudget || p.refHours,
+            horasSucursal: dailySum,
+            definitiveHours: existing ? existing.definitiveHours : 0,
+            valorHora: getPositionRateFromMaestro(p.id, p.label),
+            status: existing ? existing.status : 'pending',
+            notes: existing ? existing.notes : ''
+          };
+        });
+        setRecords(mergedList);
+      } else {
+        loadRecords();
+      }
     };
 
     loadFromSupabase();
