@@ -888,6 +888,45 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         inserted += batch.length;
       }
 
+      // Also update aggregated sales table (branch+date+type totals)
+      // Group tickets by branch_id + date + shift
+      const aggMap: Record<string, any> = {};
+      for (const t of tickets) {
+        const shiftType = t.shift === 'Mañana' ? 'Turno Mañana' : 'Turno Tarde';
+        const key = `${t.branch_id}|${t.date}|${shiftType}`;
+        if (!aggMap[key]) {
+          aggMap[key] = {
+            id: crypto.randomUUID(),
+            branch_id: t.branch_id,
+            date: t.date,
+            type: shiftType,
+            pesos: 0, net_sales: 0, orders: 0, covers: 0, iva: 0,
+            week: String(t.week_number),
+            day_name: t.day_name.substring(0, 3).toLowerCase(),
+            cash: 0, card: 0, qr: 0, projection: 0,
+            product_ranking: []
+          };
+        }
+        aggMap[key].pesos       = Math.round((aggMap[key].pesos + t.gross_sales) * 100) / 100;
+        aggMap[key].net_sales   = Math.round((aggMap[key].net_sales + t.net_sales) * 100) / 100;
+        aggMap[key].orders      += t.orders;
+        aggMap[key].covers      += t.covers;
+        aggMap[key].iva         = Math.round((aggMap[key].iva + t.iva) * 100) / 100;
+      }
+      const aggRecords = Object.values(aggMap);
+
+      // Delete existing aggregated sales for these months/branches then insert
+      for (const month of months) {
+        await supabase.from('sales').delete()
+          .gte('date', `${month}-01`)
+          .lte('date', `${month}-31`)
+          .in('branch_id', branchIds);
+      }
+      for (let i = 0; i < aggRecords.length; i += 200) {
+        const { error } = await supabase.from('sales').insert(aggRecords.slice(i, i + 200));
+        if (error) console.warn('Error saving aggregated sales:', error.message);
+      }
+
       alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${months.join(', ')})`);
     } catch (err: any) {
       console.error('Error importando tickets:', err);
@@ -1427,15 +1466,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           
           {activeSubTab === 'daily' ? (
             <>
-              <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2">
-                <FileUp size={16} /> IMPORTAR VENTAS
-                <input 
-                  type="file" 
-                  accept=".xlsx, .xls, .csv" 
-                  className="hidden" 
-                  onChange={handleImportExcel}
-                />
-              </label>
               <label className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2" title="Importa el detalle completo de tickets para análisis por hora, día y medio de cobro">
                 <FileUp size={16} /> IMPORTAR TICKETS DETALLE
                 <input 
