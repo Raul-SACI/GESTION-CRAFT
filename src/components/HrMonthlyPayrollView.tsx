@@ -114,10 +114,11 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
   // Sync with actual weekly hours audited in localStorage
   const handleSyncWithWeeklyControl = async () => {
     try {
-      // Read audited hours from Supabase hr_hour_logs (saved by RRHH in Control Semanal)
+      // Read audited hours from Supabase hr_hour_logs
+      // Schema: branch_id, month, week_number, position_id, position_name, hours_rrhh
       const { data: hrLogs, error } = await supabase
         .from('hr_hour_logs')
-        .select('branch_id, role_id, week1, week2, week3, week4, definitive_hours')
+        .select('branch_id, month, week_number, position_id, position_name, hours_rrhh')
         .eq('month', selectedMonth);
 
       if (error) throw error;
@@ -126,39 +127,35 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         return;
       }
 
-      let countUpdated = 0;
-      const roleIdMap: Record<string, string> = {
-        'encargado': 'encargado', 'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
-        'segundo de cocina': 'segundo_cocina', 'cocinero': 'cocinero', 'caja': 'caja',
-        'cajero': 'caja', 'barra': 'barra', 'bartender': 'barra',
-        'mozo': 'mozos', 'mozos': 'mozos', 'runner': 'runners', 'runners': 'runners',
-        'bacha': 'bacha', 'bachero': 'bacha'
-      };
+      // Group by branch + position_id and sum hours_rrhh across all 4 weeks
+      const hoursMap: Record<string, number> = {};
+      hrLogs.forEach((log: any) => {
+        const key = `${log.branch_id}|${log.position_id}`;
+        hoursMap[key] = (hoursMap[key] || 0) + (Number(log.hours_rrhh) || 0);
+      });
 
+      let countUpdated = 0;
       const updatedItems = payrollItems.map(item => {
         if (item.salaryType !== 'hourly') return item;
 
-        const mappedRoleId = roleIdMap[item.positionLabel.toLowerCase()] || item.positionLabel.toLowerCase();
+        // Try to match by position_id (exact or normalized)
+        const posLower = item.positionLabel.toLowerCase().trim();
+        const posMap: Record<string, string> = {
+          'mozo': 'mozos', 'mozos': 'mozos', 'cajero': 'caja', 'caja': 'caja',
+          'bachero': 'bacha', 'bacha': 'bacha', 'bartender': 'barra', 'barra': 'barra',
+          'runner': 'runners', 'runners': 'runners', 'cocinero': 'cocinero',
+          'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
+          'segundo de cocina': 'segundo_cocina', 'encargado': 'encargado'
+        };
+        const posId = posMap[posLower] || posLower;
+        const totalHours = hoursMap[`${item.branchId}|${posId}`] || 0;
 
-        // Find matching log for this employee's branch and role
-        const matchingLog = hrLogs.find((log: any) =>
-          log.branch_id === item.branchId &&
-          (log.role_id === mappedRoleId || log.role_id === item.positionLabel.toLowerCase())
-        );
-
-        if (matchingLog) {
-          // Sum all 4 weeks of audited hours
-          const totalHours = (matchingLog.week1 || 0) + (matchingLog.week2 || 0) +
-                             (matchingLog.week3 || 0) + (matchingLog.week4 || 0) ||
-                             matchingLog.definitive_hours || 0;
-
-          if (totalHours > 0) {
-            countUpdated++;
-            const computed = (totalHours * item.baseRateOrSalary) +
-                             (item.holidayDaysCount * 8 * item.baseRateOrSalary) +
-                             item.additionalBonus;
-            return { ...item, hoursWorked: totalHours, totalToCollect: computed };
-          }
+        if (totalHours > 0) {
+          countUpdated++;
+          const computed = (totalHours * item.baseRateOrSalary) +
+                           (item.holidayDaysCount * 8 * item.baseRateOrSalary) +
+                           item.additionalBonus;
+          return { ...item, hoursWorked: totalHours, totalToCollect: computed };
         }
         return item;
       });
