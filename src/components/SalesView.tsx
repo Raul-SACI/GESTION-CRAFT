@@ -19,6 +19,7 @@ import {
   Download,
   Trash2,
   BarChart3,
+  Clock,
   Filter,
   CheckCircle2,
   AlertCircle,
@@ -805,6 +806,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
 
+  // Hourly analysis state
+  const [hourFrom, setHourFrom] = useState<string>('08:00');
+  const [hourTo, setHourTo] = useState<string>('12:00');
+
   // Chart Data: Weekday Sales
   const weekdayChartData = useMemo(() => {
     const weekdayLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
@@ -850,6 +855,70 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   }, [groupedDailySales, chartMetric]);
+
+  // Hourly analysis table: filter sales_tickets by hour range
+  const hourlyAnalysisData = useMemo(() => {
+    if (!allTicketsData || allTicketsData.length === 0) return [];
+
+    const fromMins = parseInt(hourFrom.split(':')[0]) * 60 + parseInt(hourFrom.split(':')[1]);
+    const toMins = parseInt(hourTo.split(':')[0]) * 60 + parseInt(hourTo.split(':')[1]);
+
+    // Filter tickets within the hour range
+    const filtered = allTicketsData.filter((t: any) => {
+      if (!t.hour) return false;
+      const h = String(t.hour).substring(0, 5);
+      const parts = h.split(':');
+      if (parts.length < 2) return false;
+      const mins = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+      return mins >= fromMins && mins <= toMins;
+    });
+
+    // Apply current branch and month filters
+    const branchFiltered = localBranchId !== 'all'
+      ? filtered.filter((t: any) => t.branch_id === localBranchId)
+      : filtered;
+    const monthFiltered = filterMonth !== 'all'
+      ? branchFiltered.filter((t: any) => {
+          const tMonth = String(t.date || '').substring(5, 7);
+          return parseInt(tMonth).toString() === filterMonth;
+        })
+      : branchFiltered;
+
+    // Group by branch + day_name
+    const byDay: Record<string, any> = {};
+    const dayOrder = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+    
+    monthFiltered.forEach((t: any) => {
+      const day = t.day_name || '—';
+      if (!byDay[day]) byDay[day] = { day, orders: 0, covers: 0, net: 0, gross: 0, count: 0 };
+      byDay[day].orders += Number(t.orders || 0);
+      byDay[day].covers += Number(t.covers || 0);
+      byDay[day].net    += Number(t.net_sales || 0);
+      byDay[day].gross  += Number(t.gross_sales || 0);
+      byDay[day].count  += 1;
+    });
+
+    // Also compute totals row
+    const rows = dayOrder
+      .filter(d => byDay[d])
+      .map(d => ({ ...byDay[d], ticketAvg: byDay[d].orders > 0 ? byDay[d].net / byDay[d].orders : 0 }));
+
+    const total = rows.reduce((acc, r) => ({
+      day: 'TOTAL',
+      orders: acc.orders + r.orders,
+      covers: acc.covers + r.covers,
+      net: acc.net + r.net,
+      gross: acc.gross + r.gross,
+      count: acc.count + r.count,
+      ticketAvg: 0
+    }), { day: 'TOTAL', orders: 0, covers: 0, net: 0, gross: 0, count: 0, ticketAvg: 0 });
+    total.ticketAvg = total.orders > 0 ? total.net / total.orders : 0;
+
+    return [...rows, total];
+  }, [allTicketsData, hourFrom, hourTo, localBranchId, filterMonth]);
+
+  // Keep allTicketsData accessible for hourly analysis
+  const [allTicketsData, setAllTicketsData] = useState<any[]>([]);
 
   // ── Import full ticket detail from system export (SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA)
   const handleImportTicketsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2131,6 +2200,74 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
              </div>
           </div>
         </div>
+      </div>
+
+      {/* Hourly Analysis Table */}
+      <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
+        <div className="bg-bg-accent px-4 py-3 border-b border-border-dim flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Clock size={14} className="text-brand-500" />
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Análisis por Franja Horaria</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black text-text-dim uppercase">Desde</span>
+              <input
+                type="time"
+                value={hourFrom}
+                onChange={e => setHourFrom(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black text-text-dim uppercase">Hasta</span>
+              <input
+                type="time"
+                value={hourTo}
+                onChange={e => setHourTo(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500"
+              />
+            </div>
+            <span className="text-[9px] text-text-dim font-bold">{hourlyAnalysisData.filter(r => r.day !== 'TOTAL').length} días con datos</span>
+          </div>
+        </div>
+        {hourlyAnalysisData.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px] font-mono">
+              <thead>
+                <tr className="border-b border-border-dim bg-bg-accent/50">
+                  <th className="px-4 py-2.5 text-left font-black uppercase text-text-dim tracking-wider">Día</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">Tickets</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">Órdenes</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">Cubiertos</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">V. Brutas</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">V. Netas</th>
+                  <th className="px-4 py-2.5 text-right font-black uppercase text-text-dim tracking-wider">Ticket Prom.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/30">
+                {hourlyAnalysisData.map((row, i) => {
+                  const isTotal = row.day === 'TOTAL';
+                  return (
+                    <tr key={i} className={isTotal ? 'bg-brand-500/10 border-t-2 border-brand-500/30 font-black' : 'hover:bg-bg-accent/30'}>
+                      <td className={`px-4 py-2.5 font-black uppercase ${isTotal ? 'text-brand-500' : 'text-text-main'}`}>{row.day}</td>
+                      <td className="px-4 py-2.5 text-right text-text-dim">{row.count.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-text-main">{row.orders.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-text-main">{row.covers.toLocaleString()}</td>
+                      <td className="px-4 py-2.5 text-right text-text-dim">${Math.round(row.gross).toLocaleString('es-AR')}</td>
+                      <td className={`px-4 py-2.5 text-right ${isTotal ? 'text-brand-500' : 'text-teal-400'}`}>${Math.round(row.net).toLocaleString('es-AR')}</td>
+                      <td className="px-4 py-2.5 text-right text-text-dim">${Math.round(row.ticketAvg).toLocaleString('es-AR')}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-8 text-center text-text-dim text-[10px] uppercase font-black">
+            Sin datos para el rango {hourFrom} – {hourTo}. Importá tickets para ver el análisis.
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
