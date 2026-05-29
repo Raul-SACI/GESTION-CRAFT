@@ -608,6 +608,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   // Hourly analysis state
   const [hourFrom, setHourFrom] = useState<string>('00:00');
   const [hourTo, setHourTo] = useState<string>('23:59');
+  // Applied values - only update when user clicks "Aplicar"
+  const [appliedHourFrom, setAppliedHourFrom] = useState<string>('00:00');
+  const [appliedHourTo, setAppliedHourTo] = useState<string>('23:59');
 
   // Helper: parse "HH:MM" to minutes
   const toMins = (t: string) => {
@@ -618,8 +621,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   // Tickets filtered by hour range - used in ALL charts and historial
   const filteredTicketsByHour = useMemo(() => {
     if (!allTicketsData || allTicketsData.length === 0) return [];
-    const from = toMins(hourFrom);
-    const to = toMins(hourTo);
+    const from = toMins(appliedHourFrom);
+    const to = toMins(appliedHourTo);
 
     return allTicketsData.filter((t: any) => {
       const h = String(t.hour || '').substring(0, 5);
@@ -627,7 +630,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const mins = toMins(h);
       return mins >= from && mins <= to;
     });
-  }, [allTicketsData, hourFrom, hourTo]);
+  }, [allTicketsData, appliedHourFrom, appliedHourTo]);
 
   // Re-derive salesRecords from filtered tickets for charts and historial
   const hourFilteredSalesRecords = useMemo(() => {
@@ -933,8 +936,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const hourlyAnalysisData = useMemo(() => {
     if (!allTicketsData || allTicketsData.length === 0) return [];
 
-    const fromMins = parseInt(hourFrom.split(':')[0]) * 60 + parseInt(hourFrom.split(':')[1]);
-    const toMins = parseInt(hourTo.split(':')[0]) * 60 + parseInt(hourTo.split(':')[1]);
+    const fromMins = parseInt(appliedHourFrom.split(':')[0]) * 60 + parseInt(appliedHourFrom.split(':')[1]);
+    const toMins = parseInt(appliedHourTo.split(':')[0]) * 60 + parseInt(appliedHourTo.split(':')[1]);
 
     // Filter tickets within the hour range
     const filtered = allTicketsData.filter((t: any) => {
@@ -988,7 +991,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     total.ticketAvg = total.orders > 0 ? total.net / total.orders : 0;
 
     return [...rows, total];
-  }, [allTicketsData, hourFrom, hourTo, localBranchId, filterMonth]);
+  }, [allTicketsData, appliedHourFrom, appliedHourTo, localBranchId, filterMonth]);
 
   // ── Import full ticket detail from system export (SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA)
   const handleImportTicketsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2013,6 +2016,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                 onChange={e => setHourTo(e.target.value)}
                 className="w-24 px-2 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-mono outline-none focus:border-amber-500"
               />
+              <button
+                onClick={() => { setAppliedHourFrom(hourFrom); setAppliedHourTo(hourTo); }}
+                className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[9px] font-black uppercase tracking-widest rounded transition-all"
+              >
+                Aplicar
+              </button>
             </div>
           </div>
 
@@ -2022,6 +2031,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
               setFilterWeek('all');
               setHourFrom('00:00');
               setHourTo('23:59');
+              setAppliedHourFrom('00:00');
+              setAppliedHourTo('23:59');
             }}
             className="px-4 py-2 border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-red-500 hover:border-red-500 transition-colors"
           >
