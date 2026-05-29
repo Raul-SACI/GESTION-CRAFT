@@ -112,15 +112,18 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     } catch(e) { console.error('Error sync payroll:', e); }
   };
 
-  // Sync with actual weekly hours audited in localStorage
+  // Sync: auto-generate payroll items from hr_hour_logs (audited by RRHH in Control Semanal)
   const handleSyncWithWeeklyControl = async () => {
     try {
-      // Read audited hours from Supabase hr_hour_logs
-      // Schema: branch_id, month, week_number, position_id, position_name, hours_rrhh
-      const { data: hrLogs, error } = await supabase
+      // Filter by branch if not 'all'
+      let query = supabase
         .from('hr_hour_logs')
-        .select('branch_id, month, week_number, position_id, position_name, hours_rrhh')
+        .select('branch_id, month, week_number, position_id, position_name, hours_rrhh, hourly_rate')
         .eq('month', selectedMonth);
+      if (payrollFilterBranch !== 'all') {
+        query = query.eq('branch_id', payrollFilterBranch);
+      }
+      const { data: hrLogs, error } = await query;
 
       if (error) throw error;
       if (!hrLogs || hrLogs.length === 0) {
@@ -129,54 +132,53 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       }
 
       // Group by branch + position_id and sum hours_rrhh across all 4 weeks
-      const hoursMap: Record<string, number> = {};
+      const groupMap: Record<string, any> = {};
       hrLogs.forEach((log: any) => {
+        if (!log.hours_rrhh || Number(log.hours_rrhh) === 0) return;
         const key = `${log.branch_id}|${log.position_id}`;
-        hoursMap[key] = (hoursMap[key] || 0) + (Number(log.hours_rrhh) || 0);
-      });
-
-      const posMap: Record<string, string> = {
-        'mozo': 'mozos', 'mozos': 'mozos', 'cajero': 'caja', 'caja': 'caja',
-        'bachero': 'bacha', 'bacha': 'bacha', 'bartender': 'barra', 'barra': 'barra',
-        'runner': 'runners', 'runners': 'runners', 'cocinero': 'cocinero',
-        'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
-        'segundo de cocina': 'segundo_cocina', 'encargado': 'encargado'
-      };
-
-      // Also build a map by position only (ignoring branch) as fallback
-      const hoursByPosOnly: Record<string, number> = {};
-      hrLogs.forEach((log: any) => {
-        hoursByPosOnly[log.position_id] = (hoursByPosOnly[log.position_id] || 0) + (Number(log.hours_rrhh) || 0);
-      });
-
-      let countUpdated = 0;
-      const updatedItems = payrollItems.map(item => {
-        if (item.salaryType !== 'hourly') return item;
-
-        const posLower = item.positionLabel.toLowerCase().trim();
-        const posId = posMap[posLower] || posLower;
-
-        // Try exact branch+position match first, then position-only fallback
-        const totalHours = hoursMap[`${item.branchId}|${posId}`] ||
-                           hoursByPosOnly[posId] || 0;
-
-        if (totalHours > 0) {
-          countUpdated++;
-          const computed = (totalHours * item.baseRateOrSalary) +
-                           (item.holidayDaysCount * 8 * item.baseRateOrSalary) +
-                           item.additionalBonus;
-          return { ...item, branchId: item.branchId || payrollFilterBranch, hoursWorked: totalHours, totalToCollect: computed };
+        if (!groupMap[key]) {
+          groupMap[key] = {
+            branchId: log.branch_id,
+            branchName: branches.find(b => b.id === log.branch_id)?.name || log.branch_id,
+            positionId: log.position_id,
+            positionLabel: log.position_name || log.position_id,
+            hourlyRate: Number(log.hourly_rate) || 0,
+            totalHours: 0,
+          };
         }
-        return item;
+        groupMap[key].totalHours += Number(log.hours_rrhh);
       });
 
-      if (countUpdated > 0) {
-        setPayrollItems(updatedItems);
-        localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updatedItems));
-        alert(`Sincronización exitosa: ${countUpdated} colaboradores actualizados con horas auditadas de Control Semanal.`);
-      } else {
-        alert('No se encontraron coincidencias entre la liquidación y los registros auditados.');
+      const newItems = Object.values(groupMap).map((g: any) => {
+        const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel);
+        const computed = g.totalHours * rate;
+        return {
+          id: `sync-${g.branchId}-${g.positionId}-${selectedMonth}-${Date.now()}`,
+          branchId: g.branchId,
+          branchName: g.branchName,
+          employeeName: g.positionLabel.toUpperCase(),
+          positionLabel: g.positionLabel,
+          salaryType: 'hourly',
+          hoursWorked: g.totalHours,
+          baseRateOrSalary: rate,
+          holidayDaysCount: 0,
+          additionalBonus: 0,
+          novedades: '',
+          totalToCollect: computed,
+        };
+      });
+
+      if (newItems.length === 0) {
+        alert('Todos los registros auditados tienen 0 horas. Guardá las horas en Control Semanal primero.');
+        return;
       }
+
+      // Keep existing monthly-salary items, replace hourly items with fresh sync
+      const existingMonthly = payrollItems.filter((i: any) => i.salaryType === 'monthly');
+      const merged = [...existingMonthly, ...newItems];
+      setPayrollItems(merged);
+      localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(merged));
+      alert(`Sincronización exitosa: ${newItems.length} puestos generados desde Control Semanal.`);
     } catch (err: any) {
       console.error('Error syncing with weekly control:', err);
       alert(`Error al sincronizar: ${err.message}`);
@@ -295,13 +297,6 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
             title="Importa automágicamente la suma de las horas reales de las 4 semanas auditadas de este mes"
           >
             <Zap size={13} className="text-brand-500 fill-brand-500" /> Sincronizar Horas Reales
-          </button>
-
-          <button 
-            onClick={() => setShowAddPayrollModal(true)}
-            className="px-4 py-3 bg-brand-500 hover:bg-brand-600 text-black rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer shadow-lg"
-          >
-            <Plus size={13} className="stroke-[3.5]" /> Agregar Persona a Liquidar
           </button>
 
           <button 
