@@ -881,21 +881,35 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         weekDates[w].push(dateStr);
       }
 
-      const upsertData = importedBudgetRows.map(r => ({
-        branch_id: activeBranchId,
-        month: selectedMonth,
-        position_id: r.roleId,
-        position_name: r.roleLabel,
-        shift: r.shift,
-        hours_per_day: r.hoursPerDay,
-        hourly_rate: r.hourlyRate || 0,
-        week1: Math.round(getWeekHours(r, weekDates[0])),
-        week2: Math.round(getWeekHours(r, weekDates[1])),
-        week3: Math.round(getWeekHours(r, weekDates[2])),
-        week4: Math.round(getWeekHours(r, weekDates[3])),
-        total_hours: Math.round(getWeekHours(r, weekDates[0]) + getWeekHours(r, weekDates[1]) + getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3])),
-        status: 'draft'
-      }));
+      // Group by position_id+shift to avoid duplicate key violations
+      // (same position can have multiple shifts - sum their hours)
+      const grouped: Record<string, any> = {};
+      importedBudgetRows.forEach(r => {
+        const key = `${r.roleId}|${r.shift}`;
+        if (!grouped[key]) {
+          grouped[key] = {
+            branch_id: activeBranchId,
+            month: selectedMonth,
+            position_id: `${r.roleId}_${(r.shift || 'tarde').toLowerCase().replace(/[^a-z]/g,'')}`,
+            position_name: r.roleLabel,
+            shift: r.shift,
+            hours_per_day: r.hoursPerDay,
+            hourly_rate: r.hourlyRate || 0,
+            week1: 0, week2: 0, week3: 0, week4: 0,
+            total_hours: 0,
+            status: 'draft'
+          };
+        }
+        grouped[key].week1 += Math.round(getWeekHours(r, weekDates[0]));
+        grouped[key].week2 += Math.round(getWeekHours(r, weekDates[1]));
+        grouped[key].week3 += Math.round(getWeekHours(r, weekDates[2]));
+        grouped[key].week4 += Math.round(getWeekHours(r, weekDates[3]));
+        grouped[key].total_hours += Math.round(
+          getWeekHours(r, weekDates[0]) + getWeekHours(r, weekDates[1]) +
+          getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3])
+        );
+      });
+      const upsertData = Object.values(grouped);
 
       await supabase.from('hour_budgets').delete().eq('branch_id', activeBranchId).eq('month', selectedMonth);
       if (upsertData.length > 0) {
