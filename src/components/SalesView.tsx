@@ -2245,7 +2245,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                       }}
                       itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
                       labelStyle={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-                      formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
+                      formatter={(val: number) => {
+                        const labels: Record<string,string> = { net: 'Ventas Netas', gross: 'Ventas Brutas', cash: 'Efectivo', card: 'Tarjetas/Bancos', qr: 'Pedidos Ya' };
+                        return [`$${val.toLocaleString()}`, labels[chartMetric] || chartMetric];
+                      }}
                      />
                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                         {weekdayChartData.map((entry, index) => (
@@ -2298,7 +2301,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                       }}
                       itemStyle={{ color: '#fff', fontSize: '12px', fontWeight: 'bold' }}
                       labelStyle={{ color: '#aaa', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}
-                      formatter={(val: number) => [`$${val.toLocaleString()}`, chartMetric.toUpperCase()]}
+                      formatter={(val: number) => {
+                        const labels: Record<string,string> = { net: 'Ventas Netas', gross: 'Ventas Brutas', cash: 'Efectivo', card: 'Tarjetas/Bancos', qr: 'Pedidos Ya' };
+                        return [`$${val.toLocaleString()}`, labels[chartMetric] || chartMetric];
+                      }}
                      />
                      <Bar dataKey="value" radius={[4, 4, 0, 0]} fill={
                         chartMetric === 'net' ? '#2dd4bf' :
