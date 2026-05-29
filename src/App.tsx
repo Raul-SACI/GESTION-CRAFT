@@ -554,6 +554,7 @@ function AppContent() {
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
       { id: 'produccion_stock_control', label: 'Control de Stock', icon: ClipboardCheck },
+      { id: 'decomisos_deposito', label: 'Decomisos Depósito', icon: Trash2 },
     ],
     'Finanzas': [
       { id: 'bank_liabilities', label: 'Pasivos Bancarios', icon: Building2 },
@@ -607,6 +608,7 @@ function AppContent() {
           registro_supervision: ClipboardCheck,
           produccion_mes: Factory,
           produccion_stock_control: ClipboardCheck,
+          decomisos_deposito: Trash2,
           finanzas_estimado: TrendingUp,
           bank_liabilities: Building2,
           tax_liabilities: Calculator,
@@ -1279,7 +1281,7 @@ function AppContent() {
             )}
 
             {/* Sucursal Activa and Ventas Semanales removed per user requirement */}
-            {['dashboard', 'stock', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas'].includes(activeTab) && (
+            {['dashboard', 'stock', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'decomisos_deposito'].includes(activeTab) && (
               <div className="flex items-center gap-3 bg-bg-card border border-border-dim px-4 py-2 rounded-lg">
                 <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">Filtrar por Sucursal:</span>
                 <select
@@ -1435,6 +1437,16 @@ function AppContent() {
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
+              {activeTab === 'decomisos_deposito' && (
+                <DecomisosView
+                  key="decomisos_deposito"
+                  branches={branches}
+                  selectedBranchId="n4ncoary3"
+                  items={items}
+                  products={products}
+                  onlyInsumos={true}
+                />
+              )}
               {activeTab === 'produccion_stock_control' && (
                 <StockView 
                   key="produccion_stock_control"
