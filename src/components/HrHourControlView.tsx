@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
+import { supabase } from '../lib/supabase';
 import HrMonthlyPayrollView from './HrMonthlyPayrollView';
 
 interface HrHourRecord {
