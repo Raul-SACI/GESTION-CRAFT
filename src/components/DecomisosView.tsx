@@ -45,12 +45,14 @@ export default function DecomisosView({
   branches, 
   selectedBranchId,
   items,
-  products
+  products,
+  onlyInsumos = false
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
   items: StockItem[],
-  products: Product[]
+  products: Product[],
+  onlyInsumos?: boolean
 }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [decomisos, setDecomisos] = useState<DailyWastage[]>([]);
@@ -337,13 +339,15 @@ export default function DecomisosView({
                       type === 'insumo' ? "bg-brand-500 text-black shadow-sm" : "text-text-dim hover:text-text-main"
                     )}
                   >Insumo</button>
-                  <button 
-                    onClick={() => { setType('producto'); setReferenceId(''); setSearchTerm(''); }}
-                    className={cn(
-                      "flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all",
-                      type === 'producto' ? "bg-brand-500 text-black shadow-sm" : "text-text-dim hover:text-text-main"
-                    )}
-                  >Producto</button>
+                  {!onlyInsumos && (
+                    <button 
+                      onClick={() => { setType('producto'); setReferenceId(''); setSearchTerm(''); }}
+                      className={cn(
+                        "flex-1 py-1.5 rounded text-[10px] font-black uppercase transition-all",
+                        type === 'producto' ? "bg-brand-500 text-black shadow-sm" : "text-text-dim hover:text-text-main"
+                      )}
+                    >Producto</button>
+                  )}
                 </div>
               </div>
 
