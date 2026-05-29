@@ -134,21 +134,36 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         hoursMap[key] = (hoursMap[key] || 0) + (Number(log.hours_rrhh) || 0);
       });
 
+      const posMap: Record<string, string> = {
+        'mozo': 'mozos', 'mozos': 'mozos', 'cajero': 'caja', 'caja': 'caja',
+        'bachero': 'bacha', 'bacha': 'bacha', 'bartender': 'barra', 'barra': 'barra',
+        'runner': 'runners', 'runners': 'runners', 'cocinero': 'cocinero',
+        'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
+        'segundo de cocina': 'segundo_cocina', 'encargado': 'encargado'
+      };
+
+      // Also build a map by position only (ignoring branch) as fallback
+      const hoursByPosOnly: Record<string, number> = {};
+      hrLogs.forEach((log: any) => {
+        hoursByPosOnly[log.position_id] = (hoursByPosOnly[log.position_id] || 0) + (Number(log.hours_rrhh) || 0);
+      });
+
+      console.log('[Sync] hoursMap:', hoursMap);
+      console.log('[Sync] hoursByPosOnly:', hoursByPosOnly);
+      console.log('[Sync] payrollItems branchIds:', payrollItems.map(i => i.branchId));
+
       let countUpdated = 0;
       const updatedItems = payrollItems.map(item => {
         if (item.salaryType !== 'hourly') return item;
 
-        // Try to match by position_id (exact or normalized)
         const posLower = item.positionLabel.toLowerCase().trim();
-        const posMap: Record<string, string> = {
-          'mozo': 'mozos', 'mozos': 'mozos', 'cajero': 'caja', 'caja': 'caja',
-          'bachero': 'bacha', 'bacha': 'bacha', 'bartender': 'barra', 'barra': 'barra',
-          'runner': 'runners', 'runners': 'runners', 'cocinero': 'cocinero',
-          'jefe de cocina': 'jefe_cocina', 'lider de cocina': 'jefe_cocina',
-          'segundo de cocina': 'segundo_cocina', 'encargado': 'encargado'
-        };
         const posId = posMap[posLower] || posLower;
-        const totalHours = hoursMap[`${item.branchId}|${posId}`] || 0;
+
+        // Try exact branch+position match first, then position-only fallback
+        const totalHours = hoursMap[`${item.branchId}|${posId}`] ||
+                           hoursByPosOnly[posId] || 0;
+
+        console.log(`[Sync] ${item.employeeName} | branchId=${item.branchId} | pos=${posId} | hours=${totalHours}`);
 
         if (totalHours > 0) {
           countUpdated++;
