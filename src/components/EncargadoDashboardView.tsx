@@ -121,6 +121,7 @@ export default function EncargadoDashboardView({
         .gte('date', `${month}-01`)
         .lte('date', `${month}-31`);
 
+      console.log('[Dashboard Sales] branch:', branchId, 'month:', month, 'rows:', data?.length, 'error:', error?.message);
       if (!error && data && data.length > 0) {
         const netSum = data.reduce((sum, item) => sum + (Number(item.net_sales) || 0), 0);
         const grossSum = data.reduce((sum, item) => sum + (Number(item.pesos) || 0), 0);
@@ -129,14 +130,16 @@ export default function EncargadoDashboardView({
         setSalesGross(grossSum);
         setSalesOrdersCount(ordersSum);
       } else {
-        // Fallback to mock sales if no records found
-        const branchSalesFactor = branchId === 'bn' ? 1.5 : branchId === 'bs' ? 1.1 : branchId === 'mt' ? 1.25 : 1.0;
-        setSalesNet(Math.round(4820000 * branchSalesFactor));
-        setSalesGross(Math.round(5830000 * branchSalesFactor));
-        setSalesOrdersCount(Math.round(1840 * branchSalesFactor));
+        // No hay ventas cargadas aún
+        setSalesNet(0);
+        setSalesGross(0);
+        setSalesOrdersCount(0);
       }
     } catch (err) {
       console.error('Error fetching sales data:', err);
+      setSalesNet(0);
+      setSalesGross(0);
+      setSalesOrdersCount(0);
     }
   };
 
@@ -473,11 +476,8 @@ export default function EncargadoDashboardView({
         }
       }
 
-      // If actual hours is 0 across the board, create realistic mock representing progress
-      if (actualHours === 0 && budgetedHours > 0) {
-        // e.g. 75% completed
-        actualHours = Math.round(budgetedHours * 0.85);
-      }
+      // No mock data - show real 0 if no hours loaded
+
 
       const remainingHours = budgetedHours - actualHours;
       const pct = budgetedHours > 0 ? (actualHours / budgetedHours) * 100 : 0;
