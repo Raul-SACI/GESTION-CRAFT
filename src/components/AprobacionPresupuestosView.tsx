@@ -91,7 +91,7 @@ function getDaysOfWeekCounts(yearMonth: string) {
 }
 
 export default function AprobacionPresupuestosView({ branches }: { branches: Branch[] }) {
-  const [selectedMonth, setSelectedMonth] = useState('2026-05');
+  const [selectedMonth, setSelectedMonth] = useState('2026-06');
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [budgetsState, setBudgetsState] = useState<Record<string, any>>({});
 
@@ -211,16 +211,23 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
 
     if (info.rows && Array.isArray(info.rows)) {
       const rows = info.rows as BudgetRow[];
-      rows.forEach(row => {
-        const hoursA = countDaysGroupA * row.countGroupA * row.hoursPerDay;
-        const hoursB = countDaysGroupB * row.countGroupB * row.hoursPerDay;
-        const posMonthlyHs = hoursA + hoursB;
-        
-        const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
-        const holidayExtraCost = holidayHs * row.hourlyRate;
+      rows.forEach((row: any) => {
+        let posMonthlyHs = 0;
 
+        // If row has week1-4 (imported from CSV), use those directly
+        if (row.week1 !== undefined || row.week2 !== undefined) {
+          posMonthlyHs = (Number(row.week1) || 0) + (Number(row.week2) || 0) +
+                         (Number(row.week3) || 0) + (Number(row.week4) || 0);
+        } else {
+          // Legacy manual budget format
+          const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
+          const hoursB = countDaysGroupB * (row.countGroupB || 0) * (row.hoursPerDay || 0);
+          posMonthlyHs = hoursA + hoursB;
+        }
+
+        const holidayExtraCost = holidays * (row.hoursPerDay || 8) * (row.hourlyRate || 0);
         totalHours += posMonthlyHs;
-        totalCost += (posMonthlyHs * row.hourlyRate) + holidayExtraCost;
+        totalCost += (posMonthlyHs * (row.hourlyRate || 0)) + holidayExtraCost;
       });
     } else {
       // Legacy support
