@@ -303,10 +303,13 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         .eq('week_number', parseInt(selectedWeek));
       
       if (upsertData.length > 0) {
-        await supabase.from('hr_hour_logs').insert(upsertData);
+        const { error: insertError } = await supabase.from('hr_hour_logs').insert(upsertData);
+        if (insertError) throw insertError;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error guardando horas en Supabase:', e);
+      alert(`Error al guardar en Supabase: ${e.message || JSON.stringify(e)}`);
+      return;
     }
     
     // Backup local
