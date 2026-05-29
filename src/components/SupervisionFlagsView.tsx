@@ -454,9 +454,11 @@ export default function SupervisionFlagsView({
       : 10;
 
     try {
-      const responseData = {
+      // Only pass checklist_id if it's a valid UUID (not a local fallback id like 't-servicio')
+      const isValidUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedTemplate.id);
+
+      const responseData: any = {
         branch_id: selectedBranchId,
-        checklist_id: selectedTemplate.id,
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
@@ -466,18 +468,26 @@ export default function SupervisionFlagsView({
         notes: generalNotes
       };
 
+      if (isValidUUID) {
+        responseData.checklist_id = selectedTemplate.id;
+      }
+
       const { error } = await supabase
         .from('supervision_responses')
         .insert(responseData);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase insert error:', error.message, error.details, error.hint);
+        throw error;
+      }
 
       alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.`);
       setAnswers({});
       setGeneralNotes('');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving response:', err);
-      alert('Error de conexión al guardar. Visita registrada localmente.');
+      const msg = err?.message || err?.details || JSON.stringify(err) || 'Error desconocido';
+      alert(`Error al guardar la supervisión: ${msg}`);
     } finally {
       setIsSubmitting(false);
     }
