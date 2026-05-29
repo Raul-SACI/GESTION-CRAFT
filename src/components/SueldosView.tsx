@@ -483,6 +483,21 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     const otherLogs = allLogs.filter(log => !(log.branchId === branchIdToUse && log.date === selectedDate));
     const mergedLogs = [...otherLogs, ...draftRecords];
     localStorage.setItem('craft_branch_daily_hours', JSON.stringify(mergedLogs));
+    // Guardar en Supabase
+    try {
+      const upsertData = mergedLogs.map((log: any) => ({
+        branch_id: log.branchId || branchIdToFetch,
+        employee_name: log.employeeName || log.name || 'Sin nombre',
+        position: log.position || log.role || 'Sin cargo',
+        date: log.date,
+        month: log.date ? log.date.substring(0, 7) : selectedMonth,
+        hours_planned: log.hoursPlanned || 0,
+        hours_actual: log.hoursActual || log.hours || 0,
+      }));
+      if (upsertData.length > 0) {
+        await supabase.from('hour_logs').upsert(upsertData, { onConflict: 'branch_id,employee_name,date' });
+      }
+    } catch(e) { console.error('Error sync hour_logs:', e); }
 
     setSuccessMsg('BORRADOR GUARDADO');
     setSaving(false);
@@ -525,6 +540,21 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     const otherLogs = allLogs.filter(log => !(log.branchId === branchIdToUse && log.date === selectedDate));
     const mergedLogs = [...otherLogs, ...confirmedRecords];
     localStorage.setItem('craft_branch_daily_hours', JSON.stringify(mergedLogs));
+    // Guardar en Supabase
+    try {
+      const upsertData = mergedLogs.map((log: any) => ({
+        branch_id: log.branchId || branchIdToFetch,
+        employee_name: log.employeeName || log.name || 'Sin nombre',
+        position: log.position || log.role || 'Sin cargo',
+        date: log.date,
+        month: log.date ? log.date.substring(0, 7) : selectedMonth,
+        hours_planned: log.hoursPlanned || 0,
+        hours_actual: log.hoursActual || log.hours || 0,
+      }));
+      if (upsertData.length > 0) {
+        await supabase.from('hour_logs').upsert(upsertData, { onConflict: 'branch_id,employee_name,date' });
+      }
+    } catch(e) { console.error('Error sync hour_logs:', e); }
 
     // Async post to Supabase database as persistent backup
     const saveToSupabase = async () => {
