@@ -1025,16 +1025,18 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const u = c.toUpperCase().trim();
       // EFECTIVO
       if (u === 'EFECTIVO' || u === 'CASH' || u.startsWith('EFECTIVO')) return 'Efectivo';
-      // PEDIDOS YA - aggregator payments
+      // PEDIDOS YA - todos los variantes del agregador
       if (
         u.includes('PEYA') ||
+        u.includes('PED YA') ||
         u.includes('PAGO ONLINE') ||
         u.includes('PEDIDOS YA') ||
-        u.includes('PEDIDOSYA')
+        u.includes('PEDIDOSYA') ||
+        u === 'PEDIDOS' ||
+        u.startsWith('PEDIDOS')
       ) return 'Pedidos Ya';
-      // TARJETAS/BANCOS - all card/bank/digital payments
-      // AMEX, AMERICAN EXPRESS, CABAL, MASTER, MASTERCARD, NARANJA, QR,
-      // VISA, VISA DEBITO, TRANSF, TRANSFERENCIA, FCB, NCB, TIC (cuenta corriente)
+      // TARJETAS/BANCOS - AMEX, AMERICAN EXPRESS, CABAL, MASTER, MASTERCARD,
+      // NARANJA, QR, VISA, VISA DEBITO, TRANSF. BRIA, FCB, NCB, TIC
       return 'Tarjetas/Bancos';
     };
 
