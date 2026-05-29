@@ -783,19 +783,12 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     };
     const normalizePayment = (c: string): string => {
       const u = c.toUpperCase().trim();
-      if (u.includes('EFECTIVO')) return 'EFECTIVO';
-      if (u.includes('VISA DEB')) return 'VISA DEBITO';
-      if (u.includes('VISA')) return 'VISA';
-      if (u.includes('MASTER')) return 'MASTERCARD';
-      if (u === 'QR') return 'QR';
-      if (u.includes('ONLINE') || u.includes('PAGO ONLINE')) return 'PAGO ONLINE';
-      if (u.includes('AMEX') || u.includes('AMERICAN')) return 'AMEX';
-      if (u.includes('NARANJA')) return 'NARANJA';
-      if (u.includes('CABAL')) return 'CABAL';
-      if (u.includes('TRANSF')) return 'TRANSFERENCIA';
-      if (u.includes('PEYA')) return 'PEDIDOS YA';
-      if (u.startsWith('FCB') || u.startsWith('NCB') || u.startsWith('TIC')) return 'CUENTA CORRIENTE';
-      return u;
+      // EFECTIVO
+      if (u.includes('EFECTIVO')) return 'Efectivo';
+      // PEDIDOS YA - pago online del agregador
+      if (u.includes('ONLINE') || u.includes('PAGO ONLINE') || u.includes('PEYA')) return 'Pedidos Ya';
+      // TARJETAS/BANCOS - todo lo demás (QR, tarjetas, transferencias, cuentas corrientes)
+      return 'Tarjetas/Bancos';
     };
 
     setLoading(true);
