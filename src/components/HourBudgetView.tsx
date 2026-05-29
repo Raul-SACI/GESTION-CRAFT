@@ -863,6 +863,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setRows(newRows);
 
     // Auto-save to Supabase on import confirm
+    console.log('[Import] activeBranchId:', activeBranchId, 'selectedMonth:', selectedMonth);
+    console.log('[Import] importedBudgetRows count:', importedBudgetRows.length);
     try {
       // Calculate weekly hours from staffByDate
       const getWeekHours = (row: BudgetRow, weekDays: string[] | undefined) => {
