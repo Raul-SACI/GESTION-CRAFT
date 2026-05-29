@@ -83,19 +83,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
         };
       });
 
-      // 1. Try reading from LocalStorage as fallback
-      const localKey = `craft_pedidos_ya_ratings_v2_${selectedMonth}`;
-      let cachedRatings: Record<string, TwoChannelRating> | null = null;
-      try {
-        const localData = localStorage.getItem(localKey);
-        if (localData) {
-          cachedRatings = JSON.parse(localData);
-        }
-      } catch (err) {
-        console.error('Error reading localStorage for Pedidos Ya:', err);
-      }
-
-      // 2. Try fetching from Supabase Table `pedidos_ya_ratings`
+      // Cargar desde Supabase
       const dbRatings: Record<string, TwoChannelRating> = {};
       try {
         const { data, error } = await supabase
@@ -298,15 +286,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
         });
       });
 
-      // Save locally
-      const localKey = `craft_pedidos_ya_ratings_v2_${selectedMonth}`;
-      try {
-        localStorage.setItem(localKey, JSON.stringify(ratings));
-      } catch (localErr) {
-        console.error('Error caching ratings locally:', localErr);
-      }
-
-      // Try sending to Supabase
+      // Guardar en Supabase
       const { error } = await supabase
         .from('pedidos_ya_ratings')
         .upsert(payloads, { onConflict: 'branch_id,month' });
