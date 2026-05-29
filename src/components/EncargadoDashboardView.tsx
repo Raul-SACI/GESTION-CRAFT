@@ -140,37 +140,30 @@ export default function EncargadoDashboardView({
     }
   };
 
-  // 2. Fetch CMV from localStorage / fallbacks
-  const fetchCmvData = (branchId: string, month: string) => {
+  // 2. Fetch CMV desde Supabase
+  const fetchCmvData = async (branchId: string, month: string) => {
     try {
-      const localKey = `craft_cmv_v2_${branchId}_${month}`;
-      const saved = localStorage.getItem(localKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setCmvInitial(parsed.initialExistence || 0);
-        setCmvFinal(parsed.finalExistence || 0);
-        
-        // Sum purchases & movements
-        const purchasesSum = Array.isArray(parsed.purchases) 
-          ? parsed.purchases.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0)
-          : (parsed.totalPurchases || 0);
-        const movementsSum = Array.isArray(parsed.movements)
-          ? parsed.movements.reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0)
-          : (parsed.totalMovements || 0);
-          
-        setCmvPurchases(purchasesSum);
-        setCmvMovements(movementsSum);
+      const { data, error } = await supabase
+        .from('cmv_monthly')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('month', month)
+        .maybeSingle();
+
+      if (!error && data) {
+        setCmvInitial(data.initial_existence || 0);
+        setCmvFinal(data.final_existence || 0);
+        setCmvPurchases(data.total_purchases || 0);
+        setCmvMovements(data.total_movements || 0);
       } else {
-        // Generates realistic defaults: Compras around 28% of net sales
-        const factor = branchId === 'bn' ? 1.5 : branchId === 'bs' ? 1.1 : branchId === 'mt' ? 1.25 : 1.0;
-        const estSalesNet = Math.round(4820000 * factor);
-        setCmvInitial(Math.round(800000 * factor));
-        setCmvFinal(Math.round(750000 * factor));
-        setCmvPurchases(Math.round(estSalesNet * 0.28));
-        setCmvMovements(Math.round(estSalesNet * 0.02));
+        // Sin datos reales
+        setCmvInitial(0);
+        setCmvFinal(0);
+        setCmvPurchases(0);
+        setCmvMovements(0);
       }
     } catch (err) {
-      console.error('Error loading CMV variables:', err);
+      console.error('Error loading CMV from Supabase:', err);
     }
   };
 
@@ -214,62 +207,49 @@ export default function EncargadoDashboardView({
   };
 
   // 4. Fetch Budgets & Worked Hours
-  const fetchHoursData = (branchId: string, month: string) => {
+  const fetchHoursData = async (branchId: string, month: string) => {
     try {
-      const branchKey = branchId === 'all' ? 'bn' : branchId;
-      
-      // Load the budgeted hours (rows per position)
-      const budgetKeyV2 = `hour_budget_v2_${branchKey}_${month}`;
-      const budgetKeyV1 = `hour_budget_${branchKey}_${month}`;
-      const savedV2 = localStorage.getItem(budgetKeyV2);
-      const savedV1 = localStorage.getItem(budgetKeyV1);
-      
-      let rowsList: any[] = [];
-      if (savedV2) {
-        try {
-          const parsed = JSON.parse(savedV2);
-          if (Array.isArray(parsed.rows)) rowsList = parsed.rows;
-        } catch(e) {}
-      } else if (savedV1) {
-        try {
-          const parsed = JSON.parse(savedV1);
-          if (Array.isArray(parsed.rows)) rowsList = parsed.rows;
-        } catch(e) {}
-      }
-      
-      if (rowsList.length === 0) {
-        // Pre-populate standard roles
-        rowsList = [
-          { positionId: 'pos_cashier', positionName: 'Cajero', week1: 48, week2: 48, week3: 48, week4: 48 },
-          { positionId: 'pos_headchef', positionName: 'Jefe de Cocina', week1: 44, week2: 44, week3: 44, week4: 44 },
-          { positionId: 'pos_cook', positionName: 'Cocinero', week1: 96, week2: 96, week3: 96, week4: 96 },
-          { positionId: 'pos_bachero', positionName: 'Bachero', week1: 48, week2: 48, week3: 48, week4: 48 },
-          { positionId: 'pos_manager', positionName: 'Encargado', week1: 48, week2: 48, week3: 48, week4: 48 },
-        ];
-      }
-      setHourBudgetRows(rowsList);
+      const branchKey = branchId === 'all' ? branches[0]?.id || branchId : branchId;
 
-      // Load the actually worked hours per week (weeks 1 to 4)
-      const weeklyLogs: Record<string, any[]> = {};
-      let totalWorkedSum = 0;
-      for (let w = 1; w <= 4; w++) {
-        const scheduleKey = `hr_hours_${branchKey}_${month}_w${w}`;
-        const savedHours = localStorage.getItem(scheduleKey);
-        if (savedHours) {
-          try {
-            const parsedList = JSON.parse(savedHours);
-            weeklyLogs[`w${w}`] = parsedList;
-          } catch(e) {
-            weeklyLogs[`w${w}`] = [];
-          }
-        } else {
-          weeklyLogs[`w${w}`] = [];
-        }
+      // Cargar presupuesto de horas desde Supabase
+      const { data: budgetData } = await supabase
+        .from('hour_budgets')
+        .select('*')
+        .eq('branch_id', branchKey)
+        .eq('month', month);
+
+      if (budgetData && budgetData.length > 0) {
+        setHourBudgetRows(budgetData.map((r: any) => ({
+          positionId: r.position_id,
+          positionName: r.position_name,
+          week1: r.week1 || 0,
+          week2: r.week2 || 0,
+          week3: r.week3 || 0,
+          week4: r.week4 || 0,
+          hourlyRate: r.hourly_rate || 0
+        })));
+      } else {
+        setHourBudgetRows([]);
+      }
+
+      // Cargar horas reales RRHH desde Supabase
+      const { data: hoursData } = await supabase
+        .from('hr_hour_logs')
+        .select('*')
+        .eq('branch_id', branchKey)
+        .eq('month', month);
+
+      const weeklyLogs: Record<string, any[]> = { w1: [], w2: [], w3: [], w4: [] };
+      if (hoursData && hoursData.length > 0) {
+        hoursData.forEach((r: any) => {
+          const key = `w${r.week_number}`;
+          if (weeklyLogs[key]) weeklyLogs[key].push(r);
+        });
       }
       setWeeklyHoursLogs(weeklyLogs);
 
     } catch (err) {
-      console.error('Error fetching hour tracking budgets:', err);
+      console.error('Error fetching hours from Supabase:', err);
     }
   };
 
@@ -373,10 +353,10 @@ export default function EncargadoDashboardView({
       fetchSalesData(branchKey, selectedMonth),
       fetchDeviations(branchKey, selectedMonth),
       fetchRatingsAndSupervision(branchKey, selectedMonth),
-      fetchPerformanceConfigs(branchKey, selectedMonth)
+      fetchPerformanceConfigs(branchKey, selectedMonth),
+      fetchCmvData(branchKey, selectedMonth),
+      fetchHoursData(branchKey, selectedMonth)
     ]);
-    fetchCmvData(branchKey, selectedMonth);
-    fetchHoursData(branchKey, selectedMonth);
     setLoading(false);
   };
 
@@ -537,6 +517,33 @@ export default function EncargadoDashboardView({
   const livePyCafeScore = isSimulationMode && manualPyCafeOverride ? parseFloat(manualPyCafeOverride) : pedidosYaCafeRating;
   const liveRedFlags = isSimulationMode && manualRedFlagsOverride ? parseInt(manualRedFlagsOverride) : supervisionFlags.red;
 
+  // Desvío promedio de insumos controlados (desde inventory_logs, columna desvio)
+  const averageStockDeviation = useMemo(() => {
+    if (!itemDeviations || itemDeviations.length === 0) return 0;
+    const total = itemDeviations.reduce((sum: number, d: any) => sum + Math.abs(d.deviation || 0), 0);
+    return total / itemDeviations.length;
+  }, [itemDeviations]);
+
+  // Desvío de horas vs presupuesto (%)
+  const hoursDeviationPct = useMemo(() => {
+    let totalPlanned = 0;
+    let totalActual = 0;
+    if (hourBudgetRows && weeklyHoursLogs) {
+      hourBudgetRows.forEach((row: any) => {
+        totalPlanned += (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0);
+      });
+      Object.values(weeklyHoursLogs).forEach((weekLogs: any) => {
+        if (Array.isArray(weekLogs)) {
+          weekLogs.forEach((log: any) => {
+            totalActual += Number(log.hours_rrhh || log.hoursRrhh || log.hoursActual || 0);
+          });
+        }
+      });
+    }
+    if (totalPlanned === 0) return 0;
+    return Math.abs(((totalActual - totalPlanned) / totalPlanned) * 100);
+  }, [hourBudgetRows, weeklyHoursLogs]);
+
   // PRIZE CALCULATION LOGIC PERFECT FOR EXTRACTION
   const getAchievedTier = (variable: any, actualValue: number) => {
     if (!variable.tiers || variable.tiers.length === 0) return null;
@@ -688,12 +695,14 @@ export default function EncargadoDashboardView({
           currentValue = livePyRestoScore;
         } else if (lowerName.includes('pedidos') && lowerName.includes('caf')) {
           currentValue = livePyCafeScore;
-        } else if (lowerName.includes('desv') || lowerName.includes('decomiso')) {
-          // Represented by Kg waste or standard deviation count
-          currentValue = wasteTotal / 1000; // translate into metric scale (e.g. Kg)
+        } else if (lowerName.includes('desv') || lowerName.includes('desperdi') || lowerName.includes('insumo')) {
+          // Desvío promedio de insumos controlados del mes (en %)
+          currentValue = averageStockDeviation;
+        } else if (lowerName.includes('hora') || lowerName.includes('presup')) {
+          // Desvío de horas vs presupuesto (en %)
+          currentValue = hoursDeviationPct;
         } else {
-          // fallback placeholder
-          currentValue = 4.5;
+          currentValue = 0;
         }
 
         const tier = getAchievedTier(v, currentValue);
@@ -736,7 +745,7 @@ export default function EncargadoDashboardView({
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, wasteTotal]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, averageStockDeviation, hoursDeviationPct]);
 
   return (
     <motion.div 
