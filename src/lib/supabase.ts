@@ -194,8 +194,8 @@ class MockQueryBuilder {
         if (payload && Array.isArray(payload.data) && payload.data.length > 0) {
           let serverItems = payload.data;
           if (this.table === 'profiles') {
-            const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
-            const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
+            const obsoleteIds = [];
+            const obsoleteNames = [];
             serverItems = serverItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
           }
           items = serverItems;
@@ -217,8 +217,8 @@ class MockQueryBuilder {
         if (saved) {
           let cachedItems = JSON.parse(saved);
           if (this.table === 'profiles') {
-            const obsoleteIds = ['usr-patricio', 'usr-samuel', 'usr-marcela', 'usr-veronica', 'usr-franco', 'usr-manuel', 'usr-socio'];
-            const obsoleteNames = ['PATRICIO BERNAT', 'SAMUEL RACEDO', 'MARCELA ROLDAN', 'VERONICA CREMONA', 'FRANCO LEON', 'MANUEL NOUGUES', 'SOCIO'];
+            const obsoleteIds = [];
+            const obsoleteNames = [];
             cachedItems = cachedItems.filter((u: any) => u && u.id && !obsoleteIds.includes(u.id) && !obsoleteNames.includes(u.name?.toUpperCase()));
           }
           items = cachedItems;
