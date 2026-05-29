@@ -88,12 +88,18 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Form states for creating/editing Roles
   const [isAddingRole, setIsAddingRole] = useState(false);
-  const [roleForm, setRoleForm] = useState<Omit<RoleConfig, 'id'>>({
+  const [roleForm, setRoleForm] = useState<{
+    name: string;
+    description: string;
+    is_read_only: boolean;
+    access_scope: 'all_branches' | 'single_branch';
+    allowed_modules: Record<string, 'edit' | 'view'>;
+  }>({
     name: '',
     description: '',
     is_read_only: false,
     access_scope: 'all_branches',
-    allowed_modules: []
+    allowed_modules: {}
   });
 
   // Password setting states
@@ -131,14 +137,23 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
       const { data: rolesData, error: rolesError } = await supabase.from('roles_config').select('*');
       let loadedRoles: RoleConfig[] = [];
       if (!rolesError && rolesData) {
-        loadedRoles = rolesData.map(r => ({
-          id: r.id,
-          name: r.name,
-          description: r.description || '',
-          allowed_modules: r.allowed_modules || [],
-          is_read_only: Boolean(r.is_read_only),
-          access_scope: r.access_scope || 'all_branches'
-        }));
+        loadedRoles = rolesData.map(r => {
+          // Convertir array legacy a Record
+          let modules = r.allowed_modules || [];
+          if (Array.isArray(modules)) {
+            const obj: Record<string, 'edit'> = {};
+            modules.forEach((m: string) => { obj[m] = 'edit'; });
+            modules = obj;
+          }
+          return {
+            id: r.id,
+            name: r.name,
+            description: r.description || '',
+            allowed_modules: modules,
+            is_read_only: Boolean(r.is_read_only),
+            access_scope: r.access_scope || 'all_branches'
+          };
+        });
         setRoles(loadedRoles);
       }
 
@@ -322,7 +337,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
         description: '',
         is_read_only: false,
         access_scope: 'all_branches',
-        allowed_modules: []
+        allowed_modules: {}
       });
       await fetchData();
     } catch (e: any) {
@@ -334,10 +349,6 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Delete Custom Role
   const handleDeleteRole = async (roleId: string) => {
-    if (['administrador', 'socio', 'encargado'].includes(roleId)) {
-      alert('No se pueden eliminar los roles base del sistema por razones de seguridad.');
-      return;
-    }
 
     if (!confirm('¿Estás seguro de eliminar este rol? Los usuarios asociados perderán sus accesos predeterminados.')) return;
     setLoading(true);
@@ -352,15 +363,22 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
     }
   };
 
-  const toggleModuleInRole = (moduleId: string) => {
+  const toggleModuleInRole = (moduleId: string, level?: 'view' | 'edit' | null) => {
     setRoleForm(prev => {
-      const active = prev.allowed_modules.includes(moduleId);
-      return {
-        ...prev,
-        allowed_modules: active 
-          ? prev.allowed_modules.filter(id => id !== moduleId)
-          : [...prev.allowed_modules, moduleId]
-      };
+      const modules = prev.allowed_modules as Record<string, 'edit' | 'view'>;
+      const current = modules[moduleId];
+      let updated = { ...modules };
+      if (level === null) {
+        delete updated[moduleId];
+      } else if (level) {
+        updated[moduleId] = level;
+      } else {
+        // Ciclar: sin acceso -> view -> edit -> sin acceso
+        if (!current) updated[moduleId] = 'view';
+        else if (current === 'view') updated[moduleId] = 'edit';
+        else delete updated[moduleId];
+      }
+      return { ...prev, allowed_modules: updated };
     });
   };
 
@@ -758,39 +776,36 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                             Alcance: {r.access_scope === 'all_branches' ? 'Consolidado Global' : 'Local Sucursal'}
                           </span>
                           <span className="text-[9px] font-bold bg-bg-card border border-border-dim px-2 py-0.5 rounded text-text-dim uppercase">
-                            {r.allowed_modules.length} Módulos
+                            {Array.isArray(r.allowed_modules) ? r.allowed_modules.length : Object.keys(r.allowed_modules).length} Módulos
                           </span>
                         </div>
                       </div>
 
                       <div className="flex items-center justify-end gap-3 mt-4 pt-3 border-t border-border-dim/50">
-                        {['administrador', 'socio', 'encargado'].includes(r.id) ? (
-                          <span className="text-[8.5px] font-mono text-text-dim/40 uppercase font-black italic">Rol de Fábrica</span>
-                        ) : (
-                          <>
-                            <button
-                              onClick={() => {
-                                setRoleForm({
-                                  name: r.name,
-                                  description: r.description,
-                                  is_read_only: r.is_read_only,
-                                  access_scope: r.access_scope,
-                                  allowed_modules: r.allowed_modules
-                                });
-                                setIsAddingRole(true);
-                              }}
-                              className="text-[10px] text-brand-500 hover:underline font-bold uppercase"
-                            >
-                              Modificar
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRole(r.id)}
-                              className="text-[10px] text-red-400 hover:underline font-bold uppercase transition-colors"
-                            >
-                              Eliminar
-                            </button>
-                          </>
-                        )}
+                        <button
+                          onClick={() => {
+                            const modules = Array.isArray(r.allowed_modules)
+                              ? Object.fromEntries((r.allowed_modules as string[]).map((m: string) => [m, 'edit' as const]))
+                              : r.allowed_modules;
+                            setRoleForm({
+                              name: r.name,
+                              description: r.description,
+                              is_read_only: r.is_read_only,
+                              access_scope: r.access_scope,
+                              allowed_modules: modules as Record<string, 'edit' | 'view'>
+                            });
+                            setIsAddingRole(true);
+                          }}
+                          className="text-[10px] text-brand-500 hover:underline font-bold uppercase"
+                        >
+                          Modificar
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRole(r.id)}
+                          className="text-[10px] text-red-400 hover:underline font-bold uppercase transition-colors"
+                        >
+                          Eliminar
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -899,27 +914,44 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                           <span className="text-[9px] font-black uppercase tracking-wider text-brand-500/80 underline block mb-1">{category}</span>
                           <div className="space-y-1">
                             {items.map(m => {
-                              const active = roleForm.allowed_modules.includes(m.id);
+                              const modules = roleForm.allowed_modules as Record<string, 'edit' | 'view'>;
+                              const level = modules[m.id];
                               return (
-                                <button
-                                  key={m.id}
-                                  type="button"
-                                  onClick={() => toggleModuleInRole(m.id)}
-                                  className={cn(
-                                    "w-full flex items-center justify-between px-3 py-1.5 rounded border text-[9px] font-bold uppercase transition-all",
-                                    active
-                                      ? "bg-brand-500/10 border-brand-500/40 text-brand-500"
-                                      : "bg-bg-accent/40 border-border-dim/60 text-text-dim hover:border-brand-500/30"
-                                  )}
-                                >
-                                  {m.label}
-                                  <div className={cn(
-                                    "w-3 h-3 rounded-full border flex items-center justify-center",
-                                    active ? "bg-brand-500 border-brand-500" : "border-border-dim"
-                                  )}>
-                                    {active && <div className="w-1.5 h-1.5 bg-black rounded-full" />}
+                                <div key={m.id} className="w-full flex items-center justify-between px-3 py-1.5 rounded border border-border-dim/40 bg-bg-accent/40 text-[9px] font-bold uppercase">
+                                  <span className={cn(level ? "text-text-main" : "text-text-dim")}>{m.label}</span>
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleModuleInRole(m.id, level === null || !level ? 'view' : null)}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[8px] font-black border transition-all",
+                                        !level ? "bg-bg-accent border-border-dim text-text-dim" : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
+                                      )}
+                                    >
+                                      SIN ACCESO
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleModuleInRole(m.id, 'view')}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[8px] font-black border transition-all",
+                                        level === 'view' ? "bg-blue-500/20 border-blue-500/50 text-blue-400" : "bg-bg-accent border-border-dim text-text-dim hover:border-blue-500/30"
+                                      )}
+                                    >
+                                      VER
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleModuleInRole(m.id, 'edit')}
+                                      className={cn(
+                                        "px-2 py-0.5 rounded text-[8px] font-black border transition-all",
+                                        level === 'edit' ? "bg-brand-500/20 border-brand-500/50 text-brand-500" : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/30"
+                                      )}
+                                    >
+                                      EDITAR
+                                    </button>
                                   </div>
-                                </button>
+                                </div>
                               );
                             })}
                           </div>
