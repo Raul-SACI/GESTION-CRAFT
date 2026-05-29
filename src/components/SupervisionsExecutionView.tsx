@@ -76,14 +76,37 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
         
       if (ckError) throw ckError;
 
-      const fetchedTemplates = (checklistsData && checklistsData.length > 0)
-        ? checklistsData.map(item => ({
+      let fetchedTemplates;
+      if (checklistsData && checklistsData.length > 0) {
+        fetchedTemplates = checklistsData.map(item => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          questions: Array.isArray(item.items) ? item.items : JSON.parse(item.items || '[]')
+        }));
+      } else {
+        // Auto-seed templates into Supabase so foreign keys work
+        const seedPayloads = SEEDED_TEMPLATES.map(t => ({
+          name: t.name,
+          category: t.category,
+          items: t.questions
+        }));
+        const { data: inserted, error: seedErr } = await supabase
+          .from('supervision_checklists')
+          .insert(seedPayloads)
+          .select();
+        if (!seedErr && inserted && inserted.length > 0) {
+          fetchedTemplates = inserted.map((item: any) => ({
             id: item.id,
             name: item.name,
             category: item.category,
             questions: Array.isArray(item.items) ? item.items : JSON.parse(item.items || '[]')
-          }))
-        : SEEDED_TEMPLATES;
+          }));
+        } else {
+          // Supabase unavailable - use local seeds but skip checklist_id on save
+          fetchedTemplates = SEEDED_TEMPLATES;
+        }
+      }
 
       setTemplates(fetchedTemplates);
       if (fetchedTemplates.length > 0 && !selectedTemplate) {
@@ -225,13 +248,17 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
       : 10;
 
     try {
-      const responseData = {
+      // Only use checklist_id if it's a real UUID (saved in Supabase)
+      const isRealUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedTemplate.id);
+
+      const responseData: any = {
         branch_id: selectedBranch.id,
-        checklist_id: selectedTemplate.id,
+        checklist_id: isRealUUID ? selectedTemplate.id : null,
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
           flags: { red: redCount, yellow: yellowCount, green: greenCount },
+          template_name: selectedTemplate.name,
           supervisor: activeSupervisor ? {
             id: activeSupervisor.id,
             name: activeSupervisor.name
@@ -250,9 +277,9 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
       alert(`Supervisión registrada con éxito para ${selectedBranch.name}. Puntuación: ${averageNormalizedScore.toFixed(1)}/10.`);
       setShowForm(false);
       loadData(); // Reload active KPIs
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving compliance details:', err);
-      alert('Error en base de datos. Se registró de manera temporal.');
+      alert(`Error al guardar: ${err?.message || 'Error de conexión'}`);
       setShowForm(false);
     } finally {
       setIsSubmitting(false);
