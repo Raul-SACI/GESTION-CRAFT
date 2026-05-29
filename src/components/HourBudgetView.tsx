@@ -840,9 +840,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     }
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!importPreview) return;
-    const activeBranchId = localBranchId === 'all' ? '1' : localBranchId;
+    const activeBranchId = localBranchId === 'all' ? (branches[0]?.id || '1') : localBranchId;
     
     const importedBudgetRows: BudgetRow[] = importPreview.map(preview => ({
       id: `imported-${Math.random().toString(36).substr(2, 9)}`,
@@ -858,7 +858,59 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     }));
     
     const otherBranchesRows = rows.filter(r => r.branchId !== activeBranchId);
-    setRows([...otherBranchesRows, ...importedBudgetRows]);
+    const newRows = [...otherBranchesRows, ...importedBudgetRows];
+    setRows(newRows);
+
+    // Auto-save to Supabase on import confirm
+    try {
+      // Calculate weekly hours from staffByDate
+      const getWeekHours = (row: BudgetRow, weekDays: string[]) => {
+        return weekDays.reduce((sum, dateStr) => {
+          const count = row.staffByDate?.[dateStr] ?? 0;
+          return sum + (count * (row.hoursPerDay || 0));
+        }, 0);
+      };
+
+      // Get date ranges for each week in the selected month
+      const [yr, mo] = selectedMonth.split('-').map(Number);
+      const daysInMonth = new Date(yr, mo, 0).getDate();
+      const weekDates: string[][] = [[], [], [], []];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const w = d <= 7 ? 0 : d <= 14 ? 1 : d <= 21 ? 2 : 3;
+        weekDates[w].push(dateStr);
+      }
+
+      const upsertData = importedBudgetRows.map(r => ({
+        branch_id: activeBranchId,
+        month: selectedMonth,
+        position_id: r.roleId,
+        position_name: r.roleLabel,
+        shift: r.shift,
+        hours_per_day: r.hoursPerDay,
+        hourly_rate: r.hourlyRate || 0,
+        week1: Math.round(getWeekHours(r, weekDates[0])),
+        week2: Math.round(getWeekHours(r, weekDates[1])),
+        week3: Math.round(getWeekHours(r, weekDates[2])),
+        week4: Math.round(getWeekHours(r, weekDates[3])),
+        total_hours: Math.round(getWeekHours(r, weekDates[0]) + getWeekHours(r, weekDates[1]) + getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3])),
+        status: 'draft'
+      }));
+
+      await supabase.from('hour_budgets').delete().eq('branch_id', activeBranchId).eq('month', selectedMonth);
+      if (upsertData.length > 0) {
+        const { error } = await supabase.from('hour_budgets').insert(upsertData);
+        if (error) throw error;
+      }
+      console.log('[Budget] Saved', upsertData.length, 'rows to Supabase');
+    } catch (e: any) {
+      console.error('Error saving budget to Supabase:', e);
+      alert(`Error al guardar en Supabase: ${e.message}`);
+    }
+
+    // Also save to localStorage
+    const storageKeyV2 = `hour_budget_v2_${activeBranchId}_${selectedMonth}`;
+    localStorage.setItem(storageKeyV2, JSON.stringify({ rows: newRows, holidaysList, status: budgetStatus }));
     
     setImportModalSuccess(true);
     setTimeout(() => {
