@@ -206,7 +206,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   );
   
   // Sync when parent changes (encargado switching branches)
-  const prevBranchRef = React.useRef(selectedBranchId);
+  const prevBranchRef = useRef(selectedBranchId);
   if (selectedBranchId !== 'all' && selectedBranchId !== prevBranchRef.current) {
     prevBranchRef.current = selectedBranchId;
     if (localBranchId !== selectedBranchId) setLocalBranchId(selectedBranchId);
