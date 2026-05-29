@@ -661,11 +661,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const first = tickets[0];
       let cashS = 0, cardS = 0, pyS = 0;
       tickets.forEach((t: any) => {
-        const pm = String(t.payment_method || '').toLowerCase();
+        const pm = String(t.payment_method || '');
         const amt = Number(t.gross_sales || 0);
-        if (pm.includes('efectivo')) cashS += amt;
-        else if (pm.includes('pedidos')) pyS += amt;
-        else cardS += amt;
+        if (pm === 'Efectivo') cashS += amt;
+        else if (pm === 'Pedidos Ya') pyS += amt;
+        else cardS += amt; // Tarjetas/Bancos
       });
       return {
         id: `hf|${key}`,
@@ -1023,10 +1023,17 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     const normalizePayment = (c: string): string => {
       const u = c.toUpperCase().trim();
       // EFECTIVO
-      if (u.includes('EFECTIVO')) return 'Efectivo';
-      // PEDIDOS YA - pago online del agregador
-      if (u.includes('ONLINE') || u.includes('PAGO ONLINE') || u.includes('PEYA')) return 'Pedidos Ya';
-      // TARJETAS/BANCOS - todo lo demás (QR, tarjetas, transferencias, cuentas corrientes)
+      if (u === 'EFECTIVO' || u === 'CASH' || u.startsWith('EFECTIVO')) return 'Efectivo';
+      // PEDIDOS YA - aggregator payments
+      if (
+        u.includes('PEYA') ||
+        u.includes('PAGO ONLINE') ||
+        u.includes('PEDIDOS YA') ||
+        u.includes('PEDIDOSYA')
+      ) return 'Pedidos Ya';
+      // TARJETAS/BANCOS - all card/bank/digital payments
+      // AMEX, AMERICAN EXPRESS, CABAL, MASTER, MASTERCARD, NARANJA, QR,
+      // VISA, VISA DEBITO, TRANSF, TRANSFERENCIA, FCB, NCB, TIC (cuenta corriente)
       return 'Tarjetas/Bancos';
     };
 
