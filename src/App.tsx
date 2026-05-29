@@ -1339,11 +1339,21 @@ function AppContent() {
         {/* Dynamic View */}
         <div className="p-6 flex-1">
           {isCurrentTabReadOnly && (
-            <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest animate-pulse">
+            <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest">
               <Lock size={16} />
-              <span>MODO SOLO LECTURA ACTIVO • LOS CAMBIOS DE ESCRITURA ESTÁN RESTRINGIDOS PARA ESTE PERFIL</span>
+              <span>MODO SOLO LECTURA ACTIVO • ESTE MÓDULO ES DE VISUALIZACIÓN ÚNICAMENTE</span>
             </div>
           )}
+          <div className="relative">
+            {isCurrentTabReadOnly && (
+              <div 
+                className="absolute inset-0 z-50 cursor-not-allowed"
+                style={{ background: 'transparent' }}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                title="Módulo en modo solo lectura"
+              />
+            )}
           <Suspense fallback={<LoadingState />}>
             <AnimatePresence mode="wait">
               {activeTab === 'socios_dashboard' && (
@@ -1450,6 +1460,7 @@ function AppContent() {
               )}
             </AnimatePresence>
           </Suspense>
+          </div>
 
           {/* Add Branch Modal */}
           <AnimatePresence>
