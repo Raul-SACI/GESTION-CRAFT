@@ -648,6 +648,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
             <thead>
               <tr className="bg-bg-accent/40 border-b border-border-dim">
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
+                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Empleado</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Puesto</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Planificadas</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Cargadas en Sucursal</th>
@@ -678,6 +679,10 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                   >
                     <td className="px-4 py-4 font-bold text-text-dim uppercase">
                       {currentBranchName}
+                    </td>
+
+                    <td className="px-4 py-4 font-black text-text-main uppercase">
+                      {(record as any).employeeName || '—'}
                     </td>
 
                     <td className="px-4 py-4 font-black text-text-main uppercase">

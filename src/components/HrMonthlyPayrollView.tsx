@@ -83,8 +83,13 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
         const { data, error } = await query;
 
         if (!error && data && data.length > 0) {
+          // Filter out fake/invalid records (no position or zero total)
+          const valid = data.filter((r: any) => 
+            r.position_name && r.position_name !== 'Sin cargo' && r.position_name !== 'SIN CARGO'
+          );
+          if (valid.length === 0) { setPayrollItems([]); return; }
           // Map Supabase columns back to payrollItem shape
-          const mapped = data.map((r: any) => ({
+          const mapped = valid.map((r: any) => ({
             id: r.id || `db-${r.branch_id}-${r.position_name}-${Date.now()}`,
             branchId: r.branch_id,
             branchName: branches.find(b => b.id === r.branch_id)?.name || r.branch_id,
