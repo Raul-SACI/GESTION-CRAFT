@@ -189,6 +189,26 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     });
     setPayrollItems(updated);
     localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updated));
+    // Supabase sync
+    try {
+      const upsertData = updated.map((p: any) => ({
+        branch_id: selectedBranch || 'all',
+        month: selectedMonth,
+        employee_name: p.employeeName || p.name || 'Sin nombre',
+        position_name: p.position || p.positionName || 'Sin cargo',
+        total_hours: p.totalHours || p.hours || 0,
+        hourly_rate: p.hourlyRate || p.rate || 0,
+        gross_salary: p.grossSalary || p.totalAmount || 0,
+        deductions: p.deductions || 0,
+        net_salary: p.netSalary || p.total || 0,
+        status: p.status || 'draft',
+        notes: p.notes || ''
+      }));
+      if (upsertData.length > 0) {
+        await supabase.from('hr_monthly_payroll').delete().eq('branch_id', selectedBranch || 'all').eq('month', selectedMonth);
+        await supabase.from('hr_monthly_payroll').insert(upsertData);
+      }
+    } catch(e) { console.error('Error sync payroll:', e); }
   };
 
   // Sync with actual weekly hours audited in localStorage
@@ -530,6 +550,26 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                           const updated = payrollItems.filter(p => p.id !== item.id);
                           setPayrollItems(updated);
                           localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updated));
+    // Supabase sync
+    try {
+      const upsertData = updated.map((p: any) => ({
+        branch_id: selectedBranch || 'all',
+        month: selectedMonth,
+        employee_name: p.employeeName || p.name || 'Sin nombre',
+        position_name: p.position || p.positionName || 'Sin cargo',
+        total_hours: p.totalHours || p.hours || 0,
+        hourly_rate: p.hourlyRate || p.rate || 0,
+        gross_salary: p.grossSalary || p.totalAmount || 0,
+        deductions: p.deductions || 0,
+        net_salary: p.netSalary || p.total || 0,
+        status: p.status || 'draft',
+        notes: p.notes || ''
+      }));
+      if (upsertData.length > 0) {
+        await supabase.from('hr_monthly_payroll').delete().eq('branch_id', selectedBranch || 'all').eq('month', selectedMonth);
+        await supabase.from('hr_monthly_payroll').insert(upsertData);
+      }
+    } catch(e) { console.error('Error sync payroll:', e); }
                         }}
                         className="p-2 text-text-dim hover:text-red-400 hover:bg-red-500/10 rounded transition-all cursor-pointer"
                         title="Eliminar de la planilla"
@@ -786,6 +826,26 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
                     const updated = [...payrollItems, newItem];
                     setPayrollItems(updated);
                     localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(updated));
+    // Supabase sync
+    try {
+      const upsertData = updated.map((p: any) => ({
+        branch_id: selectedBranch || 'all',
+        month: selectedMonth,
+        employee_name: p.employeeName || p.name || 'Sin nombre',
+        position_name: p.position || p.positionName || 'Sin cargo',
+        total_hours: p.totalHours || p.hours || 0,
+        hourly_rate: p.hourlyRate || p.rate || 0,
+        gross_salary: p.grossSalary || p.totalAmount || 0,
+        deductions: p.deductions || 0,
+        net_salary: p.netSalary || p.total || 0,
+        status: p.status || 'draft',
+        notes: p.notes || ''
+      }));
+      if (upsertData.length > 0) {
+        await supabase.from('hr_monthly_payroll').delete().eq('branch_id', selectedBranch || 'all').eq('month', selectedMonth);
+        await supabase.from('hr_monthly_payroll').insert(upsertData);
+      }
+    } catch(e) { console.error('Error sync payroll:', e); }
                     
                     setNewPayrollItem({
                       employeeName: '',
