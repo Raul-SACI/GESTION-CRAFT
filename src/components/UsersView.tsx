@@ -80,6 +80,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
   const [userForm, setUserForm] = useState({
     id: '',
     name: '',
+    email: '',
     role: '',
     branch: 'Todas las Sucursales',
     password: '',
@@ -202,7 +203,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Save User
   const handleSaveUser = async () => {
-    if (!userForm.name) {
+    if (!userForm.name.trim()) {
       alert('Por favor, ingresa el nombre.');
       return;
     }
@@ -214,36 +215,60 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
     setLoading(true);
     try {
       let finalBranch = userForm.branch;
-      // If role enforces all branches, overwrite to 'Todas las Sucursales'
       if (selectedRoleConfig && selectedRoleConfig.access_scope === 'all_branches') {
         finalBranch = 'Todas las Sucursales';
       }
 
-      const payload: any = {
-        name: userForm.name.toUpperCase(),
-        role: userForm.role,
-        branch_name: finalBranch,
-        password: userForm.password,
-      };
-
       if (userForm.id) {
-        // Edit Mode
+        // --- EDITAR: solo actualiza el perfil ---
+        const payload: any = {
+          name: userForm.name.toUpperCase(),
+          role: userForm.role,
+          branch_name: finalBranch,
+        };
         const { error } = await supabase.from('profiles').update(payload).eq('id', userForm.id);
         if (error) throw error;
       } else {
-        // Add Mode
-        // Generate a standard client-side UUID to avoid depending on database-side default generators
-        const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-          var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-          return v.toString(16);
-        });
-        payload.id = newId;
-        const { error } = await supabase.from('profiles').insert([payload]);
-        if (error) throw error;
+        // --- CREAR: llama a la Edge Function que crea en Auth + profiles ---
+        if (!userForm.email.trim()) {
+          alert('Por favor, ingresa el email del usuario.');
+          setLoading(false);
+          return;
+        }
+        if (!userForm.password.trim() || userForm.password.length < 6) {
+          alert('La contraseña debe tener al menos 6 caracteres.');
+          setLoading(false);
+          return;
+        }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify({
+              email: userForm.email.trim().toLowerCase(),
+              password: userForm.password,
+              name: userForm.name.trim(),
+              role: userForm.role,
+              branch_name: finalBranch,
+            }),
+          }
+        );
+
+        const result = await response.json();
+        if (!response.ok || result.error) {
+          throw new Error(result.error || 'Error al crear el usuario en Auth.');
+        }
       }
-      
+
       setIsAddingUser(false);
-      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
       await fetchData();
       onUsersChanged?.();
     } catch (e: any) {
@@ -561,6 +586,20 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                       placeholder="Ejem: PEDRO CASTRO"
                     />
                   </div>
+
+                  {/* Email Input — solo visible al crear, no al editar */}
+                  {!userForm.id && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider">Email de Acceso</label>
+                      <input 
+                        type="email"
+                        value={userForm.email}
+                        onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                        className="w-full px-4 py-2.5 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-mono"
+                        placeholder="usuario@craft.com"
+                      />
+                    </div>
+                  )}
 
                   {/* Role Selector */}
                   <div className="space-y-1.5">
