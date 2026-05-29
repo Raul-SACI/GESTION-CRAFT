@@ -46,6 +46,7 @@ const SYSTEM_MODULES = [
   { id: 'registro_supervision', label: 'Registro de Supervisión', category: 'Gestión Líderes Operativos' },
   { id: 'produccion_mes', label: 'Producción del Mes', category: 'Centro de Producción' },
   { id: 'produccion_stock_control', label: 'Control Stock Insumos', category: 'Centro de Producción' },
+  { id: 'decomisos_deposito', label: 'Decomisos Depósito Central', category: 'Centro de Producción' },
   { id: 'bank_liabilities', label: 'Pasivos Bancarios', category: 'Finanzas' },
   { id: 'tax_liabilities', label: 'Pasivos Fiscales', category: 'Finanzas' },
   { id: 'cronograma_pagos', label: 'Cronograma de Pagos', category: 'Finanzas' },
