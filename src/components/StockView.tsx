@@ -182,6 +182,60 @@ export default function StockView({
         setDailyData(formatted);
       }
 
+      // Fetch daily_wastage and auto-fill decomisos per item/date
+      const { data: wastageData } = await supabase
+        .from('daily_wastage')
+        .select('date, reference_id, quantity')
+        .eq('branch_id', selectedBranchId)
+        .eq('type', 'insumo')
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (wastageData && wastageData.length > 0) {
+        // Sum wastage quantities by item_id + date
+        const wastageByDateItem: Record<string, Record<string, number>> = {};
+        wastageData.forEach((w: any) => {
+          if (!w.reference_id || !w.date) return;
+          if (!wastageByDateItem[w.date]) wastageByDateItem[w.date] = {};
+          wastageByDateItem[w.date][w.reference_id] = 
+            (wastageByDateItem[w.date][w.reference_id] || 0) + Number(w.quantity || 0);
+        });
+
+        // Merge into dailyData: only fill decomisos if still 0 (don't override manual entries)
+        const upsertPromises: Promise<any>[] = [];
+        setDailyData(prev => {
+          const merged = { ...prev };
+          Object.keys(wastageByDateItem).forEach(date => {
+            if (!merged[date]) merged[date] = {};
+            Object.keys(wastageByDateItem[date]).forEach(itemId => {
+              const wastageQty = wastageByDateItem[date][itemId];
+              const existing = merged[date][itemId];
+              if (!existing) {
+                merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: wastageQty, compras: 0 };
+                upsertPromises.push(
+                  supabase.from('inventory_logs').upsert(
+                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: wastageQty },
+                    { onConflict: 'branch_id,item_id,date' }
+                  )
+                );
+              } else if (!existing.decomisos || existing.decomisos === 0) {
+                merged[date][itemId] = { ...existing, decomisos: wastageQty };
+                upsertPromises.push(
+                  supabase.from('inventory_logs').upsert(
+                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: wastageQty },
+                    { onConflict: 'branch_id,item_id,date' }
+                  )
+                );
+              }
+            });
+          });
+          return merged;
+        });
+        if (upsertPromises.length > 0) {
+          Promise.all(upsertPromises).catch(e => console.warn('Auto-sync decomisos error:', e));
+        }
+      }
+
       // Fetch week closures
       const { data: closures } = await supabase
         .from('inventory_week_closures')
