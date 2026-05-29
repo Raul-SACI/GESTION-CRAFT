@@ -68,21 +68,54 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     { id: 'deposito', name: 'Depósito Central' }
   ];
 
-  // Load monthly payroll records from localStorage
+  // Load monthly payroll records from Supabase (fallback to localStorage)
   useEffect(() => {
-    const key = `hr_monthly_payroll_${selectedMonth}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
+    const loadPayroll = async () => {
       try {
-        setPayrollItems(JSON.parse(saved));
+        let query = supabase
+          .from('hr_monthly_payroll')
+          .select('*')
+          .eq('month', selectedMonth);
+        if (payrollFilterBranch !== 'all') {
+          query = query.eq('branch_id', payrollFilterBranch);
+        }
+        const { data, error } = await query;
+
+        if (!error && data && data.length > 0) {
+          // Map Supabase columns back to payrollItem shape
+          const mapped = data.map((r: any) => ({
+            id: r.id || `db-${r.branch_id}-${r.position_name}-${Date.now()}`,
+            branchId: r.branch_id,
+            branchName: branches.find(b => b.id === r.branch_id)?.name || r.branch_id,
+            employeeName: r.employee_name || r.position_name,
+            positionLabel: r.position_name,
+            salaryType: r.total_hours > 0 ? 'hourly' : 'monthly',
+            hoursWorked: r.total_hours || 0,
+            baseRateOrSalary: r.hourly_rate || r.gross_salary || 0,
+            holidayDaysCount: r.holiday_days || 0,
+            additionalBonus: r.bonus || 0,
+            novedades: r.notes || '',
+            totalToCollect: r.net_salary || r.gross_salary || 0,
+            amountTransfer: r.amount_transfer ?? (r.net_salary || 0),
+            amountCash: r.amount_cash ?? 0,
+          }));
+          setPayrollItems(mapped);
+          return;
+        }
       } catch (e) {
-        console.error(e);
+        console.error('Error loading payroll from Supabase:', e);
       }
-    } else {
-      // No data loaded yet - show empty list
-      setPayrollItems([]);
-    }
-  }, [selectedMonth, branches]);
+      // Fallback to localStorage
+      const key = `hr_monthly_payroll_${selectedMonth}`;
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        try { setPayrollItems(JSON.parse(saved)); } catch(e) { setPayrollItems([]); }
+      } else {
+        setPayrollItems([]);
+      }
+    };
+    loadPayroll();
+  }, [selectedMonth, payrollFilterBranch, branches]);
 
   // Handle inline updates of fields
   const handleUpdatePayrollField = async (itemId: string, field: string, value: any) => {
@@ -171,9 +204,9 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
 
       const newItems = Object.values(groupMap).map((g: any) => {
         const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel);
-        const computed = g.totalHours * rate;
+        const computed = Math.round(g.totalHours * rate);
         return {
-          id: `sync-${g.branchId}-${g.positionId}-${selectedMonth}-${Date.now()}`,
+          id: `sync-${g.branchId}-${g.positionId}-${selectedMonth}`,
           branchId: g.branchId,
           branchName: g.branchName,
           employeeName: g.positionLabel.toUpperCase(),
@@ -185,7 +218,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
           additionalBonus: 0,
           novedades: '',
           totalToCollect: computed,
-          amountTransfer: computed, // default: all by transfer
+          amountTransfer: computed,
           amountCash: 0,
         };
       });
@@ -200,6 +233,33 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       const merged = [...existingMonthly, ...newItems];
       setPayrollItems(merged);
       localStorage.setItem(`hr_monthly_payroll_${selectedMonth}`, JSON.stringify(merged));
+
+      // Save to Supabase
+      try {
+        const upsertData = merged.map((p: any) => ({
+          id: p.id,
+          branch_id: p.branchId,
+          month: selectedMonth,
+          employee_name: p.employeeName,
+          position_name: p.positionLabel,
+          total_hours: p.hoursWorked || 0,
+          hourly_rate: p.baseRateOrSalary || 0,
+          gross_salary: p.totalToCollect || 0,
+          net_salary: p.totalToCollect || 0,
+          holiday_days: p.holidayDaysCount || 0,
+          bonus: p.additionalBonus || 0,
+          notes: p.novedades || '',
+          amount_transfer: p.amountTransfer ?? p.totalToCollect ?? 0,
+          amount_cash: p.amountCash ?? 0,
+          status: 'draft',
+        }));
+        await supabase.from('hr_monthly_payroll')
+          .delete()
+          .eq('month', selectedMonth)
+          .eq('branch_id', payrollFilterBranch !== 'all' ? payrollFilterBranch : upsertData[0]?.branch_id);
+        await supabase.from('hr_monthly_payroll').insert(upsertData);
+      } catch(e) { console.error('Error saving payroll to Supabase:', e); }
+
       alert(`Sincronización exitosa: ${newItems.length} puestos generados desde Control Semanal.`);
     } catch (err: any) {
       console.error('Error syncing with weekly control:', err);
