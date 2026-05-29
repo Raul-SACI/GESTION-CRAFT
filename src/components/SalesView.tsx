@@ -924,6 +924,23 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const shift = shiftMap[String(row['TURNO'] || '').toUpperCase().trim()] || 'Mañana';
         const month = dateStr.substring(0, 7);
 
+        // Debug first row only
+        if (tickets.length === 0) {
+          const allKeys = Object.keys(row);
+          const ventasKey = allKeys.find(k => k.toLowerCase().includes('ventas') && k.toLowerCase().includes('brut'));
+          console.log('[DEBUG] All column keys:', allKeys);
+          console.log('[DEBUG] Ventas Brutas key found:', ventasKey);
+          console.log('[DEBUG] row[Ventas Brutas]:', row['Ventas Brutas'], typeof row['Ventas Brutas']);
+          console.log('[DEBUG] ventasKey value:', ventasKey ? row[ventasKey] : 'NOT FOUND');
+          console.log('[DEBUG] dateStr:', dateStr, 'hourStr:', hourStr);
+        }
+
+        // Find ventas columns case-insensitively
+        const allRowKeys = Object.keys(row);
+        const brutasKey = allRowKeys.find(k => k.replace(/\s+/g,'').toLowerCase() === 'ventasbrutas') || 'Ventas Brutas';
+        const netasKey = allRowKeys.find(k => k.replace(/\s+/g,'').toLowerCase() === 'ventasnetas') || 'Ventas Netas';
+        const ivaKey = allRowKeys.find(k => k.toLowerCase() === 'iva') || 'IVA';
+
         tickets.push({
           id: `tk-${Date.now()}-${Math.random().toString(36).substr(2,8)}`,
           branch_id: branchId,
@@ -936,9 +953,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           covers: Math.round(Number(row['CUBIERTOS'] || 0)),
           orders: Math.round(Number(row['ORDENES'] || 0)),
           payment_method: normalizePayment(String(row['COBRO'] || '')),
-          gross_sales: Math.round((parseFloat(row['Ventas Brutas']) || 0) * 100) / 100,
-          net_sales: Math.round((parseFloat(row['Ventas Netas']) || 0) * 100) / 100,
-          iva: Math.round((parseFloat(row['IVA']) || 0) * 100) / 100,
+          gross_sales: Math.round((Number(row[brutasKey]) || 0) * 100) / 100,
+          net_sales: Math.round((Number(row[netasKey]) || 0) * 100) / 100,
+          iva: Math.round((Number(row[ivaKey]) || 0) * 100) / 100,
         });
       }
 
