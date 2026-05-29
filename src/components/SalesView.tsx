@@ -222,33 +222,91 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         }
       }
 
-      setSalesRecords(allSalesData.map(s => ({
-        id: s.id,
-        branchId: s.branch_id,
-        date: s.date,
-        type: s.type as SaleType,
-        pesos: Number(s.pesos),
-        netSales: Number(s.net_sales),
-        orders: s.orders,
-        covers: s.covers,
-        projection: Number(s.projection || 0),
-        // Calculate these frontend-side to avoid schema dependency
-        week: s.week || calculateWeekFromDate(s.date),
-        dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
-        cash: Number(s.cash || 0),
-        card: Number(s.card || 0),
-        qr: Number(s.qr || 0),
-        iva: Number(s.iva || 0),
-        hora: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-          ? (s.product_ranking as any).hora || '08:00'
-          : '08:00',
-        medioCobro: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-          ? (s.product_ranking as any).medio_cobro || 'Efectivo'
-          : 'Efectivo',
-        productRanking: s.product_ranking && typeof s.product_ranking === 'object' && !Array.isArray(s.product_ranking)
-          ? (s.product_ranking as any).items || []
-          : (Array.isArray(s.product_ranking) ? s.product_ranking : [])
-      })));
+      // Also fetch tickets detail for hora/medioCobro display
+      let ticketsQuery = supabase
+        .from('sales_tickets')
+        .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name')
+        .order('date', { ascending: false })
+        .order('hour', { ascending: true });
+      if (localBranchId !== 'all') ticketsQuery = ticketsQuery.eq('branch_id', localBranchId);
+      const { data: ticketsData } = await ticketsQuery;
+
+      if (ticketsData && ticketsData.length > 0) {
+        // Group tickets by branch+date+shift to show in historial
+        const ticketMap: Record<string, any[]> = {};
+        ticketsData.forEach((t: any) => {
+          const shiftType = t.shift === 'Mañana' ? 'Turno Mañana' : 'Turno Tarde';
+          const key = `${t.branch_id}|${t.date}|${shiftType}`;
+          if (!ticketMap[key]) ticketMap[key] = [];
+          ticketMap[key].push(t);
+        });
+
+        const ticketRecords: SalesData[] = [];
+        Object.entries(ticketMap).forEach(([key, tickets]) => {
+          const [branchId, date, type] = key.split('|');
+          const first = tickets[0];
+          // Count payments by type
+          const paymentCounts: Record<string, number> = {};
+          tickets.forEach((t: any) => {
+            paymentCounts[t.payment_method] = (paymentCounts[t.payment_method] || 0) + 1;
+          });
+          const dominantPayment = Object.entries(paymentCounts).sort((a,b) => b[1]-a[1])[0]?.[0] || 'Efectivo';
+
+          ticketRecords.push({
+            id: `tk|${key}`,
+            branchId,
+            date,
+            type: type as SaleType,
+            pesos: tickets.reduce((s: number, t: any) => s + Number(t.gross_sales || 0), 0),
+            netSales: tickets.reduce((s: number, t: any) => s + Number(t.net_sales || 0), 0),
+            orders: tickets.reduce((s: number, t: any) => s + Number(t.orders || 0), 0),
+            covers: tickets.reduce((s: number, t: any) => s + Number(t.covers || 0), 0),
+            iva: tickets.reduce((s: number, t: any) => s + Number(t.iva || 0), 0),
+            projection: 0,
+            week: `Semana ${first.week_number || 1}`,
+            dayName: first.day_name || '',
+            cash: 0, card: 0, qr: 0,
+            hora: first.hour ? String(first.hour).substring(0, 5) : '—',
+            medioCobro: dominantPayment,
+            productRanking: []
+          });
+        });
+
+        // Use ticket records if available, otherwise fall back to sales records
+        setSalesRecords(ticketRecords.length > 0 ? ticketRecords : allSalesData.map(s => ({
+          id: s.id,
+          branchId: s.branch_id,
+          date: s.date,
+          type: s.type as SaleType,
+          pesos: Number(s.pesos),
+          netSales: Number(s.net_sales),
+          orders: s.orders,
+          covers: s.covers,
+          projection: Number(s.projection || 0),
+          week: s.week || calculateWeekFromDate(s.date),
+          dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
+          cash: Number(s.cash || 0), card: Number(s.card || 0), qr: Number(s.qr || 0),
+          iva: Number(s.iva || 0),
+          hora: '—', medioCobro: '—', productRanking: []
+        })));
+      } else {
+        setSalesRecords(allSalesData.map(s => ({
+          id: s.id,
+          branchId: s.branch_id,
+          date: s.date,
+          type: s.type as SaleType,
+          pesos: Number(s.pesos),
+          netSales: Number(s.net_sales),
+          orders: s.orders,
+          covers: s.covers,
+          projection: Number(s.projection || 0),
+          week: s.week || calculateWeekFromDate(s.date),
+          dayName: s.day_name || new Date(s.date).toLocaleDateString('es-ES', { weekday: 'short', timeZone: 'UTC' }),
+          cash: Number(s.cash || 0), card: Number(s.card || 0), qr: Number(s.qr || 0),
+          iva: Number(s.iva || 0),
+          hora: '—', medioCobro: '—', productRanking: []
+        })));
+      }
 
       // Fetch Rankings Table with pagination to bypass PostgREST limit
       let allRankingData: any[] = [];
