@@ -998,6 +998,7 @@ function AppContent() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (typedUnlockPassword.trim() === profilePendingUnlock.password) {
+                    localStorage.removeItem('craft_sidebar_order');
                     sessionStorage.setItem(`unlocked_profile_${profilePendingUnlock.id}`, 'true');
                     setCurrentUserProfile(profilePendingUnlock);
                     setProfilePendingUnlock(null);
@@ -1539,6 +1540,7 @@ function AppContent() {
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (typedUnlockPassword.trim() === profilePendingUnlock.password) {
+                        localStorage.removeItem('craft_sidebar_order');
                         sessionStorage.setItem(`unlocked_profile_${profilePendingUnlock.id}`, 'true');
                         setCurrentUserProfile(profilePendingUnlock);
                         setProfilePendingUnlock(null);
