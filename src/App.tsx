@@ -271,25 +271,8 @@ function AppContent() {
       if (rolesData) setRolesConfigList(rolesData);
       if (profilesData) {
         // Obsolete/unwanted original default users that must be erased
-        const obsoleteNames = [
-          'FRANCO LEON',
-          'MANUEL NOUGUES',
-          'MARCELA ROLDAN',
-          'PATRICIO BERNAT',
-          'SAMUEL RACEDO',
-          'VERONICA CREMONA',
-          'SOCIO'
-        ];
-        const obsoleteIds = [
-          'usr-patricio',
-          'usr-samuel',
-          'usr-marcela',
-          'usr-veronica',
-          'usr-franco',
-          'usr-manuel',
-          'usr-socio'
-        ];
-
+const obsoleteNames = [];
+const obsoleteIds = [];
         const cleanProfiles = profilesData.filter((p: any) => {
           if (!p || !p.id) return false;
           if (obsoleteIds.includes(p.id)) return false;
