@@ -114,12 +114,15 @@ export default function EncargadoDashboardView({
   // 1. Fetch sales from Supabase
   const fetchSalesData = async (branchId: string, month: string) => {
     try {
-      // Read from sales_tickets (has real branch IDs and full detail)
       let query = supabase
         .from('sales_tickets')
         .select('net_sales, gross_sales, orders, covers')
-        .eq('month', month)
-        .eq('branch_id', branchId);
+        .eq('month', month);
+
+      // Only filter by branch if not 'all' - let Supabase sum all branches
+      if (branchId !== 'all') {
+        query = query.eq('branch_id', branchId);
+      }
 
       const { data, error } = await query;
 
@@ -361,7 +364,7 @@ export default function EncargadoDashboardView({
     setLoading(true);
     const branchKey = selectedBranchId === 'all' ? 'bn' : selectedBranchId;
     await Promise.all([
-      fetchSalesData(branchKey, selectedMonth),
+      fetchSalesData(selectedBranchId, selectedMonth),  // pass 'all' or real branch ID
       fetchDeviations(branchKey, selectedMonth),
       fetchRatingsAndSupervision(branchKey, selectedMonth),
       fetchPerformanceConfigs(branchKey, selectedMonth),
