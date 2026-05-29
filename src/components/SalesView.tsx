@@ -139,6 +139,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
+  const [allTicketsData, setAllTicketsData] = useState<any[]>([]);
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -986,9 +987,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
     return [...rows, total];
   }, [allTicketsData, hourFrom, hourTo, localBranchId, filterMonth]);
-
-  // Keep allTicketsData accessible for hourly analysis
-  const [allTicketsData, setAllTicketsData] = useState<any[]>([]);
 
   // ── Import full ticket detail from system export (SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA)
   const handleImportTicketsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
