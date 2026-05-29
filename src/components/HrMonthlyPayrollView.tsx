@@ -111,11 +111,15 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       } catch (e) {
         console.error('Error loading payroll from Supabase:', e);
       }
-      // Fallback to localStorage
+      // Fallback to localStorage - but filter fake data
       const key = `hr_monthly_payroll_${selectedMonth}`;
       const saved = localStorage.getItem(key);
       if (saved) {
-        try { setPayrollItems(JSON.parse(saved)); } catch(e) { setPayrollItems([]); }
+        try {
+          const parsed = JSON.parse(saved);
+          const clean = parsed.filter((i: any) => i.positionLabel && i.positionLabel !== 'Sin cargo');
+          setPayrollItems(clean);
+        } catch(e) { setPayrollItems([]); }
       } else {
         setPayrollItems([]);
       }
@@ -171,43 +175,45 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     } catch(e) { console.error('Error sync payroll:', e); }
   };
 
-  // Sync: auto-generate payroll items from hr_hour_logs (audited by RRHH in Control Semanal)
+  // Sync: auto-generate payroll items from hour_logs (has real employee names + hours)
   const handleSyncWithWeeklyControl = async () => {
     try {
-      // Filter by branch if not 'all'
+      // Read from hour_logs - has employee_name, position, hours_actual per day
       let query = supabase
-        .from('hr_hour_logs')
-        .select('branch_id, month, week_number, position_id, position_name, hours_rrhh, hourly_rate')
+        .from('hour_logs')
+        .select('branch_id, employee_name, position, position_id, hours_actual, week_number, month')
         .eq('month', selectedMonth);
       if (payrollFilterBranch !== 'all') {
         query = query.eq('branch_id', payrollFilterBranch);
       }
-      const { data: hrLogs, error } = await query;
+      const { data: hourLogs, error } = await query;
 
       if (error) throw error;
-      if (!hrLogs || hrLogs.length === 0) {
-        alert('No se hallaron registros auditados en Control Semanal para este mes.');
+      if (!hourLogs || hourLogs.length === 0) {
+        alert('No se hallaron horas cargadas para este mes. El encargado debe confirmar días en Carga de Horas primero.');
         return;
       }
 
-      // Group by branch + employee_name + position_id and sum hours_rrhh
+      // Group by branch + employee_name + position and sum hours_actual across all days
       const groupMap: Record<string, any> = {};
-      hrLogs.forEach((log: any) => {
-        if (!log.hours_rrhh || Number(log.hours_rrhh) === 0) return;
-        const empName = log.employee_name && log.employee_name !== 'Sin nombre' ? log.employee_name : null;
-        const key = `${log.branch_id}|${empName || log.position_id}|${log.position_id}`;
+      hourLogs.forEach((log: any) => {
+        if (!log.hours_actual || Number(log.hours_actual) === 0) return;
+        const empName = (log.employee_name || '').trim().toUpperCase();
+        const posId = log.position_id || log.position || 'unknown';
+        const posLabel = log.position || log.position_id || 'Sin cargo';
+        const key = `${log.branch_id}|${empName}|${posId}`;
         if (!groupMap[key]) {
           groupMap[key] = {
             branchId: log.branch_id,
             branchName: branches.find(b => b.id === log.branch_id)?.name || log.branch_id,
-            positionId: log.position_id,
-            positionLabel: log.position_name || log.position_id,
-            employeeName: empName ? empName.toUpperCase() : (log.position_name || log.position_id).toUpperCase(),
-            hourlyRate: Number(log.hourly_rate) || 0,
+            positionId: posId,
+            positionLabel: posLabel,
+            employeeName: empName || posLabel.toUpperCase(),
+            hourlyRate: 0,
             totalHours: 0,
           };
         }
-        groupMap[key].totalHours += Number(log.hours_rrhh);
+        groupMap[key].totalHours += Number(log.hours_actual);
       });
 
       const newItems = Object.values(groupMap).map((g: any) => {
