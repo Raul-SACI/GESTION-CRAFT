@@ -25,6 +25,24 @@ interface HrMonthlyPayrollViewProps {
   setSelectedMonth: (month: string) => void;
 }
 
+function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
+  const saved = localStorage.getItem('craft_salary_positions');
+  if (saved) {
+    try {
+      const positions = JSON.parse(saved);
+      const hourly = positions.filter((p: any) => p.type === 'hourly');
+      const exact = hourly.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+      if (exact) return exact.baseValue;
+      const approx = hourly.find((p: any) =>
+        p.title.toLowerCase().includes(roleLabel.toLowerCase()) ||
+        roleLabel.toLowerCase().includes(p.title.toLowerCase())
+      );
+      if (approx) return approx.baseValue;
+    } catch(e) {}
+  }
+  return 0;
+}
+
 export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelectedMonth }: HrMonthlyPayrollViewProps) {
   const [payrollItems, setPayrollItems] = useState<any[]>([]);
   const [payrollFilterBranch, setPayrollFilterBranch] = useState<string>('all');
