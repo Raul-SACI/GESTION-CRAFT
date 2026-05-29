@@ -580,7 +580,7 @@ export default function EncargadoDashboardView({
         month: selectedMonth,
         role: 'encargado',
         sales_goal: Math.round(4500000 * (branchKey === 'bn' ? 1.5 : 1.1)),
-        red_flag_penalty: 1500,
+        red_flag_penalty: 15000,
         variables: [
           {
             id: 'v_cmv',
@@ -621,7 +621,7 @@ export default function EncargadoDashboardView({
         month: selectedMonth,
         role: 'jefe_cocina',
         sales_goal: Math.round(4500000 * (branchKey === 'bn' ? 1.5 : 1.1)),
-        red_flag_penalty: 1000,
+        red_flag_penalty: 15000,
         variables: [
           {
             id: 'v_cmv_chef',
@@ -661,7 +661,7 @@ export default function EncargadoDashboardView({
 
     ['encargado', 'jefe_cocina', 'segundo_cocina'].forEach(role => {
       let salesGoal = 4500000;
-      let redFlagPenalty = 1000;
+      let redFlagPenalty = 15000;
       let variablesList: any[] = [];
       let isMatched = false;
 
@@ -1222,13 +1222,11 @@ export default function EncargadoDashboardView({
                           </div>
                         ))}
 
-                        {/* Penalty rows */}
-                        {breakdown.totalPenaltyVal > 0 && (
-                          <div className="flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 text-red-400 font-extrabold">
-                            <span>Descuento Banderas Rojas ({liveRedFlags} * ${breakdown.redFlagPenalty}):</span>
-                            <span className="font-mono">-${breakdown.totalPenaltyVal.toLocaleString()}</span>
-                          </div>
-                        )}
+                        {/* Penalty rows - always show so encargado knows cost per flag */}
+                        <div className={`flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 font-extrabold ${breakdown.totalPenaltyVal > 0 ? 'text-red-400' : 'text-text-dim'}`}>
+                          <span>🚩 Descuento Banderas Rojas ({liveRedFlags} roja{liveRedFlags !== 1 ? 's' : ''} × ${breakdown.redFlagPenalty.toLocaleString()}):</span>
+                          <span className="font-mono">{breakdown.totalPenaltyVal > 0 ? `-$${breakdown.totalPenaltyVal.toLocaleString()}` : '$0'}</span>
+                        </div>
                       </div>
                     )}
 
