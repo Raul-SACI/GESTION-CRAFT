@@ -275,9 +275,22 @@ export default function FinanceView({
     return INITIAL_PAYMENTS;
   });
 
-  const savePayments = (newPayments: ScheduledPayment[]) => {
+  const savePayments = async (newPayments: ScheduledPayment[]) => {
     setPayments(newPayments);
     localStorage.setItem('craft_scheduled_payments', JSON.stringify(newPayments));
+    // Sincronizar con Supabase
+    try {
+      await supabase.from('payment_schedule').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const upsert = newPayments.map(p => ({
+        provider: p.description,
+        date: p.dueDate,
+        amount: p.amount,
+        status: p.status,
+        category: p.category,
+        notes: JSON.stringify({ bank: p.bank, entity: p.entity, taxType: p.taxType, installmentNumber: p.installmentNumber })
+      }));
+      if (upsert.length > 0) await supabase.from('payment_schedule').insert(upsert);
+    } catch(e) { console.error('Supabase sync error:', e); }
   };
 
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
@@ -387,6 +400,15 @@ export default function FinanceView({
   const saveWeeklyClosings = (newClosings: Record<string, Record<string, number>>) => {
     setWeeklyClosings(newClosings);
     localStorage.setItem('craft_weekly_closings', JSON.stringify(newClosings));
+    // Guardar en Supabase como finance_liabilities con type='weekly_closing'
+    try {
+      supabase.from('finance_liabilities').upsert([{
+        type: 'weekly_closing',
+        entity_name: 'CIERRE_SEMANAL',
+        amount: 0,
+        notes: JSON.stringify(newClosings)
+      }]).then(() => {});
+    } catch(e) {}
   };
 
   const [dailyBreakdownMode, setDailyBreakdownMode] = useState<'projected' | 'executed'>('projected');
@@ -395,6 +417,15 @@ export default function FinanceView({
 
   useEffect(() => {
     localStorage.setItem('craft_finance_entries', JSON.stringify(entries));
+    // Guardar en Supabase
+    if (entries && entries.length > 0) {
+      supabase.from('finance_liabilities').upsert([{
+        type: 'finance_entries',
+        entity_name: 'ENTRIES',
+        amount: 0,
+        notes: JSON.stringify(entries)
+      }]).then(() => {}).catch(() => {});
+    }
   }, [entries]);
 
   // Global initial balances are 0 now because we use the 'balance_start' entry row
