@@ -32,7 +32,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
   const [showAddPayrollModal, setShowAddPayrollModal] = useState(false);
   const [newPayrollItem, setNewPayrollItem] = useState({
     employeeName: '',
-    branchId: '1',
+    branchId: '',
     positionLabel: 'Cocinero',
     salaryType: 'hourly' as 'hourly' | 'monthly',
     hoursWorked: 0,
@@ -165,7 +165,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
           const computed = (totalHours * item.baseRateOrSalary) +
                            (item.holidayDaysCount * 8 * item.baseRateOrSalary) +
                            item.additionalBonus;
-          return { ...item, hoursWorked: totalHours, totalToCollect: computed };
+          return { ...item, branchId: item.branchId || payrollFilterBranch, hoursWorked: totalHours, totalToCollect: computed };
         }
         return item;
       });
