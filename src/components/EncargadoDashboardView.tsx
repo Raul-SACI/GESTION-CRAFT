@@ -114,23 +114,23 @@ export default function EncargadoDashboardView({
   // 1. Fetch sales from Supabase
   const fetchSalesData = async (branchId: string, month: string) => {
     try {
-      const { data, error } = await supabase
-        .from('sales')
-        .select('net_sales, pesos, orders, date')
-        .eq('branch_id', branchId)
-        .gte('date', `${month}-01`)
-        .lte('date', `${month}-31`);
+      // Read from sales_tickets (has real branch IDs and full detail)
+      let query = supabase
+        .from('sales_tickets')
+        .select('net_sales, gross_sales, orders, covers')
+        .eq('month', month)
+        .eq('branch_id', branchId);
 
-      console.log('[Dashboard Sales] branch:', branchId, 'month:', month, 'rows:', data?.length, 'error:', error?.message);
+      const { data, error } = await query;
+
       if (!error && data && data.length > 0) {
         const netSum = data.reduce((sum, item) => sum + (Number(item.net_sales) || 0), 0);
-        const grossSum = data.reduce((sum, item) => sum + (Number(item.pesos) || 0), 0);
+        const grossSum = data.reduce((sum, item) => sum + (Number(item.gross_sales) || 0), 0);
         const ordersSum = data.reduce((sum, item) => sum + (Number(item.orders) || 0), 0);
         setSalesNet(netSum);
         setSalesGross(grossSum);
         setSalesOrdersCount(ordersSum);
       } else {
-        // No hay ventas cargadas aún
         setSalesNet(0);
         setSalesGross(0);
         setSalesOrdersCount(0);

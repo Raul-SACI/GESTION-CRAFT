@@ -268,6 +268,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           });
           const dominantPayment = Object.entries(paymentCounts).sort((a,b) => b[1]-a[1])[0]?.[0] || 'Efectivo';
 
+          // Calculate real payment breakdown from tickets
+          let cashSum = 0, cardSum = 0, pySum = 0;
+          tickets.forEach((t: any) => {
+            const pm = String(t.payment_method || '').toLowerCase();
+            const amount = Number(t.gross_sales || 0);
+            if (pm.includes('efectivo')) cashSum += amount;
+            else if (pm.includes('pedidos')) pySum += amount;
+            else cardSum += amount;
+          });
+
           ticketRecords.push({
             id: `tk|${key}`,
             branchId,
@@ -281,16 +291,18 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             projection: 0,
             week: `Semana ${first.week_number || 1}`,
             dayName: first.day_name || '',
-            cash: 0, card: 0, qr: 0,
+            cash: cashSum,
+            card: cardSum,
+            qr: pySum,
             hora: (() => {
               const hours = tickets
                 .map((t: any) => String(t.hour || '').substring(0, 5))
                 .filter((h: string) => h && h !== '00:00')
                 .sort();
               if (hours.length === 0) return '—';
-              const first = hours[0];
-              const last = hours[hours.length - 1];
-              return first === last ? first : `${first}-${last}`;
+              const firstH = hours[0];
+              const lastH = hours[hours.length - 1];
+              return firstH === lastH ? firstH : `${firstH}-${lastH}`;
             })(),
             medioCobro: dominantPayment,
             productRanking: []
@@ -627,20 +639,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         g.gross += record.pesos;
         g.net += record.netSales;
         
-        // Dynamically classify payment attributes of sales for correct daily charts
-        const normMedio = String(record.medioCobro || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        const normType = String(record.type || '').toLowerCase();
-        
-        const isEfectivo = normMedio.includes('efectivo') || normMedio === 'cash';
-        const isPedidosYa = normMedio.includes('pago online deb') || normMedio.includes('pedidos ya') || normType.includes('pedidos ya') || normMedio.includes('online');
-        
-        if (isEfectivo) {
-          g.cash += record.pesos;
-        } else if (isPedidosYa) {
-          g.qr += record.pesos;
-        } else {
-          g.card += record.pesos;
-        }
+        // Use pre-calculated payment breakdowns from ticket records
+        g.cash += record.cash || 0;
+        g.card += record.card || 0;
+        g.qr += record.qr || 0;
 
         if (record.iva) g.iva += record.iva;
         
