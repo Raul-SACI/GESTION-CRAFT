@@ -605,7 +605,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const groupedDailySales = useMemo(() => {
     const groups: Record<string, any> = {};
     
-      filteredSales.forEach(record => {
+      hourFilteredSalesRecords.forEach(record => {
         const key = `${record.branchId}-${record.date}`;
         const dateObj = new Date(record.date);
         
@@ -726,7 +726,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       }
     };
     
-    return filteredSales.reduce((acc, curr) => {
+    return hourFilteredSalesRecords.reduce((acc, curr) => {
       acc[curr.type] += curr.pesos;
       // All records contribute to gross/net totals
       acc.totalGross += curr.pesos;
@@ -807,54 +807,124 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
 
   // Hourly analysis state
-  const [hourFrom, setHourFrom] = useState<string>('08:00');
-  const [hourTo, setHourTo] = useState<string>('12:00');
+  const [hourFrom, setHourFrom] = useState<string>('00:00');
+  const [hourTo, setHourTo] = useState<string>('23:59');
 
-  // Chart Data: Weekday Sales
+  // Helper: parse "HH:MM" to minutes
+  const toMins = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  // Tickets filtered by hour range - used in ALL charts and historial
+  const filteredTicketsByHour = useMemo(() => {
+    if (!allTicketsData || allTicketsData.length === 0) return [];
+    const from = toMins(hourFrom);
+    const to = toMins(hourTo);
+
+    return allTicketsData.filter((t: any) => {
+      const h = String(t.hour || '').substring(0, 5);
+      if (!h || !h.includes(':')) return false;
+      const mins = toMins(h);
+      return mins >= from && mins <= to;
+    });
+  }, [allTicketsData, hourFrom, hourTo]);
+
+  // Re-derive salesRecords from filtered tickets for charts and historial
+  const hourFilteredSalesRecords = useMemo(() => {
+    if (!filteredTicketsByHour.length) return salesRecords;
+
+    // Apply branch/month filters
+    const base = localBranchId !== 'all'
+      ? filteredTicketsByHour.filter((t: any) => t.branch_id === localBranchId)
+      : filteredTicketsByHour;
+    const byMonth = filterMonth !== 'all'
+      ? base.filter((t: any) => parseInt(String(t.date || '').substring(5,7)).toString() === filterMonth)
+      : base;
+    const byWeek = filterWeek !== 'all'
+      ? byMonth.filter((t: any) => String(t.week_number) === filterWeek.replace('Semana ',''))
+      : byMonth;
+
+    // Group by branch+date+shift
+    const ticketMap: Record<string, any[]> = {};
+    byWeek.forEach((t: any) => {
+      const shiftType = t.shift === 'Mañana' ? 'Turno Mañana' : 'Turno Tarde';
+      const key = `${t.branch_id}|${t.date}|${shiftType}`;
+      if (!ticketMap[key]) ticketMap[key] = [];
+      ticketMap[key].push(t);
+    });
+
+    return Object.entries(ticketMap).map(([key, tickets]) => {
+      const [branchId, date, type] = key.split('|');
+      const first = tickets[0];
+      let cashS = 0, cardS = 0, pyS = 0;
+      tickets.forEach((t: any) => {
+        const pm = String(t.payment_method || '').toLowerCase();
+        const amt = Number(t.gross_sales || 0);
+        if (pm.includes('efectivo')) cashS += amt;
+        else if (pm.includes('pedidos')) pyS += amt;
+        else cardS += amt;
+      });
+      return {
+        id: `hf|${key}`,
+        branchId, date,
+        type: type as SaleType,
+        pesos: tickets.reduce((s: number, t: any) => s + Number(t.gross_sales || 0), 0),
+        netSales: tickets.reduce((s: number, t: any) => s + Number(t.net_sales || 0), 0),
+        orders: tickets.reduce((s: number, t: any) => s + Number(t.orders || 0), 0),
+        covers: tickets.reduce((s: number, t: any) => s + Number(t.covers || 0), 0),
+        iva: tickets.reduce((s: number, t: any) => s + Number(t.iva || 0), 0),
+        projection: 0,
+        week: `Semana ${first.week_number || 1}`,
+        dayName: first.day_name || '',
+        cash: cashS, card: cardS, qr: pyS,
+        hora: String(first.hour || '').substring(0, 5),
+        medioCobro: cashS >= cardS && cashS >= pyS ? 'Efectivo' : pyS >= cardS ? 'Pedidos Ya' : 'Tarjetas/Bancos',
+        productRanking: []
+      };
+    });
+  }, [filteredTicketsByHour, salesRecords, localBranchId, filterMonth, filterWeek]);
+
+  // Chart Data: Weekday Sales (filtered by hour range)
   const weekdayChartData = useMemo(() => {
     const weekdayLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const dataMap: Record<string, number> = {};
     weekdayLabels.forEach(d => dataMap[d] = 0);
 
-    groupedDailySales.forEach(day => {
-      const dateObj = new Date(day.date);
-      const dayIndex = dateObj.getUTCDay(); 
-      const targetIndex = (dayIndex === 0) ? 6 : dayIndex - 1;
+    hourFilteredSalesRecords.forEach(r => {
+      const dateObj = new Date(r.date);
+      const dayIndex = dateObj.getUTCDay();
+      const targetIndex = dayIndex === 0 ? 6 : dayIndex - 1;
       const target = weekdayLabels[targetIndex];
-      
-      const val = chartMetric === 'net' ? day.net 
-                : chartMetric === 'gross' ? day.gross
-                : chartMetric === 'cash' ? day.cash
-                : chartMetric === 'card' ? day.card
-                : day.qr;
-      
+      const val = chartMetric === 'net' ? r.netSales
+                : chartMetric === 'gross' ? r.pesos
+                : chartMetric === 'cash' ? r.cash
+                : chartMetric === 'card' ? r.card
+                : r.qr;
       if (target) dataMap[target] += val;
     });
 
     return weekdayLabels.map(name => ({ name, value: dataMap[name] }));
-  }, [groupedDailySales, chartMetric]);
+  }, [hourFilteredSalesRecords, chartMetric]);
 
-  // Chart Data: Weekly Sales
+  // Chart Data: Weekly Sales (filtered by hour range)
   const weeklyChartData = useMemo(() => {
     const weekMap: Record<string, number> = {};
-    
-    groupedDailySales.forEach(day => {
-      if (day.week) {
-        const week = day.week.trim();
-        const val = chartMetric === 'net' ? day.net 
-                  : chartMetric === 'gross' ? day.gross
-                  : chartMetric === 'cash' ? day.cash
-                  : chartMetric === 'card' ? day.card
-                  : day.qr;
-        
-        weekMap[week] = (weekMap[week] || 0) + val;
-      }
+
+    hourFilteredSalesRecords.forEach(r => {
+      const week = r.week?.trim() || calculateWeekFromDate(r.date);
+      const val = chartMetric === 'net' ? r.netSales
+                : chartMetric === 'gross' ? r.pesos
+                : chartMetric === 'cash' ? r.cash
+                : chartMetric === 'card' ? r.card
+                : r.qr;
+      weekMap[week] = (weekMap[week] || 0) + val;
     });
 
     return Object.entries(weekMap)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  }, [groupedDailySales, chartMetric]);
+  }, [hourFilteredSalesRecords, chartMetric]);
 
   // Hourly analysis table: filter sales_tickets by hour range
   const hourlyAnalysisData = useMemo(() => {
@@ -1925,10 +1995,33 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             </select>
           </div>
 
+          <div className="space-y-1.5">
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
+              <Clock size={10} className="text-amber-500" /> Franja Horaria
+            </label>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="time"
+                value={hourFrom}
+                onChange={e => setHourFrom(e.target.value)}
+                className="w-24 px-2 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-mono outline-none focus:border-amber-500"
+              />
+              <span className="text-[9px] text-text-dim font-black">–</span>
+              <input
+                type="time"
+                value={hourTo}
+                onChange={e => setHourTo(e.target.value)}
+                className="w-24 px-2 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-mono outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+
           <button 
             onClick={() => {
               setFilterMonth('all');
               setFilterWeek('all');
+              setHourFrom('00:00');
+              setHourTo('23:59');
             }}
             className="px-4 py-2 border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-red-500 hover:border-red-500 transition-colors"
           >
@@ -2331,14 +2424,14 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim font-medium">
-                  {filteredSales.length === 0 ? (
+                  {hourFilteredSalesRecords.length === 0 ? (
                     <tr>
                       <td colSpan={14} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                         No hay registros cargados para este periodo
                       </td>
                     </tr>
                   ) : (
-                    filteredSales.map((record) => {
+                    hourFilteredSalesRecords.map((record) => {
                       const isSelected = selectedRowIds.includes(record.id);
                       return (
                         <tr key={record.id} className={cn(
