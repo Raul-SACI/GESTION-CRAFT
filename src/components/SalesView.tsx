@@ -840,7 +840,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
         const d = new Date(dateStr + 'T12:00:00');
         const dayName = dias[d.getDay()];
-        const weekNum = parseInt(String(row['SEMANA'] || '1')) || Math.ceil(d.getDate() / 7);
+        // Always calculate week from date (1-7=S1, 8-14=S2, 15-21=S3, 22+=S4) - never trust Excel's SEMANA column
+        const dayOfMonth = d.getDate();
+        const weekNum = dayOfMonth <= 7 ? 1 : dayOfMonth <= 14 ? 2 : dayOfMonth <= 21 ? 3 : 4;
         const shift = shiftMap[String(row['TURNO'] || '').toUpperCase().trim()] || 'Mañana';
         const month = dateStr.substring(0, 7);
 
@@ -901,7 +903,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             date: t.date,
             type: shiftType,
             pesos: 0, net_sales: 0, orders: 0, covers: 0, iva: 0,
-            week: String(t.week_number),
+            week: `Semana ${t.week_number}`,
             day_name: t.day_name.substring(0, 3).toLowerCase(),
             cash: 0, card: 0, qr: 0, projection: 0,
             product_ranking: []
