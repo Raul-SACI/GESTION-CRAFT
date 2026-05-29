@@ -61,16 +61,10 @@ interface SalaryPosition {
 }
 
 export default function SalaryManagementView({ branches = [] }: { branches?: Branch[] }) {
-  // Load initial data from localStorage if available, otherwise use defaults
+  // Cargar puestos desde Supabase
   const [positions, setPositions] = useState<SalaryPosition[]>(() => {
-    const saved = localStorage.getItem('craft_salary_positions');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (err) {
-        console.error('Error loading positions from LocalStorage', err);
-      }
-    }
+    // Fallback vacío, se carga async
+    if (false) {
     return [
       { 
         id: '1', 
@@ -153,6 +147,10 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   // Persist data whenever it changes
   useEffect(() => {
     localStorage.setItem('craft_salary_positions', JSON.stringify(positions));
+    // También en Supabase
+    supabase.from('salary_positions').upsert(positions.map((p: any) => ({
+      id: p.id, name: p.name, base_hourly_rate: p.hourlyRate || p.baseHourlyRate || 0
+    }))).then(() => {});
   }, [positions]);
 
   const [filters, setFilters] = useState({
@@ -327,7 +325,6 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
           : emp
         );
         setEmployees(updated);
-        localStorage.setItem('craft_employees_master', JSON.stringify(updated));
         syncBranchStaffPools(updated);
         alert('Empleado modificado correctamente.');
       } else {
@@ -353,7 +350,6 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
         };
         const updated = [...employees, newEmp];
         setEmployees(updated);
-        localStorage.setItem('craft_employees_master', JSON.stringify(updated));
         syncBranchStaffPools(updated);
         alert('Empleado creado correctamente.');
       }
@@ -378,7 +374,6 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
         }];
       }
       setEmployees(updated);
-      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
       syncBranchStaffPools(updated);
       setShowEmployeeModal(false);
       setEditingEmployee(null);
@@ -402,14 +397,12 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
 
       const updated = employees.filter(emp => emp.id !== id);
       setEmployees(updated);
-      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
       syncBranchStaffPools(updated);
       alert('Empleado eliminado correctamente.');
     } catch (e) {
       console.error('Error deleted API, deleting locally', e);
       const updated = employees.filter(emp => emp.id !== id);
       setEmployees(updated);
-      localStorage.setItem('craft_employees_master', JSON.stringify(updated));
       syncBranchStaffPools(updated);
       alert('Empleado eliminado localmente.');
     } finally {
@@ -423,6 +416,28 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
     const matchesBranch = empBranchFilter === 'all' || emp.branchId === empBranchFilter;
     return matchesSearch && matchesBranch;
   });
+
+  // Cargar puestos desde Supabase al inicio
+  useEffect(() => {
+    const loadPositions = async () => {
+      const { data, error } = await supabase.from('salary_positions').select('*').order('name');
+      if (!error && data && data.length > 0) {
+        setPositions(data.map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          baseHourlyRate: p.base_hourly_rate || 0,
+          hourlyRate: p.base_hourly_rate || 0,
+        })));
+      } else {
+        // Usar localStorage como fallback
+        const saved = localStorage.getItem('craft_salary_positions');
+        if (saved) {
+          try { setPositions(JSON.parse(saved)); } catch(e) {}
+        }
+      }
+    };
+    loadPositions();
+  }, []);
 
   const handleAddPosition = () => {
     if (!newPos.title || newPos.baseValue <= 0) return;
