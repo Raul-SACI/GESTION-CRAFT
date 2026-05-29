@@ -219,11 +219,11 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
 
         // Sum actuals loaded from store
         const dailySum = filteredDaily.filter((log: any) => log.roleId === p.id).reduce((sum: number, log: any) => sum + (log.hours || 0), 0);
-        // Fallback simulated value for store hours if dailySum is 0 (to stay realistic representation)
-        const computedStoreHours = dailySum > 0 ? dailySum : Math.max(0, p.refHours + (selectedWeek % 2 === 0 ? 1 : -2));
+        // Show real hours only - 0 if nothing loaded
+        const computedStoreHours = dailySum;
 
-        // Let's find RRHH Hours (definitiveHours): if existing, use existing; otherwise use computedStoreHours.
-        const definitiveHours = existing ? existing.definitiveHours : computedStoreHours;
+        // Use saved definitive hours if exist, otherwise 0 (don't invent data)
+        const definitiveHours = existing ? existing.definitiveHours : 0;
 
         const rate = getPositionRateFromMaestro(p.id, p.label);
 
