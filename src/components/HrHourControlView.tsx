@@ -244,14 +244,15 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
       setRecords(mergedList);
     };
 
-    // Load budget from Supabase hour_budgets for planned hours
+    // Load APPROVED budget from Supabase hour_budgets for planned hours
     const loadBudgetFromSupabase = async () => {
       try {
         const { data: budgets } = await supabase
           .from('hour_budgets')
-          .select('position_id, position_name, week1, week2, week3, week4, shift, hours_per_day, planned_hours')
+          .select('position_id, position_name, week1, week2, week3, week4, shift, hours_per_day, planned_hours, status')
           .eq('branch_id', selectedBranch)
-          .eq('month', selectedMonth);
+          .eq('month', selectedMonth)
+          .eq('status', 'approved'); // Only use approved budgets
 
         if (budgets && budgets.length > 0) {
           // Build budget map by position_id

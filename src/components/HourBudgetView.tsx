@@ -443,7 +443,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b, 0) : (r.week3 || 0),
         week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21).reduce((a: number, b: number) => a + b, 0) : (r.week4 || 0),
         hourly_rate: r.hourlyRate || 0,
-        status: budgetStatus
+        status: 'pending' // Always pending until approved by Gerente
       }));
       
       // Borrar registros previos del mes/sucursal y reinsertar
@@ -897,7 +897,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             hourly_rate: r.hourlyRate || 0,
             week1: 0, week2: 0, week3: 0, week4: 0,
             total_hours: 0,
-            status: 'draft'
+            status: 'pending'
           };
         }
         grouped[key].week1 += Math.round(getWeekHours(r, weekDates[0]));
