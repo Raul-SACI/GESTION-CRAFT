@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface BudgetRow {
   id: string;
@@ -137,7 +138,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     
     // Debug
     Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
-      const hrs = info.rows?.reduce((s: number, r: any) => s + (Number(r.week1)||0)+(Number(r.week2)||0)+(Number(r.week3)||0)+(Number(r.week4)||0)+(Number(r.week5)||0), 0) || 0;
+      const hrs = info.rows?.reduce((s: number, r: any) => s + parseFloat(r.week1||0)+parseFloat(r.week2||0)+parseFloat(r.week3||0)+parseFloat(r.week4||0)+parseFloat(r.week5||0), 0) || 0;
       console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
     });
     setBudgetsState(loaded);
@@ -221,9 +222,9 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
 
         // If row has week1-4 (imported from CSV), use those directly
         if (row.week1 !== undefined || row.week2 !== undefined) {
-          posMonthlyHs = (Number(row.week1) || 0) + (Number(row.week2) || 0) +
-                         (Number(row.week3) || 0) + (Number(row.week4) || 0) +
-                         (Number(row.week5) || 0);
+          posMonthlyHs = parseFloat(row.week1 || 0) + parseFloat(row.week2 || 0) +
+                         parseFloat(row.week3 || 0) + parseFloat(row.week4 || 0) +
+                         parseFloat(row.week5 || 0);
         } else {
           // Legacy manual budget format
           const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
