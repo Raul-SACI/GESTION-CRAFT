@@ -876,10 +876,10 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       // Get date ranges for each week in the selected month
       const [yr, mo] = selectedMonth.split('-').map(Number);
       const daysInMonth = new Date(yr, mo, 0).getDate();
-      const weekDates: string[][] = [[], [], [], []];
+      const weekDates: string[][] = [[], [], [], [], []];
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${yr}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const w = d <= 7 ? 0 : d <= 14 ? 1 : d <= 21 ? 2 : 3;
+        const w = d <= 7 ? 0 : d <= 14 ? 1 : d <= 21 ? 2 : d <= 28 ? 3 : 4;
         weekDates[w].push(dateStr);
       }
 
