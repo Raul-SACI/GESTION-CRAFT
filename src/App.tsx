@@ -1435,7 +1435,16 @@ function AppContent() {
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
-              {activeTab === 'produccion_stock_control' && <ProductionStockControlView key="produccion_stock_control" />}
+              {activeTab === 'produccion_stock_control' && (
+                <StockView 
+                  key="produccion_stock_control"
+                  branches={branches}
+                  selectedBranchId="n4ncoary3"
+                  userRole={currentUser.role}
+                  controlledItemIds={controlledItemIds}
+                  items={items}
+                />
+              )}
               {activeTab === 'papeles_administracion' && (
                 <DocumentsView 
                   key="papeles_administracion" 
