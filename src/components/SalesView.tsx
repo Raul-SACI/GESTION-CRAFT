@@ -603,6 +603,89 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     }
   };
 
+  const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
+
+  // Hourly analysis state
+  const [hourFrom, setHourFrom] = useState<string>('00:00');
+  const [hourTo, setHourTo] = useState<string>('23:59');
+
+  // Helper: parse "HH:MM" to minutes
+  const toMins = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  // Tickets filtered by hour range - used in ALL charts and historial
+  const filteredTicketsByHour = useMemo(() => {
+    if (!allTicketsData || allTicketsData.length === 0) return [];
+    const from = toMins(hourFrom);
+    const to = toMins(hourTo);
+
+    return allTicketsData.filter((t: any) => {
+      const h = String(t.hour || '').substring(0, 5);
+      if (!h || !h.includes(':')) return false;
+      const mins = toMins(h);
+      return mins >= from && mins <= to;
+    });
+  }, [allTicketsData, hourFrom, hourTo]);
+
+  // Re-derive salesRecords from filtered tickets for charts and historial
+  const hourFilteredSalesRecords = useMemo(() => {
+    if (!filteredTicketsByHour.length) return salesRecords;
+
+    // Apply branch/month filters
+    const base = localBranchId !== 'all'
+      ? filteredTicketsByHour.filter((t: any) => t.branch_id === localBranchId)
+      : filteredTicketsByHour;
+    const byMonth = filterMonth !== 'all'
+      ? base.filter((t: any) => parseInt(String(t.date || '').substring(5,7)).toString() === filterMonth)
+      : base;
+    const byWeek = filterWeek !== 'all'
+      ? byMonth.filter((t: any) => String(t.week_number) === filterWeek.replace('Semana ',''))
+      : byMonth;
+
+    // Group by branch+date+shift
+    const ticketMap: Record<string, any[]> = {};
+    byWeek.forEach((t: any) => {
+      const shiftType = t.shift === 'Mañana' ? 'Turno Mañana' : 'Turno Tarde';
+      const key = `${t.branch_id}|${t.date}|${shiftType}`;
+      if (!ticketMap[key]) ticketMap[key] = [];
+      ticketMap[key].push(t);
+    });
+
+    return Object.entries(ticketMap).map(([key, tickets]) => {
+      const [branchId, date, type] = key.split('|');
+      const first = tickets[0];
+      let cashS = 0, cardS = 0, pyS = 0;
+      tickets.forEach((t: any) => {
+        const pm = String(t.payment_method || '').toLowerCase();
+        const amt = Number(t.gross_sales || 0);
+        if (pm.includes('efectivo')) cashS += amt;
+        else if (pm.includes('pedidos')) pyS += amt;
+        else cardS += amt;
+      });
+      return {
+        id: `hf|${key}`,
+        branchId, date,
+        type: type as SaleType,
+        pesos: tickets.reduce((s: number, t: any) => s + Number(t.gross_sales || 0), 0),
+        netSales: tickets.reduce((s: number, t: any) => s + Number(t.net_sales || 0), 0),
+        orders: tickets.reduce((s: number, t: any) => s + Number(t.orders || 0), 0),
+        covers: tickets.reduce((s: number, t: any) => s + Number(t.covers || 0), 0),
+        iva: tickets.reduce((s: number, t: any) => s + Number(t.iva || 0), 0),
+        projection: 0,
+        week: `Semana ${first.week_number || 1}`,
+        dayName: first.day_name || '',
+        cash: cashS, card: cardS, qr: pyS,
+        hora: String(first.hour || '').substring(0, 5),
+        medioCobro: cashS >= cardS && cashS >= pyS ? 'Efectivo' : pyS >= cardS ? 'Pedidos Ya' : 'Tarjetas/Bancos',
+        productRanking: []
+      };
+    });
+  }, [filteredTicketsByHour, salesRecords, localBranchId, filterMonth, filterWeek]);
+
+  // Chart Data: Weekday Sales (filtered by hour range)
+
   const groupedDailySales = useMemo(() => {
     const groups: Record<string, any> = {};
     
@@ -804,87 +887,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       qr: (totals.qr / totalPayments) * 100
     };
   }, [totals]);
-
-  const [chartMetric, setChartMetric] = useState<'net' | 'gross' | 'cash' | 'card' | 'qr'>('net');
-
-  // Hourly analysis state
-  const [hourFrom, setHourFrom] = useState<string>('00:00');
-  const [hourTo, setHourTo] = useState<string>('23:59');
-
-  // Helper: parse "HH:MM" to minutes
-  const toMins = (t: string) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
-
-  // Tickets filtered by hour range - used in ALL charts and historial
-  const filteredTicketsByHour = useMemo(() => {
-    if (!allTicketsData || allTicketsData.length === 0) return [];
-    const from = toMins(hourFrom);
-    const to = toMins(hourTo);
-
-    return allTicketsData.filter((t: any) => {
-      const h = String(t.hour || '').substring(0, 5);
-      if (!h || !h.includes(':')) return false;
-      const mins = toMins(h);
-      return mins >= from && mins <= to;
-    });
-  }, [allTicketsData, hourFrom, hourTo]);
-
-  // Re-derive salesRecords from filtered tickets for charts and historial
-  const hourFilteredSalesRecords = useMemo(() => {
-    if (!filteredTicketsByHour.length) return salesRecords;
-
-    // Apply branch/month filters
-    const base = localBranchId !== 'all'
-      ? filteredTicketsByHour.filter((t: any) => t.branch_id === localBranchId)
-      : filteredTicketsByHour;
-    const byMonth = filterMonth !== 'all'
-      ? base.filter((t: any) => parseInt(String(t.date || '').substring(5,7)).toString() === filterMonth)
-      : base;
-    const byWeek = filterWeek !== 'all'
-      ? byMonth.filter((t: any) => String(t.week_number) === filterWeek.replace('Semana ',''))
-      : byMonth;
-
-    // Group by branch+date+shift
-    const ticketMap: Record<string, any[]> = {};
-    byWeek.forEach((t: any) => {
-      const shiftType = t.shift === 'Mañana' ? 'Turno Mañana' : 'Turno Tarde';
-      const key = `${t.branch_id}|${t.date}|${shiftType}`;
-      if (!ticketMap[key]) ticketMap[key] = [];
-      ticketMap[key].push(t);
-    });
-
-    return Object.entries(ticketMap).map(([key, tickets]) => {
-      const [branchId, date, type] = key.split('|');
-      const first = tickets[0];
-      let cashS = 0, cardS = 0, pyS = 0;
-      tickets.forEach((t: any) => {
-        const pm = String(t.payment_method || '').toLowerCase();
-        const amt = Number(t.gross_sales || 0);
-        if (pm.includes('efectivo')) cashS += amt;
-        else if (pm.includes('pedidos')) pyS += amt;
-        else cardS += amt;
-      });
-      return {
-        id: `hf|${key}`,
-        branchId, date,
-        type: type as SaleType,
-        pesos: tickets.reduce((s: number, t: any) => s + Number(t.gross_sales || 0), 0),
-        netSales: tickets.reduce((s: number, t: any) => s + Number(t.net_sales || 0), 0),
-        orders: tickets.reduce((s: number, t: any) => s + Number(t.orders || 0), 0),
-        covers: tickets.reduce((s: number, t: any) => s + Number(t.covers || 0), 0),
-        iva: tickets.reduce((s: number, t: any) => s + Number(t.iva || 0), 0),
-        projection: 0,
-        week: `Semana ${first.week_number || 1}`,
-        dayName: first.day_name || '',
-        cash: cashS, card: cardS, qr: pyS,
-        hora: String(first.hour || '').substring(0, 5),
-        medioCobro: cashS >= cardS && cashS >= pyS ? 'Efectivo' : pyS >= cardS ? 'Pedidos Ya' : 'Tarjetas/Bancos',
-        productRanking: []
-      };
-    });
-  }, [filteredTicketsByHour, salesRecords, localBranchId, filterMonth, filterWeek]);
 
   // Chart Data: Weekday Sales (filtered by hour range)
   const weekdayChartData = useMemo(() => {
