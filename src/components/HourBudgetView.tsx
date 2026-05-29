@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface BudgetRow {
   id: string;
@@ -427,17 +428,36 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     }
   }, [localBranchId, selectedMonth, sucursalRolesList]);
 
-  const handleSaveBudget = () => {
-    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
-    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
-    const payload = {
-      rows,
-      holidaysList,
-      status: budgetStatus
-    };
+  const handleSaveBudget = async () => {
+    const branchIdKey = localBranchId === 'all' ? branches[0]?.id || localBranchId : localBranchId;
     
-    localStorage.setItem(storageKeyV2, JSON.stringify(payload));
-    // Also save holidays globally
+    // Guardar cada fila en Supabase
+    try {
+      const upsertData = rows.map((r: any) => ({
+        branch_id: branchIdKey,
+        month: selectedMonth,
+        position_id: r.roleId || r.id,
+        position_name: r.roleLabel || r.positionName || r.roleId,
+        week1: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(0, 7).reduce((a: number, b: number) => a + b, 0) : (r.week1 || 0),
+        week2: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(7, 14).reduce((a: number, b: number) => a + b, 0) : (r.week2 || 0),
+        week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b, 0) : (r.week3 || 0),
+        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21).reduce((a: number, b: number) => a + b, 0) : (r.week4 || 0),
+        hourly_rate: r.hourlyRate || 0,
+        status: budgetStatus
+      }));
+      
+      // Borrar registros previos del mes/sucursal y reinsertar
+      await supabase.from('hour_budgets').delete().eq('branch_id', branchIdKey).eq('month', selectedMonth);
+      if (upsertData.length > 0) {
+        await supabase.from('hour_budgets').insert(upsertData);
+      }
+    } catch (e) {
+      console.error('Error guardando en Supabase:', e);
+    }
+    
+    // También guardar localmente como respaldo
+    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
+    localStorage.setItem(storageKeyV2, JSON.stringify({ rows, holidaysList, status: budgetStatus }));
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(holidaysList));
     
     setSaveSuccess(true);
