@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -272,19 +273,74 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
     const filtered = mode === 'consolidated'
       ? payrollItems
       : payrollItems.filter(item => payrollFilterBranch === 'all' || item.branchId === payrollFilterBranch);
-    
+
     if (filtered.length === 0) {
-      alert("No hay registros en la liquidación para exportar.");
+      alert('No hay registros en la liquidación para exportar.');
       return;
     }
 
-    const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
-    const headers = "SUCURSAL\tNOMBRE / PUESTO\tPUESTO\tTIPO\tHORAS REALES\tVALOR HORA\tFERIADOS\tBONOS\tNOVEDADES\tTRANSFERENCIA\tEFECTIVO\tTOTAL A COBRAR";
-    const rows = filtered.map(item => {
-      const transfer = item.amountTransfer ?? item.totalToCollect ?? 0;
-      const cash = item.amountCash ?? 0;
-      return `${item.branchName}\t${item.employeeName}\t${item.positionLabel}\t${item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL'}\t${item.salaryType === 'hourly' ? item.hoursWorked : '-'}\t${item.salaryType === 'hourly' ? fmt(item.baseRateOrSalary) : '-'}\t${item.holidayDaysCount}\t${fmt(item.additionalBonus)}\t${item.novedades || ''}\t${fmt(transfer)}\t${fmt(cash)}\t${fmt(item.totalToCollect)}`;
+    const wb = XLSX.utils.book_new();
+
+    // Group by branch for multi-sheet export
+    const byBranch: Record<string, any[]> = {};
+    filtered.forEach(item => {
+      const key = item.branchName || item.branchId || 'Sin sucursal';
+      if (!byBranch[key]) byBranch[key] = [];
+      byBranch[key].push(item);
     });
+
+    const buildSheet = (items: any[], title: string) => {
+      const headerRow = ['SUCURSAL', 'NOMBRE / PUESTO', 'PUESTO', 'TIPO', 'HS REALES', 'VALOR HS ($)', 'FERIADOS', 'BONOS ($)', 'NOVEDADES', 'TRANSFERENCIA ($)', 'EFECTIVO ($)', 'TOTAL A COBRAR ($)'];
+      const dataRows = items.map(item => [
+        item.branchName,
+        item.employeeName,
+        item.positionLabel,
+        item.salaryType === 'hourly' ? 'POR HORA' : 'MENSUAL',
+        item.salaryType === 'hourly' ? item.hoursWorked : '',
+        item.salaryType === 'hourly' ? item.baseRateOrSalary : '',
+        item.holidayDaysCount || 0,
+        item.additionalBonus || 0,
+        item.novedades || '',
+        item.amountTransfer ?? item.totalToCollect ?? 0,
+        item.amountCash ?? 0,
+        item.totalToCollect,
+      ]);
+
+      // Totals row
+      const totalHours = items.filter(i => i.salaryType === 'hourly').reduce((s, i) => s + (i.hoursWorked || 0), 0);
+      const totalTransfer = items.reduce((s, i) => s + (i.amountTransfer ?? i.totalToCollect ?? 0), 0);
+      const totalCash = items.reduce((s, i) => s + (i.amountCash ?? 0), 0);
+      const totalPayout = items.reduce((s, i) => s + i.totalToCollect, 0);
+      const totalsRow = ['TOTAL', '', '', '', totalHours, '', '', '', '', totalTransfer, totalCash, totalPayout];
+
+      const wsData = [headerRow, ...dataRows, [], totalsRow];
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // Column widths
+      ws['!cols'] = [
+        {wch:22},{wch:28},{wch:18},{wch:12},{wch:10},{wch:12},
+        {wch:10},{wch:12},{wch:30},{wch:18},{wch:14},{wch:18}
+      ];
+      return ws;
+    };
+
+    if (mode === 'consolidated') {
+      // One sheet per branch + consolidated sheet
+      Object.entries(byBranch).forEach(([branchName, items]) => {
+        const safeName = branchName.replace(/[:\/?*[\]]/g, '').substring(0, 31);
+        XLSX.utils.book_append_sheet(wb, buildSheet(items, branchName), safeName);
+      });
+      // Consolidated sheet
+      XLSX.utils.book_append_sheet(wb, buildSheet(filtered, 'CONSOLIDADO'), 'CONSOLIDADO');
+    } else {
+      const branchName = filtered[0]?.branchName || 'Sucursal';
+      XLSX.utils.book_append_sheet(wb, buildSheet(filtered, branchName), branchName.substring(0, 31));
+    }
+
+    const label = mode === 'consolidated' ? 'CONSOLIDADO' : (filtered[0]?.branchName || payrollFilterBranch);
+    XLSX.writeFile(wb, `liquidacion_${selectedMonth}_${label}.xlsx`);
+    return; // early return - no more code needed below
+    const rows: string[] = []; // unused but keeps TS happy
     
     const content = [headers, ...rows].join('\n');
     const blob = new Blob([content], { type: 'text/tab-separated-values;charset=utf-8' });
