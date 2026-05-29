@@ -929,9 +929,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         }
       }
       console.log('[Budget] Saved', upsertData.length, 'rows to Supabase for', activeBranchId, selectedMonth);
+      alert(`✅ Presupuesto guardado: ${upsertData.length} puestos para ${activeBranchId} - ${selectedMonth}`);
     } catch (e: any) {
       console.error('Error saving budget to Supabase:', e);
-      alert(`Error al guardar en Supabase: ${e.message}`);
+      alert(`Error al guardar en Supabase: ${e.message || JSON.stringify(e)}`);
+      return; // Don't proceed if save failed
     }
 
     // Also save to localStorage
