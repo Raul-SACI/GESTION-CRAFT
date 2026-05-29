@@ -1105,11 +1105,15 @@ function AppContent() {
 
           {Object.entries(menuConfig).map(([sectionName, items]) => {
             const typedItems = items as MenuItem[];
-            const filteredItems = typedItems.filter(item => 
-              currentUser.role === 'dueño' || 
-              currentUser.role === 'administrador' ||
-              currentUser.permissions?.includes(item.id)
-            );
+            const filteredItems = typedItems.filter(item => {
+              // Usuarios/Roles solo visible para administrador
+              if (item.id === 'usuarios' || item.id === 'sucursales') {
+                return currentUser.role === 'administrador' || currentUser.role === 'dueño';
+              }
+              if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return true;
+              if (!currentUser.permissions || currentUser.permissions.length === 0) return false;
+              return currentUser.permissions.includes(item.id);
+            });
 
             if (filteredItems.length === 0) return null;
 
