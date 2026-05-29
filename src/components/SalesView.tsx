@@ -2008,33 +2008,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
             </select>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest flex items-center gap-2">
-              <Clock size={10} className="text-amber-500" /> Franja Horaria
-            </label>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="time"
-                value={hourFrom}
-                onChange={e => setHourFrom(e.target.value)}
-                className="w-24 px-2 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-mono outline-none focus:border-amber-500"
-              />
-              <span className="text-[9px] text-text-dim font-black">–</span>
-              <input
-                type="time"
-                value={hourTo}
-                onChange={e => setHourTo(e.target.value)}
-                className="w-24 px-2 py-2 bg-bg-accent border border-border-dim rounded text-text-main text-[10px] font-mono outline-none focus:border-amber-500"
-              />
-              <button
-                onClick={() => { setAppliedHourFrom(hourFrom); setAppliedHourTo(hourTo); }}
-                className="px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black text-[9px] font-black uppercase tracking-widest rounded transition-all"
-              >
-                Aplicar
-              </button>
-            </div>
-          </div>
-
           <button 
             onClick={() => {
               setFilterMonth('all');
@@ -2328,27 +2301,29 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
           <div className="flex items-center gap-2">
             <Clock size={14} className="text-brand-500" />
             <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Análisis por Franja Horaria</h3>
+            <span className="text-[9px] text-text-dim font-bold">({hourlyAnalysisData.filter(r => r.day !== 'TOTAL').length} días con datos)</span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black text-text-dim uppercase">Desde</span>
-              <input
-                type="time"
-                value={hourFrom}
-                onChange={e => setHourFrom(e.target.value)}
-                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black text-text-dim uppercase">Hasta</span>
-              <input
-                type="time"
-                value={hourTo}
-                onChange={e => setHourTo(e.target.value)}
-                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <span className="text-[9px] text-text-dim font-bold">{hourlyAnalysisData.filter(r => r.day !== 'TOTAL').length} días con datos</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-black text-text-dim uppercase">Desde</span>
+            <input
+              type="time"
+              value={hourFrom}
+              onChange={e => setHourFrom(e.target.value)}
+              className="bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[10px] font-mono text-text-main outline-none focus:border-amber-500"
+            />
+            <span className="text-[9px] text-text-dim font-black">–</span>
+            <input
+              type="time"
+              value={hourTo}
+              onChange={e => setHourTo(e.target.value)}
+              className="bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[10px] font-mono text-text-main outline-none focus:border-amber-500"
+            />
+            <button
+              onClick={() => { setAppliedHourFrom(hourFrom); setAppliedHourTo(hourTo); }}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-[9px] font-black uppercase tracking-widest rounded transition-all"
+            >
+              Aplicar
+            </button>
           </div>
         </div>
         {hourlyAnalysisData.length > 0 ? (
