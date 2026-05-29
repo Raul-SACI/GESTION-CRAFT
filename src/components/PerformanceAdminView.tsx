@@ -62,7 +62,7 @@ export default function PerformanceAdminView({
       role: 'encargado',
       variables: [],
       salesGoal: 0,
-      redFlagPenalty: 1000
+      redFlagPenalty: 15000
     },
     jefe_cocina: {
       id: '',
@@ -71,7 +71,7 @@ export default function PerformanceAdminView({
       role: 'jefe_cocina',
       variables: [],
       salesGoal: 0,
-      redFlagPenalty: 1000
+      redFlagPenalty: 15000
     }
   });
 
@@ -137,7 +137,7 @@ export default function PerformanceAdminView({
           role: 'encargado',
           variables: [],
           salesGoal: 0,
-          redFlagPenalty: 1000
+          redFlagPenalty: 15000
         },
         jefe_cocina: {
           id: '',
@@ -146,7 +146,7 @@ export default function PerformanceAdminView({
           role: 'jefe_cocina',
           variables: [],
           salesGoal: 0,
-          redFlagPenalty: 1000
+          redFlagPenalty: 15000
         }
       };
 
@@ -183,7 +183,7 @@ export default function PerformanceAdminView({
               role: item.role,
               variables: item.variables || [],
               salesGoal: item.sales_goal || 0,
-              redFlagPenalty: item.red_flag_penalty || 1000
+              redFlagPenalty: item.red_flag_penalty || 15000
             };
           });
         }
@@ -586,7 +586,7 @@ export default function PerformanceAdminView({
         
         // Load target branch existing values from localStorage as fallback
         let localFallbackGoal = 0;
-        let localFallbackPenalty = 1000;
+        let localFallbackPenalty = 15000;
         try {
           const storageKey = `craft_performance_config_${targetBranchId}_${selectedMonth}`;
           const localString = localStorage.getItem(storageKey);
@@ -594,7 +594,7 @@ export default function PerformanceAdminView({
             const parsed = JSON.parse(localString);
             if (parsed[activeRole]) {
               localFallbackGoal = parsed[activeRole].salesGoal || 0;
-              localFallbackPenalty = parsed[activeRole].redFlagPenalty || 1000;
+              localFallbackPenalty = parsed[activeRole].redFlagPenalty || 15000;
             }
           }
         } catch (e) {
@@ -634,8 +634,8 @@ export default function PerformanceAdminView({
         
         // Initialize or load target's full configuration object
         let targetFullConfig = {
-          encargado: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'encargado', variables: [], salesGoal: 0, redFlagPenalty: 1000 },
-          jefe_cocina: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'jefe_cocina', variables: [], salesGoal: 0, redFlagPenalty: 1000 }
+          encargado: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'encargado', variables: [], salesGoal: 0, redFlagPenalty: 15000 },
+          jefe_cocina: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'jefe_cocina', variables: [], salesGoal: 0, redFlagPenalty: 15000 }
         };
 
         try {
@@ -768,7 +768,7 @@ export default function PerformanceAdminView({
 
                     // If not configured, we shows a gray state block
                     const salesGoal = config?.sales_goal || 0;
-                    const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 1000;
+                    const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 15000;
                     const variablesList: any[] = config?.variables || [];
 
                     return (

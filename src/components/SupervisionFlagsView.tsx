@@ -64,18 +64,7 @@ export default function SupervisionFlagsView({
       const { data: profiles, error } = await supabase.from('profiles').select('*');
       if (!error && profiles) {
         let sups = profiles.filter(p => p.role === 'supervisor');
-        if (sups.length === 0) {
-          // Auto-seed default supervisors if none found to avoid empty state
-          const defaultSupervisors = [
-            { id: '11c8f031-15b7-4b72-b5e0-47de31f24d91', name: 'LUCAS PERALTA', role: 'supervisor', branch_name: '' },
-            { id: '22c8f031-15b7-4b72-b5e0-47de31f24d92', name: 'ANDREA DOMÍNGUEZ', role: 'supervisor', branch_name: '' },
-            { id: '33c8f031-15b7-4b72-b5e0-47de31f24d93', name: 'MARTÍN ROSSI', role: 'supervisor', branch_name: '' },
-          ];
-          const { error: seedError } = await supabase.from('profiles').insert(defaultSupervisors);
-          if (!seedError) {
-            sups = defaultSupervisors;
-          }
-        }
+        // No auto-seed fake supervisors - show real empty state
         setSupervisors(sups);
       }
 

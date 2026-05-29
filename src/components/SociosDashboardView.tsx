@@ -46,36 +46,14 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-05');
 
-  // Multi-unit or single-unit data representation for Socios
-  const reputationData: Record<string, { googleRating: number; googleVotes: number; pyRating: number; pyCafeRating: number; pyDelay: number; complaintsCount: number }> = {
-    all: { googleRating: 4.6, googleVotes: 780, pyRating: 4.5, pyCafeRating: 4.3, pyDelay: 19, complaintsCount: 5 },
-    bn: { googleRating: 4.7, googleVotes: 320, pyRating: 4.6, pyCafeRating: 4.4, pyDelay: 17, complaintsCount: 1 },
-    palermo: { googleRating: 4.4, googleVotes: 260, pyRating: 4.3, pyCafeRating: 4.1, pyDelay: 23, complaintsCount: 3 },
-    recoleta: { googleRating: 4.8, googleVotes: 200, pyRating: 4.7, pyCafeRating: 4.5, pyDelay: 16, complaintsCount: 1 },
-  };
+  // All zeros until real data is loaded from Supabase
+  const emptyRep = { googleRating: 0, googleVotes: 0, pyRating: 0, pyCafeRating: 0, pyDelay: 0, complaintsCount: 0 };
+  const emptyPL = { sales: 0, cmv: 0, salaries: 0, rent: 0, marketing: 0, other: 0 };
 
-  const plMockData: Record<string, { sales: number; cmv: number; salaries: number; rent: number; marketing: number; other: number }> = {
-    all: { sales: 429733427, cmv: 133415090, salaries: 103853888, rent: 18727328, marketing: 12500000, other: 15400000 },
-    bn: { sales: 158200000, cmv: 49042000, salaries: 38200000, rent: 6800000, marketing: 4200000, other: 5100000 },
-    palermo: { sales: 139533427, cmv: 43257000, salaries: 33653888, rent: 6127328, marketing: 4100000, other: 5300000 },
-    recoleta: { sales: 132000000, cmv: 41116090, salaries: 32000000, rent: 5800000, marketing: 4200000, other: 5000000 },
-  };
+  const monthlySalesTrend: { name: string; Ventas: number; EBITDA: number }[] = [];
 
-  const monthlySalesTrend = [
-    { name: 'Ene', Ventas: 340000000, EBITDA: 110000000 },
-    { name: 'Feb', Ventas: 365000000, EBITDA: 122000000 },
-    { name: 'Mar', Ventas: 390000000, EBITDA: 134000000 },
-    { name: 'Abr', Ventas: 410000000, EBITDA: 141000000 },
-    { name: 'May', Ventas: 429733427, EBITDA: 146137121 },
-  ];
-
-  const currentRep = useMemo(() => {
-    return reputationData[selectedBranch] || reputationData.all;
-  }, [selectedBranch]);
-
-  const currentPL = useMemo(() => {
-    return plMockData[selectedBranch] || plMockData.all;
-  }, [selectedBranch]);
+  const currentRep = emptyRep;
+  const currentPL = emptyPL;
 
   const computedEBITDA = currentPL.sales - (currentPL.cmv + currentPL.salaries + currentPL.rent + currentPL.marketing + currentPL.other);
   const ebitdaMarginVal = (computedEBITDA / currentPL.sales) * 100;
