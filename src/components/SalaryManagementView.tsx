@@ -613,6 +613,68 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
     reader.readAsBinaryString(file);
   };
 
+  // Import employees from Excel (columns: SUCURSAL, AREA, SECTOR, PUESTO, TIPO, NOMBRE Y APELLIDO)
+  const handleImportEmployeesExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Map sucursal name from Excel -> branch_id in the system
+    const branchMap: Record<string, string> = {
+      'BARRIO NORTE': 'bn', 'BARRIO SUR': 'bs',
+      'MERCATO': 'mt', 'CASCO VIEJO': 'mt',
+      'PERON': 'pn', 'PERÓN': 'pn',
+      'MATE DE LUNA': 'ml', 'MATE': 'ml',
+      'ADMINISTRACION': 'admin', 'ADMINISTRACIÓN': 'admin',
+      'LIDERES': 'admin', 'LÍDERES': 'admin',
+    };
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!data.length) { alert('El archivo está vacío.'); return; }
+
+        const toInsert = data
+          .filter((row: any) => row['NOMBRE Y APELLIDO'] && String(row['NOMBRE Y APELLIDO']).trim())
+          .map((row: any) => {
+            const sucursalRaw = String(row['SUCURSAL'] || '').toUpperCase().trim();
+            const branchId = branchMap[sucursalRaw] || sucursalRaw.toLowerCase();
+            const position = String(row['PUESTO'] || '').trim().toUpperCase();
+            const name = String(row['NOMBRE Y APELLIDO']).trim().toUpperCase();
+            return {
+              id: `emp-${Math.random().toString(36).substr(2, 9)}`,
+              name,
+              position,
+              branch_id: branchId,
+              is_active: true
+            };
+          });
+
+        if (!toInsert.length) { alert('No se encontraron filas válidas con nombre de empleado.'); return; }
+
+        // Insert in batches of 50
+        let inserted = 0;
+        for (let i = 0; i < toInsert.length; i += 50) {
+          const batch = toInsert.slice(i, i + 50);
+          const { error } = await supabase.from('employees').insert(batch);
+          if (error) { alert(`Error al importar: ${error.message}`); return; }
+          inserted += batch.length;
+        }
+
+        alert(`✅ ${inserted} empleados importados correctamente.`);
+        fetchEmployees();
+      } catch (err: any) {
+        alert(`Error procesando el archivo: ${err.message}`);
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
   // Derived autocomplete suggestion values
   const uniqueAreas: string[] = Array.from(new Set<string>(positions.map(p => p.area.trim().toUpperCase()))).filter(Boolean);
   const uniqueSectors: string[] = Array.from(new Set<string>(positions.map(p => p.sector.trim().toUpperCase()))).filter(Boolean);
@@ -1311,7 +1373,11 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
                 ))}
               </select>
             </div>
-            <div className="flex justify-end pr-1">
+            <div className="flex justify-end pr-1 gap-2">
+              <label className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all cursor-pointer">
+                <Upload size={14} /> Importar Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportEmployeesExcel} />
+              </label>
               <button
                 onClick={() => {
                   setEditingEmployee(null);
