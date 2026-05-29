@@ -348,11 +348,10 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
   // Metrics
   const totalRefHours = records.reduce((sum, r) => sum + r.referenceHours, 0);
   const totalDefHours = records.reduce((sum, r) => sum + r.definitiveHours, 0);
-  const hiddenCount = records.length - (showZeroHours ? records.length : records.filter(r => r.definitiveHours > 0 || r.horasSucursal > 0).length);
-  const totalDeviation = totalDefHours - totalRefHours; 
-  const verifiedCount = records.filter(r => r.status === 'verified').length;
   const [showZeroHours, setShowZeroHours] = useState(false);
   const visibleRecords = showZeroHours ? records : records.filter(r => r.definitiveHours > 0 || r.horasSucursal > 0);
+  const hiddenCount = records.length - visibleRecords.length;
+  const verifiedCount = records.filter(r => r.status === 'verified').length;
   const isFullyVerified = records.length > 0 && verifiedCount === records.length;
 
   return (
