@@ -1342,7 +1342,7 @@ function AppContent() {
                 <EncargadoDashboardView 
                   branches={branches}
                   selectedBranchId={selectedBranchId}
-                  onBranchChange={setSelectedBranchId}
+                  onBranchChange={currentUser.accessScope === 'single_branch' ? undefined : setSelectedBranchId}
                   onNavigateToTab={setActiveTab}
                 />
               )}
