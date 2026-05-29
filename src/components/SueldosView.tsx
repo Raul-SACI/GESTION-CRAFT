@@ -275,11 +275,25 @@ export default function HourControlView({ selectedBranchId, branches }: { select
         console.log('[HourControl] branch:', branchIdToFetch, 'employees found:', data?.length, 'error:', error?.message);
         
         if (data && data.length > 0) {
+          // Map text position from Maestro to ROLES id
+          const mapPositionToRoleId = (pos: string): string => {
+            const p = (pos || '').toLowerCase().trim();
+            if (p.includes('encargado') || p.includes('gerente') || p.includes('sub-enc')) return 'encargado';
+            if (p.includes('lider de cocina') || p.includes('jefe')) return 'jefe_cocina';
+            if (p.includes('segundo')) return 'segundo_cocina';
+            if (p.includes('cocinero') || p.includes('cocina')) return 'cocinero';
+            if (p.includes('bachero') || p.includes('bacha') || p.includes('lava')) return 'bacha';
+            if (p.includes('barra') || p.includes('bartender')) return 'barra';
+            if (p.includes('runner')) return 'runners';
+            if (p.includes('cajero') || p.includes('caja')) return 'caja';
+            if (p.includes('mozo') || p.includes('salon') || p.includes('servicio')) return 'mozos';
+            return pos; // fallback: use raw text
+          };
           const mapped = data.map(e => ({
             id: e.id,
             name: e.name,
-            position: e.position,
-            hourly_rate: getPositionRateFromMaestro(e.position, e.position)
+            position: mapPositionToRoleId(e.position),
+            hourly_rate: getPositionRateFromMaestro(mapPositionToRoleId(e.position), e.position)
           }));
           setStaffPool(mapped);
           localStorage.setItem(`staff_pool_${branchIdToFetch}`, JSON.stringify(mapped));
@@ -425,6 +439,22 @@ export default function HourControlView({ selectedBranchId, branches }: { select
       shift: 'Mañana'
     };
     setRecords([...records, newRecord]);
+  };
+
+  const handleDuplicateRowWithRole = (record: HourRecord) => {
+    const newRow: HourRecord = {
+      ...record,
+      id: `daily-dup-${Date.now()}-${Math.random().toString(36).substr(2,6)}`,
+      hours: 0,
+      confirmed: false,
+      roleId: '', // empty so encargado must choose
+    };
+    setRecords(prev => {
+      const idx = prev.findIndex(r => r.id === record.id);
+      const updated = [...prev];
+      updated.splice(idx + 1, 0, newRow);
+      return updated;
+    });
   };
 
   const handleRemoveRow = (id: string) => {
@@ -867,11 +897,25 @@ export default function HourControlView({ selectedBranchId, branches }: { select
                           </span>
                         </td>
 
-                        {/* Puesto Column */}
-                        <td className="px-4 py-3.5 text-center">
-                          <span className="px-2 py-0.5 rounded bg-bg-accent border border-border-dim text-text-dim font-bold uppercase text-[9px]">
-                            {ROLES.find(rol => rol.id === r.roleId)?.label || r.roleId}
-                          </span>
+                        {/* Puesto Column - editable for the day, rate auto-updates */}
+                        <td className="px-3 py-3.5">
+                          <select
+                            value={r.roleId}
+                            disabled={r.confirmed}
+                            onChange={(e) => {
+                              const newRoleId = e.target.value;
+                              const roleLabel = ROLES.find(rol => rol.id === newRoleId)?.label || newRoleId;
+                              const newRate = getPositionRateFromMaestro(newRoleId, roleLabel);
+                              handleUpdateRecord(r.id, 'roleId', newRoleId);
+                              setRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, roleId: newRoleId, rate: newRate } : rec));
+                            }}
+                            className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[9px] font-black text-text-main outline-none focus:border-brand-500 uppercase disabled:opacity-60 disabled:cursor-not-allowed max-w-[130px]"
+                          >
+                            <option value="">— Puesto —</option>
+                            {ROLES.map(rol => (
+                              <option key={rol.id} value={rol.id}>{rol.label.toUpperCase()}</option>
+                            ))}
+                          </select>
                         </td>
 
                         {/* Turno Column */}
