@@ -28,6 +28,7 @@ interface HrMonthlyPayrollViewProps {
 export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelectedMonth }: HrMonthlyPayrollViewProps) {
   const [payrollItems, setPayrollItems] = useState<any[]>([]);
   const [payrollFilterBranch, setPayrollFilterBranch] = useState<string>('all');
+  const selectedBranch = payrollFilterBranch; // alias used in sync functions
   const [showAddPayrollModal, setShowAddPayrollModal] = useState(false);
   const [newPayrollItem, setNewPayrollItem] = useState({
     employeeName: '',
