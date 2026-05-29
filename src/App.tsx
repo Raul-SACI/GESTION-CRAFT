@@ -271,8 +271,25 @@ function AppContent() {
       if (rolesData) setRolesConfigList(rolesData);
       if (profilesData) {
         // Obsolete/unwanted original default users that must be erased
-const obsoleteNames = [];
-const obsoleteIds = [];
+        const obsoleteNames = [
+          'FRANCO LEON',
+          'MANUEL NOUGUES',
+          'MARCELA ROLDAN',
+          'PATRICIO BERNAT',
+          'SAMUEL RACEDO',
+          'VERONICA CREMONA',
+          'SOCIO'
+        ];
+        const obsoleteIds = [
+          'usr-patricio',
+          'usr-samuel',
+          'usr-marcela',
+          'usr-veronica',
+          'usr-franco',
+          'usr-manuel',
+          'usr-socio'
+        ];
+
         const cleanProfiles = profilesData.filter((p: any) => {
           if (!p || !p.id) return false;
           if (obsoleteIds.includes(p.id)) return false;
@@ -298,83 +315,6 @@ const obsoleteIds = [];
         }
 
         // Maintain real Supabase profiles if credentials are configured
-        if (!isMissingCredentials) {
-          (async () => {
-            try {
-              // Ensure default roles are seeded in the real Supabase table if empty
-              const { data: existingRoles, error: rolesErr } = await realSupabaseClient.from('roles_config').select('id');
-              if (!rolesErr && (!existingRoles || existingRoles.length === 0)) {
-                const defaultRoles = [
-                  {
-                    id: 'administrador',
-                    name: 'Administrador',
-                    description: 'Acceso total de lectura y edición. Único rol que accede a Configuración.',
-                    is_read_only: false,
-                    access_scope: 'all_branches',
-                    allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin', 'sucursales', 'usuarios']
-                  },
-                  {
-                    id: 'socio',
-                    name: 'Socio',
-                    description: 'Acceso completo al sistema pero restringido a modo Solo Lectura.',
-                    is_read_only: true,
-                    access_scope: 'all_branches',
-                    allowed_modules: ['socios_dashboard', 'dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'control_horas', 'gestion_sueldos', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control', 'bank_liabilities', 'tax_liabilities', 'cronograma_pagos', 'finanzas_mensual', 'ventas', 'consumo', 'control_desvios', 'supervision_banderas', 'papeles_administracion', 'aprobacion_presupuestos', 'finanzas_estimado', 'precios', 'p&l', 'performance_admin']
-                  },
-                  {
-                    id: 'encargado',
-                    name: 'Encargado de Sucursal',
-                    description: 'Solo puede cargar y ver los módulos de su propia sucursal asignada.',
-                    is_read_only: false,
-                    access_scope: 'single_branch',
-                    allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas']
-                  },
-                  {
-                    id: 'lider_operativo',
-                    name: 'Líder Operativo',
-                    description: 'Acceso a todas las sucursales, Agenda Supervisores, Supervisiones y Presupuesto.',
-                    is_read_only: false,
-                    access_scope: 'all_branches',
-                    allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision']
-                  },
-                  {
-                    id: 'lider_cocina',
-                    name: 'Líder de Cocina',
-                    description: 'Acceso a todas las sucursales, Agenda Supervisores, y Centro de Producción.',
-                    is_read_only: false,
-                    access_scope: 'all_branches',
-                    allowed_modules: ['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'presupuesto_horas', 'agenda', 'supervisiones_operativas', 'registro_supervision', 'produccion_mes', 'produccion_stock_control']
-                  },
-                  {
-                    id: 'recursos_humanos',
-                    name: 'Recursos Humanos',
-                    description: 'Acceso completo a la sección de Recursos Humanos para todas las sucursales.',
-                    is_read_only: false,
-                    access_scope: 'all_branches',
-                    allowed_modules: ['control_horas', 'gestion_sueldos']
-                  }
-                ];
-                await realSupabaseClient.from('roles_config').insert(defaultRoles);
-                console.log('[Access Control Sync] Populated default system roles.');
-              }
-
-              // Ensure Raul is inserted in the real Supabase table if missing - using standard upsert without invalid UUID id if key format doesn't match
-              const { data: existingRaul } = await realSupabaseClient.from('profiles').select('*').eq('name', 'RAUL DIAZ').maybeSingle();
-              if (!existingRaul) {
-                // If it doesn't exist, we insert him. Since id is UUID PK default, we let database generate it
-                await realSupabaseClient.from('profiles').insert([{ 
-                  name: 'RAUL DIAZ', 
-                  role: 'administrador', 
-                  branch_name: 'TODAS LAS SUCURSALES' 
-                }]);
-                console.log('[Access Control Sync] Inserted default administrator Raul Diaz.');
-              }
-            } catch (err) {
-              console.warn('[Access Control Sync] Failed to sync default profiles or roles in real database:', err);
-            }
-          })();
-        }
-
         setAvailableProfiles(cleanProfiles);
         setCurrentUserProfile((prev: any) => {
           const storedId = sessionStorage.getItem('active_profile_id');
