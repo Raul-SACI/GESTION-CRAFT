@@ -348,8 +348,11 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
   // Metrics
   const totalRefHours = records.reduce((sum, r) => sum + r.referenceHours, 0);
   const totalDefHours = records.reduce((sum, r) => sum + r.definitiveHours, 0);
+  const hiddenCount = records.length - (showZeroHours ? records.length : records.filter(r => r.definitiveHours > 0 || r.horasSucursal > 0).length);
   const totalDeviation = totalDefHours - totalRefHours; 
   const verifiedCount = records.filter(r => r.status === 'verified').length;
+  const [showZeroHours, setShowZeroHours] = useState(false);
+  const visibleRecords = showZeroHours ? records : records.filter(r => r.definitiveHours > 0 || r.horasSucursal > 0);
   const isFullyVerified = records.length > 0 && verifiedCount === records.length;
 
   return (
@@ -535,6 +538,12 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowZeroHours(v => !v)}
+            className="px-3 py-1.5 bg-bg-accent border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main rounded tracking-wider"
+          >
+            {showZeroHours ? `Ocultar sin horas (${hiddenCount})` : `Ver todos (${hiddenCount} ocultos)`}
+          </button>
           <button 
             onClick={handleVerifyAll}
             className="px-3 py-1.5 bg-bg-accent border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main rounded tracking-wider"
@@ -589,7 +598,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
               </tr>
             </thead>
             <tbody className="divide-y divide-border-dim/40">
-              {records.map(record => {
+              {visibleRecords.map(record => {
                 const deviation = record.definitiveHours - record.referenceHours;
                 const isEncargado = record.roleId === 'encargado';
                 const deviationPesos = isEncargado ? 0 : deviation * record.valorHora;
