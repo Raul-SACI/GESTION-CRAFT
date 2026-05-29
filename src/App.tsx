@@ -534,7 +534,6 @@ function AppContent() {
     'Gestión Sucursal': [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'stock', label: 'Control Stock', icon: Package },
-      { id: 'desempeño', label: 'Desempeño', icon: Star },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
       { id: 'horas', label: 'Carga de Horas', icon: Clock },
       { id: 'novedades', label: 'Novedades', icon: ClipboardList },
@@ -594,7 +593,6 @@ function AppContent() {
           socios_dashboard: Landmark,
           dashboard: LayoutDashboard,
           stock: Package,
-          desempeño: Star,
           vajilla: Utensils,
           horas: Clock,
           novedades: ClipboardList,
@@ -801,7 +799,6 @@ function AppContent() {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stock', label: 'Control Stock', icon: Package },
-    { id: 'desempeño', label: 'Desempeño', icon: Star },
     { id: 'vajilla', label: 'Vajilla', icon: Utensils },
     { id: 'horas', label: 'Carga de Horas', icon: Clock },
     { id: 'novedades', label: 'Novedades', icon: ClipboardList },
@@ -1282,7 +1279,7 @@ function AppContent() {
             )}
 
             {/* Sucursal Activa and Ventas Semanales removed per user requirement */}
-            {['dashboard', 'stock', 'desempeño', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas'].includes(activeTab) && (
+            {['dashboard', 'stock', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas'].includes(activeTab) && (
               <div className="flex items-center gap-3 bg-bg-card border border-border-dim px-4 py-2 rounded-lg">
                 <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">Filtrar por Sucursal:</span>
                 <select
@@ -1368,9 +1365,7 @@ function AppContent() {
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'desempeño' && (
-                <PerformanceView key="desempeño" branches={branches} selectedBranchId={selectedBranchId} />
-              )}
+
               {activeTab === 'performance_admin' && (
                 <PerformanceAdminView branches={branches} selectedBranchId={selectedBranchId} />
               )}
