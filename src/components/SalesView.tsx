@@ -864,10 +864,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     setLoading(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      // raw:true keeps numbers as numbers (HORA as fraction 0.352=8:28, Ventas as pure numbers)
-      // cellDates:true converts FECHA cells to Date objects
+      // raw:true + cellDates:false: everything stays as raw values
+      // FECHA = Excel serial number (e.g. 46113), HORA = fraction (e.g. 0.3527=8:28)
+      // Ventas = raw number (e.g. 24650) - no Date conversion, no timezone issues
       const rows = XLSX.utils.sheet_to_json(ws, { raw: true }) as any[];
 
       const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
@@ -878,35 +879,41 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         const branchId = branchMap[sucursal];
         if (!branchId) continue;
 
-        // Parse date - cellDates:true gives Date objects for date cells
+        // Parse date: with cellDates:false, FECHA is Excel serial number (e.g. 46113)
+        // Excel epoch: 1899-12-30. Formula: serial-25569 days from Unix epoch (1970-01-01)
         let dateStr = '';
         const rawDate = row['FECHA'];
-        if (rawDate instanceof Date) {
-          // Use UTC to avoid timezone shift (Excel dates are timezone-naive)
-          const y = rawDate.getUTCFullYear();
-          const m = String(rawDate.getUTCMonth() + 1).padStart(2, '0');
-          const d = String(rawDate.getUTCDate()).padStart(2, '0');
-          dateStr = `${y}-${m}-${d}`;
-        } else if (typeof rawDate === 'number') {
-          // Fallback: raw Excel serial number
-          const d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
-          dateStr = d.toISOString().split('T')[0];
+        if (typeof rawDate === 'number') {
+          // Convert Excel serial to ISO date using UTC to avoid timezone shifts
+          const msFromEpoch = Math.round((rawDate - 25569) * 86400 * 1000);
+          const d = new Date(msFromEpoch);
+          const y = d.getUTCFullYear();
+          const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(d.getUTCDate()).padStart(2, '0');
+          dateStr = `${y}-${m}-${day}`;
+        } else if (typeof rawDate === 'string') {
+          // Fallback for pre-formatted strings
+          const s = rawDate.trim();
+          if (s.match(/^\d{4}-\d{2}-\d{2}/)) {
+            dateStr = s.substring(0, 10);
+          } else if (s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)) {
+            // DD/MM/YYYY format (Argentine)
+            const parts = s.split('/');
+            dateStr = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+          }
         }
         if (!dateStr || dateStr.length < 10) continue;
 
-        // Parse hour - raw:true keeps time cells as fraction numbers (0.35277 = 8:28)
-        // cellDates:true does NOT convert time-only fractions to Date objects
+        // Parse hour: with cellDates:false + raw:true, HORA is a fraction (0.35277 = 8:28)
         let hourStr = '00:00';
         const rawHour = row['HORA'];
-        if (typeof rawHour === 'number' && rawHour >= 0 && rawHour < 1) {
-          // Excel time fraction: multiply by 1440 minutes in a day
-          const totalMins = Math.round(rawHour * 1440);
-          hourStr = `${String(Math.floor(totalMins / 60)).padStart(2,'0')}:${String(totalMins % 60).padStart(2,'0')}`;
-        } else if (rawHour instanceof Date) {
-          // Some XLSX versions convert time to Date - use UTC
-          hourStr = `${String(rawHour.getUTCHours()).padStart(2,'0')}:${String(rawHour.getUTCMinutes()).padStart(2,'0')}`;
+        if (typeof rawHour === 'number') {
+          // Works for both time fractions (0-1) and full datetime serials
+          const timeFraction = rawHour % 1; // Get just the time part
+          const totalMins = Math.round(timeFraction * 1440);
+          hourStr = `${String(Math.floor(totalMins / 60) % 24).padStart(2,'0')}:${String(totalMins % 60).padStart(2,'0')}`;
         } else if (typeof rawHour === 'string' && rawHour.includes(':')) {
-          hourStr = rawHour.substring(0, 5).padStart(5, '0');
+          hourStr = rawHour.substring(0, 5);
         }
 
         const d = new Date(dateStr + 'T12:00:00');
