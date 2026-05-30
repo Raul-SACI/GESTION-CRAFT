@@ -138,7 +138,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     
     // Debug
     Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
-      const hrs = info.rows?.reduce((s: number, r: any) => s + parseFloat(r.week1??0)+parseFloat(r.week2??0)+parseFloat(r.week3??0)+parseFloat(r.week4??0)+parseFloat(r.week5??0), 0) || 0;
+      const hrs = info.rows?.reduce((s: number, r: any) => s + Number(r.total_hours || 0), 0) || 0;
       console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
     });
     setBudgetsState(loaded);
@@ -215,28 +215,28 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     let totalHours = 0;
     let totalCost = 0;
 
-    if (info.rows && Array.isArray(info.rows)) {
-      const rows = info.rows as BudgetRow[];
-      rows.forEach((row: any) => {
+    if (info.rows && Array.isArray(info.rows) && info.rows.length > 0) {
+      info.rows.forEach((row: any) => {
+        // total_hours is pre-calculated on import - most reliable
         let posMonthlyHs = 0;
-
-        // Use week1-5 if available (imported from CSV via Supabase)
-        const weekSum = parseFloat(row.week1 ?? 0) + parseFloat(row.week2 ?? 0) +
-                        parseFloat(row.week3 ?? 0) + parseFloat(row.week4 ?? 0) +
-                        parseFloat(row.week5 ?? 0);
-        if (weekSum > 0 || row.total_hours > 0) {
-          posMonthlyHs = weekSum || parseFloat(row.total_hours ?? 0);
+        if (row.total_hours && Number(row.total_hours) > 0) {
+          posMonthlyHs = Number(row.total_hours);
         } else {
-          // Legacy manual budget format
-          const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
-          const hoursB = countDaysGroupB * (row.countGroupB || 0) * (row.hoursPerDay || 0);
-          posMonthlyHs = hoursA + hoursB;
+          // Sum week columns
+          posMonthlyHs = Number(row.week1 || 0) + Number(row.week2 || 0) +
+                         Number(row.week3 || 0) + Number(row.week4 || 0) +
+                         Number(row.week5 || 0);
+          // Legacy manual format fallback
+          if (posMonthlyHs === 0) {
+            const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
+            const hoursB = countDaysGroupB * (row.countGroupB || 0) * (row.hoursPerDay || 0);
+            posMonthlyHs = hoursA + hoursB;
+          }
         }
-
-        const rate = parseFloat(row.hourly_rate ?? row.hourlyRate ?? 0);
-        const holidayExtraCost = holidays * (row.hours_per_day || row.hoursPerDay || 8) * rate;
+        const rate = Number(row.hourly_rate || row.hourlyRate || 0);
+        const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
         totalHours += posMonthlyHs;
-        totalCost += (posMonthlyHs * rate) + holidayExtraCost;
+        totalCost += (posMonthlyHs * rate) + (holidays * hpd * rate);
       });
     } else {
       // Legacy support
