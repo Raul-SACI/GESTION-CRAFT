@@ -209,7 +209,6 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [activeWeekIndex, setActiveWeekIndex] = useState(1);
   const [holidaysList, setHolidaysList] = useState<string[]>([]);
   const [pendingHolidays, setPendingHolidays] = useState<string[]>([]);
-  const [pendingHolidays, setPendingHolidays] = useState<string[]>([]);
   const [showHolidayPicker, setShowHolidayPicker] = useState(false);
   const [rows, setRows] = useState<BudgetRow[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
