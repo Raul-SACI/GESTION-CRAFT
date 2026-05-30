@@ -977,16 +977,16 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         // Use importHolidays fetched from Supabase at start of import
         const currentHolidays: string[] = importHolidays;
         let holidayPremium = 0;
-        if (currentHolidays && currentHolidays.length > 0) {
-          currentHolidays.forEach((hDate: string) => {
-            // Find original row to get staffByDate
-            const origRow = importedBudgetRows.find((r: any) => 
-              `${r.roleId}_${(r.shift || 'tarde').toLowerCase().replace(/[^a-z]/g,'')}` === g.position_id
-            );
-            if (origRow?.staffByDate?.[hDate]) {
-              holidayPremium += origRow.staffByDate[hDate] * hpd * rate;
-            }
-          });
+        if (currentHolidays && currentHolidays.length > 0 && g.staff_by_date) {
+          try {
+            const staffByDate = JSON.parse(g.staff_by_date);
+            currentHolidays.forEach((hDate: string) => {
+              const staffOnDay = Number(staffByDate[hDate] || 0);
+              if (staffOnDay > 0) {
+                holidayPremium += staffOnDay * hpd * rate;
+              }
+            });
+          } catch(e) {}
         }
         
         return {
