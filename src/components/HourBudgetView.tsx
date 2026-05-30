@@ -487,21 +487,31 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       updated = [...holidaysList, dateStr];
     }
     setHolidaysList(updated);
+    // Also cache in localStorage
+    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
     // Persist holidays to Supabase (national, same for all branches)
     try {
-      const { data: existing } = await supabase
+      const { data: existing, error: selErr } = await supabase
         .from('budget_holidays')
         .select('id')
         .eq('month', selectedMonth)
         .maybeSingle();
+      if (selErr) throw selErr;
       if (existing) {
-        await supabase.from('budget_holidays').update({ holiday_dates: updated }).eq('month', selectedMonth);
+        const { error: updErr } = await supabase.from('budget_holidays')
+          .update({ holiday_dates: updated })
+          .eq('month', selectedMonth);
+        if (updErr) throw updErr;
       } else {
-        await supabase.from('budget_holidays').insert({ month: selectedMonth, holiday_dates: updated });
+        const { error: insErr } = await supabase.from('budget_holidays')
+          .insert({ month: selectedMonth, holiday_dates: updated });
+        if (insErr) throw insErr;
       }
-    } catch(e) { console.error('Error saving holiday:', e); }
-    // Also cache in localStorage
-    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
+      console.log('[Holidays] Saved to Supabase:', updated);
+    } catch(e: any) {
+      alert('Error guardando feriado en Supabase: ' + e.message);
+      console.error('Error saving holiday:', e);
+    }
   };
 
   const handleLoadDefaultTemplate = () => {
