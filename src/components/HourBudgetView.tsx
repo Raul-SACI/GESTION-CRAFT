@@ -480,32 +480,26 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleToggleHoliday = async (dateStr: string) => {
-    // Read current holidays from Supabase to avoid race conditions
-    let currentHolidays: string[] = [...holidaysList];
-    try {
-      const { data: fresh } = await supabase
-        .from('budget_holidays')
-        .select('holiday_dates')
-        .eq('month', selectedMonth)
-        .maybeSingle();
-      if (fresh?.holiday_dates) currentHolidays = fresh.holiday_dates;
-    } catch(e) {}
-
+    // Use component state as source of truth (already correct from previous clicks)
     let updated: string[];
-    if (currentHolidays.includes(dateStr)) {
-      updated = currentHolidays.filter(d => d !== dateStr);
+    if (holidaysList.includes(dateStr)) {
+      updated = holidaysList.filter(d => d !== dateStr);
     } else {
-      updated = [...currentHolidays, dateStr];
+      updated = [...holidaysList, dateStr];
     }
+    
+    // Update state and localStorage immediately
     setHolidaysList(updated);
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
 
-    // Save to Supabase
+    // Save to Supabase - use the final computed value
     try {
       await supabase.from('budget_holidays').delete().eq('month', selectedMonth);
-      const { error } = await supabase.from('budget_holidays')
-        .insert({ month: selectedMonth, holiday_dates: updated });
-      if (error) throw error;
+      if (updated.length > 0) {
+        const { error } = await supabase.from('budget_holidays')
+          .insert({ month: selectedMonth, holiday_dates: updated });
+        if (error) throw error;
+      }
       console.log('[Holidays] Saved:', updated);
     } catch(e: any) {
       alert('Error guardando feriado: ' + e.message);
