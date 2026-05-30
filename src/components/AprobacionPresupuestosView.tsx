@@ -102,12 +102,11 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     
     // Intentar Supabase primero
     try {
-      const { data, error: qErr } = await supabase
+      const { data } = await supabase
         .from('hour_budgets')
         .select('*')
         .eq('month', selectedMonth);
       
-      console.log('[Aprobacion] Query result: data=', data?.length, 'error=', qErr?.message, 'month=', selectedMonth);
       if (data && data.length > 0) {
         // Agrupar por branch_id
         data.forEach((row: any) => {
@@ -130,12 +129,6 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       }
     });
     
-    // Debug
-    Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
-      const hrs = info.rows?.reduce((s: number, r: any) => s + Number(r.total_hours || 0), 0) || 0;
-      console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
-      if (info.rows?.length > 0) console.log('[Aprobacion] sample row:', JSON.stringify(info.rows[0]));
-    });
     setBudgetsState(loaded);
   };
 

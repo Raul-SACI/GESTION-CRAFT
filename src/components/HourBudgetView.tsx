@@ -863,8 +863,6 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setRows(newRows);
 
     // Auto-save to Supabase on import confirm
-    console.log('[Import] activeBranchId:', activeBranchId, 'selectedMonth:', selectedMonth);
-    console.log('[Import] importedBudgetRows count:', importedBudgetRows.length);
     try {
       // Calculate weekly hours from staffByDate
       const getWeekHours = (row: BudgetRow, weekDays: string[] | undefined) => {
@@ -927,24 +925,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       if (delError) console.warn('Delete warning:', delError.message);
       
       if (upsertData.length > 0) {
-        console.log('[Budget] Inserting', upsertData.length, 'rows. Sample:', JSON.stringify(upsertData[0]));
-        const { data: inserted, error: insertError } = await supabase
+        const { error: insertError } = await supabase
           .from('hour_budgets')
-          .insert(upsertData)
-          .select('id');
+          .insert(upsertData);
         if (insertError) throw insertError;
-        console.log('[Budget] Insert result:', inserted?.length, 'rows inserted');
-        
-        // Verify with a SELECT
-        const { data: verify, error: verifyError } = await supabase
-          .from('hour_budgets')
-          .select('id, branch_id, total_hours')
-          .eq('branch_id', activeBranchId)
-          .eq('month', selectedMonth);
-        console.log('[Budget] Verify SELECT:', verify?.length, 'rows found, error:', verifyError?.message);
       }
-      console.log('[Budget] Saved', upsertData.length, 'rows to Supabase for', activeBranchId, selectedMonth);
-      alert(`✅ Presupuesto guardado: ${upsertData.length} puestos para ${activeBranchId} - ${selectedMonth}`);
+      alert(`✅ Presupuesto guardado correctamente: ${upsertData.length} puestos guardados en Supabase`);
     } catch (e: any) {
       console.error('Error saving budget to Supabase:', e);
       alert(`Error al guardar en Supabase: ${e.message || JSON.stringify(e)}`);
