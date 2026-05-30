@@ -989,11 +989,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
           } catch(e) {}
         }
         
-        const tc = Math.round(baseHrs * rate + holidayPremium);
-        if (tc > 0) console.log(`[Cost] ${g.position_id}: ${baseHrs}h * $${rate} + $${holidayPremium} = $${tc}`);
         return {
           ...g,
-          total_cost: tc,
+          total_cost: Math.round(baseHrs * rate + holidayPremium),
         };
       });
 
