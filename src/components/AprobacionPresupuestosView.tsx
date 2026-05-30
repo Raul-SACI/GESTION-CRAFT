@@ -223,36 +223,14 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
         }
 
         totalHours += posMonthlyHs;
-        const rate = Number(row.hourly_rate || row.hourlyRate || 0);
-        const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
 
-        // Base cost = total hours * rate
-        let posCost = posMonthlyHs * rate;
-        
-        // Add holiday premium from holidays_json if available
-        if (row.holidays_json) {
-          try {
-            const holidayDates: string[] = JSON.parse(row.holidays_json);
-            // For each holiday, we need to know how many staff worked
-            // We can estimate: if the position had N hours in that week, 
-            // one day = N/7 hours = N/7/hpd staff
-            // Better: use week averages to estimate daily staff
-            const weeksHours = [
-              Number(row.week1||0), Number(row.week2||0),
-              Number(row.week3||0), Number(row.week4||0), Number(row.week5||0)
-            ];
-            holidayDates.forEach((hDate: string) => {
-              const d = new Date(hDate);
-              const day = d.getDate();
-              const wIdx = day <= 7 ? 0 : day <= 14 ? 1 : day <= 21 ? 2 : day <= 28 ? 3 : 4;
-              const avgDailyHrs = weeksHours[wIdx] / 7;
-              const staffOnDay = hpd > 0 ? avgDailyHrs / hpd : 0;
-              posCost += staffOnDay * hpd * rate; // extra pay = staffOnDay * hpd * rate
-            });
-          } catch(e) {}
+        // Use pre-calculated total_cost if available (includes holiday premium)
+        if (row.total_cost && Number(row.total_cost) > 0) {
+          totalCost += Number(row.total_cost);
+        } else {
+          const rate = Number(row.hourly_rate || row.hourlyRate || 0);
+          totalCost += posMonthlyHs * rate;
         }
-        
-        totalCost += posCost;
       });
     } else {
       // Legacy support
