@@ -493,12 +493,20 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     try {
       const { error } = await supabase
         .from('budget_holidays')
-        .upsert({ month: selectedMonth, holiday_dates: updated }, { onConflict: 'month' });
-      if (error) throw error;
-      console.log('[Holidays] Saved to Supabase:', updated);
+        .upsert(
+          { month: selectedMonth, holiday_dates: updated },
+          { onConflict: 'month', ignoreDuplicates: false }
+        );
+      if (error) {
+        // Try delete+insert as fallback
+        await supabase.from('budget_holidays').delete().eq('month', selectedMonth);
+        const { error: insErr } = await supabase.from('budget_holidays')
+          .insert({ month: selectedMonth, holiday_dates: updated });
+        if (insErr) throw insErr;
+      }
+      console.log('[Holidays] Saved:', updated);
     } catch(e: any) {
-      alert('Error guardando feriado en Supabase: ' + e.message);
-      console.error('Error saving holiday:', e);
+      alert('Error guardando feriado: ' + e.message);
     }
   };
 
