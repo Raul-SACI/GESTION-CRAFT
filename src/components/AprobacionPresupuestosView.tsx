@@ -133,8 +133,13 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
   };
 
   useEffect(() => {
-    loadAllBudgets();
-  }, [branches, selectedMonth]);
+    if (supabase) loadAllBudgets();
+  }, [selectedMonth]);
+
+  // Also reload when branches load (in case they were empty on first mount)
+  useEffect(() => {
+    if (branches && branches.length > 0 && supabase) loadAllBudgets();
+  }, [branches.length]);
 
   const handleToggleApprove = async (branchId: string) => {
     const current = budgetsState[branchId] || {
