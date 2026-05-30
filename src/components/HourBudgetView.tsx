@@ -327,6 +327,27 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     return daysList.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
   }, [weeks, holidaysList]);
 
+  // Load holidays from Supabase
+  useEffect(() => {
+    const loadHolidays = async () => {
+      try {
+        const { data: hData } = await supabase
+          .from('budget_holidays')
+          .select('holiday_dates')
+          .eq('month', selectedMonth)
+          .maybeSingle();
+        if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
+          setHolidaysList(hData.holiday_dates);
+          localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(hData.holiday_dates));
+        }
+      } catch(e) {
+        const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+        if (cached) try { setHolidaysList(JSON.parse(cached)); } catch(e2) {}
+      }
+    };
+    loadHolidays();
+  }, [selectedMonth]);
+
   // Load saved budget V2 or fall back & upgrade from V1
   useEffect(() => {
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
@@ -338,29 +359,11 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     
     const computedWeeks = getWeeksForMonth(selectedMonth);
     
-    // Load holidays from Supabase (national holidays, same for all branches)
+    // Load holidays from localStorage cache (Supabase loaded separately)
     let resolvedHolidays: string[] = [];
     let hasGlobalHolidays = false;
-    try {
-      const { data: hData } = await supabase
-        .from('budget_holidays')
-        .select('holiday_dates')
-        .eq('month', selectedMonth)
-        .maybeSingle();
-      if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
-        resolvedHolidays = hData.holiday_dates;
-        hasGlobalHolidays = true;
-        // Sync to localStorage as cache
-        localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(resolvedHolidays));
-      } else {
-        // Fallback to localStorage cache
-        const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
-        if (cached) { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; }
-      }
-    } catch(e) {
-      const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
-      if (cached) { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; }
-    }
+    const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+    if (cached) { try { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; } catch(e) {} }
 
     if (savedV2) {
       try {
