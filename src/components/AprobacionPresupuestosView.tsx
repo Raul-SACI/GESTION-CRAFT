@@ -101,7 +101,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     try {
       const { data, error } = await supabase
         .from('hour_budgets')
-        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status, holidays_json')
+        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status, staff_by_date, holidays_json')
         .eq('month', selectedMonth);
 
       if (error) {

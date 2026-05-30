@@ -953,7 +953,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
             hourly_rate: r.hourlyRate || 0,
             week1: 0, week2: 0, week3: 0, week4: 0, week5: 0,
             total_hours: 0,
-            status: 'pending'
+            status: 'pending',
+            staff_by_date: r.staffByDate ? JSON.stringify(r.staffByDate) : null,
           };
         }
         grouped[key].week1 += Math.round(getWeekHours(r, weekDates[0]));
