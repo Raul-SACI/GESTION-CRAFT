@@ -122,17 +122,10 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       console.error('Error loading budgets from Supabase:', e);
     }
 
-    // Para las sucursales sin datos en Supabase, intentar localStorage
+    // For branches without Supabase data, show empty (no localStorage fallback)
     branches.forEach(b => {
       if (!loaded[b.id]) {
-        const storageKey = `hour_budget_v2_${b.id}_${selectedMonth}`;
-        const saved = localStorage.getItem(storageKey);
-        if (saved) {
-          try { loaded[b.id] = JSON.parse(saved); } catch (e) {}
-        }
-        if (!loaded[b.id]) {
-          loaded[b.id] = { rows: [], status: 'pending' };
-        }
+        loaded[b.id] = { rows: [], status: 'pending' };
       }
     });
     
@@ -218,22 +211,22 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
 
     if (info.rows && Array.isArray(info.rows) && info.rows.length > 0) {
       info.rows.forEach((row: any) => {
-        // total_hours is pre-calculated on import - most reliable
         let posMonthlyHs = 0;
+        
         if (row.total_hours && Number(row.total_hours) > 0) {
+          // From Supabase import: use pre-calculated total_hours
           posMonthlyHs = Number(row.total_hours);
+        } else if (row.staffByDate && Object.keys(row.staffByDate).length > 0) {
+          // From localStorage/manual format: calculate from staffByDate
+          posMonthlyHs = Object.values(row.staffByDate as Record<string,number>)
+            .reduce((s: number, v: number) => s + (Number(v) * (row.hoursPerDay || 0)), 0);
         } else {
-          // Sum week columns
+          // Week columns fallback
           posMonthlyHs = Number(row.week1 || 0) + Number(row.week2 || 0) +
                          Number(row.week3 || 0) + Number(row.week4 || 0) +
                          Number(row.week5 || 0);
-          // Legacy manual format fallback
-          if (posMonthlyHs === 0) {
-            const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
-            const hoursB = countDaysGroupB * (row.countGroupB || 0) * (row.hoursPerDay || 0);
-            posMonthlyHs = hoursA + hoursB;
-          }
         }
+
         const rate = Number(row.hourly_rate || row.hourlyRate || 0);
         const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
         totalHours += posMonthlyHs;
