@@ -921,10 +921,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         const rate = g.hourly_rate || 0;
         const hpd = g.hours_per_day || 0;
         
-        // Add holiday premium: each holiday day that has staff -> extra pay (1x rate * hpd)
+        // Add holiday premium: read holidays from localStorage at import time
+        const savedHolidays = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+        const currentHolidays: string[] = savedHolidays ? JSON.parse(savedHolidays) : holidaysList;
         let holidayPremium = 0;
-        if (holidaysList && holidaysList.length > 0) {
-          holidaysList.forEach((hDate: string) => {
+        if (currentHolidays && currentHolidays.length > 0) {
+          currentHolidays.forEach((hDate: string) => {
             // Find original row to get staffByDate
             const origRow = importedBudgetRows.find((r: any) => 
               `${r.roleId}_${(r.shift || 'tarde').toLowerCase().replace(/[^a-z]/g,'')}` === g.position_id
