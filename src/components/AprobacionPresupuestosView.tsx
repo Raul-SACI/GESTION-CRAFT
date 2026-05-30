@@ -138,7 +138,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     
     // Debug
     Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
-      const hrs = info.rows?.reduce((s: number, r: any) => s + parseFloat(r.week1||0)+parseFloat(r.week2||0)+parseFloat(r.week3||0)+parseFloat(r.week4||0)+parseFloat(r.week5||0), 0) || 0;
+      const hrs = info.rows?.reduce((s: number, r: any) => s + parseFloat(r.week1??0)+parseFloat(r.week2??0)+parseFloat(r.week3??0)+parseFloat(r.week4??0)+parseFloat(r.week5??0), 0) || 0;
       console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
     });
     setBudgetsState(loaded);
@@ -220,11 +220,12 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       rows.forEach((row: any) => {
         let posMonthlyHs = 0;
 
-        // If row has week1-4 (imported from CSV), use those directly
-        if (row.week1 !== undefined || row.week2 !== undefined) {
-          posMonthlyHs = parseFloat(row.week1 || 0) + parseFloat(row.week2 || 0) +
-                         parseFloat(row.week3 || 0) + parseFloat(row.week4 || 0) +
-                         parseFloat(row.week5 || 0);
+        // Use week1-5 if available (imported from CSV via Supabase)
+        const weekSum = parseFloat(row.week1 ?? 0) + parseFloat(row.week2 ?? 0) +
+                        parseFloat(row.week3 ?? 0) + parseFloat(row.week4 ?? 0) +
+                        parseFloat(row.week5 ?? 0);
+        if (weekSum > 0 || row.total_hours > 0) {
+          posMonthlyHs = weekSum || parseFloat(row.total_hours ?? 0);
         } else {
           // Legacy manual budget format
           const hoursA = countDaysGroupA * (row.countGroupA || 0) * (row.hoursPerDay || 0);
@@ -232,9 +233,10 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
           posMonthlyHs = hoursA + hoursB;
         }
 
-        const holidayExtraCost = holidays * (row.hoursPerDay || 8) * (row.hourlyRate || 0);
+        const rate = parseFloat(row.hourly_rate ?? row.hourlyRate ?? 0);
+        const holidayExtraCost = holidays * (row.hours_per_day || row.hoursPerDay || 8) * rate;
         totalHours += posMonthlyHs;
-        totalCost += (posMonthlyHs * (row.hourlyRate || 0)) + holidayExtraCost;
+        totalCost += (posMonthlyHs * rate) + holidayExtraCost;
       });
     } else {
       // Legacy support
