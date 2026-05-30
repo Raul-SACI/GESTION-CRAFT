@@ -101,7 +101,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     try {
       const { data, error } = await supabase
         .from('hour_budgets')
-        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status')
+        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status, holidays_json')
         .eq('month', selectedMonth);
 
       if (error) {
@@ -223,11 +223,23 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
         }
 
         totalHours += posMonthlyHs;
-        // Use pre-calculated total_cost if available (includes holiday premium)
+        const rate = Number(row.hourly_rate || row.hourlyRate || 0);
+        const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
+
         if (row.total_cost && Number(row.total_cost) > 0) {
+          // Use pre-calculated total_cost (includes holiday premium from import)
           totalCost += Number(row.total_cost);
+        } else if (row.staffByDate && Object.keys(row.staffByDate).length > 0) {
+          // Calculate from staffByDate including holidays
+          const holidayDates: string[] = row.holidays_json ? JSON.parse(row.holidays_json) : [];
+          let cost = posMonthlyHs * rate;
+          // Add holiday premium for each holiday date
+          holidayDates.forEach((hDate: string) => {
+            const staff = row.staffByDate[hDate] || 0;
+            if (staff > 0) cost += staff * hpd * rate; // extra pay for holiday
+          });
+          totalCost += cost;
         } else {
-          const rate = Number(row.hourly_rate || row.hourlyRate || 0);
           totalCost += posMonthlyHs * rate;
         }
       });
