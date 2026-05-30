@@ -226,22 +226,33 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
         const rate = Number(row.hourly_rate || row.hourlyRate || 0);
         const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
 
-        if (row.total_cost && Number(row.total_cost) > 0) {
-          // Use pre-calculated total_cost (includes holiday premium from import)
-          totalCost += Number(row.total_cost);
-        } else if (row.staffByDate && Object.keys(row.staffByDate).length > 0) {
-          // Calculate from staffByDate including holidays
-          const holidayDates: string[] = row.holidays_json ? JSON.parse(row.holidays_json) : [];
-          let cost = posMonthlyHs * rate;
-          // Add holiday premium for each holiday date
-          holidayDates.forEach((hDate: string) => {
-            const staff = row.staffByDate[hDate] || 0;
-            if (staff > 0) cost += staff * hpd * rate; // extra pay for holiday
-          });
-          totalCost += cost;
-        } else {
-          totalCost += posMonthlyHs * rate;
+        // Base cost = total hours * rate
+        let posCost = posMonthlyHs * rate;
+        
+        // Add holiday premium from holidays_json if available
+        if (row.holidays_json) {
+          try {
+            const holidayDates: string[] = JSON.parse(row.holidays_json);
+            // For each holiday, we need to know how many staff worked
+            // We can estimate: if the position had N hours in that week, 
+            // one day = N/7 hours = N/7/hpd staff
+            // Better: use week averages to estimate daily staff
+            const weeksHours = [
+              Number(row.week1||0), Number(row.week2||0),
+              Number(row.week3||0), Number(row.week4||0), Number(row.week5||0)
+            ];
+            holidayDates.forEach((hDate: string) => {
+              const d = new Date(hDate);
+              const day = d.getDate();
+              const wIdx = day <= 7 ? 0 : day <= 14 ? 1 : day <= 21 ? 2 : day <= 28 ? 3 : 4;
+              const avgDailyHrs = weeksHours[wIdx] / 7;
+              const staffOnDay = hpd > 0 ? avgDailyHrs / hpd : 0;
+              posCost += staffOnDay * hpd * rate; // extra pay = staffOnDay * hpd * rate
+            });
+          } catch(e) {}
         }
+        
+        totalCost += posCost;
       });
     } else {
       // Legacy support
