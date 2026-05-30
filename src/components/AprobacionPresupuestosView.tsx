@@ -140,6 +140,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     Object.entries(loaded).forEach(([branchId, info]: [string, any]) => {
       const hrs = info.rows?.reduce((s: number, r: any) => s + Number(r.total_hours || 0), 0) || 0;
       console.log(`[Aprobacion] branch=${branchId} rows=${info.rows?.length || 0} totalHrs=${hrs} status=${info.status}`);
+      if (info.rows?.length > 0) console.log('[Aprobacion] sample row:', JSON.stringify(info.rows[0]));
     });
     setBudgetsState(loaded);
   };
