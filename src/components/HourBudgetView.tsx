@@ -489,24 +489,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setHolidaysList(updated);
     // Also cache in localStorage
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
-    // Persist holidays to Supabase (national, same for all branches)
+    // Persist holidays to Supabase using upsert
     try {
-      const { data: existing, error: selErr } = await supabase
+      const { error } = await supabase
         .from('budget_holidays')
-        .select('id')
-        .eq('month', selectedMonth)
-        .maybeSingle();
-      if (selErr) throw selErr;
-      if (existing) {
-        const { error: updErr } = await supabase.from('budget_holidays')
-          .update({ holiday_dates: updated })
-          .eq('month', selectedMonth);
-        if (updErr) throw updErr;
-      } else {
-        const { error: insErr } = await supabase.from('budget_holidays')
-          .insert({ month: selectedMonth, holiday_dates: updated });
-        if (insErr) throw insErr;
-      }
+        .upsert({ month: selectedMonth, holiday_dates: updated }, { onConflict: 'month' });
+      if (error) throw error;
       console.log('[Holidays] Saved to Supabase:', updated);
     } catch(e: any) {
       alert('Error guardando feriado en Supabase: ' + e.message);
