@@ -480,30 +480,32 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleToggleHoliday = async (dateStr: string) => {
+    // Read current holidays from Supabase to avoid race conditions
+    let currentHolidays: string[] = [...holidaysList];
+    try {
+      const { data: fresh } = await supabase
+        .from('budget_holidays')
+        .select('holiday_dates')
+        .eq('month', selectedMonth)
+        .maybeSingle();
+      if (fresh?.holiday_dates) currentHolidays = fresh.holiday_dates;
+    } catch(e) {}
+
     let updated: string[];
-    if (holidaysList.includes(dateStr)) {
-      updated = holidaysList.filter(d => d !== dateStr);
+    if (currentHolidays.includes(dateStr)) {
+      updated = currentHolidays.filter(d => d !== dateStr);
     } else {
-      updated = [...holidaysList, dateStr];
+      updated = [...currentHolidays, dateStr];
     }
     setHolidaysList(updated);
-    // Also cache in localStorage
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
-    // Persist holidays to Supabase using upsert
+
+    // Save to Supabase
     try {
-      const { error } = await supabase
-        .from('budget_holidays')
-        .upsert(
-          { month: selectedMonth, holiday_dates: updated },
-          { onConflict: 'month', ignoreDuplicates: false }
-        );
-      if (error) {
-        // Try delete+insert as fallback
-        await supabase.from('budget_holidays').delete().eq('month', selectedMonth);
-        const { error: insErr } = await supabase.from('budget_holidays')
-          .insert({ month: selectedMonth, holiday_dates: updated });
-        if (insErr) throw insErr;
-      }
+      await supabase.from('budget_holidays').delete().eq('month', selectedMonth);
+      const { error } = await supabase.from('budget_holidays')
+        .insert({ month: selectedMonth, holiday_dates: updated });
+      if (error) throw error;
       console.log('[Holidays] Saved:', updated);
     } catch(e: any) {
       alert('Error guardando feriado: ' + e.message);
