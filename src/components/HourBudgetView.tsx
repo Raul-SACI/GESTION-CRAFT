@@ -905,19 +905,20 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         .select('holiday_dates')
         .eq('month', selectedMonth)
         .maybeSingle();
+      alert('hData raw: ' + JSON.stringify(hData));
       if (hData?.holiday_dates) {
-        // Handle both jsonb array and text[] from Supabase
-        const dates = Array.isArray(hData.holiday_dates) 
-          ? hData.holiday_dates 
-          : (typeof hData.holiday_dates === 'string' ? JSON.parse(hData.holiday_dates) : []);
-        if (dates.length > 0) {
-          importHolidays = dates;
-        }
+        const raw = hData.holiday_dates;
+        alert('holiday_dates type: ' + typeof raw + ' isArray: ' + Array.isArray(raw) + ' value: ' + JSON.stringify(raw));
+        const dates = Array.isArray(raw) ? raw 
+          : (typeof raw === 'string' ? JSON.parse(raw) 
+          : Object.values(raw));
+        if (dates.length > 0) importHolidays = dates;
       }
       if (importHolidays.length === 0 && holidaysList.length > 0) {
         importHolidays = [...holidaysList];
       }
-    } catch(e: any) { console.warn('[Import] holiday fetch error:', e); }
+      alert('Final importHolidays: ' + JSON.stringify(importHolidays));
+    } catch(e: any) { alert('holiday fetch error: ' + e.message); }
 
     try {
       // Calculate weekly hours from staffByDate
