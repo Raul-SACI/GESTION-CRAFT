@@ -438,13 +438,15 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         month: selectedMonth,
         position_id: r.roleId || r.id,
         position_name: r.roleLabel || r.positionName || r.roleId,
-        week1: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(0, 7).reduce((a: number, b: number) => a + b, 0) : (r.week1 || 0),
-        week2: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(7, 14).reduce((a: number, b: number) => a + b, 0) : (r.week2 || 0),
-        week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b, 0) : (r.week3 || 0),
-        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21, 28).reduce((a: number, b: number) => a + b, 0) : (r.week4 || 0),
-        week5: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(28).reduce((a: number, b: number) => a + b, 0) : (r.week5 || 0),
+        week1: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(0, 7).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week1 || 0),
+        week2: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(7, 14).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week2 || 0),
+        week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week3 || 0),
+        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21, 28).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week4 || 0),
+        week5: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(28).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week5 || 0),
+        hours_per_day: r.hoursPerDay || 0,
         hourly_rate: r.hourlyRate || 0,
-        status: 'pending' // Always pending until approved by Gerente
+        total_hours: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : ((r.week1||0)+(r.week2||0)+(r.week3||0)+(r.week4||0)+(r.week5||0)),
+        status: 'pending'
       }));
       
       // Borrar registros previos del mes/sucursal y reinsertar
