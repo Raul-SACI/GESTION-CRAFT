@@ -492,19 +492,16 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setHolidaysList(updated);
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
 
-    // Save to Supabase - store array as JSON string to avoid pg array issues
+    // Save to Supabase using upsert to avoid race conditions between delete/insert
     try {
-      await supabase.from('budget_holidays').delete().eq('month', selectedMonth);
-      if (updated.length > 0) {
-        const row = { month: selectedMonth, holiday_dates: updated };
-        const { data: ins, error } = await supabase
-          .from('budget_holidays').insert(row).select();
-        if (error) {
-          console.error('[Holidays] Insert error:', JSON.stringify(error));
-          alert('Error guardando feriado: ' + error.message + ' | ' + error.details);
-        } else {
-          console.log('[Holidays] Saved OK:', ins);
-        }
+      const { error } = await supabase
+        .from('budget_holidays')
+        .upsert({ month: selectedMonth, holiday_dates: updated }, { onConflict: 'month' });
+      if (error) {
+        console.error('[Holidays] Upsert error:', JSON.stringify(error));
+        alert('Error guardando feriado: ' + error.message);
+      } else {
+        console.log('[Holidays] Saved OK:', updated);
       }
     } catch(e: any) {
       alert('Error guardando feriado: ' + e.message);
