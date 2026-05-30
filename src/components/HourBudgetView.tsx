@@ -506,7 +506,6 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         .from('budget_holidays')
         .upsert({ month: selectedMonth, holiday_dates: updated }, { onConflict: 'month' });
       if (error) throw error;
-      console.log('[Holidays] Confirmed and saved:', updated);
     } catch(e: any) {
       alert('Error guardando feriados: ' + e.message);
     }
