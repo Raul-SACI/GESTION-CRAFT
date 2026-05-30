@@ -905,16 +905,19 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         .select('holiday_dates')
         .eq('month', selectedMonth)
         .maybeSingle();
-      if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
-        importHolidays = hData.holiday_dates;
-        alert('[Import] Holidays from Supabase: ' + JSON.stringify(importHolidays));
-      } else if (holidaysList.length > 0) {
-        importHolidays = [...holidaysList];
-        alert('[Import] Holidays from state: ' + JSON.stringify(importHolidays));
-      } else {
-        alert('[Import] NO holidays found! holidaysList=' + JSON.stringify(holidaysList) + ' hData=' + JSON.stringify(hData));
+      if (hData?.holiday_dates) {
+        // Handle both jsonb array and text[] from Supabase
+        const dates = Array.isArray(hData.holiday_dates) 
+          ? hData.holiday_dates 
+          : (typeof hData.holiday_dates === 'string' ? JSON.parse(hData.holiday_dates) : []);
+        if (dates.length > 0) {
+          importHolidays = dates;
+        }
       }
-    } catch(e: any) { alert('[Import] Error fetching holidays: ' + e.message); }
+      if (importHolidays.length === 0 && holidaysList.length > 0) {
+        importHolidays = [...holidaysList];
+      }
+    } catch(e: any) { console.warn('[Import] holiday fetch error:', e); }
 
     try {
       // Calculate weekly hours from staffByDate
