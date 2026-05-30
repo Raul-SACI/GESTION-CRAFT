@@ -907,12 +907,14 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         .maybeSingle();
       if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
         importHolidays = hData.holiday_dates;
-        console.log('[Import] Holidays from Supabase:', importHolidays);
+        alert('[Import] Holidays from Supabase: ' + JSON.stringify(importHolidays));
       } else if (holidaysList.length > 0) {
         importHolidays = [...holidaysList];
-        console.log('[Import] Holidays from state:', importHolidays);
+        alert('[Import] Holidays from state: ' + JSON.stringify(importHolidays));
+      } else {
+        alert('[Import] NO holidays found! holidaysList=' + JSON.stringify(holidaysList) + ' hData=' + JSON.stringify(hData));
       }
-    } catch(e) { console.warn('[Import] Could not fetch holidays:', e); }
+    } catch(e: any) { alert('[Import] Error fetching holidays: ' + e.message); }
 
     try {
       // Calculate weekly hours from staffByDate
