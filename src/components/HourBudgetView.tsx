@@ -953,9 +953,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         const rate = g.hourly_rate || 0;
         const hpd = g.hours_per_day || 0;
         
-        // Add holiday premium: read holidays from localStorage at import time
-        const savedHolidays = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
-        const currentHolidays: string[] = savedHolidays ? JSON.parse(savedHolidays) : holidaysList;
+        // Use holidaysList from component state (already loaded from Supabase)
+        const currentHolidays: string[] = holidaysList.length > 0 ? holidaysList : 
+          (() => { try { const s = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`); return s ? JSON.parse(s) : []; } catch(e) { return []; } })();
         let holidayPremium = 0;
         if (currentHolidays && currentHolidays.length > 0) {
           currentHolidays.forEach((hDate: string) => {
