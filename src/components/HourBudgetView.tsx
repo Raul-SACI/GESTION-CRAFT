@@ -208,6 +208,9 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
   const [activeWeekIndex, setActiveWeekIndex] = useState(1);
   const [holidaysList, setHolidaysList] = useState<string[]>([]);
+  const [pendingHolidays, setPendingHolidays] = useState<string[]>([]);
+  const [pendingHolidays, setPendingHolidays] = useState<string[]>([]);
+  const [showHolidayPicker, setShowHolidayPicker] = useState(false);
   const [rows, setRows] = useState<BudgetRow[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [budgetStatus, setBudgetStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
@@ -326,6 +329,14 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     });
     return daysList.sort((a, b) => a.dateStr.localeCompare(b.dateStr));
   }, [weeks, holidaysList]);
+
+  // Sync pendingHolidays from holidaysList when it changes
+  useEffect(() => {
+    setPendingHolidays([...holidaysList]);
+  }, [holidaysList]);
+
+  // Sync pendingHolidays when holidaysList loads
+  useEffect(() => { setPendingHolidays([...holidaysList]); }, [holidaysList.length]);
 
   // Load holidays from Supabase
   useEffect(() => {
@@ -479,32 +490,26 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setTimeout(() => setSaveSuccess(false), 2500);
   };
 
-  const handleToggleHoliday = async (dateStr: string) => {
-    // Use component state as source of truth (already correct from previous clicks)
-    let updated: string[];
-    if (holidaysList.includes(dateStr)) {
-      updated = holidaysList.filter(d => d !== dateStr);
-    } else {
-      updated = [...holidaysList, dateStr];
-    }
-    
-    // Update state and localStorage immediately
+  // Toggle a day in pending selection (checkbox, not saved yet)
+  const handleToggleHoliday = (dateStr: string) => {
+    setPendingHolidays(prev =>
+      prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
+    );
+  };
+
+  // Confirm and save all holidays at once - single Supabase call
+  const handleConfirmHolidays = async () => {
+    const updated = [...pendingHolidays].sort();
     setHolidaysList(updated);
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
-
-    // Save to Supabase using upsert to avoid race conditions between delete/insert
     try {
       const { error } = await supabase
         .from('budget_holidays')
         .upsert({ month: selectedMonth, holiday_dates: updated }, { onConflict: 'month' });
-      if (error) {
-        console.error('[Holidays] Upsert error:', JSON.stringify(error));
-        alert('Error guardando feriado: ' + error.message);
-      } else {
-        console.log('[Holidays] Saved OK:', updated);
-      }
+      if (error) throw error;
+      console.log('[Holidays] Confirmed and saved:', updated);
     } catch(e: any) {
-      alert('Error guardando feriado: ' + e.message);
+      alert('Error guardando feriados: ' + e.message);
     }
   };
 
@@ -1222,29 +1227,30 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
               Registra los feriados nacionales del mes. El costo por hora para estas fechas se duplicará automáticamente.
             </p>
 
-            {/* Selector of month's dates */}
-            <div className="space-y-1.5 pt-1">
-              <label className="text-[9.5px] font-black text-text-dim uppercase tracking-widest">Añadir Fecha de Feriado:</label>
-              <select
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val && !holidaysList.includes(val)) {
-                    const updated = [...holidaysList, val];
-                    setHolidaysList(updated);
-                    // Persist global holidays valid for all branches
-                    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
-                  }
-                  e.target.value = '';
-                }}
-                className="w-full bg-bg-main border border-border-dim/80 rounded px-2.5 py-1.5 text-[11px] font-sans font-bold text-text-main focus:border-brand-500 outline-none uppercase"
-              >
-                <option value="">-- Seleccionar Día --</option>
+            {/* Multi-select checklist + confirm button */}
+            <div className="space-y-2 pt-1">
+              <label className="text-[9.5px] font-black text-text-dim uppercase tracking-widest">Seleccionar Días Feriados:</label>
+              <div className="max-h-[160px] overflow-y-auto space-y-1 border border-border-dim rounded p-2 bg-bg-main">
                 {activeMonthDays.map(day => (
-                  <option key={day.dateStr} value={day.dateStr} disabled={holidaysList.includes(day.dateStr)}>
-                    {day.dayNumber} - {day.dayName} ({day.formattedDate})
-                  </option>
+                  <label key={day.dateStr} className="flex items-center gap-2 cursor-pointer hover:bg-bg-accent/30 px-1 py-0.5 rounded">
+                    <input
+                      type="checkbox"
+                      checked={pendingHolidays.includes(day.dateStr)}
+                      onChange={() => handleToggleHoliday(day.dateStr)}
+                      className="accent-red-500 w-3 h-3"
+                    />
+                    <span className="text-[10px] font-bold text-text-main uppercase">
+                      {day.dayNumber} - {day.dayName.substring(0,3).toUpperCase()}
+                    </span>
+                  </label>
                 ))}
-              </select>
+              </div>
+              <button
+                onClick={handleConfirmHolidays}
+                className="w-full px-3 py-2 bg-red-500 hover:bg-red-600 text-white text-[9px] font-black uppercase tracking-widest rounded transition-all flex items-center justify-center gap-2"
+              >
+                <Flag size={11} /> Confirmar Feriados ({pendingHolidays.length})
+              </button>
             </div>
 
             {/* List of registered holidays */}
