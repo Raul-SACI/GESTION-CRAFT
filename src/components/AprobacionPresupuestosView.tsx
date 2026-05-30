@@ -98,48 +98,44 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
 
   // Fetch budgets from Supabase
   const loadAllBudgets = async () => {
-    const loaded: Record<string, any> = {};
-    
-    // Intentar Supabase primero
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('hour_budgets')
-        .select('*')
+        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, hourly_rate, hours_per_day, shift, status')
         .eq('month', selectedMonth);
-      
+
+      if (error) {
+        console.error('Supabase error:', error.message);
+        return;
+      }
+
+      const loaded: Record<string, any> = {};
+
+      // Initialize all branches as empty
+      branches.forEach(b => {
+        loaded[b.id] = { rows: [], status: 'pending' };
+      });
+
+      // Fill in data from Supabase
       if (data && data.length > 0) {
-        // Agrupar por branch_id
         data.forEach((row: any) => {
           if (!loaded[row.branch_id]) {
-            loaded[row.branch_id] = { rows: [], status: row.status || 'pending' };
+            loaded[row.branch_id] = { rows: [], status: 'pending' };
           }
-          loaded[row.branch_id].rows = loaded[row.branch_id].rows || [];
           loaded[row.branch_id].rows.push(row);
           loaded[row.branch_id].status = row.status || 'pending';
         });
       }
-    } catch(e) {
-      console.error('Error loading budgets from Supabase:', e);
-    }
 
-    // For branches without Supabase data, show empty (no localStorage fallback)
-    branches.forEach(b => {
-      if (!loaded[b.id]) {
-        loaded[b.id] = { rows: [], status: 'pending' };
-      }
-    });
-    
-    setBudgetsState(loaded);
+      setBudgetsState(loaded);
+    } catch(e: any) {
+      console.error('Error loading budgets:', e.message);
+    }
   };
 
   useEffect(() => {
-    if (supabase) loadAllBudgets();
-  }, [selectedMonth]);
-
-  // Also reload when branches load (in case they were empty on first mount)
-  useEffect(() => {
-    if (branches && branches.length > 0 && supabase) loadAllBudgets();
-  }, [branches.length]);
+    if (branches && branches.length > 0) loadAllBudgets();
+  }, [selectedMonth, branches.length]);
 
   const handleToggleApprove = async (branchId: string) => {
     const current = budgetsState[branchId] || {
