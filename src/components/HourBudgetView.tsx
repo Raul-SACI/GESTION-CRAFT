@@ -338,19 +338,28 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     
     const computedWeeks = getWeeksForMonth(selectedMonth);
     
-    // Load holidays globally valid for all branches for this month
-    const globalHolidaysKey = `hour_budget_holidays_${selectedMonth}`;
-    const savedGlobalHolidays = localStorage.getItem(globalHolidaysKey);
+    // Load holidays from Supabase (national holidays, same for all branches)
     let resolvedHolidays: string[] = [];
     let hasGlobalHolidays = false;
-    
-    if (savedGlobalHolidays) {
-      try {
-        resolvedHolidays = JSON.parse(savedGlobalHolidays);
+    try {
+      const { data: hData } = await supabase
+        .from('budget_holidays')
+        .select('holiday_dates')
+        .eq('month', selectedMonth)
+        .maybeSingle();
+      if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
+        resolvedHolidays = hData.holiday_dates;
         hasGlobalHolidays = true;
-      } catch (e) {
-        console.error('Error parsing global holidays:', e);
+        // Sync to localStorage as cache
+        localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(resolvedHolidays));
+      } else {
+        // Fallback to localStorage cache
+        const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+        if (cached) { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; }
       }
+    } catch(e) {
+      const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+      if (cached) { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; }
     }
 
     if (savedV2) {
@@ -467,7 +476,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setTimeout(() => setSaveSuccess(false), 2500);
   };
 
-  const handleToggleHoliday = (dateStr: string) => {
+  const handleToggleHoliday = async (dateStr: string) => {
     let updated: string[];
     if (holidaysList.includes(dateStr)) {
       updated = holidaysList.filter(d => d !== dateStr);
@@ -475,7 +484,20 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       updated = [...holidaysList, dateStr];
     }
     setHolidaysList(updated);
-    // Persist holidays globally for all branches
+    // Persist holidays to Supabase (national, same for all branches)
+    try {
+      const { data: existing } = await supabase
+        .from('budget_holidays')
+        .select('id')
+        .eq('month', selectedMonth)
+        .maybeSingle();
+      if (existing) {
+        await supabase.from('budget_holidays').update({ holiday_dates: updated }).eq('month', selectedMonth);
+      } else {
+        await supabase.from('budget_holidays').insert({ month: selectedMonth, holiday_dates: updated });
+      }
+    } catch(e) { console.error('Error saving holiday:', e); }
+    // Also cache in localStorage
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
   };
 
