@@ -905,10 +905,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         .select('holiday_dates')
         .eq('month', selectedMonth)
         .maybeSingle();
-      alert('hData raw: ' + JSON.stringify(hData));
       if (hData?.holiday_dates) {
         const raw = hData.holiday_dates;
-        alert('holiday_dates type: ' + typeof raw + ' isArray: ' + Array.isArray(raw) + ' value: ' + JSON.stringify(raw));
         const dates = Array.isArray(raw) ? raw 
           : (typeof raw === 'string' ? JSON.parse(raw) 
           : Object.values(raw));
@@ -917,8 +915,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       if (importHolidays.length === 0 && holidaysList.length > 0) {
         importHolidays = [...holidaysList];
       }
-      alert('Final importHolidays: ' + JSON.stringify(importHolidays));
-    } catch(e: any) { alert('holiday fetch error: ' + e.message); }
+    } catch(e: any) { console.warn('holiday fetch error:', e); }
 
     try {
       // Calculate weekly hours from staffByDate
