@@ -36,6 +36,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch, ScheduledPayment, FinanceCategory, FinanceEntry } from '../types';
+import { supabase } from '../lib/supabase';
 
 interface Reminder {
   id: string;
