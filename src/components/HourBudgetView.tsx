@@ -927,12 +927,21 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
       if (delError) console.warn('Delete warning:', delError.message);
       
       if (upsertData.length > 0) {
-        // Insert in batches of 10 to avoid issues
-        for (let i = 0; i < upsertData.length; i += 10) {
-          const batch = upsertData.slice(i, i + 10);
-          const { error } = await supabase.from('hour_budgets').insert(batch);
-          if (error) throw error;
-        }
+        console.log('[Budget] Inserting', upsertData.length, 'rows. Sample:', JSON.stringify(upsertData[0]));
+        const { data: inserted, error: insertError } = await supabase
+          .from('hour_budgets')
+          .insert(upsertData)
+          .select('id');
+        if (insertError) throw insertError;
+        console.log('[Budget] Insert result:', inserted?.length, 'rows inserted');
+        
+        // Verify with a SELECT
+        const { data: verify, error: verifyError } = await supabase
+          .from('hour_budgets')
+          .select('id, branch_id, total_hours')
+          .eq('branch_id', activeBranchId)
+          .eq('month', selectedMonth);
+        console.log('[Budget] Verify SELECT:', verify?.length, 'rows found, error:', verifyError?.message);
       }
       console.log('[Budget] Saved', upsertData.length, 'rows to Supabase for', activeBranchId, selectedMonth);
       alert(`✅ Presupuesto guardado: ${upsertData.length} puestos para ${activeBranchId} - ${selectedMonth}`);
