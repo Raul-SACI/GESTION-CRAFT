@@ -915,7 +915,31 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
           getWeekHours(r, weekDates[4])
         );
       });
-      const upsertData = Object.values(grouped);
+      // Calculate total cost including holiday premium for each position
+      const upsertData = Object.values(grouped).map((g: any) => {
+        const baseHrs = g.total_hours || 0;
+        const rate = g.hourly_rate || 0;
+        const hpd = g.hours_per_day || 0;
+        
+        // Add holiday premium: each holiday day that has staff -> extra pay (1x rate * hpd)
+        let holidayPremium = 0;
+        if (holidaysList && holidaysList.length > 0) {
+          holidaysList.forEach((hDate: string) => {
+            // Find original row to get staffByDate
+            const origRow = importedBudgetRows.find((r: any) => 
+              `${r.roleId}_${(r.shift || 'tarde').toLowerCase().replace(/[^a-z]/g,'')}` === g.position_id
+            );
+            if (origRow?.staffByDate?.[hDate]) {
+              holidayPremium += origRow.staffByDate[hDate] * hpd * rate;
+            }
+          });
+        }
+        
+        return {
+          ...g,
+          total_cost: Math.round(baseHrs * rate + holidayPremium),
+        };
+      });
 
       // Delete all existing rows for this branch+month first, then insert fresh
       const { error: delError } = await supabase

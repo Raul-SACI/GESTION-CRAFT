@@ -101,7 +101,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
     try {
       const { data, error } = await supabase
         .from('hour_budgets')
-        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, hourly_rate, hours_per_day, shift, status')
+        .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status')
         .eq('month', selectedMonth);
 
       if (error) {
@@ -222,10 +222,14 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
                          Number(row.week5 || 0);
         }
 
-        const rate = Number(row.hourly_rate || row.hourlyRate || 0);
-        const hpd = Number(row.hours_per_day || row.hoursPerDay || 8);
         totalHours += posMonthlyHs;
-        totalCost += (posMonthlyHs * rate) + (holidays * hpd * rate);
+        // Use pre-calculated total_cost if available (includes holiday premium)
+        if (row.total_cost && Number(row.total_cost) > 0) {
+          totalCost += Number(row.total_cost);
+        } else {
+          const rate = Number(row.hourly_rate || row.hourlyRate || 0);
+          totalCost += posMonthlyHs * rate;
+        }
       });
     } else {
       // Legacy support
