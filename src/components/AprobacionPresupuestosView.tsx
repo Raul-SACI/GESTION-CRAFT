@@ -229,23 +229,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
       });
     } else {
       // Legacy support
-      const positions = (info.positions || DEFAULT_POSITIONS) as LegacyBudgetPosition[];
-      const daysInMonth = info.daysInMonth || 30;
-      const fridays = info.fridays || 4;
-      const saturdays = info.saturdays || 4;
-      const sundays = info.sundays || 4;
-      const weekendDaysCount = fridays + saturdays + sundays;
-      const weekdayDaysCount = Math.max(0, daysInMonth - weekendDaysCount);
-
-      positions.forEach(pos => {
-        const weekdayHours = weekdayDaysCount * (pos.countWeekday * pos.hoursPerDay);
-        const weekendHours = weekendDaysCount * (pos.countWeekend * pos.hoursPerDay);
-        const posMonthlyHours = weekdayHours + weekendHours;
-        const holidayExtraCost = holidays * (pos.countWeekend * pos.hoursPerDay) * pos.hourlyRate; 
-
-        totalHours += posMonthlyHours;
-        totalCost += (posMonthlyHours * pos.hourlyRate) + holidayExtraCost;
-      });
+      // No legacy fallback - show 0 when no real data
     }
 
     return { totalHours, totalCost, status };
@@ -528,10 +512,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
                         const holidays = bInfo.holidays !== undefined ? bInfo.holidays : 2;
                         return acc + (holidays * (p.countGroupB * p.hoursPerDay) * p.hourlyRate);
                       }, 0)
-                    : (budgetsState[selectedBranch.id]?.positions || DEFAULT_POSITIONS).reduce((acc: number, p: LegacyBudgetPosition) => {
-                        const bInfo = budgetsState[selectedBranch.id] || { holidays: 2 };
-                        return acc + (bInfo.holidays * (p.countWeekend * p.hoursPerDay) * p.hourlyRate);
-                      }, 0)).toLocaleString()}
+                    : 0).toLocaleString()}
                   </span>
                 </div>
                 <div className="flex justify-between text-xs border-t border-border-dim/40 pt-2 font-black">
