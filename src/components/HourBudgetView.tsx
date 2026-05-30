@@ -897,6 +897,23 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     setRows(newRows);
 
     // Auto-save to Supabase on import confirm
+    // Fetch holidays from Supabase first to ensure we have the latest
+    let importHolidays: string[] = [...holidaysList];
+    try {
+      const { data: hData } = await supabase
+        .from('budget_holidays')
+        .select('holiday_dates')
+        .eq('month', selectedMonth)
+        .maybeSingle();
+      if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
+        importHolidays = hData.holiday_dates;
+        console.log('[Import] Holidays from Supabase:', importHolidays);
+      } else if (holidaysList.length > 0) {
+        importHolidays = [...holidaysList];
+        console.log('[Import] Holidays from state:', importHolidays);
+      }
+    } catch(e) { console.warn('[Import] Could not fetch holidays:', e); }
+
     try {
       // Calculate weekly hours from staffByDate
       const getWeekHours = (row: BudgetRow, weekDays: string[] | undefined) => {
@@ -953,9 +970,8 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
         const rate = g.hourly_rate || 0;
         const hpd = g.hours_per_day || 0;
         
-        // Use holidaysList from component state (already loaded from Supabase)
-        const currentHolidays: string[] = holidaysList.length > 0 ? holidaysList : 
-          (() => { try { const s = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`); return s ? JSON.parse(s) : []; } catch(e) { return []; } })();
+        // Use importHolidays fetched from Supabase at start of import
+        const currentHolidays: string[] = importHolidays;
         let holidayPremium = 0;
         if (currentHolidays && currentHolidays.length > 0) {
           currentHolidays.forEach((hDate: string) => {
