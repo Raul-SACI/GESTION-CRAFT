@@ -270,33 +270,10 @@ function AppContent() {
       
       if (rolesData) setRolesConfigList(rolesData);
       if (profilesData) {
-        // Obsolete/unwanted original default users that must be erased
-        const obsoleteNames = [];
-        const obsoleteIds = [];
-
-        const cleanProfiles = profilesData.filter((p: any) => {
-          if (!p || !p.id) return false;
-          if (obsoleteIds.includes(p.id)) return false;
-          if (p.name && obsoleteNames.includes(p.name.toUpperCase())) return false;
-          return true;
-        });
-
-        // Trigger dynamic deletion of these user profiles from both remote/local databases if detected
-        const obsoleteFound = profilesData.filter((p: any) => {
-          if (!p || !p.id) return false;
-          return obsoleteIds.includes(p.id) || (p.name && obsoleteNames.includes(p.name.toUpperCase()));
-        });
-
-        if (obsoleteFound.length > 0) {
-          console.log('[Access Control Sync] Detected stale/obsolete users. Performing automatic database purge...');
-          obsoleteFound.forEach((p: any) => {
-            supabase.from('profiles').delete().eq('id', p.id).then(() => {
-              console.log(`[Access Control Sync] Permanently purged user: ${p.name || p.id}`);
-            }, (err: any) => {
-              console.warn(`[Access Control Sync] Failed to purge user ${p.name || p.id}:`, err);
-            });
-          });
-        }
+        // Filtrado en memoria: descarta entradas inválidas (sin id) para la UI.
+        // NOTA: ya no se borran usuarios de la base automáticamente. Cualquier
+        // eliminación debe hacerse de forma manual y con confirmación explícita.
+        const cleanProfiles = profilesData.filter((p: any) => p && p.id);
 
         // Maintain real Supabase profiles if credentials are configured
         setAvailableProfiles(cleanProfiles);
