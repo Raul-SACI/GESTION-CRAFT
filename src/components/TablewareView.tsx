@@ -441,7 +441,7 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
                                          isLow ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
                                          "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
                                        )}>
-                                          {isCritical ? 'CRÍTICO' : isLow ? 'REPONER' : 'OK'}
+                                          {isCritical ? 'REPONER URGENTE' : isLow ? 'A REPONER' : 'OK'}
                                        </span>
                                     </td>
                                  </tr>
