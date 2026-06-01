@@ -202,7 +202,7 @@ export default function StockView({
         });
 
         // Merge into dailyData: only fill decomisos if still 0 (don't override manual entries)
-        const upsertPromises: Promise<any>[] = [];
+        const upsertPromises: any[] = [];
         setDailyData(prev => {
           const merged = { ...prev };
           Object.keys(wastageByDateItem).forEach(date => {

@@ -425,7 +425,7 @@ export default function FinanceView({
         entity_name: 'ENTRIES',
         amount: 0,
         notes: JSON.stringify(entries)
-      }]).then(() => {}).catch(() => {});
+      }]).then(() => {}, () => {});
     }
   }, [entries]);
 

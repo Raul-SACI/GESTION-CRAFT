@@ -242,7 +242,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
       }
 
       // Delete existing rows for this month then insert fresh
-      const branchIds = [...new Set(Object.values(ratings).map(r => r.branch_id))];
+      const branchIds = [...new Set(Object.values(ratings).map((r: any) => r.branch_id))];
       await supabase
         .from('pedidos_ya_ratings')
         .delete()

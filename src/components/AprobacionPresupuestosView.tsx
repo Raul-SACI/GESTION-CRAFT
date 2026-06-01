@@ -224,12 +224,45 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
 
         totalHours += posMonthlyHs;
 
-        // Use pre-calculated total_cost if available (includes holiday premium)
+        // Usar el total_cost pre-calculado si está disponible (ya incluye el premium de feriado).
         if (row.total_cost && Number(row.total_cost) > 0) {
           totalCost += Number(row.total_cost);
         } else {
+          // Red de seguridad: si la fila no tiene total_cost (dato viejo guardado sin premium),
+          // lo recalculamos acá replicando la lógica del Presupuestador: horas a tarifa normal
+          // + premium de feriado (las horas trabajadas en feriado se pagan al DOBLE).
           const rate = Number(row.hourly_rate || row.hourlyRate || 0);
-          totalCost += posMonthlyHs * rate;
+          const hpd = Number(row.hours_per_day || row.hoursPerDay || 0);
+
+          let staffByDate: Record<string, number> = {};
+          try {
+            if (row.staff_by_date) {
+              staffByDate = typeof row.staff_by_date === 'string'
+                ? JSON.parse(row.staff_by_date)
+                : row.staff_by_date;
+            }
+          } catch (e) { staffByDate = {}; }
+
+          let holidayDates: string[] = [];
+          try {
+            if (row.holidays_json) {
+              holidayDates = typeof row.holidays_json === 'string'
+                ? JSON.parse(row.holidays_json)
+                : row.holidays_json;
+            }
+          } catch (e) { holidayDates = []; }
+
+          let holidayPremium = 0;
+          if (holidayDates.length > 0 && Object.keys(staffByDate).length > 0) {
+            holidayDates.forEach((hDate: string) => {
+              const staffOnDay = Number(staffByDate[hDate] || 0);
+              if (staffOnDay > 0) {
+                holidayPremium += staffOnDay * hpd * rate;
+              }
+            });
+          }
+
+          totalCost += posMonthlyHs * rate + holidayPremium;
         }
       });
     } else {

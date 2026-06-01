@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, type FC } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calculator, 
@@ -373,7 +373,7 @@ function StatCard({ label, value, readOnly, onChange, color, sublabel }: { label
   );
 }
 
-function ListItem({ item, onRemove }: { item: ConsumptionDetail, onRemove: () => void }) {
+const ListItem: FC<{ item: ConsumptionDetail, onRemove: () => void | Promise<void> }> = ({ item, onRemove }) => {
   return (
     <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}
       className="bg-bg-accent/40 border border-border-dim/30 p-3 rounded flex items-center justify-between group hover:border-brand-500/30 transition-all">
@@ -387,4 +387,4 @@ function ListItem({ item, onRemove }: { item: ConsumptionDetail, onRemove: () =>
       </div>
     </motion.div>
   );
-}
+};

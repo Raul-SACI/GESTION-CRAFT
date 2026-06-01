@@ -361,15 +361,6 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
 
     const label = mode === 'consolidated' ? 'CONSOLIDADO' : (filtered[0]?.branchName || payrollFilterBranch);
     XLSX.writeFile(wb, `liquidacion_${selectedMonth}_${label}.xlsx`);
-    return; // early return - no more code needed below
-    const rows: string[] = []; // unused but keeps TS happy
-    
-    const content = [headers, ...rows].join('\n');
-    const blob = new Blob([content], { type: 'text/tab-separated-values;charset=utf-8' });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `liquidacion_mensual_${selectedMonth}_${payrollFilterBranch}.txt`;
-    link.click();
   };
 
   const filteredItems = payrollItems.filter(item => payrollFilterBranch === 'all' || item.branchId === payrollFilterBranch);

@@ -292,7 +292,7 @@ function AppContent() {
           obsoleteFound.forEach((p: any) => {
             supabase.from('profiles').delete().eq('id', p.id).then(() => {
               console.log(`[Access Control Sync] Permanently purged user: ${p.name || p.id}`);
-            }).catch((err: any) => {
+            }, (err: any) => {
               console.warn(`[Access Control Sync] Failed to purge user ${p.name || p.id}:`, err);
             });
           });

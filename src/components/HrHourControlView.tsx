@@ -398,7 +398,6 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         week_number: parseInt(selectedWeek),
         position_id: r.roleId || r.positionId || r.id || 'unknown',
         position_name: r.roleLabel || r.positionName || r.position || 'Sin cargo',
-        employee_name: (r as any).employeeName || r.positionName || r.roleLabel || 'Sin nombre',
         employee_name: r.employeeName || r.name || 'Sin nombre',
         hours_planned: r.referenceHours || r.hoursPlanned || r.budgetedHours || 0,
         hours_branch: r.horasSucursal || r.hoursBranch || r.hoursWorked || 0,

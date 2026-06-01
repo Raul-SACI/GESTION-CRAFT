@@ -407,9 +407,10 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     const computedWeeks = getWeeksForMonth(selectedMonth);
     
     // Load holidays from localStorage cache (Supabase loaded separately)
+    const globalHolidaysKey = `hour_budget_holidays_${selectedMonth}`;
     let resolvedHolidays: string[] = [];
     let hasGlobalHolidays = false;
-    const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
+    const cached = localStorage.getItem(globalHolidaysKey);
     if (cached) { try { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; } catch(e) {} }
 
     if (savedV2) {
@@ -492,21 +493,47 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     
     // Guardar cada fila en Supabase
     try {
-      const upsertData = rows.map((r: any) => ({
-        branch_id: branchIdKey,
-        month: selectedMonth,
-        position_id: r.roleId || r.id,
-        position_name: r.roleLabel || r.positionName || r.roleId,
-        week1: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(0, 7).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week1 || 0),
-        week2: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(7, 14).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week2 || 0),
-        week3: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(14, 21).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week3 || 0),
-        week4: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(21, 28).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week4 || 0),
-        week5: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).slice(28).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : (r.week5 || 0),
-        hours_per_day: r.hoursPerDay || 0,
-        hourly_rate: r.hourlyRate || 0,
-        total_hours: r.staffByDate ? Object.values(r.staffByDate as Record<string, number>).reduce((a: number, b: number) => a + b * (r.hoursPerDay || 0), 0) : ((r.week1||0)+(r.week2||0)+(r.week3||0)+(r.week4||0)+(r.week5||0)),
-        status: 'pending'
-      }));
+      const upsertData = rows.map((r: any) => {
+        const rate = r.hourlyRate || 0;
+        const hpd = r.hoursPerDay || 0;
+        const staffByDate = (r.staffByDate || {}) as Record<string, number>;
+
+        const baseHrs = r.staffByDate
+          ? Object.values(staffByDate).reduce((a: number, b: number) => a + b * hpd, 0)
+          : ((r.week1||0)+(r.week2||0)+(r.week3||0)+(r.week4||0)+(r.week5||0));
+
+        // Premium de feriado: las horas trabajadas en días feriados se pagan al DOBLE.
+        // baseHrs ya incluye todas las horas a tarifa normal, así que sumamos UNA vez más
+        // el costo de las horas de feriado (eso completa el x2).
+        let holidayPremium = 0;
+        if (holidaysList && holidaysList.length > 0 && r.staffByDate) {
+          holidaysList.forEach((hDate: string) => {
+            const staffOnDay = Number(staffByDate[hDate] || 0);
+            if (staffOnDay > 0) {
+              holidayPremium += staffOnDay * hpd * rate;
+            }
+          });
+        }
+
+        return {
+          branch_id: branchIdKey,
+          month: selectedMonth,
+          position_id: r.roleId || r.id,
+          position_name: r.roleLabel || r.positionName || r.roleId,
+          week1: r.staffByDate ? Object.values(staffByDate).slice(0, 7).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week1 || 0),
+          week2: r.staffByDate ? Object.values(staffByDate).slice(7, 14).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week2 || 0),
+          week3: r.staffByDate ? Object.values(staffByDate).slice(14, 21).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week3 || 0),
+          week4: r.staffByDate ? Object.values(staffByDate).slice(21, 28).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week4 || 0),
+          week5: r.staffByDate ? Object.values(staffByDate).slice(28).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week5 || 0),
+          hours_per_day: hpd,
+          hourly_rate: rate,
+          total_hours: baseHrs,
+          total_cost: Math.round(baseHrs * rate + holidayPremium),
+          staff_by_date: r.staffByDate ? JSON.stringify(staffByDate) : null,
+          holidays_json: JSON.stringify(holidaysList || []),
+          status: 'pending'
+        };
+      });
       
       // Borrar registros previos del mes/sucursal y reinsertar
       await supabase.from('hour_budgets').delete().eq('branch_id', branchIdKey).eq('month', selectedMonth);

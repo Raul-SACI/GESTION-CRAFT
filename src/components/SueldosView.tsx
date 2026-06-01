@@ -525,11 +525,11 @@ export default function HourControlView({ selectedBranchId, branches }: { select
     // Guardar en Supabase
     try {
       const upsertData = mergedLogs.map((log: any) => ({
-        branch_id: log.branchId || branchIdToFetch,
+        branch_id: log.branchId || branchIdToUse,
         employee_name: log.employeeName || log.name || 'Sin nombre',
         position: log.position || log.role || 'Sin cargo',
         date: log.date,
-        month: log.date ? log.date.substring(0, 7) : selectedMonth,
+        month: log.date ? log.date.substring(0, 7) : selectedDate.substring(0, 7),
         hours_planned: log.hoursPlanned || 0,
         hours_actual: log.hoursActual || log.hours || 0,
       }));
@@ -590,7 +590,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
           position: roleLabel,
           position_id: r.roleId || 'unknown',
           date: r.date,
-          month: r.date ? r.date.substring(0, 7) : selectedMonth,
+          month: r.date ? r.date.substring(0, 7) : selectedDate.substring(0, 7),
           week_number: r.weekNum || getWeekFromDate(r.date),
           hours_planned: 0,
           hours_actual: r.hours || 0,
