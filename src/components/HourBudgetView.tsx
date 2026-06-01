@@ -337,6 +337,43 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   // Sync pendingHolidays when holidaysList loads
   useEffect(() => { setPendingHolidays([...holidaysList]); }, [holidaysList.length]);
 
+  // Load roster from Supabase when no localStorage data (cross-device sync)
+  useEffect(() => {
+    if (!localBranchId || localBranchId === 'all') return;
+    const storageKey = `hour_budget_v2_${localBranchId}_${selectedMonth}`;
+    const hasLocalData = !!localStorage.getItem(storageKey);
+    if (hasLocalData) return; // LocalStorage has data, use it
+    
+    // No local data - load from Supabase
+    const loadRoster = async () => {
+      try {
+        const { data } = await supabase
+          .from('hour_budgets')
+          .select('*')
+          .eq('branch_id', localBranchId)
+          .eq('month', selectedMonth);
+        if (data && data.length > 0) {
+          const loadedRows: BudgetRow[] = data.map((r: any) => ({
+            id: r.id || `sb-${Math.random().toString(36).substr(2,9)}`,
+            branchId: r.branch_id,
+            roleId: r.position_id?.replace(/_(?:ma[nñ]ana|tarde|manana)$/, '') || r.position_id,
+            roleLabel: r.position_name || r.position_id,
+            shift: r.shift || 'Tarde',
+            hoursPerDay: r.hours_per_day || 8,
+            hourlyRate: r.hourly_rate || 0,
+            countGroupA: 1,
+            countGroupB: 1,
+            staffByDate: r.staff_by_date ? (() => { try { return JSON.parse(r.staff_by_date); } catch(e) { return {}; } })() : {}
+          }));
+          setRows(loadedRows);
+          setBudgetStatus(data[0]?.status || 'draft');
+          console.log('[Budget] Loaded', loadedRows.length, 'rows from Supabase');
+        }
+      } catch(e) { console.warn('[Budget] Supabase load error:', e); }
+    };
+    loadRoster();
+  }, [localBranchId, selectedMonth]);
+
   // Load holidays from Supabase
   useEffect(() => {
     const loadHolidays = async () => {
