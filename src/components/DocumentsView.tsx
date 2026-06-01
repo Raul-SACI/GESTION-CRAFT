@@ -70,8 +70,14 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
 
       let query = supabase
         .from('documents')
-        .select('*')
-        .eq('parent_id', currentFolderId);
+        .select('*');
+      
+      // Handle null parent_id correctly (root level)
+      if (currentFolderId === null || currentFolderId === undefined) {
+        query = query.is('parent_id', null);
+      } else {
+        query = query.eq('parent_id', currentFolderId);
+      }
 
       if (mode === 'administracion') {
         query = query.is('branch_id', null);
