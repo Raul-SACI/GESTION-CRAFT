@@ -39,6 +39,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { SalesData, Branch, SaleType, Product, ProductRankingEntry } from '../types';
+import MonthlyRankingTop from './MonthlyRankingTop';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { AnimatePresence } from 'motion/react';
@@ -2660,6 +2661,10 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                           </tbody>
                        </table>
                     </div>
+                 </div>
+
+                 <div className="mt-6">
+                    <MonthlyRankingTop branches={branches} />
                  </div>
               </div>
            </div>

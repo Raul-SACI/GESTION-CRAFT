@@ -35,6 +35,7 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
+import MonthlyRankingTop from './MonthlyRankingTop';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import ReadOnlyPlantaView from './ReadOnlyPlantaView';
 
@@ -1282,6 +1283,8 @@ export default function EncargadoDashboardView({
             </div>
           </div>
         </div>
+
+        <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
 
       </div>
     </motion.div>

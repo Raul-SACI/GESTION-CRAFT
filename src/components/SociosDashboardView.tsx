@@ -37,6 +37,7 @@ import {
 } from 'recharts';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
+import MonthlyRankingTop from './MonthlyRankingTop';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -448,6 +449,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             </p>
           </div>
         </div>
+
+        <MonthlyRankingTop branches={branches} />
       </div>
     </motion.div>
   );
