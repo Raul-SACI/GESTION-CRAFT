@@ -1284,9 +1284,10 @@ export default function EncargadoDashboardView({
           </div>
         </div>
 
-        <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
-
       </div>
+
+      <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
+
     </motion.div>
   );
 }

@@ -36,6 +36,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
   const [loading, setLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedBranch, setSelectedBranch] = useState(fixedBranchId || 'all');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   useEffect(() => {
     if (fixedBranchId) setSelectedBranch(fixedBranchId);
@@ -86,11 +87,28 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     }
   }, [availableMonths, selectedMonth]);
 
-  // Agrega por producto sumando las semanas del mes seleccionado (y sucursal si aplica).
+  // Rubros disponibles según el mes y sucursal seleccionados.
+  const availableCategories = useMemo(() => {
+    const cats = rows
+      .filter(r => r.month === selectedMonth && (selectedBranch === 'all' || r.branch_id === selectedBranch))
+      .map(r => (r.category || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(cats)).sort();
+  }, [rows, selectedMonth, selectedBranch]);
+
+  // Si el rubro seleccionado ya no existe al cambiar mes/sucursal, vuelve a "Todos".
+  useEffect(() => {
+    if (selectedCategory !== 'all' && !availableCategories.includes(selectedCategory)) {
+      setSelectedCategory('all');
+    }
+  }, [availableCategories, selectedCategory]);
+
+  // Agrega por producto sumando las semanas del mes seleccionado (y sucursal/rubro si aplica).
   const aggregated = useMemo(() => {
     const filtered = rows.filter(r =>
       r.month === selectedMonth &&
-      (selectedBranch === 'all' || r.branch_id === selectedBranch)
+      (selectedBranch === 'all' || r.branch_id === selectedBranch) &&
+      (selectedCategory === 'all' || (r.category || '').trim() === selectedCategory)
     );
     const map: Record<string, AggregatedProduct> = {};
     filtered.forEach(r => {
@@ -106,7 +124,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
       map[key].total += Number(r.quantity) || 0;
     });
     return Object.values(map);
-  }, [rows, selectedMonth, selectedBranch]);
+  }, [rows, selectedMonth, selectedBranch, selectedCategory]);
 
   const top10 = useMemo(
     () => [...aggregated].sort((a, b) => b.total - a.total).slice(0, 10),
@@ -171,7 +189,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
             Ranking Mensual de Productos
           </h3>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {!fixedBranchId && (
             <select
               value={selectedBranch}
@@ -182,6 +200,14 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
+          <select
+            value={selectedCategory}
+            onChange={(e) => setSelectedCategory(e.target.value)}
+            className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-brand-500"
+          >
+            <option value="all">Todos los Rubros</option>
+            {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
