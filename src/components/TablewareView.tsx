@@ -144,9 +144,9 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
                        branches.find(b => b.name.toLowerCase().includes(branchName)) ||
                        branches.find(b => branchName.includes(b.name.toLowerCase().replace('craft ', '').trim()));
         
-        const quantity = Number(row.Cantidad || row.Quantity || 0);
-        const ideal = Number(row['Stock Ideal'] || row.Ideal || quantity || 0);
-        const critical = Number(row['Stock Crítico'] || row.Critico || row.Critical || 0);
+        const quantity = Math.round(Number(row.Cantidad || row.Quantity || 0));
+        const ideal = Math.round(Number(row['Stock Ideal'] || row.Ideal || quantity || 0));
+        const critical = Math.round(Number(row['Stock Crítico'] || row.Critico || row.Critical || 0));
 
         return {
           branch_id: branch?.id || selectedBranchId,
@@ -175,8 +175,8 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
           branch_id: i.branch_id,
           category: i.category,
           name: i.name,
-          ideal_stock: i.ideal_stock,
-          critical_stock: i.critical_stock
+          ideal_stock: Math.round(Number(i.ideal_stock) || 0),
+          critical_stock: Math.round(Number(i.critical_stock) || 0)
         })))
         .select();
 
@@ -192,7 +192,7 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
             p.branch_id === item.branch_id && 
             p.category === item.category
           );
-          const qty = original?.quantity || 0;
+          const qty = Math.round(Number(original?.quantity) || 0);
 
           return {
             branch_id: item.branch_id,
@@ -214,9 +214,9 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
       setIsImporting(false);
       setImportPreview([]);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Import error:', err);
-      alert('Error al realizar la importación');
+      alert('Error al realizar la importación: ' + (err?.message || 'error desconocido'));
     } finally {
       setLoading(false);
     }
