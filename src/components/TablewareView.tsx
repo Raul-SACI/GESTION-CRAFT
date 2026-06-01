@@ -138,8 +138,11 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
 
       // Map columns: Sucursal, Rubro, Articulo, Cantidad, Stock Ideal, Stock Crítico
       const mapped = data.map(row => {
-        const branchName = (row.Sucursal || row.Branch || '').toString().trim();
-        const branch = branches.find(b => b.name.toLowerCase() === branchName.toLowerCase());
+        const branchName = (row.Sucursal || row.Branch || '').toString().trim().toLowerCase();
+        // Try exact match first, then partial match (e.g. "Perón" matches "CRAFT Perón")
+        const branch = branches.find(b => b.name.toLowerCase() === branchName) ||
+                       branches.find(b => b.name.toLowerCase().includes(branchName)) ||
+                       branches.find(b => branchName.includes(b.name.toLowerCase().replace('craft ', '').trim()));
         
         const quantity = Number(row.Cantidad || row.Quantity || 0);
         const ideal = Number(row['Stock Ideal'] || row.Ideal || quantity || 0);
