@@ -79,9 +79,8 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
         query = query.eq('parent_id', currentFolderId);
       }
 
-      if (mode === 'administracion') {
-        query = query.is('branch_id', null);
-      } else {
+      // Filter by branch - administracion sees all, encargado sees their branch
+      if (mode !== 'administracion') {
         if (branchId && branchId !== 'all') {
           query = query.eq('branch_id', branchId);
         }
