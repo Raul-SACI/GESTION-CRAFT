@@ -144,6 +144,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
   
   // Dashboard Filters
   const [filterMonth, setFilterMonth] = useState<string>('all');
@@ -1245,7 +1246,19 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   const confirmRankingImport = async () => {
     if (!rankingToImport) return;
-    setLoading(true);
+
+    // Confirmación explícita antes de guardar
+    const branchName = branches.find(b => b.id === rankingToImport.branchId)?.name || rankingToImport.branchId;
+    const [y, mo] = rankingToImport.month.split('-');
+    const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const monthLabel = `${monthNames[Number(mo) - 1] || mo} ${y || ''}`.trim();
+    const ok = window.confirm(
+      `¿Estás seguro que deseas importar el ranking para la sucursal ${branchName}, mes ${monthLabel}, semana ${rankingToImport.week}?\n\n` +
+      `Se cargarán ${rankingToImport.entries.length} artículos. Si ya existía un ranking para ese período, será reemplazado.`
+    );
+    if (!ok) return;
+
+    setImporting(true);
     try {
       // Reemplazar: borrar lo existente de esta sucursal + mes + semana
       const { error: delError } = await supabase
@@ -1276,7 +1289,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       console.error('Error importing ranking:', err);
       alert('Error al importar el ranking: ' + (err?.message || 'error desconocido'));
     } finally {
-      setLoading(false);
+      setImporting(false);
     }
   };
 
@@ -2766,15 +2779,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                  <div className="p-6 bg-bg-accent border-t border-border-dim flex gap-4">
                     <button 
                       onClick={confirmRankingImport}
-                      disabled={loading}
+                      disabled={importing}
                       className="flex-1 bg-brand-500 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
                     >
-                       {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                       {loading ? 'PROCESANDO, AGUARDE…' : `CONFIRMAR E IMPORTAR ${rankingToImport.entries.length} ARTÍCULOS`}
+                       {importing ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                       {importing ? 'PROCESANDO, AGUARDE…' : `CONFIRMAR E IMPORTAR ${rankingToImport.entries.length} ARTÍCULOS`}
                     </button>
                     <button 
                       onClick={() => setIsImportingRanking(false)}
-                      disabled={loading}
+                      disabled={importing}
                       className="px-8 py-3 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-sidebar transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                        CANCELAR
@@ -2784,6 +2797,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
            </div>
          )}
       </AnimatePresence>
+
+      {/* Overlay global de carga: difumina la pantalla y muestra el spinner al centro */}
+      {importing && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
+          <Loader2 className="animate-spin text-brand-500" size={56} />
+          <p className="mt-4 text-white text-sm font-black uppercase tracking-widest">Guardando datos, aguarde…</p>
+          <p className="mt-1 text-white/70 text-[11px] uppercase tracking-wide">No cierre ni recargue la página</p>
+        </div>
+      )}
     </motion.div>
   );
 }
