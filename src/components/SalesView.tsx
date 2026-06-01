@@ -2604,7 +2604,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                        <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
                        <div className="flex items-center gap-4">
                           <span className="text-[9px] font-bold text-text-dim uppercase">Mostrando: {selectedBranchId === 'all' ? 'Todas las Sucursales' : branches.find(b => b.id === selectedBranchId)?.name}</span>
-                          {loading && <Loader2 className="animate-spin text-brand-500" size={14} />}
+                          {loading && (
+                            <span className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-brand-500">
+                              <Loader2 className="animate-spin" size={14} /> Cargando…
+                            </span>
+                          )}
                        </div>
                     </div>
                     <div className="overflow-x-auto">
@@ -2622,7 +2626,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                              </tr>
                           </thead>
                           <tbody className="divide-y divide-border-dim">
-                             {rankings.length === 0 ? (
+                             {loading && rankings.length === 0 ? (
+                               <tr>
+                                  <td colSpan={8} className="px-6 py-20 text-center text-brand-500 uppercase font-black tracking-widest">
+                                     <span className="flex items-center justify-center gap-3">
+                                        <Loader2 className="animate-spin" size={20} /> Cargando datos, aguarde…
+                                     </span>
+                                  </td>
+                               </tr>
+                             ) : rankings.length === 0 ? (
                                <tr>
                                   <td colSpan={8} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                                      No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.
@@ -2755,14 +2767,15 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                     <button 
                       onClick={confirmRankingImport}
                       disabled={loading}
-                      className="flex-1 bg-brand-500 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 shadow-xl transition-all flex items-center justify-center gap-2"
+                      className="flex-1 bg-brand-500 text-black py-3 rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
                     >
                        {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                       CONFIRMAR E IMPORTAR {rankingToImport.entries.length} ARTÍCULOS
+                       {loading ? 'PROCESANDO, AGUARDE…' : `CONFIRMAR E IMPORTAR ${rankingToImport.entries.length} ARTÍCULOS`}
                     </button>
                     <button 
                       onClick={() => setIsImportingRanking(false)}
-                      className="px-8 py-3 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-sidebar transition-all"
+                      disabled={loading}
+                      className="px-8 py-3 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-sidebar transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                        CANCELAR
                     </button>
