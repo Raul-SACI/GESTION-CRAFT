@@ -163,7 +163,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [isImportingRanking, setIsImportingRanking] = useState(false);
   const [rankingToImport, setRankingToImport] = useState<{
     branchId: string;
-    date: string;
+    month: string;
+    week: number;
     entries: any[];
   } | null>(null);
   
@@ -358,8 +359,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         let rankingQuery = supabase
           .from('product_rankings')
           .select('*')
-          .order('date', { ascending: false })
-          .order('id', { ascending: true })
+          .order('month', { ascending: false })
+          .order('week_number', { ascending: false })
+          .order('quantity', { ascending: false })
           .range(rankingPage * rankingPageSize, (rankingPage + 1) * rankingPageSize - 1);
           
         if (localBranchId !== 'all') {
@@ -1217,17 +1219,22 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const ws = wb.Sheets[wsname];
       const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-      // Map columns: Código, Nombre, Cantidad, [Importe]
+      // Map columns: Código, Nombre, Cantidad, Rubro de la Carta
+      const clean = (v: any) => (v === undefined || v === null) ? '' : v.toString().trim();
       const entries = data.map(row => ({
-        product_code: row.Código || row.Code || row.id || '',
-        product_name: row.Nombre || row.Name || row.Producto || '',
+        product_code: clean(row.Código || row.Codigo || row.Code || row.id),
+        product_name: clean(row.Nombre || row.Name || row.Producto),
         quantity: Number(row.Cantidad || row.Quantity || row.Cant || 0),
-        amount: Number(row.Importe || row.Amount || row.Precio || 0)
+        category: clean(row['Rubro de la Carta'] || row.Rubro || row.Categoria || row['Categoría'] || row.Category)
       })).filter(e => e.product_name && e.quantity > 0);
+
+      const now = new Date();
+      const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
       setRankingToImport({
         branchId: selectedBranchId === 'all' ? (branches[0]?.id || '') : selectedBranchId,
-        date: new Date().toISOString().split('T')[0],
+        month: defaultMonth,
+        week: 1,
         entries
       });
       setIsImportingRanking(true);
@@ -1239,13 +1246,23 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     if (!rankingToImport) return;
     setLoading(true);
     try {
+      // Reemplazar: borrar lo existente de esta sucursal + mes + semana
+      const { error: delError } = await supabase
+        .from('product_rankings')
+        .delete()
+        .eq('branch_id', rankingToImport.branchId)
+        .eq('month', rankingToImport.month)
+        .eq('week_number', rankingToImport.week);
+      if (delError) throw delError;
+
       const rows = rankingToImport.entries.map(e => ({
         branch_id: rankingToImport.branchId,
-        date: rankingToImport.date,
+        month: rankingToImport.month,
+        week_number: rankingToImport.week,
         product_code: e.product_code,
         product_name: e.product_name,
         quantity: e.quantity,
-        amount: e.amount
+        category: e.category || null
       }));
 
       const { error } = await supabase.from('product_rankings').insert(rows);
@@ -1254,9 +1271,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       setIsImportingRanking(false);
       setRankingToImport(null);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error importing ranking:', err);
-      alert('Error al importar el ranking.');
+      alert('Error al importar el ranking: ' + (err?.message || 'error desconocido'));
     } finally {
       setLoading(false);
     }
@@ -1265,16 +1282,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const handleExportRankingTemplate = () => {
     const templateData = [
       {
-        Código: 'P001',
-        Nombre: 'CAFÉ LATTE',
-        Cantidad: 150,
-        Importe: 450000
+        Código: '15',
+        Nombre: 'LATTE',
+        Cantidad: 1818,
+        'Rubro de la Carta': 'INFUSIONES & CAFETERIA'
       },
       {
-        Código: 'P002',
-        Nombre: 'AVOCADO TOAST',
-        Cantidad: 85,
-        Importe: 320000
+        Código: '76',
+        Nombre: 'MEDIALUNA DE MANTECA',
+        Cantidad: 1197,
+        'Rubro de la Carta': 'DULCES & PASTELERIA'
       }
     ];
 
@@ -2593,42 +2610,44 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                        <table className="w-full border-collapse text-[10px]">
                           <thead>
                              <tr className="bg-bg-card border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
+                                <th className="px-4 py-4 text-center">#</th>
                                 <th className="px-6 py-4">Producto</th>
                                 <th className="px-4 py-4 text-center">Código</th>
+                                <th className="px-4 py-4">Rubro</th>
                                 <th className="px-4 py-4 text-center">Sucursal</th>
-                                <th className="px-4 py-4 text-center">Fecha/Mes</th>
+                                <th className="px-4 py-4 text-center">Mes / Semana</th>
                                 <th className="px-4 py-4 text-right">Cantidad</th>
-                                <th className="px-4 py-4 text-right">Importe</th>
                                 <th className="px-6 py-4"></th>
                              </tr>
                           </thead>
                           <tbody className="divide-y divide-border-dim">
                              {rankings.length === 0 ? (
                                <tr>
-                                  <td colSpan={7} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                                  <td colSpan={8} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                                      No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.
                                   </td>
                                </tr>
                              ) : (
                                rankings.map((r, idx) => (
                                  <tr key={r.id || idx} className="hover:bg-bg-accent/50 transition-colors group">
+                                    <td className="px-4 py-4 text-center font-black text-text-dim">{idx + 1}</td>
                                     <td className="px-6 py-4">
                                        <span className="font-black text-text-main uppercase">{r.product_name}</span>
                                     </td>
                                     <td className="px-4 py-4 text-center">
                                        <span className="font-mono text-text-dim bg-bg-card px-2 py-0.5 rounded border border-border-dim text-[9px]">{r.product_code || '---'}</span>
                                     </td>
+                                    <td className="px-4 py-4">
+                                       <span className="text-text-dim uppercase text-[9px]">{r.category || '—'}</span>
+                                    </td>
                                     <td className="px-4 py-4 text-center">
                                        <span className="text-text-dim uppercase font-bold">{branches.find(b => b.id === r.branch_id)?.name || 'Desconocida'}</span>
                                     </td>
                                     <td className="px-4 py-4 text-center">
-                                       <span className="text-text-dim font-mono">{r.date}</span>
+                                       <span className="text-text-dim font-mono">{r.month || '—'}{r.week_number ? ` · S${r.week_number}` : ''}</span>
                                     </td>
                                     <td className="px-4 py-4 text-right font-black text-brand-500 text-sm">
                                        {r.quantity.toLocaleString()}
-                                    </td>
-                                    <td className="px-4 py-4 text-right font-mono font-bold text-text-main">
-                                       ${r.amount?.toLocaleString() || 0}
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                        <button className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2669,7 +2688,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                     </button>
                  </div>
 
-                 <div className="p-6 bg-bg-main border-b border-border-dim grid grid-cols-2 gap-4">
+                 <div className="p-6 bg-bg-main border-b border-border-dim grid grid-cols-3 gap-4">
                     <div className="space-y-2">
                        <label className="text-[9px] font-black text-text-dim uppercase">Sucursal de Destino</label>
                        <select 
@@ -2681,13 +2700,26 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                        </select>
                     </div>
                     <div className="space-y-2">
-                       <label className="text-[9px] font-black text-text-dim uppercase">Fecha del Ranking</label>
+                       <label className="text-[9px] font-black text-text-dim uppercase">Mes</label>
                        <input 
-                        type="date"
-                        value={rankingToImport.date}
-                        onChange={(e) => setRankingToImport({...rankingToImport, date: e.target.value})}
+                        type="month"
+                        value={rankingToImport.month}
+                        onChange={(e) => setRankingToImport({...rankingToImport, month: e.target.value})}
                         className="w-full bg-bg-sidebar border border-border-dim rounded px-3 py-2 text-xs font-mono"
                        />
+                    </div>
+                    <div className="space-y-2">
+                       <label className="text-[9px] font-black text-text-dim uppercase">Semana</label>
+                       <select 
+                        value={rankingToImport.week}
+                        onChange={(e) => setRankingToImport({...rankingToImport, week: Number(e.target.value)})}
+                        className="w-full bg-bg-sidebar border border-border-dim rounded px-3 py-2 text-xs font-black uppercase text-brand-500"
+                       >
+                          <option value={1}>Semana 1</option>
+                          <option value={2}>Semana 2</option>
+                          <option value={3}>Semana 3</option>
+                          <option value={4}>Semana 4</option>
+                       </select>
                     </div>
                  </div>
 
@@ -2698,7 +2730,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                              <th className="px-6 py-3">Código</th>
                              <th className="px-6 py-3">Nombre del Producto</th>
                              <th className="px-6 py-3 text-right">Cantidad</th>
-                             <th className="px-6 py-3 text-right">Importe</th>
+                             <th className="px-6 py-3">Rubro</th>
                           </tr>
                        </thead>
                        <tbody className="divide-y divide-border-dim/30">
@@ -2707,7 +2739,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                                <td className="px-6 py-3 font-mono text-text-dim">{e.product_code}</td>
                                <td className="px-6 py-3 font-black text-text-main uppercase">{e.product_name}</td>
                                <td className="px-6 py-3 text-right font-black text-brand-500">{e.quantity}</td>
-                               <td className="px-6 py-3 text-right font-mono text-text-dim">${e.amount?.toLocaleString()}</td>
+                               <td className="px-6 py-3 text-text-dim uppercase text-[9px]">{e.category || '—'}</td>
                             </tr>
                           ))}
                        </tbody>
