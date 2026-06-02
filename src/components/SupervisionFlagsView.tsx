@@ -136,6 +136,13 @@ export default function SupervisionFlagsView({
     return templates.filter(t => assignedIds.includes(t.id));
   }, [viewMode, currentUserName, templates, formAssignments]);
 
+  // Solo se pueden asignar formularios con UUID real (guardados en la base).
+  // Los formularios "seeded" locales (ids tipo 't-servicio') no son asignables hasta guardarse.
+  const assignableTemplates = React.useMemo(() => {
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return templates.filter(t => uuidRe.test(t.id));
+  }, [templates]);
+
   const handleSaveAssignments = async (supId: string) => {
     try {
       const { error } = await supabase
@@ -881,9 +888,11 @@ export default function SupervisionFlagsView({
                             </div>
                             <p className="text-[9px] font-black text-text-dim uppercase tracking-widest">Formularios asignados:</p>
                             <div className="space-y-1.5">
-                              {templates.length === 0 ? (
-                                <p className="text-[9px] text-text-dim italic uppercase opacity-50">No hay formularios creados todavía.</p>
-                              ) : templates.map(t => {
+                              {assignableTemplates.length === 0 ? (
+                                <p className="text-[9px] text-text-dim italic uppercase opacity-60 leading-relaxed">
+                                  No hay formularios guardados en la base. Andá a "Plantillas de Formularios" y usá "Restaurar plantillas oficiales" para guardarlos antes de asignar.
+                                </p>
+                              ) : assignableTemplates.map(t => {
                                 const checked = assigned.includes(t.id);
                                 const isSaving = savingAssignment === key + t.id;
                                 return (
