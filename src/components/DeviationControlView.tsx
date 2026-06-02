@@ -67,6 +67,16 @@ export default function DeviationControlView({
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
   const [isSavingDaily, setIsSavingDaily] = useState(false);
 
+  // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
+  const reloadItems = async () => {
+    const { data } = await supabase.from('stock_items').select('*').order('name');
+    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost })));
+  };
+  const reloadProducts = async () => {
+    const { data } = await supabase.from('products').select('*').order('name');
+    if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category })));
+  };
+
   // Fetch Daily Logs
   useEffect(() => {
     const fetchDailyLogs = async () => {
@@ -238,6 +248,7 @@ export default function DeviationControlView({
         if (newItems.length > 0) {
           const { error } = await supabase.from('stock_items').insert(newItems);
           if (error) throw error;
+          await reloadItems();
           alert(`Éxito: ${newItems.length} insumos importados.`);
         }
       } catch (err: any) {
@@ -270,6 +281,7 @@ export default function DeviationControlView({
         if (newProducts.length > 0) {
           const { error } = await supabase.from('products').insert(newProducts);
           if (error) throw error;
+          await reloadProducts();
           alert(`Éxito: ${newProducts.length} productos importados.`);
         }
       } catch (err: any) {
@@ -1446,6 +1458,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                           await supabase.from('stock_items').insert(itemForm);
                         }
                         setItemForm({ name: '', unit: '', cost: 0 });
+                        await reloadItems();
                     }}
                     className="w-full bg-brand-500 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all font-bold"
                    >
@@ -1479,6 +1492,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                               const { error } = await supabase.from('stock_items').delete().eq('id', item.id);
                               if (!error) {
                                 setControlledIds(prev => prev.filter(id => id !== item.id));
+                                await reloadItems();
                               }
                             }
                           }}
@@ -1543,6 +1557,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                           await supabase.from('products').insert(productForm);
                         }
                         setProductForm({ name: '', category: '' });
+                        await reloadProducts();
                     }}
                     className="w-full bg-teal-500 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-teal-600 transition-all font-bold"
                    >
@@ -1574,8 +1589,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                           onClick={async () => {
                             if (window.confirm('¿Está seguro de eliminar este producto?')) {
                               const { error } = await supabase.from('products').delete().eq('id', p.id);
-                              if (!error && selectedProductId === p.id) {
-                                setSelectedProductId(null);
+                              if (!error) {
+                                if (selectedProductId === p.id) setSelectedProductId(null);
+                                await reloadProducts();
                               }
                             }
                           }}
