@@ -1399,7 +1399,7 @@ function AppContent() {
                   setProducts={setProducts}
                 />
               )}
-              {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} />}
+              {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} currentUserRole={currentUser.role} />}
               {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} />}
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}

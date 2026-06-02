@@ -29,13 +29,15 @@ export default function SupervisionFlagsView({
   initialViewMode = 'admin',
   hideToggle = false,
   customTitle,
-  currentUserName
+  currentUserName,
+  currentUserRole
 }: { 
   branches: Branch[]; 
   initialViewMode?: 'admin' | 'supervisor';
   hideToggle?: boolean;
   customTitle?: string;
   currentUserName?: string;
+  currentUserRole?: string;
 }) {
   const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>(initialViewMode);
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
@@ -182,6 +184,29 @@ export default function SupervisionFlagsView({
       alert('Error al guardar la periodicidad: ' + (err?.message || 'error desconocido'));
     } finally {
       setSavingSchedule(null);
+    }
+  };
+
+  // Eliminar una supervisión realizada (solo administrador). Borrado permanente.
+  const handleDeleteResponse = async (responseId: string, label: string) => {
+    if (currentUserRole !== 'administrador' && currentUserRole !== 'dueño') {
+      alert('Solo un administrador puede eliminar supervisiones.');
+      return;
+    }
+    const ok = window.confirm(
+      `¿Eliminar definitivamente esta supervisión?\n\n${label}\n\nEsta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+    try {
+      const { error } = await supabase
+        .from('supervision_responses')
+        .delete()
+        .eq('id', responseId);
+      if (error) throw error;
+      setAllResponses(prev => prev.filter(r => r.id !== responseId));
+    } catch (err: any) {
+      console.error('Error eliminando supervisión:', err);
+      alert('Error al eliminar la supervisión: ' + (err?.message || 'error desconocido'));
     }
   };
 
@@ -756,7 +781,12 @@ export default function SupervisionFlagsView({
                   onSetFrequency={setScheduleFrequency}
                 />
               ) : adminTab === 'historial' ? (
-                <SupervisionHistoryList responses={allResponses} branches={branches} />
+                <SupervisionHistoryList 
+                  responses={allResponses} 
+                  branches={branches}
+                  canDelete={currentUserRole === 'administrador' || currentUserRole === 'dueño'}
+                  onDelete={handleDeleteResponse}
+                />
               ) : adminTab === 'templates' ? (
                 <div className="grid grid-cols-12 gap-6">
                   {/* Template List */}
@@ -1214,7 +1244,7 @@ function SupervisionScheduleEditor({
 }
 
 // Lista de supervisiones realizadas: fecha, sucursal, puntaje y banderas.
-function SupervisionHistoryList({ responses, branches }: { responses: any[], branches: Branch[] }) {
+function SupervisionHistoryList({ responses, branches, canDelete, onDelete }: { responses: any[], branches: Branch[], canDelete?: boolean, onDelete?: (id: string, label: string) => void }) {
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
 
@@ -1275,11 +1305,12 @@ function SupervisionHistoryList({ responses, branches }: { responses: any[], bra
               <th className="px-4 py-3 text-center">🔴 Rojas</th>
               <th className="px-4 py-3 text-center">🟡 Amarillas</th>
               <th className="px-4 py-3 text-center">🟢 Verdes</th>
+              {canDelete && <th className="px-4 py-3 text-center">Acción</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-border-dim/40">
             {filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-12 text-center text-text-dim italic uppercase opacity-50">No hay supervisiones cargadas para este filtro</td></tr>
+              <tr><td colSpan={canDelete ? 7 : 6} className="px-4 py-12 text-center text-text-dim italic uppercase opacity-50">No hay supervisiones cargadas para este filtro</td></tr>
             ) : filtered.map(r => {
               const flags = r.scores?.flags || {};
               const score = Number(r.total_score) || 0;
@@ -1296,6 +1327,18 @@ function SupervisionHistoryList({ responses, branches }: { responses: any[], bra
                   <td className="px-4 py-3 text-center font-black text-red-500">{flags.red || 0}</td>
                   <td className="px-4 py-3 text-center font-black text-yellow-500">{flags.yellow || 0}</td>
                   <td className="px-4 py-3 text-center font-black text-emerald-500">{flags.green || 0}</td>
+                  {canDelete && (
+                    <td className="px-4 py-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => onDelete && onDelete(r.id, `${branchName(r.branch_id)} · ${r.date}`)}
+                        className="text-text-dim hover:text-red-500 transition-colors p-1"
+                        title="Eliminar supervisión"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
