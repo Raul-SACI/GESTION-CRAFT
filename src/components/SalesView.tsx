@@ -1224,8 +1224,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       // Map columns: Código, Nombre, Cantidad, Rubro de la Carta
       const clean = (v: any) => (v === undefined || v === null) ? '' : v.toString().trim();
       const entries = data.map(row => ({
-        product_code: clean(row.Código || row.Codigo || row.Code || row.id),
-        product_name: clean(row.Nombre || row.Name || row.Producto),
+        product_code: clean(row.Código || row.Codigo || row['Cód. Artículo'] || row['Cod. Artículo'] || row['Cód. Articulo'] || row.Code || row.id),
+        product_name: clean(row.Nombre || row.Name || row.Producto || row['Artículo'] || row.Articulo),
         quantity: Number(row.Cantidad || row.Quantity || row.Cant || 0),
         category: clean(row['Rubro de la Carta'] || row.Rubro || row.Categoria || row['Categoría'] || row.Category)
       })).filter(e => e.product_name && e.quantity > 0);
@@ -2611,7 +2611,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                  </div>
               </div>
 
-              <div className="md:col-span-3">
+              <div className="md:col-span-3 space-y-6">
+                 <MonthlyRankingTop branches={branches} />
+
                  <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
                     <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
                        <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
@@ -2624,7 +2626,13 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                           )}
                        </div>
                     </div>
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto relative min-h-[200px]">
+                       {loading && (
+                         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-bg-sidebar/70 backdrop-blur-sm">
+                            <Loader2 className="animate-spin text-brand-500" size={48} />
+                            <p className="mt-3 text-brand-500 text-[11px] font-black uppercase tracking-widest">Cargando datos, aguarde…</p>
+                         </div>
+                       )}
                        <table className="w-full border-collapse text-[10px]">
                           <thead>
                              <tr className="bg-bg-card border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
@@ -2686,10 +2694,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                           </tbody>
                        </table>
                     </div>
-                 </div>
-
-                 <div className="mt-6">
-                    <MonthlyRankingTop branches={branches} />
                  </div>
               </div>
            </div>
