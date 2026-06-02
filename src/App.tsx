@@ -488,6 +488,11 @@ function AppContent() {
     return perm === 'view';
   }, [currentUser, activeTab]);
 
+  // Tabs que son puramente de visualización/simulación (no escriben datos):
+  // en estos, el modo solo-lectura NO debe bloquear los filtros ni la navegación.
+  const VIEW_ONLY_TABS = ['dashboard', 'socios_dashboard', 'performance_admin'];
+  const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
+
   // Find current user's branch ID
   const currentUserBranchId = useMemo(() => {
     if (!currentUser.branch || currentUser.branch === 'Todas las Sucursales') return 'all';
@@ -1317,11 +1322,15 @@ function AppContent() {
           {isCurrentTabReadOnly && (
             <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest">
               <Lock size={16} />
-              <span>MODO SOLO LECTURA ACTIVO • ESTE MÓDULO ES DE VISUALIZACIÓN ÚNICAMENTE</span>
+              <span>
+                {VIEW_ONLY_TABS.includes(activeTab)
+                  ? 'MODO CONSULTA • PODÉS FILTRAR Y NAVEGAR, PERO NO MODIFICAR DATOS'
+                  : 'MODO SOLO LECTURA ACTIVO • ESTE MÓDULO ES DE VISUALIZACIÓN ÚNICAMENTE'}
+              </span>
             </div>
           )}
           <div className="relative">
-            {isCurrentTabReadOnly && (
+            {showReadOnlyOverlay && (
               <div 
                 className="absolute inset-0 z-50 cursor-not-allowed"
                 style={{ background: 'transparent' }}
