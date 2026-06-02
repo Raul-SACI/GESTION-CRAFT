@@ -50,13 +50,16 @@ export default function SupervisionFlagsView({
   const [isResetting, setIsResetting] = useState(false);
 
   // Admin Sub-tab state
-  const [adminTab, setAdminTab] = useState<'templates' | 'assignments' | 'historial'>('historial');
+  const [adminTab, setAdminTab] = useState<'templates' | 'assignments' | 'historial' | 'periodicidad'>('historial');
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [editingSupervisor, setEditingSupervisor] = useState<any | null>(null);
   // Supervisores tomados del maestro de Personal (empleados con puesto "Líder de...")
   const [leaderEmployees, setLeaderEmployees] = useState<{ name: string; position: string }[]>([]);
   // Asignaciones formulario↔supervisor: { supervisorName: [checklistId, ...] }
   const [formAssignments, setFormAssignments] = useState<Record<string, string[]>>({});
+  // Periodicidad: { "checklistId|branchId": "semanal"|"quincenal"|"mensual" }
+  const [schedules, setSchedules] = useState<Record<string, string>>({});
+  const [savingSchedule, setSavingSchedule] = useState<string | null>(null);
   const [savingAssignment, setSavingAssignment] = useState<string | null>(null);
   const [selectedBranchesForEditing, setSelectedBranchesForEditing] = useState<string[]>([]);
   const [newSupervisorName, setNewSupervisorName] = useState('');
@@ -115,6 +118,16 @@ export default function SupervisionFlagsView({
         });
         setFormAssignments(map);
       }
+
+      // Cargar periodicidades (schedule) existentes
+      const { data: scheds, error: schedError } = await supabase
+        .from('supervision_schedules')
+        .select('checklist_id, branch_id, frequency');
+      if (!schedError && scheds) {
+        const map: Record<string, string> = {};
+        scheds.forEach(s => { map[`${s.checklist_id}|${s.branch_id}`] = s.frequency; });
+        setSchedules(map);
+      }
     } catch (err) {
       console.error("Error fetching supervisors / weekly reports:", err);
     } finally {
@@ -142,6 +155,35 @@ export default function SupervisionFlagsView({
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return templates.filter(t => uuidRe.test(t.id));
   }, [templates]);
+
+  // Guardar la periodicidad de un formulario en una sucursal
+  const setScheduleFrequency = async (checklistId: string, branchId: string, frequency: string) => {
+    const key = `${checklistId}|${branchId}`;
+    setSavingSchedule(key);
+    try {
+      if (!frequency) {
+        // vacío = quitar periodicidad
+        const { error } = await supabase
+          .from('supervision_schedules')
+          .delete()
+          .eq('checklist_id', checklistId)
+          .eq('branch_id', branchId);
+        if (error) throw error;
+        setSchedules(prev => { const n = { ...prev }; delete n[key]; return n; });
+      } else {
+        const { error } = await supabase
+          .from('supervision_schedules')
+          .upsert({ checklist_id: checklistId, branch_id: branchId, frequency }, { onConflict: 'checklist_id,branch_id' });
+        if (error) throw error;
+        setSchedules(prev => ({ ...prev, [key]: frequency }));
+      }
+    } catch (err: any) {
+      console.error('Error guardando periodicidad:', err);
+      alert('Error al guardar la periodicidad: ' + (err?.message || 'error desconocido'));
+    } finally {
+      setSavingSchedule(null);
+    }
+  };
 
   const handleSaveAssignments = async (supId: string) => {
     try {
@@ -691,9 +733,29 @@ export default function SupervisionFlagsView({
                 >
                   👥 Asignación de Supervisores y Tracker Semanal
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('periodicidad')}
+                  className={cn(
+                    "flex-1 text-center py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+                    adminTab === 'periodicidad' 
+                      ? "bg-brand-500 text-black shadow-md font-bold" 
+                      : "text-text-dim hover:text-text-main"
+                  )}
+                >
+                  🗓️ Periodicidad
+                </button>
               </div>
 
-              {adminTab === 'historial' ? (
+              {adminTab === 'periodicidad' ? (
+                <SupervisionScheduleEditor
+                  templates={assignableTemplates}
+                  branches={branches}
+                  schedules={schedules}
+                  savingSchedule={savingSchedule}
+                  onSetFrequency={setScheduleFrequency}
+                />
+              ) : adminTab === 'historial' ? (
                 <SupervisionHistoryList responses={allResponses} branches={branches} />
               ) : adminTab === 'templates' ? (
                 <div className="grid grid-cols-12 gap-6">
@@ -1082,6 +1144,72 @@ export default function SupervisionFlagsView({
         </AnimatePresence>
       )}
     </motion.div>
+  );
+}
+
+// Editor de periodicidad: por cada formulario y sucursal, elegir Semanal/Quincenal/Mensual.
+function SupervisionScheduleEditor({
+  templates, branches, schedules, savingSchedule, onSetFrequency
+}: {
+  templates: AuditTemplate[];
+  branches: Branch[];
+  schedules: Record<string, string>;
+  savingSchedule: string | null;
+  onSetFrequency: (checklistId: string, branchId: string, frequency: string) => void;
+}) {
+  return (
+    <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 shadow-xl space-y-4">
+      <div>
+        <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest flex items-center gap-2">
+          🗓️ Periodicidad de Supervisiones
+        </h3>
+        <p className="text-[10px] text-text-dim uppercase font-bold mt-1 tracking-wide">
+          Definí cada cuánto debe realizarse cada formulario en cada sucursal. Si está vencida, se avisa en "Supervisiones" de Líderes Operativos.
+        </p>
+      </div>
+
+      {templates.length === 0 ? (
+        <p className="text-[10px] text-text-dim italic uppercase opacity-60 py-4">No hay formularios guardados todavía.</p>
+      ) : (
+        <div className="space-y-5">
+          {templates.map(t => (
+            <div key={t.id} className="border border-border-dim rounded-lg overflow-hidden">
+              <div className="bg-bg-accent px-4 py-2.5 border-b border-border-dim">
+                <span className="text-[11px] font-black uppercase text-text-main tracking-tight">{t.name}</span>
+                {t.category && <span className="ml-2 text-[8px] text-text-dim uppercase">{t.category}</span>}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 p-3">
+                {branches.map(b => {
+                  const key = `${t.id}|${b.id}`;
+                  const value = schedules[key] || '';
+                  const isSaving = savingSchedule === key;
+                  return (
+                    <div key={b.id} className="flex items-center justify-between gap-2 bg-bg-accent/30 rounded border border-border-dim/40 px-3 py-2">
+                      <span className="text-[9px] font-bold text-text-dim uppercase truncate">{b.name}</span>
+                      <select
+                        value={value}
+                        disabled={isSaving}
+                        onChange={(e) => onSetFrequency(t.id, b.id, e.target.value)}
+                        className={cn(
+                          "bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-black uppercase shrink-0",
+                          value ? "text-brand-500" : "text-text-dim",
+                          isSaving && "opacity-50"
+                        )}
+                      >
+                        <option value="">— Sin definir</option>
+                        <option value="semanal">Semanal</option>
+                        <option value="quincenal">Quincenal</option>
+                        <option value="mensual">Mensual</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

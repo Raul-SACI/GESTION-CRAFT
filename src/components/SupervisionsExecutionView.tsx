@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Flag, 
   ClipboardCheck, 
@@ -31,6 +31,7 @@ interface AuditResult {
 export default function SupervisionsExecutionView({ branches }: { branches: Branch[] }) {
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [dbResponses, setDbResponses] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<{ checklist_id: string; branch_id: string; frequency: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modal execution state
@@ -124,6 +125,16 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
       if (responsesData) {
         setDbResponses(responsesData);
       }
+
+      // 4. Fetch periodicidades (schedules)
+      try {
+        const { data: schedData } = await supabase
+          .from('supervision_schedules')
+          .select('checklist_id, branch_id, frequency');
+        if (schedData) setSchedules(schedData);
+      } catch (e) {
+        setSchedules([]);
+      }
     } catch (err) {
       console.warn("Using fallback local templates / answers:", err);
       setTemplates(SEEDED_TEMPLATES);
@@ -136,6 +147,39 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
   useEffect(() => {
     loadData();
   }, []);
+
+  // Días según frecuencia
+  const freqDays: Record<string, number> = { semanal: 7, quincenal: 15, mensual: 30 };
+
+  // Calcula alertas: para cada periodicidad cargada, ve si la última supervisión está vencida.
+  const scheduleAlerts = useMemo(() => {
+    const today = new Date();
+    return schedules.map(sch => {
+      const days = freqDays[sch.frequency] || 7;
+      // Última respuesta de ese formulario + sucursal
+      const matching = dbResponses
+        .filter(r => r.branch_id === sch.branch_id && (r.checklist_id === sch.checklist_id))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const last = matching[0];
+      const templateName = templates.find(t => t.id === sch.checklist_id)?.name || 'Formulario';
+      const branchName = branches.find(b => b.id === sch.branch_id)?.name || sch.branch_id;
+
+      if (!last) {
+        return { key: `${sch.checklist_id}|${sch.branch_id}`, templateName, branchName, frequency: sch.frequency, status: 'never' as const, daysSince: null, lastDate: null };
+      }
+      const lastDate = new Date(last.date + 'T12:00:00');
+      const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+      const overdue = daysSince > days;
+      return {
+        key: `${sch.checklist_id}|${sch.branch_id}`,
+        templateName, branchName, frequency: sch.frequency,
+        status: overdue ? ('overdue' as const) : ('ok' as const),
+        daysSince, lastDate: last.date
+      };
+    });
+  }, [schedules, dbResponses, templates, branches]);
+
+  const pendingAlerts = scheduleAlerts.filter(a => a.status === 'overdue' || a.status === 'never');
 
   // Filtered branches logic
   const activeSupervisor = supervisors.find(s => s.id === selectedSupId);
@@ -332,6 +376,73 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
             </div>
         </div>
       </div>
+
+      {/* Alertas de periodicidad vencida */}
+      {pendingAlerts.length > 0 && (
+        <div className="bg-red-500/5 border border-red-500/30 rounded-lg p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-red-500" />
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-red-500">
+              Supervisiones Pendientes / Vencidas ({pendingAlerts.length})
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {pendingAlerts.map(a => (
+              <div key={a.key} className="flex items-center justify-between gap-3 bg-bg-sidebar border border-red-500/20 rounded p-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-black uppercase text-text-main truncate">{a.templateName}</p>
+                  <p className="text-[9px] font-bold text-text-dim uppercase">{a.branchName} · {a.frequency}</p>
+                </div>
+                <span className="text-[9px] font-black uppercase text-red-500 shrink-0 text-right">
+                  {a.status === 'never' ? 'NUNCA REALIZADA' : `VENCIDA · hace ${a.daysSince}d`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Listado de supervisiones realizadas */}
+      {dbResponses.length > 0 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
+          <h3 className="text-[11px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+            <ClipboardCheck size={15} /> Supervisiones Realizadas ({dbResponses.length})
+          </h3>
+          <div className="overflow-x-auto rounded-lg border border-border-dim">
+            <table className="w-full border-collapse text-[10px]">
+              <thead>
+                <tr className="bg-bg-accent text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Sucursal</th>
+                  <th className="px-4 py-3 text-center">Puntaje</th>
+                  <th className="px-4 py-3 text-center">🔴</th>
+                  <th className="px-4 py-3 text-center">🟡</th>
+                  <th className="px-4 py-3 text-center">🟢</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/40">
+                {dbResponses.map(r => {
+                  const flags = r.scores?.flags || {};
+                  const score = Number(r.total_score) || 0;
+                  const bName = branches.find(b => b.id === r.branch_id)?.name || r.branch_id;
+                  return (
+                    <tr key={r.id} className="hover:bg-bg-accent/40">
+                      <td className="px-4 py-3 font-mono text-text-dim">{r.date}</td>
+                      <td className="px-4 py-3 font-black text-text-main uppercase">{bName}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={cn("font-black", score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500")}>{score.toFixed(1)}/10</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-black text-red-500">{flags.red || 0}</td>
+                      <td className="px-4 py-3 text-center font-black text-yellow-500">{flags.yellow || 0}</td>
+                      <td className="px-4 py-3 text-center font-black text-emerald-500">{flags.green || 0}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-20 text-text-dim animate-pulse">
