@@ -351,9 +351,8 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
         const match = weekDays.find(d => fmtDate(d) === rule.specific_date);
         if (match) applicableDays.push(match);
       } else if (rule.rule_type === 'recurring' && rule.day_of_week !== null) {
-        // day_of_week: 0=domingo..6=sábado. weekDays[0]=lunes..[6]=domingo
-        const map = [6, 0, 1, 2, 3, 4, 5]; // índice weekDays -> day_of_week
-        weekDays.forEach((d, i) => { if (map[i] === rule.day_of_week) applicableDays.push(d); });
+        // day_of_week: 0=domingo..6=sábado. Usamos getDay() de cada fecha (mismo criterio).
+        weekDays.forEach(d => { if (d.getDay() === rule.day_of_week) applicableDays.push(d); });
       }
       applicableDays.forEach(d => {
         const dayStr = fmtDate(d);
