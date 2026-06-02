@@ -28,12 +28,14 @@ export default function SupervisionFlagsView({
   branches, 
   initialViewMode = 'admin',
   hideToggle = false,
-  customTitle
+  customTitle,
+  currentUserName
 }: { 
   branches: Branch[]; 
   initialViewMode?: 'admin' | 'supervisor';
   hideToggle?: boolean;
   customTitle?: string;
+  currentUserName?: string;
 }) {
   const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>(initialViewMode);
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
@@ -51,6 +53,11 @@ export default function SupervisionFlagsView({
   const [adminTab, setAdminTab] = useState<'templates' | 'assignments' | 'historial'>('historial');
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [editingSupervisor, setEditingSupervisor] = useState<any | null>(null);
+  // Supervisores tomados del maestro de Personal (empleados con puesto "Líder de...")
+  const [leaderEmployees, setLeaderEmployees] = useState<{ name: string; position: string }[]>([]);
+  // Asignaciones formulario↔supervisor: { supervisorName: [checklistId, ...] }
+  const [formAssignments, setFormAssignments] = useState<Record<string, string[]>>({});
+  const [savingAssignment, setSavingAssignment] = useState<string | null>(null);
   const [selectedBranchesForEditing, setSelectedBranchesForEditing] = useState<string[]>([]);
   const [newSupervisorName, setNewSupervisorName] = useState('');
   const [isCreatingSupervisor, setIsCreatingSupervisor] = useState(false);
@@ -77,6 +84,37 @@ export default function SupervisionFlagsView({
       if (!respError && responses) {
         setAllResponses(responses);
       }
+
+      // Cargar empleados con puesto "Líder de..." del maestro de Personal (dedup por nombre)
+      const { data: emps, error: empError } = await supabase
+        .from('employees')
+        .select('name, position')
+        .eq('is_active', true);
+      if (!empError && emps) {
+        const leaders = emps.filter(e => (e.position || '').toLowerCase().trim().startsWith('líder de') || (e.position || '').toLowerCase().trim().startsWith('lider de'));
+        const seen = new Set<string>();
+        const unique: { name: string; position: string }[] = [];
+        leaders.forEach(e => {
+          const key = (e.name || '').toUpperCase().trim();
+          if (key && !seen.has(key)) { seen.add(key); unique.push({ name: e.name, position: e.position }); }
+        });
+        unique.sort((a, b) => a.name.localeCompare(b.name));
+        setLeaderEmployees(unique);
+      }
+
+      // Cargar asignaciones de formularios existentes
+      const { data: assigns, error: assignError } = await supabase
+        .from('supervisor_form_assignments')
+        .select('supervisor_name, checklist_id');
+      if (!assignError && assigns) {
+        const map: Record<string, string[]> = {};
+        assigns.forEach(a => {
+          const key = (a.supervisor_name || '').toUpperCase().trim();
+          if (!map[key]) map[key] = [];
+          map[key].push(a.checklist_id);
+        });
+        setFormAssignments(map);
+      }
     } catch (err) {
       console.error("Error fetching supervisors / weekly reports:", err);
     } finally {
@@ -87,6 +125,16 @@ export default function SupervisionFlagsView({
   useEffect(() => {
     fetchSupervisorsAndResponses();
   }, [viewMode, adminTab]);
+
+  // En modo supervisor, mostrar solo los formularios asignados al usuario logueado.
+  // Si el usuario no tiene asignaciones (o no se reconoce), se muestran todos (no bloquea).
+  const visibleTemplates = React.useMemo(() => {
+    if (viewMode !== 'supervisor' || !currentUserName) return templates;
+    const key = currentUserName.toUpperCase().trim();
+    const assignedIds = formAssignments[key];
+    if (!assignedIds || assignedIds.length === 0) return templates;
+    return templates.filter(t => assignedIds.includes(t.id));
+  }, [viewMode, currentUserName, templates, formAssignments]);
 
   const handleSaveAssignments = async (supId: string) => {
     try {
@@ -106,6 +154,36 @@ export default function SupervisionFlagsView({
       alert('Error de conexión. Se guardó localmente de manera temporal.');
       setSupervisors(prev => prev.map(s => s.id === supId ? { ...s, branch_name: selectedBranchesForEditing.join(',') } : s));
       setEditingSupervisor(null);
+    }
+  };
+
+  // Asignar o quitar un formulario a un supervisor (por nombre)
+  const toggleFormAssignment = async (supervisorName: string, checklistId: string) => {
+    const key = supervisorName.toUpperCase().trim();
+    const current = formAssignments[key] || [];
+    const isAssigned = current.includes(checklistId);
+    setSavingAssignment(key + checklistId);
+    try {
+      if (isAssigned) {
+        const { error } = await supabase
+          .from('supervisor_form_assignments')
+          .delete()
+          .eq('supervisor_name', key)
+          .eq('checklist_id', checklistId);
+        if (error) throw error;
+        setFormAssignments(prev => ({ ...prev, [key]: (prev[key] || []).filter(id => id !== checklistId) }));
+      } else {
+        const { error } = await supabase
+          .from('supervisor_form_assignments')
+          .insert({ supervisor_name: key, checklist_id: checklistId });
+        if (error) throw error;
+        setFormAssignments(prev => ({ ...prev, [key]: [...(prev[key] || []), checklistId] }));
+      }
+    } catch (err: any) {
+      console.error('Error al asignar formulario:', err);
+      alert('Error al guardar la asignación: ' + (err?.message || 'error desconocido'));
+    } finally {
+      setSavingAssignment(null);
     }
   };
 
@@ -775,260 +853,72 @@ export default function SupervisionFlagsView({
                   </div>
                 </div>
               ) : (
-                /* Supervisor Assignment & Weekly Compliance Dashboard */
-                <div className="grid grid-cols-12 gap-6">
-                  {/* Left panel: CRUD/Edit state */}
-                  <div className="col-span-12 lg:col-span-4 space-y-4">
-                    {editingSupervisor ? (
-                      <div className="bg-bg-sidebar border border-brand-500/30 rounded-xl p-6 shadow-xl border-t-4 border-t-brand-500">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-brand-500 mb-1">
-                          EDITAR ASIGNACIONES
-                        </h4>
-                        <p className="text-base font-black uppercase text-text-main mb-4">
-                          {editingSupervisor.name}
-                        </p>
-                        
-                        <p className="text-[10px] font-black text-text-dim uppercase tracking-widest mb-3">
-                          Selección de Sucursales:
-                        </p>
-                        
-                        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                          {branches.map(branch => {
-                            const isChecked = selectedBranchesForEditing.includes(branch.id);
-                            return (
-                              <button
-                                key={branch.id}
-                                type="button"
-                                onClick={() => handleToggleBranchForEditing(branch.id)}
-                                className={cn(
-                                  "w-full text-left p-3 rounded border text-[11px] font-black uppercase flex items-center justify-between transition-all",
-                                  isChecked 
-                                    ? "bg-brand-500/10 border-brand-500/40 text-brand-500" 
-                                    : "bg-bg-accent/40 border-border-dim text-text-dim hover:border-brand-500/40"
-                                )}
-                              >
-                                <span>{branch.name}</span>
-                                <div className={cn(
-                                  "w-4 h-4 rounded border flex items-center justify-center text-black font-bold",
-                                  isChecked ? "bg-brand-500 border-brand-500 text-[10px]" : "border-border-dim"
-                                )}>
-                                  {isChecked && "✓"}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        
-                        <div className="flex gap-2 mt-6">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveAssignments(editingSupervisor.id)}
-                            className="flex-1 bg-brand-500 hover:bg-brand-600 text-black py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            Guardar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingSupervisor(null)}
-                            className="flex-1 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim text-text-dim py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-6 shadow-xl">
-                        <h4 className="text-xs font-black uppercase tracking-widest text-brand-500 mb-4">
-                          REGISTRAR NUEVO SUPERVISOR
-                        </h4>
-                        
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-[9px] font-semibold text-text-dim uppercase tracking-wider block mb-1">Nombre Completo</label>
-                            <input
-                              type="text"
-                              value={newSupervisorName}
-                              onChange={(e) => setNewSupervisorName(e.target.value)}
-                              placeholder="E.G. LUCAS PERALTA"
-                              className="w-full bg-bg-accent border border-border-dim rounded p-3 text-[11px] font-bold text-text-main outline-none focus:border-brand-500 uppercase"
-                            />
-                          </div>
-                          
-                          <button
-                            type="button"
-                            onClick={handleCreateSupervisor}
-                            className="w-full bg-brand-500/15 text-brand-500 hover:bg-brand-500/25 border border-brand-500/30 py-3 rounded text-[10px] font-black uppercase tracking-widest transition-all"
-                          >
-                            Crear Supervisor
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm space-y-2">
-                      <div className="flex gap-2 items-start text-text-dim">
-                        <AlertCircle className="text-brand-500 w-4 h-4 flex-shrink-0 mt-0.5" />
-                        <div className="text-[10px] font-semibold leading-relaxed">
-                          <p className="font-bold text-text-main uppercase mb-1">Semana de Operaciones</p>
-                          <p className="italic">Lunes a Domingo (Semana Actual de Reporteo):</p>
-                          <p className="text-brand-500 font-mono mt-1 font-bold">
-                            {startOfWeekStr} al {endOfWeekStr}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                /* Asignación de FORMULARIOS a Supervisores (empleados "Líder de...") */
+                <div className="space-y-4">
+                  <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-4 text-[10px] text-text-dim uppercase font-bold tracking-wide">
+                    Los supervisores se toman del Maestro de Personal (empleados con puesto "Líder de…"). Todos supervisan todas las sucursales; acá asignás qué formularios puede completar cada uno.
                   </div>
 
-                  {/* Right panel: Supervisors Grid & Compliance Monitor */}
-                  <div className="col-span-12 lg:col-span-8 space-y-4">
-                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-6 shadow-xl">
-                      <div className="flex items-center justify-between border-b border-border-dim pb-4 mb-4">
-                        <div>
-                          <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest">
-                            Control de Visitas Semanales
-                          </h3>
-                          <p className="text-[9px] text-text-dim uppercase font-bold tracking-wider mt-0.5">
-                            Seguimiento en Tiempo Real de Auditorías
-                          </p>
-                        </div>
-                        <button
-                          onClick={fetchSupervisorsAndResponses}
-                          className="text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-brand-500 transition-colors"
-                        >
-                          🔄 Actualizar Datos
-                        </button>
-                      </div>
-
-                      {isAssignmentsLoading ? (
-                        <p className="text-xs text-text-dim text-center py-12 uppercase animate-pulse font-black">Cargando supervisores...</p>
-                      ) : supervisors.length === 0 ? (
-                        <p className="text-xs text-text-dim text-center py-12 uppercase">No se encontraron supervisores registrados.</p>
-                      ) : (
-                        <div className="space-y-6">
-                          {supervisors.map(sup => {
-                            const assignedIds = sup.branch_name ? sup.branch_name.split(',').filter(Boolean) : [];
-                            
-                            return (
-                              <div 
-                                key={sup.id} 
-                                className="bg-bg-accent/20 border border-border-dim/60 rounded-lg p-5 hover:border-border-dim transition-all"
-                              >
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-dim/40 pb-3 mb-4">
-                                  <div>
-                                    <h4 className="text-sm font-black uppercase text-text-main tracking-tight">
-                                      {sup.name}
-                                    </h4>
-                                    <span className="text-[8px] font-black bg-brand-500/10 text-brand-500 px-1.5 py-0.5 rounded uppercase tracking-widest border border-brand-500/10 mt-1 inline-block">
-                                      LÍDER OPERATIVO
-                                    </span>
-                                  </div>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setEditingSupervisor(sup);
-                                      setSelectedBranchesForEditing(assignedIds);
-                                    }}
-                                    className="px-3 py-1.5 bg-bg-sidebar border border-border-dim hover:border-brand-500 text-text-dim hover:text-brand-500 text-[9px] font-black uppercase tracking-widest rounded transition-all flex items-center gap-1.5"
-                                  >
-                                    ✏️ ASIGNAR SUCURSALES
-                                  </button>
-                                </div>
-
-                                <div className="space-y-4">
-                                  {/* Assigned Branch badges */}
-                                  <div>
-                                    <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-1.5">
-                                      Sucursales Asignadas:
-                                    </p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {assignedIds.length === 0 ? (
-                                        <span className="text-[9px] italic text-text-dim uppercase">Sin sucursales asignadas</span>
-                                      ) : (
-                                        assignedIds.map(bId => {
-                                          const bName = branches.find(b => b.id === bId)?.name || bId;
-                                          return (
-                                            <span 
-                                              key={bId}
-                                              className="px-2.5 py-1 bg-bg-sidebar border border-border-dim rounded text-[9px] font-bold text-text-main uppercase"
-                                            >
-                                              📍 {bName}
-                                            </span>
-                                          );
-                                        })
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Compliance breakdown with checklist logs */}
-                                  {assignedIds.length > 0 && (
-                                    <div className="pt-2">
-                                      <p className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-2">
-                                        Estado de Cumplimiento Semanal:
-                                      </p>
-                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        {assignedIds.map(bId => {
-                                          const bName = branches.find(b => b.id === bId)?.name || bId;
-                                          
-                                          // Find if there is a response in current week (Monday-Sunday)
-                                          const responseForBranchThisWeek = allResponses.find(r => 
-                                            r.branch_id === bId && 
-                                            r.date >= startOfWeekStr && 
-                                            r.date <= endOfWeekStr
-                                          );
-
-                                          return (
-                                            <div 
-                                              key={bId}
-                                              className={cn(
-                                                "p-3 rounded border flex items-center justify-between transition-all",
-                                                responseForBranchThisWeek 
-                                                  ? "bg-emerald-500/5 border-emerald-500/20" 
-                                                  : "bg-red-500/5 border-red-500/20"
-                                              )}
-                                            >
-                                              <div>
-                                                <p className="text-[10px] font-black uppercase text-text-main tracking-tight">
-                                                  {bName}
-                                                </p>
-                                                {responseForBranchThisWeek ? (
-                                                  <div className="mt-1 flex items-center gap-1.5">
-                                                    <span className="text-[8px] font-bold text-emerald-500 uppercase">
-                                                      COMPLETADO EL {responseForBranchThisWeek.date}
-                                                    </span>
-                                                    <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-500 px-1 rounded">
-                                                      {responseForBranchThisWeek.total_score}/10
-                                                    </span>
-                                                  </div>
-                                                ) : (
-                                                  <p className="text-[8px] font-bold text-red-500 uppercase mt-1">
-                                                    FALLA VISITA SEMANAL
-                                                  </p>
-                                                )}
-                                              </div>
-
-                                              <div className={cn(
-                                                "w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shadow-inner font-black",
-                                                responseForBranchThisWeek 
-                                                  ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" 
-                                                  : "bg-red-500/10 text-red-500 border border-red-500/20"
-                                              )}>
-                                                {responseForBranchThisWeek ? "✓" : "!"}
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
+                  {leaderEmployees.length === 0 ? (
+                    <div className="bg-bg-sidebar border border-border-dim rounded-lg p-10 text-center text-text-dim italic uppercase opacity-60 text-[11px]">
+                      No hay empleados con puesto "Líder de…" en el maestro de Personal.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {leaderEmployees.map(emp => {
+                        const key = emp.name.toUpperCase().trim();
+                        const assigned = formAssignments[key] || [];
+                        return (
+                          <div key={key} className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm space-y-3">
+                            <div className="flex items-center justify-between border-b border-border-dim pb-3">
+                              <div>
+                                <p className="text-sm font-black uppercase text-text-main tracking-tight">{emp.name}</p>
+                                <p className="text-[9px] font-bold text-brand-500 uppercase tracking-widest">{emp.position}</p>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                              <span className="text-[9px] font-black text-text-dim uppercase bg-bg-accent px-2 py-1 rounded border border-border-dim">
+                                {assigned.length} formulario{assigned.length === 1 ? '' : 's'}
+                              </span>
+                            </div>
+                            <p className="text-[9px] font-black text-text-dim uppercase tracking-widest">Formularios asignados:</p>
+                            <div className="space-y-1.5">
+                              {templates.length === 0 ? (
+                                <p className="text-[9px] text-text-dim italic uppercase opacity-50">No hay formularios creados todavía.</p>
+                              ) : templates.map(t => {
+                                const checked = assigned.includes(t.id);
+                                const isSaving = savingAssignment === key + t.id;
+                                return (
+                                  <button
+                                    key={t.id}
+                                    type="button"
+                                    disabled={isSaving}
+                                    onClick={() => toggleFormAssignment(emp.name, t.id)}
+                                    className={cn(
+                                      "w-full flex items-center justify-between gap-2 p-2.5 rounded border text-[10px] font-bold uppercase transition-all text-left",
+                                      checked
+                                        ? "bg-brand-500/10 border-brand-500/40 text-brand-500"
+                                        : "bg-bg-accent/40 border-border-dim text-text-dim hover:border-brand-500/40",
+                                      isSaving && "opacity-50 cursor-wait"
+                                    )}
+                                  >
+                                    <span className="flex items-center gap-2 truncate">
+                                      <span className={cn(
+                                        "w-4 h-4 rounded border flex items-center justify-center shrink-0",
+                                        checked ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                                      )}>
+                                        {checked && <CheckCircle2 size={11} className="text-black" />}
+                                      </span>
+                                      <span className="truncate">{t.name}</span>
+                                    </span>
+                                    {t.category && <span className="text-[8px] opacity-70 shrink-0">{t.category}</span>}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </motion.div>
@@ -1076,7 +966,7 @@ export default function SupervisionFlagsView({
                               }
                             }}
                           >
-                            {templates.map(t => (
+                            {visibleTemplates.map(t => (
                               <option key={t.id} value={t.id} className="bg-bg-sidebar text-text-main">{t.name}</option>
                             ))}
                           </select>
