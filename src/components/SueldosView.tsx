@@ -412,8 +412,8 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           });
           setRecords(mapped);
         } else {
-          // No hay registros en la base: defaults con el personal del maestro
-          setRecords(buildDefaults());
+          // No hay registros en la base: lista vacía. El encargado agrega solo a quienes trabajaron.
+          setRecords([]);
         }
       } catch (e) {
         console.error('Error cargando hour_logs desde Supabase, usando respaldo local:', e);
@@ -428,7 +428,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
             return { ...log, rate: getPositionRateFromMaestro(log.roleId, roleLabel, salaryScale) };
           }));
         } else {
-          setRecords(buildDefaults());
+          setRecords([]);
         }
       }
 
@@ -903,9 +903,9 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="space-y-6">
         {/* Main interactive datasheet */}
-        <div className="lg:col-span-3 bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl relative min-h-[400px]">
+        <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl relative min-h-[400px]">
           {loading && (
             <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] z-50 flex items-center justify-center">
               <Loader2 className="text-brand-500 animate-spin" size={32} />
@@ -1092,40 +1092,36 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           </div>
           
           {!loading && records.length === 0 && (
-            <div className="py-16 flex flex-col items-center justify-center text-text-dim opacity-30">
+            <div className="py-16 flex flex-col items-center justify-center text-text-dim opacity-40">
               <Clock size={48} />
-              <p className="mt-4 text-[10px] font-black uppercase tracking-widest">Ingrese integrantes para comenzar</p>
+              <p className="mt-4 text-[10px] font-black uppercase tracking-widest">No hay horas cargadas para este día</p>
+              <p className="mt-1 text-[9px] font-bold uppercase tracking-wide opacity-70">Usá "Agregar Integrante" para sumar a quienes trabajaron</p>
             </div>
           )}
         </div>
 
-        {/* Sidebar benchmarking */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-bg-sidebar border border-brand-500/10 rounded-lg p-6 relative overflow-hidden group">
-             <div className="absolute top-0 right-0 p-4 opacity-5">
-                <DollarSign size={60} className="text-brand-500" />
-             </div>
-             <h4 className="text-[10px] font-bold uppercase tracking-widest text-[#8B949E] mb-4">Métricas Consolidadas de la jornada</h4>
-             
-             <div className="space-y-4">
-                <div>
-                  <p className="text-[9px] text-text-dim uppercase font-bold opacity-60">Horas Totales del Día</p>
-                  <p className="text-2xl font-mono font-black text-brand-500 leading-tight">{totals.hours.toFixed(1)}h</p>
+        {/* Métricas consolidadas (abajo, ancho completo) */}
+        <div className="bg-bg-sidebar border border-brand-500/10 rounded-lg p-6 relative overflow-hidden">
+           <div className="absolute top-0 right-0 p-4 opacity-5">
+              <DollarSign size={60} className="text-brand-500" />
+           </div>
+           <h4 className="text-[10px] font-bold uppercase tracking-widest text-[#8B949E] mb-4">Métricas Consolidadas de la jornada</h4>
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+              <div>
+                <p className="text-[9px] text-text-dim uppercase font-bold opacity-60">Horas Totales del Día</p>
+                <p className="text-2xl font-mono font-black text-brand-500 leading-tight">{totals.hours.toFixed(1)}h</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-text-dim uppercase font-bold opacity-60">Costo Estimado Devengado</p>
+                <p className="text-xl font-mono font-bold text-text-main leading-tight">${totals.pesos.toLocaleString('es-AR')}</p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-[8px] text-brand-500 uppercase font-black tracking-widest">Integridad en Tiempo Real</p>
+                <div className="bg-bg-accent/40 rounded p-2.5 border border-border-dim/20 text-[10px] text-text-dim leading-relaxed">
+                  Las horas cargadas en este módulo alimentan de forma directa el control por puesto de Recursos Humanos agrupado por Semana Fiscal.
                 </div>
-                
-                <div>
-                  <p className="text-[9px] text-text-dim uppercase font-bold opacity-60">Costo Estimado Devengado</p>
-                  <p className="text-xl font-mono font-bold text-text-main leading-tight">${totals.pesos.toLocaleString('es-AR')}</p>
-                </div>
-
-                <div className="pt-4 border-t border-border-dim space-y-2">
-                  <p className="text-[8px] text-brand-500 uppercase font-black tracking-widest">Integridad en Tiempo Real</p>
-                  <div className="bg-bg-accent/40 rounded p-2.5 border border-border-dim/20 text-[10px] text-text-dim leading-relaxed">
-                    Las horas cargadas en este módulo alimentan de forma directa el control por puesto de Recursos Humanos agrupado por Semana Fiscal.
-                  </div>
-                </div>
-             </div>
-          </div>
+              </div>
+           </div>
         </div>
       </div>
 
