@@ -15,7 +15,8 @@ import {
   AlertCircle,
   Trash2,
   Loader2,
-  BarChart3
+  BarChart3,
+  CheckCircle2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
@@ -56,12 +57,27 @@ function fmtDate(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-export default function SupervisorAgendaView({ branches }: { branches: Branch[] }) {
+interface CoverageRule {
+  id: string;
+  branch_id: string;
+  rule_type: string;      // 'recurring' | 'specific'
+  day_of_week: number | null;
+  specific_date: string | null;
+  start_time: string;
+  end_time: string;
+  label: string | null;
+}
+
+export default function SupervisorAgendaView({ branches, mode = 'armado' }: { branches: Branch[]; mode?: 'armado' | 'control' }) {
+  const isControl = mode === 'control';
   const [leaders, setLeaders] = useState<string[]>([]);
   const [agendas, setAgendas] = useState<AgendaEntry[]>([]);
+  const [coverageRules, setCoverageRules] = useState<CoverageRule[]>([]);
+  const [compliance, setCompliance] = useState<Record<string, boolean>>({}); // key: 'entry|<id>' o 'day|<date>'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRules, setShowRules] = useState(false);
 
   // Semana seleccionada (lunes)
   const [weekMonday, setWeekMonday] = useState<Date>(() => getMonday(new Date()));
@@ -72,6 +88,10 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
   const [newEntries, setNewEntries] = useState([
     { id: Date.now().toString(), date: fmtDate(getMonday(new Date())), branchId: '', startTime: '09:00', endTime: '13:00' }
   ]);
+
+  // Form de nueva regla de cobertura
+  const [ruleForm, setRuleForm] = useState({ branchId: '', ruleType: 'recurring', dayOfWeek: '5', specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
+  const [savingRule, setSavingRule] = useState(false);
 
   // Días de la semana seleccionada
   const weekDays = useMemo(() => {
@@ -108,6 +128,24 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
         .gte('date', weekStart)
         .lte('date', weekEnd);
       setAgendas(ags || []);
+
+      // Reglas de cobertura (todas)
+      const { data: rules } = await supabase
+        .from('coverage_rules')
+        .select('*');
+      setCoverageRules(rules || []);
+
+      // Cumplimiento de la semana (tildes por visita y por día)
+      const { data: comp } = await supabase
+        .from('agenda_compliance')
+        .select('*')
+        .or(`date.gte.${weekStart},entry_id.not.is.null`);
+      const compMap: Record<string, boolean> = {};
+      (comp || []).forEach((c: any) => {
+        if (c.compliance_type === 'entry' && c.entry_id) compMap[`entry|${c.entry_id}`] = c.fulfilled;
+        if (c.compliance_type === 'day' && c.date) compMap[`day|${c.date}`] = c.fulfilled;
+      });
+      setCompliance(compMap);
     } catch (e) {
       console.error('Error cargando agenda:', e);
     } finally {
@@ -216,6 +254,67 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
+  // Tildar cumplimiento por visita o por día
+  const toggleCompliance = async (type: 'entry' | 'day', refValue: string) => {
+    const key = `${type}|${refValue}`;
+    const current = compliance[key] || false;
+    const next = !current;
+    setCompliance(prev => ({ ...prev, [key]: next })); // optimista
+    try {
+      const row: any = { compliance_type: type, fulfilled: next };
+      if (type === 'entry') { row.entry_id = refValue; row.date = null; }
+      else { row.date = refValue; row.entry_id = null; }
+      const { error: upErr } = await supabase
+        .from('agenda_compliance')
+        .upsert(row, { onConflict: 'compliance_type,entry_id,date' });
+      if (upErr) throw upErr;
+    } catch (err: any) {
+      console.error('Error tildando cumplimiento:', err);
+      setCompliance(prev => ({ ...prev, [key]: current })); // revertir
+      alert('Error al guardar el cumplimiento: ' + (err?.message || 'error'));
+    }
+  };
+
+  // Guardar una nueva regla de cobertura
+  const handleSaveRule = async () => {
+    if (!ruleForm.branchId) { alert('Elegí una sucursal.'); return; }
+    if (ruleForm.ruleType === 'specific' && !ruleForm.specificDate) { alert('Elegí una fecha.'); return; }
+    if (hoursBetween(ruleForm.startTime, ruleForm.endTime) <= 0) { alert('El horario de fin debe ser posterior al de inicio.'); return; }
+    setSavingRule(true);
+    try {
+      const row: any = {
+        branch_id: ruleForm.branchId,
+        rule_type: ruleForm.ruleType,
+        day_of_week: ruleForm.ruleType === 'recurring' ? parseInt(ruleForm.dayOfWeek) : null,
+        specific_date: ruleForm.ruleType === 'specific' ? ruleForm.specificDate : null,
+        start_time: ruleForm.startTime,
+        end_time: ruleForm.endTime,
+        label: ruleForm.label || null
+      };
+      const { error: insErr } = await supabase.from('coverage_rules').insert(row);
+      if (insErr) throw insErr;
+      setRuleForm({ branchId: '', ruleType: 'recurring', dayOfWeek: '5', specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
+      loadData();
+    } catch (err: any) {
+      alert('Error al guardar la regla: ' + (err?.message || 'error'));
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (id: string) => {
+    if (!window.confirm('¿Eliminar esta regla de cobertura?')) return;
+    try {
+      const { error: delErr } = await supabase.from('coverage_rules').delete().eq('id', id);
+      if (delErr) throw delErr;
+      setCoverageRules(prev => prev.filter(r => r.id !== id));
+    } catch (err: any) {
+      alert('Error al eliminar: ' + (err?.message || 'error'));
+    }
+  };
+
+  const DOW_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
   // Líderes que tienen alguna entrada esta semana
   const leadersWithAgenda = useMemo(() => {
     return Array.from(new Set(agendas.map(a => a.supervisor_name))).sort();
@@ -241,29 +340,35 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
 
   const fmtHrs = (h: number) => h % 1 === 0 ? `${h}` : h.toFixed(1);
 
-  // Cobertura obligatoria: viernes y sábado 20:00-22:00 en sucursales clave.
-  const REQUIRED_COVERAGE_KEYWORDS = ['peron', 'perón', 'barrio norte', 'barrio sur', 'casco viejo'];
+  // Cobertura obligatoria según reglas configurables (recurrentes o por fecha).
   const coverageAlerts = useMemo(() => {
-    const COV_START = '20:00';
-    const COV_END = '22:00';
-    // weekDays[4]=viernes, weekDays[5]=sábado
-    const daysToCheck = [{ idx: 4, label: 'Viernes' }, { idx: 5, label: 'Sábado' }];
-    const requiredBranches = branches.filter(b =>
-      REQUIRED_COVERAGE_KEYWORDS.some(k => (b.name || '').toLowerCase().includes(k))
-    );
-    const missing: { branchName: string; dayLabel: string }[] = [];
-    daysToCheck.forEach(({ idx, label }) => {
-      const dayStr = fmtDate(weekDays[idx]);
-      requiredBranches.forEach(b => {
+    const missing: { branchName: string; dayLabel: string; timeLabel: string }[] = [];
+    coverageRules.forEach(rule => {
+      const bName = branches.find(b => b.id === rule.branch_id)?.name || rule.branch_id;
+      // Determinar a qué día(s) de la semana visible aplica esta regla
+      const applicableDays: Date[] = [];
+      if (rule.rule_type === 'specific' && rule.specific_date) {
+        const match = weekDays.find(d => fmtDate(d) === rule.specific_date);
+        if (match) applicableDays.push(match);
+      } else if (rule.rule_type === 'recurring' && rule.day_of_week !== null) {
+        // day_of_week: 0=domingo..6=sábado. weekDays[0]=lunes..[6]=domingo
+        const map = [6, 0, 1, 2, 3, 4, 5]; // índice weekDays -> day_of_week
+        weekDays.forEach((d, i) => { if (map[i] === rule.day_of_week) applicableDays.push(d); });
+      }
+      applicableDays.forEach(d => {
+        const dayStr = fmtDate(d);
         const covered = agendas.some(a =>
-          a.branch_id === b.id && a.date === dayStr &&
-          isOverlapping(a.start_time, a.end_time, COV_START, COV_END)
+          a.branch_id === rule.branch_id && a.date === dayStr &&
+          isOverlapping(a.start_time, a.end_time, rule.start_time, rule.end_time)
         );
-        if (!covered) missing.push({ branchName: b.name, dayLabel: label });
+        if (!covered) {
+          const dayLabel = d.toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit' });
+          missing.push({ branchName: bName, dayLabel, timeLabel: `${rule.start_time}-${rule.end_time}` });
+        }
       });
     });
     return missing;
-  }, [agendas, branches, weekDays]);
+  }, [agendas, branches, weekDays, coverageRules]);
 
   const weekLabel = `${weekDays[0].toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
@@ -277,7 +382,9 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
           </div>
           <div>
             <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Agenda Supervisores</h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">Planificación semanal de líderes</p>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">
+              {isControl ? 'Control de agendas y reglas de cobertura' : 'Planificación semanal de líderes'}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -287,6 +394,14 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
             <span className="text-[10px] font-black uppercase text-text-main tracking-wider min-w-[170px] text-center">{weekLabel}</span>
             <button onClick={() => { const d = new Date(weekMonday); d.setDate(d.getDate() + 7); setWeekMonday(d); }} className="p-1 hover:text-brand-500 text-text-dim"><ChevronRight size={16} /></button>
           </div>
+          {isControl && (
+            <button
+              onClick={() => setShowRules(true)}
+              className="flex items-center gap-2 bg-bg-sidebar border border-border-dim text-text-main px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all"
+            >
+              <Calendar size={14} /> Reglas de Cobertura
+            </button>
+          )}
           <button
             onClick={() => { setShowAddEntry(true); setError(null); }}
             className="flex items-center gap-2 bg-brand-500 text-black px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg"
@@ -313,13 +428,13 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
                 </h3>
               </div>
               <p className="text-[9px] font-bold text-text-dim uppercase tracking-wide">
-                Perón, Barrio Norte, Barrio Sur y Casco Viejo deben tener al menos un líder los viernes y sábados de 20:00 a 22:00.
+                Estas sucursales/días requieren al menos un líder presente en el horario indicado (según las reglas configuradas).
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {coverageAlerts.map((m, i) => (
                   <div key={i} className="flex items-center gap-2 bg-bg-sidebar border border-red-500/20 rounded p-2.5">
                     <span className="text-[10px] font-black uppercase text-text-main truncate">{m.branchName}</span>
-                    <span className="text-[9px] font-bold text-red-500 uppercase shrink-0">· {m.dayLabel} 20-22h</span>
+                    <span className="text-[9px] font-bold text-red-500 uppercase shrink-0">· {m.dayLabel} {m.timeLabel}</span>
                   </div>
                 ))}
               </div>
@@ -352,21 +467,53 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
                       return (
                         <td key={i} className="px-2 py-2 align-top">
                           <div className="space-y-1">
-                            {dayEntries.map(e => (
-                              <div key={e.id} className="group bg-brand-500/10 border border-brand-500/30 rounded px-2 py-1 text-[8px]">
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className="font-black text-brand-500 uppercase truncate">{branchName(e.branch_id)}</span>
-                                  <button onClick={() => handleDeleteEntry(e.id)} className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-red-500 transition-all shrink-0"><Trash2 size={10} /></button>
+                            {dayEntries.map(e => {
+                              const done = compliance[`entry|${e.id}`] || false;
+                              return (
+                                <div key={e.id} className={cn("group border rounded px-2 py-1 text-[8px]", done ? "bg-emerald-500/10 border-emerald-500/40" : "bg-brand-500/10 border-brand-500/30")}>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <button
+                                      onClick={() => toggleCompliance('entry', e.id)}
+                                      title={done ? 'Cumplida' : 'Marcar como cumplida'}
+                                      className={cn("flex items-center gap-1 font-black uppercase truncate", done ? "text-emerald-500" : "text-brand-500")}
+                                    >
+                                      <span className={cn("w-3 h-3 rounded-sm border flex items-center justify-center shrink-0", done ? "bg-emerald-500 border-emerald-500" : "border-border-dim")}>
+                                        {done && <CheckCircle2 size={9} className="text-black" />}
+                                      </span>
+                                      <span className="truncate">{branchName(e.branch_id)}</span>
+                                    </button>
+                                    <button onClick={() => handleDeleteEntry(e.id)} className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-red-500 transition-all shrink-0"><Trash2 size={10} /></button>
+                                  </div>
+                                  <span className="text-text-dim font-mono">{e.start_time}-{e.end_time}</span>
                                 </div>
-                                <span className="text-text-dim font-mono">{e.start_time}-{e.end_time}</span>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </td>
                       );
                     })}
                   </tr>
                 ))}
+                {leadersWithAgenda.length > 0 && (
+                  <tr className="bg-bg-accent/40 border-t-2 border-border-dim">
+                    <td className="px-4 py-3 font-black text-text-dim uppercase tracking-widest text-[9px]">Día cumplido</td>
+                    {weekDays.map((d, i) => {
+                      const dayStr = fmtDate(d);
+                      const done = compliance[`day|${dayStr}`] || false;
+                      return (
+                        <td key={i} className="px-2 py-3 text-center">
+                          <button
+                            onClick={() => toggleCompliance('day', dayStr)}
+                            title={done ? 'Día cumplido' : 'Marcar día como cumplido'}
+                            className={cn("w-5 h-5 rounded border inline-flex items-center justify-center transition-all", done ? "bg-emerald-500 border-emerald-500" : "border-border-dim hover:border-emerald-500/50")}
+                          >
+                            {done && <CheckCircle2 size={12} className="text-black" />}
+                          </button>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -472,6 +619,74 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
                   {saving ? 'Guardando…' : 'Guardar Agenda'}
                 </button>
                 <button onClick={() => setShowAddEntry(false)} disabled={saving} className="px-6 py-2.5 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent disabled:opacity-40">Cancelar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Reglas de Cobertura */}
+      <AnimatePresence>
+        {showRules && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-border-dim">
+                <h3 className="text-sm font-black uppercase text-text-main tracking-tight">Reglas de Cobertura Obligatoria</h3>
+                <button onClick={() => setShowRules(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+              <div className="p-5 space-y-5">
+                {/* Form nueva regla */}
+                <div className="bg-bg-accent/30 border border-border-dim/40 rounded-lg p-4 space-y-3">
+                  <p className="text-[10px] font-black text-brand-500 uppercase tracking-widest">Nueva Regla</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select value={ruleForm.branchId} onChange={e => setRuleForm({ ...ruleForm, branchId: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-bold uppercase">
+                      <option value="">Sucursal…</option>
+                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                    <select value={ruleForm.ruleType} onChange={e => setRuleForm({ ...ruleForm, ruleType: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-bold uppercase">
+                      <option value="recurring">Recurrente (día de semana)</option>
+                      <option value="specific">Fecha puntual</option>
+                    </select>
+                    {ruleForm.ruleType === 'recurring' ? (
+                      <select value={ruleForm.dayOfWeek} onChange={e => setRuleForm({ ...ruleForm, dayOfWeek: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-bold uppercase">
+                        {DOW_LABELS.map((l, i) => <option key={i} value={i}>{l}</option>)}
+                      </select>
+                    ) : (
+                      <input type="date" value={ruleForm.specificDate} onChange={e => setRuleForm({ ...ruleForm, specificDate: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-mono" />
+                    )}
+                    <input type="text" placeholder="Descripción (opcional)" value={ruleForm.label} onChange={e => setRuleForm({ ...ruleForm, label: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px]" />
+                    <div className="flex items-center gap-2">
+                      <input type="time" value={ruleForm.startTime} onChange={e => setRuleForm({ ...ruleForm, startTime: e.target.value })} className="flex-1 bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-mono" />
+                      <span className="text-text-dim text-[9px]">a</span>
+                      <input type="time" value={ruleForm.endTime} onChange={e => setRuleForm({ ...ruleForm, endTime: e.target.value })} className="flex-1 bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-mono" />
+                    </div>
+                    <button onClick={handleSaveRule} disabled={savingRule} className="bg-brand-500 text-black rounded px-3 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 disabled:opacity-60 flex items-center justify-center gap-2">
+                      {savingRule ? <Loader2 className="animate-spin" size={13} /> : <Plus size={13} />} Agregar Regla
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista de reglas existentes */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-text-dim uppercase tracking-widest">Reglas Configuradas ({coverageRules.length})</p>
+                  {coverageRules.length === 0 ? (
+                    <p className="text-[9px] text-text-dim italic uppercase opacity-50 py-2">No hay reglas cargadas.</p>
+                  ) : coverageRules.map(r => (
+                    <div key={r.id} className="flex items-center justify-between gap-2 bg-bg-accent/30 border border-border-dim/40 rounded p-3">
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-black uppercase text-text-main">{branchName(r.branch_id)}</span>
+                        <span className="text-[9px] font-bold text-text-dim uppercase ml-2">
+                          {r.rule_type === 'recurring' ? `Todos los ${DOW_LABELS[r.day_of_week ?? 0]}` : r.specific_date} · {r.start_time}-{r.end_time}
+                          {r.label ? ` · ${r.label}` : ''}
+                        </span>
+                      </div>
+                      <button onClick={() => handleDeleteRule(r.id)} className="text-text-dim hover:text-red-500 shrink-0"><Trash2 size={13} /></button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </motion.div>
           </div>

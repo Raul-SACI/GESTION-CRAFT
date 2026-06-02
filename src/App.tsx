@@ -560,6 +560,7 @@ function AppContent() {
     ],
     'Gerencia General': [
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
+      { id: 'control_agendas', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
       { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
@@ -612,6 +613,7 @@ function AppContent() {
           precios: Tag,
           performance_admin: Trophy,
           aprobacion_presupuestos: Layers,
+          control_agendas: ClipboardList,
           sucursales: Building2,
           usuarios: Users
         };
@@ -1404,6 +1406,7 @@ function AppContent() {
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}
+              {activeTab === 'control_agendas' && <SupervisorAgendaView key="control_agendas" branches={branches} mode="control" />}
               {activeTab === 'decomisos' && (
                 <DecomisosView 
                   key="decomisos" 
