@@ -148,6 +148,7 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
         setError('El horario de fin debe ser posterior al de inicio.');
         return;
       }
+      // Mismo líder no se pisa a sí mismo
       const overlap = agendas.find(a =>
         a.supervisor_name === selectedLeader && a.date === e.date &&
         isOverlapping(a.start_time, a.end_time, e.startTime, e.endTime)
@@ -155,6 +156,20 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
       if (overlap) {
         setError(`Conflicto: ${selectedLeader} ya tiene una visita ese día en ese horario.`);
         return;
+      }
+      // Dos líderes distintos no pueden coincidir en la misma sucursal+horario, salvo Almacén y Producción
+      const isAlmacen = (branchName(e.branchId) || '').toLowerCase().includes('almac');
+      if (!isAlmacen) {
+        const crossOverlap = agendas.find(a =>
+          a.supervisor_name !== selectedLeader &&
+          a.branch_id === e.branchId &&
+          a.date === e.date &&
+          isOverlapping(a.start_time, a.end_time, e.startTime, e.endTime)
+        );
+        if (crossOverlap) {
+          setError(`Conflicto: ${crossOverlap.supervisor_name} ya está agendado en ${branchName(e.branchId)} ese día en un horario que se superpone. (Solo se permite coincidencia en Almacén y Producción.)`);
+          return;
+        }
       }
       const internal = valid.find(e2 => e2.id !== e.id && e2.date === e.date && isOverlapping(e.startTime, e.endTime, e2.startTime, e2.endTime));
       if (internal) {
@@ -211,16 +226,44 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
     // map[leader][branchId] = horas
     const map: Record<string, Record<string, number>> = {};
     const totals: Record<string, number> = {};
+    const branchTotals: Record<string, number> = {};
+    let grandTotal = 0;
     agendas.forEach(a => {
       const h = hoursBetween(a.start_time, a.end_time);
       if (!map[a.supervisor_name]) map[a.supervisor_name] = {};
       map[a.supervisor_name][a.branch_id] = (map[a.supervisor_name][a.branch_id] || 0) + h;
       totals[a.supervisor_name] = (totals[a.supervisor_name] || 0) + h;
+      branchTotals[a.branch_id] = (branchTotals[a.branch_id] || 0) + h;
+      grandTotal += h;
     });
-    return { map, totals };
+    return { map, totals, branchTotals, grandTotal };
   }, [agendas]);
 
   const fmtHrs = (h: number) => h % 1 === 0 ? `${h}` : h.toFixed(1);
+
+  // Cobertura obligatoria: viernes y sábado 20:00-22:00 en sucursales clave.
+  const REQUIRED_COVERAGE_KEYWORDS = ['peron', 'perón', 'barrio norte', 'barrio sur', 'casco viejo'];
+  const coverageAlerts = useMemo(() => {
+    const COV_START = '20:00';
+    const COV_END = '22:00';
+    // weekDays[4]=viernes, weekDays[5]=sábado
+    const daysToCheck = [{ idx: 4, label: 'Viernes' }, { idx: 5, label: 'Sábado' }];
+    const requiredBranches = branches.filter(b =>
+      REQUIRED_COVERAGE_KEYWORDS.some(k => (b.name || '').toLowerCase().includes(k))
+    );
+    const missing: { branchName: string; dayLabel: string }[] = [];
+    daysToCheck.forEach(({ idx, label }) => {
+      const dayStr = fmtDate(weekDays[idx]);
+      requiredBranches.forEach(b => {
+        const covered = agendas.some(a =>
+          a.branch_id === b.id && a.date === dayStr &&
+          isOverlapping(a.start_time, a.end_time, COV_START, COV_END)
+        );
+        if (!covered) missing.push({ branchName: b.name, dayLabel: label });
+      });
+    });
+    return missing;
+  }, [agendas, branches, weekDays]);
 
   const weekLabel = `${weekDays[0].toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
@@ -260,6 +303,29 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
         </div>
       ) : (
         <>
+          {/* Alerta de cobertura obligatoria viernes/sábado 20-22h */}
+          {coverageAlerts.length > 0 && (
+            <div className="bg-red-500/5 border border-red-500/30 rounded-lg p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={16} className="text-red-500" />
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-red-500">
+                  Cobertura Obligatoria Faltante ({coverageAlerts.length})
+                </h3>
+              </div>
+              <p className="text-[9px] font-bold text-text-dim uppercase tracking-wide">
+                Perón, Barrio Norte, Barrio Sur y Casco Viejo deben tener al menos un líder los viernes y sábados de 20:00 a 22:00.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {coverageAlerts.map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 bg-bg-sidebar border border-red-500/20 rounded p-2.5">
+                    <span className="text-[10px] font-black uppercase text-text-main truncate">{m.branchName}</span>
+                    <span className="text-[9px] font-bold text-red-500 uppercase shrink-0">· {m.dayLabel} 20-22h</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Grilla semanal */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-x-auto">
             <table className="w-full border-collapse text-[10px]">
@@ -334,6 +400,16 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-bg-accent border-t-2 border-brand-500/30">
+                      <td className="px-4 py-3 font-black text-brand-500 uppercase tracking-widest">Total Sucursal</td>
+                      {branches.map(b => {
+                        const h = hoursSummary.branchTotals[b.id] || 0;
+                        return <td key={b.id} className="px-3 py-3 text-center font-black text-text-main">{h > 0 ? `${fmtHrs(h)}h` : '—'}</td>;
+                      })}
+                      <td className="px-4 py-3 text-center font-black text-brand-500 bg-brand-500/10">{fmtHrs(hoursSummary.grandTotal)}h</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
