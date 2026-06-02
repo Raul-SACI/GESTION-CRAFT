@@ -612,12 +612,19 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
         const prevBaseValue = Number(item.VALOR_ANTERIOR || 0);
         const prevBaseMonth = String(item.MES_REF_ANTERIOR || '');
         
+        // Interpretar la columna TIPO de forma flexible:
+        // "mes", "mensual", "monthly", "por mes" -> monthly
+        // "hora", "por hora", "hourly" -> hourly (por defecto)
+        const tipoRaw = String(item.TIPO || '').toLowerCase().trim();
+        const isMonthly = tipoRaw.includes('mes') || tipoRaw.includes('mensual') || tipoRaw.includes('month');
+        const positionType: 'hourly' | 'monthly' = isMonthly ? 'monthly' : 'hourly';
+
         return {
           id,
           area: String(item.AREA || '').toUpperCase(),
           sector: String(item.SECTOR || '').toUpperCase(),
           title: String(item.PUESTO || '').toUpperCase(),
-          type: (item.TIPO === 'monthly' ? 'monthly' : 'hourly') as 'hourly' | 'monthly',
+          type: positionType,
           baseValue,
           baseMonth,
           prevBaseValue,
