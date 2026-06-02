@@ -56,29 +56,22 @@ const POSITIONS = [
   { id: 'bacha', label: 'Bacha', refHours: 40 },
 ];
 
-function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
-  const saved = localStorage.getItem('craft_salary_positions');
-  if (saved) {
-    try {
-      const positions = JSON.parse(saved);
-      
-      const exactTitle = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-      if (exactTitle) {
-        if (exactTitle.type === 'monthly') {
-          return exactTitle.baseValue / 30 / 8;
-        }
-        return exactTitle.baseValue;
-      }
-
-      const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-      if (approx) {
-        if (approx.type === 'monthly') {
-          return approx.baseValue / 30 / 8;
-        }
-        return approx.baseValue;
-      }
-    } catch (e) {
-      console.error(e);
+function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[]): number {
+  let positions: any[] = scale && scale.length > 0 ? scale : [];
+  if (positions.length === 0) {
+    const saved = localStorage.getItem('craft_salary_positions');
+    if (saved) { try { positions = JSON.parse(saved); } catch (e) { positions = []; } }
+  }
+  if (positions.length > 0) {
+    const exactTitle = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+    if (exactTitle) {
+      if (exactTitle.type === 'monthly') return exactTitle.baseValue / 240;
+      return exactTitle.baseValue;
+    }
+    const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
+    if (approx) {
+      if (approx.type === 'monthly') return approx.baseValue / 240;
+      return approx.baseValue;
     }
   }
 
@@ -101,6 +94,9 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
   const [selectedMonth, setSelectedMonth] = useState('2026-05'); // Default back to May 2026
   const [selectedWeek, setSelectedWeek] = useState<number>(1); // 1, 2, 3, or 4
   const [records, setRecords] = useState<HrHourRecord[]>([]);
+  const [salaryScale, setSalaryScale] = useState<any[]>(() => {
+    try { return JSON.parse(localStorage.getItem('craft_salary_positions') || '[]'); } catch { return []; }
+  });
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // --- MONTHLY PAYROLL STATES & HANDLERS ---
@@ -144,6 +140,34 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
   };
 
   // Load records from Supabase hour_logs + local storage
+  // Cargar escala salarial desde Supabase (fuente de verdad para valor hora)
+  useEffect(() => {
+    const loadScale = async () => {
+      try {
+        const { data, error } = await supabase.from('salary_positions').select('*');
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((p: any) => ({
+            id: p.id, area: p.area, sector: p.sector, title: p.title || p.name,
+            type: p.type === 'monthly' ? 'monthly' : 'hourly',
+            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0)
+          }));
+          setSalaryScale(mapped);
+          localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
+        }
+      } catch (e) { console.error('Error cargando escala salarial:', e); }
+    };
+    loadScale();
+  }, []);
+
+  // Recalcular valorHora de los registros cuando llega/actualiza la escala salarial
+  useEffect(() => {
+    if (salaryScale.length === 0) return;
+    setRecords(prev => prev.map(r => ({
+      ...r,
+      valorHora: getPositionRateFromMaestro(r.roleId, r.roleLabel, salaryScale)
+    })));
+  }, [salaryScale]);
+
   useEffect(() => {
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
     const saved = localStorage.getItem(storageKey);
@@ -226,7 +250,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
         // Use saved definitive hours if exist, otherwise 0 (don't invent data)
         const definitiveHours = existing ? existing.definitiveHours : 0;
 
-        const rate = getPositionRateFromMaestro(p.id, p.label);
+        const rate = getPositionRateFromMaestro(p.id, p.label, salaryScale);
 
         return {
           id: p.id,
@@ -295,7 +319,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
                 referenceHours: budgetMap[posId] || 0,
                 horasSucursal: 0,
                 definitiveHours: 0,
-                valorHora: getPositionRateFromMaestro(posId, log.position || ''),
+                valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale),
                 status: 'pending',
                 notes: ''
               };
@@ -346,7 +370,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
             referenceHours: plannedFromBudget || p.refHours,
             horasSucursal: dailySum,
             definitiveHours: existing ? existing.definitiveHours : 0,
-            valorHora: getPositionRateFromMaestro(p.id, p.label),
+            valorHora: getPositionRateFromMaestro(p.id, p.label, salaryScale),
             status: existing ? existing.status : 'pending',
             notes: existing ? existing.notes : ''
           };

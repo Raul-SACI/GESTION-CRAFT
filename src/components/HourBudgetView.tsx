@@ -206,6 +206,28 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   const activeBranch = branches.find(b => b.id === localBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
+  // Escala salarial desde Supabase (fuente de verdad para valor hora)
+  const [salaryScale, setSalaryScale] = useState<any[]>(() => {
+    try { return JSON.parse(localStorage.getItem('craft_salary_positions') || '[]'); } catch { return []; }
+  });
+
+  useEffect(() => {
+    const loadScale = async () => {
+      try {
+        const { data, error } = await supabase.from('salary_positions').select('*');
+        if (!error && data && data.length > 0) {
+          const mapped = data.map((p: any) => ({
+            id: p.id, area: p.area, sector: p.sector, title: p.title || p.name,
+            type: p.type === 'monthly' ? 'monthly' : 'hourly',
+            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0)
+          }));
+          setSalaryScale(mapped);
+          localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
+        }
+      } catch (e) { console.error('Error cargando escala salarial:', e); }
+    };
+    loadScale();
+  }, []);
   const [activeWeekIndex, setActiveWeekIndex] = useState(1);
   const [holidaysList, setHolidaysList] = useState<string[]>([]);
   const [pendingHolidays, setPendingHolidays] = useState<string[]>([]);
@@ -254,52 +276,27 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
   // Load and memoize custom positions lists
   const sucursalRolesList = useMemo(() => {
-    const saved = localStorage.getItem('craft_salary_positions');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const sucursalPositions = parsed.filter((p: any) => p.area?.trim().toUpperCase() === 'SUCURSAL');
-          if (sucursalPositions.length > 0) {
-            return sucursalPositions.map((p: any) => ({
-              id: p.id || p.title.toLowerCase().replace(/\s+/g, '_'),
-              label: p.title,
-              defaultRate: p.type === 'monthly' ? (p.baseValue / 30 / 8) : p.baseValue
-            }));
-          }
-        }
-      } catch (e) {
-        console.error('Error parsing positions inside HourBudgetView:', e);
+    if (salaryScale && salaryScale.length > 0) {
+      const sucursalPositions = salaryScale.filter((p: any) => p.area?.trim().toUpperCase() === 'SUCURSAL');
+      if (sucursalPositions.length > 0) {
+        return sucursalPositions.map((p: any) => ({
+          id: p.id || p.title.toLowerCase().replace(/\s+/g, '_'),
+          label: p.title,
+          defaultRate: p.type === 'monthly' ? (p.baseValue / 240) : p.baseValue
+        }));
       }
     }
     return ROLES_LIST;
-  }, []);
+  }, [salaryScale]);
 
   const getMaestroRate = (roleId: string, roleLabel: string): number => {
-    const saved = localStorage.getItem('craft_salary_positions');
-    if (saved) {
-      try {
-        const positions = JSON.parse(saved);
-        
-        // Buscar coincidencia exacta sin filtrar por 'hourly' para soportar sueldo mensual
-        const exact = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-        if (exact) {
-          if (exact.type === 'monthly') {
-            return exact.baseValue / 30 / 8;
-          }
-          return exact.baseValue;
-        }
+    const positions = salaryScale || [];
+    if (positions.length > 0) {
+      const exact = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
+      if (exact) return exact.type === 'monthly' ? (exact.baseValue / 240) : exact.baseValue;
 
-        const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-        if (approx) {
-          if (approx.type === 'monthly') {
-            return approx.baseValue / 30 / 8;
-          }
-          return approx.baseValue;
-        }
-      } catch (e) {
-        console.error(e);
-      }
+      const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
+      if (approx) return approx.type === 'monthly' ? (approx.baseValue / 240) : approx.baseValue;
     }
     const defaultR = sucursalRolesList.find(r => r.id === roleId);
     return defaultR ? defaultR.defaultRate : 2500;
