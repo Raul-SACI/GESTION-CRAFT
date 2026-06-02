@@ -48,7 +48,7 @@ export default function SupervisionFlagsView({
   const [isResetting, setIsResetting] = useState(false);
 
   // Admin Sub-tab state
-  const [adminTab, setAdminTab] = useState<'templates' | 'assignments'>('templates');
+  const [adminTab, setAdminTab] = useState<'templates' | 'assignments' | 'historial'>('historial');
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [editingSupervisor, setEditingSupervisor] = useState<any | null>(null);
   const [selectedBranchesForEditing, setSelectedBranchesForEditing] = useState<string[]>([]);
@@ -554,7 +554,19 @@ export default function SupervisionFlagsView({
               className="space-y-6 w-full"
             >
               {/* Admin Subtabs Selector */}
-              <div className="flex bg-bg-sidebar/40 p-1 rounded-lg border border-border-dim/50 max-w-2xl">
+              <div className="flex bg-bg-sidebar/40 p-1 rounded-lg border border-border-dim/50 max-w-3xl">
+                <button
+                  type="button"
+                  onClick={() => setAdminTab('historial')}
+                  className={cn(
+                    "flex-1 text-center py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all cursor-pointer",
+                    adminTab === 'historial' 
+                      ? "bg-brand-500 text-black shadow-md font-bold" 
+                      : "text-text-dim hover:text-text-main"
+                  )}
+                >
+                  📋 Supervisiones Realizadas
+                </button>
                 <button
                   type="button"
                   onClick={() => setAdminTab('templates')}
@@ -581,7 +593,9 @@ export default function SupervisionFlagsView({
                 </button>
               </div>
 
-              {adminTab === 'templates' ? (
+              {adminTab === 'historial' ? (
+                <SupervisionHistoryList responses={allResponses} branches={branches} />
+              ) : adminTab === 'templates' ? (
                 <div className="grid grid-cols-12 gap-6">
                   {/* Template List */}
                   <div className="col-span-12 lg:col-span-4 space-y-4">
@@ -1154,5 +1168,98 @@ export default function SupervisionFlagsView({
         </AnimatePresence>
       )}
     </motion.div>
+  );
+}
+
+// Lista de supervisiones realizadas: fecha, sucursal, puntaje y banderas.
+function SupervisionHistoryList({ responses, branches }: { responses: any[], branches: Branch[] }) {
+  const [filterBranch, setFilterBranch] = useState('all');
+  const [filterMonth, setFilterMonth] = useState('all');
+
+  const branchName = (id: string) => branches.find(b => b.id === id)?.name || id || 'Desconocida';
+
+  const monthsAvailable = React.useMemo(() => {
+    const ms = Array.from(new Set(responses.map(r => (r.date || '').substring(0, 7)).filter(Boolean))).sort().reverse();
+    return ms;
+  }, [responses]);
+
+  const monthLabel = (m: string) => {
+    if (!m) return '—';
+    const [y, mo] = m.split('-');
+    const names = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    return `${names[Number(mo) - 1] || mo} ${y}`;
+  };
+
+  const filtered = React.useMemo(() => {
+    return [...responses]
+      .filter(r => filterBranch === 'all' || r.branch_id === filterBranch)
+      .filter(r => filterMonth === 'all' || (r.date || '').substring(0, 7) === filterMonth)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [responses, filterBranch, filterMonth]);
+
+  return (
+    <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 shadow-xl space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest flex items-center gap-2">
+          <ClipboardCheck size={15} /> Supervisiones Realizadas ({filtered.length})
+        </h3>
+        <div className="flex items-center gap-2">
+          <select
+            value={filterBranch}
+            onChange={(e) => setFilterBranch(e.target.value)}
+            className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-brand-500"
+          >
+            <option value="all">Todas las Sucursales</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <select
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[10px] font-mono"
+          >
+            <option value="all">Todos los meses</option>
+            {monthsAvailable.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border-dim">
+        <table className="w-full border-collapse text-[10px]">
+          <thead>
+            <tr className="bg-bg-accent text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+              <th className="px-4 py-3">Fecha</th>
+              <th className="px-4 py-3">Sucursal</th>
+              <th className="px-4 py-3 text-center">Puntaje</th>
+              <th className="px-4 py-3 text-center">🔴 Rojas</th>
+              <th className="px-4 py-3 text-center">🟡 Amarillas</th>
+              <th className="px-4 py-3 text-center">🟢 Verdes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-dim/40">
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-12 text-center text-text-dim italic uppercase opacity-50">No hay supervisiones cargadas para este filtro</td></tr>
+            ) : filtered.map(r => {
+              const flags = r.scores?.flags || {};
+              const score = Number(r.total_score) || 0;
+              return (
+                <tr key={r.id} className="hover:bg-bg-accent/40">
+                  <td className="px-4 py-3 font-mono text-text-dim">{r.date}</td>
+                  <td className="px-4 py-3 font-black text-text-main uppercase">{branchName(r.branch_id)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={cn(
+                      "font-black px-2 py-0.5 rounded",
+                      score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500"
+                    )}>{score.toFixed(1)}/10</span>
+                  </td>
+                  <td className="px-4 py-3 text-center font-black text-red-500">{flags.red || 0}</td>
+                  <td className="px-4 py-3 text-center font-black text-yellow-500">{flags.yellow || 0}</td>
+                  <td className="px-4 py-3 text-center font-black text-emerald-500">{flags.green || 0}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
