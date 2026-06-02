@@ -74,10 +74,26 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   // Persist data whenever it changes
   useEffect(() => {
     localStorage.setItem('craft_salary_positions', JSON.stringify(positions));
-    // También en Supabase
-    supabase.from('salary_positions').upsert(positions.map((p: any) => ({
-      id: p.id, name: p.name, base_hourly_rate: p.hourlyRate || p.baseHourlyRate || 0
-    }))).then(() => {});
+    // También en Supabase (escala completa)
+    if (positions.length === 0) return;
+    const rows = positions.map((p: any) => ({
+      id: p.id,
+      name: p.title || '',           // 'name' legacy = título del puesto
+      title: p.title || '',
+      area: p.area || '',
+      sector: p.sector || '',
+      type: p.type || 'hourly',
+      base_value: p.baseValue || 0,
+      base_hourly_rate: p.baseValue || 0,  // legacy
+      base_month: p.baseMonth || '',
+      prev_base_value: p.prevBaseValue || 0,
+      prev_base_month: p.prevBaseMonth || '',
+      notes: p.notes || '',
+      history: p.history || []
+    }));
+    supabase.from('salary_positions').upsert(rows).then(({ error }) => {
+      if (error) console.error('Error guardando salary_positions:', error.message);
+    });
   }, [positions]);
 
   const [filters, setFilters] = useState({
@@ -347,13 +363,20 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   // Cargar puestos desde Supabase al inicio
   useEffect(() => {
     const loadPositions = async () => {
-      const { data, error } = await supabase.from('salary_positions').select('*').order('name');
+      const { data, error } = await supabase.from('salary_positions').select('*').order('title');
       if (!error && data && data.length > 0) {
         setPositions(data.map((p: any) => ({
           id: p.id,
-          name: p.name,
-          baseHourlyRate: p.base_hourly_rate || 0,
-          hourlyRate: p.base_hourly_rate || 0,
+          area: p.area || '',
+          sector: p.sector || '',
+          title: p.title || p.name || '',
+          type: (p.type === 'monthly' ? 'monthly' : 'hourly'),
+          baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0),
+          baseMonth: p.base_month || '',
+          prevBaseValue: Number(p.prev_base_value ?? 0),
+          prevBaseMonth: p.prev_base_month || '',
+          notes: p.notes || '',
+          history: Array.isArray(p.history) ? p.history : []
         })));
       } else {
         // Usar localStorage como fallback
