@@ -2,97 +2,133 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Calendar, 
-  Clock, 
-  MapPin, 
-  UserPlus, 
-  CheckCircle2, 
-  Plus, 
+import {
+  Calendar,
+  Clock,
+  Plus,
   X,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  AlertCircle
+  AlertCircle,
+  Trash2,
+  Loader2,
+  BarChart3
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
-interface SupervisorAgendaEntry {
+interface AgendaEntry {
   id: string;
-  supervisorId: string;
-  date: string; // ISO date
-  branchId: string;
-  startTime: string;
-  endTime: string;
-  status: 'pending' | 'confirmed';
-}
-
-interface Supervisor {
-  id: string;
-  name: string;
+  supervisor_name: string;
+  date: string;       // YYYY-MM-DD
+  branch_id: string;
+  start_time: string; // HH:MM
+  end_time: string;   // HH:MM
+  status: string;
 }
 
 const DAYS_OF_WEEK = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
+// Calcula las horas entre dos horarios "HH:MM"
+function hoursBetween(start: string, end: string): number {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  return mins > 0 ? mins / 60 : 0;
+}
+
+// Devuelve el lunes de la semana de una fecha dada
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay(); // 0=domingo
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(12, 0, 0, 0);
+  return date;
+}
+
+function fmtDate(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
 export default function SupervisorAgendaView({ branches }: { branches: Branch[] }) {
-  const [supervisors, setSupervisors] = useState<Supervisor[]>([
-    { id: '1', name: 'Juan Carlos Pérez' },
-    { id: '2', name: 'Marta Rodriguez' },
-    { id: '3', name: 'Roberto Gómez' },
-  ]);
-  
-  const [agendas, setAgendas] = useState<SupervisorAgendaEntry[]>([
-    { id: 'a1', supervisorId: '1', date: '2024-05-15', branchId: 'bn', startTime: '09:00', endTime: '13:00', status: 'confirmed' },
-    { id: 'a2', supervisorId: '2', date: '2024-05-15', branchId: 'bs', startTime: '10:00', endTime: '14:00', status: 'pending' },
-  ]);
-
-  const [showAddSupervisor, setShowAddSupervisor] = useState(false);
-  const [showAddEntry, setShowAddEntry] = useState(false);
-  const [newSupervisorName, setNewSupervisorName] = useState('');
-  
+  const [leaders, setLeaders] = useState<string[]>([]);
+  const [agendas, setAgendas] = useState<AgendaEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedSupervisorId, setSelectedSupervisorId] = useState('');
-  const [newEntries, setNewEntries] = useState([{
-    id: Date.now().toString(),
-    date: new Date().toISOString().split('T')[0],
-    branchId: '',
-    startTime: '09:00',
-    endTime: '13:00'
-  }]);
 
-  const isOverlapping = (s1: string, e1: string, s2: string, e2: string) => {
-    return s1 < e2 && s2 < e1;
+  // Semana seleccionada (lunes)
+  const [weekMonday, setWeekMonday] = useState<Date>(() => getMonday(new Date()));
+
+  // Modal de carga
+  const [showAddEntry, setShowAddEntry] = useState(false);
+  const [selectedLeader, setSelectedLeader] = useState('');
+  const [newEntries, setNewEntries] = useState([
+    { id: Date.now().toString(), date: fmtDate(getMonday(new Date())), branchId: '', startTime: '09:00', endTime: '13:00' }
+  ]);
+
+  // Días de la semana seleccionada
+  const weekDays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekMonday);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+  }, [weekMonday]);
+
+  const weekStart = fmtDate(weekDays[0]);
+  const weekEnd = fmtDate(weekDays[6]);
+
+  // Cargar líderes del maestro y agenda de la semana
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      // Líderes (empleados "Líder de...") del maestro de personal
+      const { data: emps } = await supabase
+        .from('employees')
+        .select('name, position')
+        .eq('is_active', true);
+      if (emps) {
+        const ld = emps
+          .filter(e => (e.position || '').toLowerCase().trim().startsWith('líder de') || (e.position || '').toLowerCase().trim().startsWith('lider de'))
+          .map(e => e.name);
+        setLeaders(Array.from(new Set(ld)).sort());
+      }
+
+      // Agenda de la semana seleccionada
+      const { data: ags } = await supabase
+        .from('supervisor_agenda')
+        .select('*')
+        .gte('date', weekStart)
+        .lte('date', weekEnd);
+      setAgendas(ags || []);
+    } catch (e) {
+      console.error('Error cargando agenda:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleAddSupervisor = () => {
-    if (!newSupervisorName.trim()) return;
-    const newSup: Supervisor = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newSupervisorName
-    };
-    setSupervisors([...supervisors, newSup]);
-    setNewSupervisorName('');
-    setShowAddSupervisor(false);
-  };
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart, weekEnd]);
+
+  const isOverlapping = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && s2 < e1;
 
   const handleAddNewRow = () => {
-    setNewEntries([...newEntries, {
-      id: Date.now().toString() + Math.random(),
-      date: new Date().toISOString().split('T')[0],
-      branchId: '',
-      startTime: '09:00',
-      endTime: '13:00'
-    }]);
+    setNewEntries([...newEntries, { id: Date.now().toString() + Math.random(), date: weekStart, branchId: '', startTime: '09:00', endTime: '13:00' }]);
     setError(null);
   };
 
   const handleRemoveRow = (id: string) => {
-    if (newEntries.length > 1) {
-      setNewEntries(newEntries.filter(e => e.id !== id));
-    }
+    if (newEntries.length > 1) setNewEntries(newEntries.filter(e => e.id !== id));
     setError(null);
   };
 
@@ -101,409 +137,270 @@ export default function SupervisorAgendaView({ branches }: { branches: Branch[] 
     setError(null);
   };
 
-  const handleAddEntry = () => {
-    if (!selectedSupervisorId) return;
-    
-    const validEntries = newEntries.filter(e => e.branchId && e.date);
-    if (validEntries.length === 0) return;
+  const handleSaveEntries = async () => {
+    if (!selectedLeader) { setError('Elegí un líder.'); return; }
+    const valid = newEntries.filter(e => e.branchId && e.date);
+    if (valid.length === 0) { setError('Cargá al menos una visita con sucursal y fecha.'); return; }
 
-    // Check for overlaps with existing agendas
-    for (const e of validEntries) {
-      const overlap = agendas.find(a => 
-        a.date === e.date && 
-        a.branchId === e.branchId && 
-        isOverlapping(a.startTime, a.endTime, e.startTime, e.endTime)
-      );
-
-      if (overlap) {
-        const branch = branches.find(b => b.id === e.branchId)?.name;
-        const supervisor = supervisors.find(s => s.id === overlap.supervisorId)?.name;
-        setError(`Conflicto: ${supervisor} ya está agendado en ${branch} el día ${e.date} en ese horario.`);
+    // Validar solapamientos contra lo existente y entre sí
+    for (const e of valid) {
+      if (hoursBetween(e.startTime, e.endTime) <= 0) {
+        setError('El horario de fin debe ser posterior al de inicio.');
         return;
       }
-
-      // Check for overlaps within the new batch itself
-      const internalOverlap = validEntries.find(e2 => 
-        e2.id !== e.id && 
-        e2.date === e.date && 
-        e2.branchId === e.branchId && 
-        isOverlapping(e.startTime, e.endTime, e2.startTime, e2.endTime)
+      const overlap = agendas.find(a =>
+        a.supervisor_name === selectedLeader && a.date === e.date &&
+        isOverlapping(a.start_time, a.end_time, e.startTime, e.endTime)
       );
-
-      if (internalOverlap) {
-        const branch = branches.find(b => b.id === e.branchId)?.name;
-        setError(`Conflicto Interno: Has cargado dos visitas a ${branch} que se superponen el mismo día.`);
+      if (overlap) {
+        setError(`Conflicto: ${selectedLeader} ya tiene una visita ese día en ese horario.`);
+        return;
+      }
+      const internal = valid.find(e2 => e2.id !== e.id && e2.date === e.date && isOverlapping(e.startTime, e.endTime, e2.startTime, e2.endTime));
+      if (internal) {
+        setError('Conflicto: cargaste dos visitas el mismo día en horarios que se superponen.');
         return;
       }
     }
 
-    const formattedEntries: SupervisorAgendaEntry[] = validEntries.map(e => ({
-      id: Math.random().toString(36).substr(2, 9),
-      supervisorId: selectedSupervisorId,
-      date: e.date,
-      branchId: e.branchId,
-      startTime: e.startTime,
-      endTime: e.endTime,
-      status: 'pending'
-    }));
-
-    setAgendas([...agendas, ...formattedEntries]);
-    setShowAddEntry(false);
-    setError(null);
-    // Reset form
-    setNewEntries([{
-      id: Date.now().toString(),
-      date: new Date().toISOString().split('T')[0],
-      branchId: '',
-      startTime: '09:00',
-      endTime: '13:00'
-    }]);
+    setSaving(true);
+    try {
+      const rows = valid.map(e => ({
+        supervisor_name: selectedLeader,
+        date: e.date,
+        branch_id: e.branchId,
+        start_time: e.startTime,
+        end_time: e.endTime,
+        status: 'confirmed'
+      }));
+      const { error: insErr } = await supabase.from('supervisor_agenda').insert(rows);
+      if (insErr) throw insErr;
+      setShowAddEntry(false);
+      setSelectedLeader('');
+      setNewEntries([{ id: Date.now().toString(), date: weekStart, branchId: '', startTime: '09:00', endTime: '13:00' }]);
+      setError(null);
+      loadData();
+    } catch (err: any) {
+      console.error('Error guardando agenda:', err);
+      setError('Error al guardar: ' + (err?.message || 'error desconocido'));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleConfirmEntry = (id: string) => {
-    setAgendas(agendas.map(a => a.id === id ? { ...a, status: 'confirmed' } : a));
+  const handleDeleteEntry = async (id: string) => {
+    if (!window.confirm('¿Eliminar esta visita de la agenda?')) return;
+    try {
+      const { error: delErr } = await supabase.from('supervisor_agenda').delete().eq('id', id);
+      if (delErr) throw delErr;
+      setAgendas(prev => prev.filter(a => a.id !== id));
+    } catch (err: any) {
+      alert('Error al eliminar: ' + (err?.message || 'error desconocido'));
+    }
   };
 
-  // Get current week dates
-  const today = new Date();
-  const weekStart = new Date(today);
-  const day = today.getDay();
-  const diff = today.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-  weekStart.setDate(diff);
+  const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
-  const weekDates = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    return d.toISOString().split('T')[0];
-  });
+  // Líderes que tienen alguna entrada esta semana
+  const leadersWithAgenda = useMemo(() => {
+    return Array.from(new Set(agendas.map(a => a.supervisor_name))).sort();
+  }, [agendas]);
+
+  // Resumen de horas: por líder y sucursal + total por líder
+  const hoursSummary = useMemo(() => {
+    // map[leader][branchId] = horas
+    const map: Record<string, Record<string, number>> = {};
+    const totals: Record<string, number> = {};
+    agendas.forEach(a => {
+      const h = hoursBetween(a.start_time, a.end_time);
+      if (!map[a.supervisor_name]) map[a.supervisor_name] = {};
+      map[a.supervisor_name][a.branch_id] = (map[a.supervisor_name][a.branch_id] || 0) + h;
+      totals[a.supervisor_name] = (totals[a.supervisor_name] || 0) + h;
+    });
+    return { map, totals };
+  }, [agendas]);
+
+  const fmtHrs = (h: number) => h % 1 === 0 ? `${h}` : h.toFixed(1);
+
+  const weekLabel = `${weekDays[0].toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
   return (
-    <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl mt-12">
-      <div className="p-6 border-b border-border-dim bg-bg-accent/30 flex flex-wrap justify-between items-center gap-4">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-border-dim pb-4 gap-4">
         <div className="flex items-center gap-3">
-          <ClipboardList className="text-brand-500" size={24} />
+          <div className="bg-brand-500/10 p-3 text-brand-500 border border-brand-500/20 rounded-lg shadow-inner">
+            <ClipboardList size={24} />
+          </div>
           <div>
-            <h2 className="text-sm font-black uppercase text-text-main tracking-widest leading-none">Agenda Semanal Supervisores</h2>
-            <p className="text-[10px] text-text-dim font-bold uppercase tracking-widest mt-1 opacity-70">Cronograma de visitas y auditorías</p>
+            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Agenda Supervisores</h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">Planificación semanal de líderes</p>
           </div>
         </div>
-
         <div className="flex items-center gap-3">
-          <button 
-            onClick={() => setShowAddSupervisor(true)}
-            className="flex items-center gap-2 bg-bg-card border border-border-dim px-4 py-2 rounded text-[10px] font-black uppercase text-text-dim hover:text-brand-500 transition-all"
+          {/* Selector de semana */}
+          <div className="flex items-center gap-1 bg-bg-sidebar border border-border-dim rounded px-2 py-1.5">
+            <button onClick={() => { const d = new Date(weekMonday); d.setDate(d.getDate() - 7); setWeekMonday(d); }} className="p-1 hover:text-brand-500 text-text-dim"><ChevronLeft size={16} /></button>
+            <span className="text-[10px] font-black uppercase text-text-main tracking-wider min-w-[170px] text-center">{weekLabel}</span>
+            <button onClick={() => { const d = new Date(weekMonday); d.setDate(d.getDate() + 7); setWeekMonday(d); }} className="p-1 hover:text-brand-500 text-text-dim"><ChevronRight size={16} /></button>
+          </div>
+          <button
+            onClick={() => { setShowAddEntry(true); setError(null); }}
+            className="flex items-center gap-2 bg-brand-500 text-black px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg"
           >
-            <UserPlus size={14} /> Gestionar Supervisores
-          </button>
-          <button 
-            onClick={() => setShowAddEntry(true)}
-            className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10"
-          >
-            <Plus size={14} /> Cargar Agenda
+            <Plus size={14} /> Agendar Visita
           </button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[1000px]">
-          <thead>
-            <tr className="bg-bg-accent border-b border-border-dim">
-              <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest w-48 sticky left-0 bg-bg-accent z-10">Supervisor</th>
-              {weekDates.map((date, idx) => (
-                <th key={date} className="px-4 py-4 text-center border-l border-border-dim/30">
-                  <span className="block text-[9px] font-black text-brand-500 uppercase tracking-tighter">{DAYS_OF_WEEK[idx]}</span>
-                  <span className="block text-xs font-mono text-text-main mt-1">{date.split('-')[2]}/{date.split('-')[1]}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-dim/50">
-            {supervisors.map(supervisor => (
-              <tr key={supervisor.id} className="hover:bg-bg-accent/10 transition-colors">
-                <td className="px-6 py-6 font-bold text-text-main text-[11px] uppercase tracking-tight sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim/50">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-brand-500" />
-                    {supervisor.name}
-                  </div>
-                </td>
-                {weekDates.map(date => {
-                  const entry = agendas.find(a => a.supervisorId === supervisor.id && a.date === date);
-                  const branch = branches.find(b => b.id === entry?.branchId);
-                  
-                  return (
-                    <td key={date} className="px-4 py-4 border-l border-border-dim/30 min-w-[150px]">
-                      {entry ? (
-                        <div className={cn(
-                          "p-3 rounded-lg border flex flex-col gap-2 relative group",
-                          entry.status === 'confirmed' 
-                            ? "bg-emerald-500/5 border-emerald-500/20" 
-                            : "bg-amber-500/5 border-amber-500/20"
-                        )}>
-                          <div className="flex items-start justify-between">
-                            <span className="text-[10px] font-black uppercase text-text-main tracking-tight leading-tight">
-                              {branch?.name || '---'}
-                            </span>
-                            {entry.status === 'confirmed' ? (
-                              <CheckCircle2 size={12} className="text-emerald-500" />
-                            ) : (
-                              <button 
-                                onClick={() => handleConfirmEntry(entry.id)}
-                                className="opacity-0 group-hover:opacity-100 bg-emerald-500/20 text-emerald-400 p-1 rounded transition-all hover:bg-emerald-500 hover:text-black"
-                                title="Confirmar Visita"
-                              >
-                                <CheckCircle2 size={10} />
-                              </button>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center gap-3 text-[9px] font-bold text-text-dim">
-                            <div className="flex items-center gap-1">
-                              <Clock size={10} />
-                              {entry.startTime} - {entry.endTime}
-                            </div>
-                          </div>
-                          
-                          <div className={cn(
-                            "text-[8px] font-black uppercase px-2 py-0.5 rounded self-start tracking-tighter",
-                            entry.status === 'confirmed' ? "text-emerald-500 bg-emerald-500/10" : "text-amber-500 bg-amber-500/10"
-                          )}>
-                            {entry.status === 'confirmed' ? 'Confirmado' : 'Pendiente Rev.'}
-                          </div>
-                          
-                          <button 
-                            onClick={() => setAgendas(agendas.filter(a => a.id !== entry.id))}
-                            className="absolute -top-1 -right-1 w-5 h-5 bg-bg-card border border-border-dim rounded-full flex items-center justify-center text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all shadow-lg"
-                          >
-                            <X size={10} />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center py-4 text-text-dim/20 hover:text-text-dim/40 transition-colors">
-                           <MapPin size={16} strokeWidth={1.5} />
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Footer Info */}
-      <div className="p-4 bg-bg-accent/30 border-t border-border-dim text-[9px] font-bold uppercase text-text-dim flex justify-between items-center">
-        <div className="flex gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            Agenda Confirmada
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-            Pendiente de Gerencia
-          </div>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 text-text-dim">
+          <Loader2 className="animate-spin text-brand-500" size={32} />
+          <p className="mt-3 text-[10px] font-black uppercase tracking-widest">Cargando agenda…</p>
         </div>
-        <p className="italic">* El Gerente General debe revisar y confirmar cada visita semanalmente.</p>
-      </div>
-
-      {/* Modals */}
-      <AnimatePresence>
-        {showAddSupervisor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAddSupervisor(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-sm bg-bg-card border border-border-dim rounded-lg shadow-2xl p-6"
-            >
-              <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest mb-6">Gestión de Supervisores</h3>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-dim uppercase">Nombre Completo</label>
-                  <input 
-                    type="text" 
-                    value={newSupervisorName}
-                    onChange={(e) => setNewSupervisorName(e.target.value)}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500"
-                    placeholder="Ej: Marcelo Suarez"
-                  />
-                </div>
-                <div className="pt-4 border-t border-border-dim">
-                  <p className="text-[9px] font-bold text-text-dim mb-3 uppercase">Supervisores en Nómina</p>
-                  <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
-                    {supervisors.map(sup => (
-                      <div key={sup.id} className="flex items-center justify-between bg-bg-accent p-2 rounded">
-                        <span className="text-[10px] font-bold text-text-main">{sup.name}</span>
-                        <button 
-                          onClick={() => setSupervisors(supervisors.filter(s => s.id !== sup.id))}
-                          className="text-text-dim hover:text-red-500"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-6 flex gap-3">
-                <button 
-                  onClick={handleAddSupervisor}
-                  className="flex-1 bg-brand-500 text-black py-3 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all"
-                >
-                  Confirmar Alta
-                </button>
-                <button 
-                  onClick={() => setShowAddSupervisor(false)}
-                  className="px-6 py-3 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {showAddEntry && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowAddEntry(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative w-full max-w-2xl bg-bg-card border border-border-dim rounded-lg shadow-2xl p-6"
-            >
-              <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest mb-6 border-l-2 border-brand-500 pl-4">Cargar Nueva Agenda</h3>
-              
-              <div className="space-y-6">
-                <div className="space-y-2 max-w-xs">
-                  <label className="text-[10px] font-bold text-text-dim uppercase">Supervisor</label>
-                  <select 
-                    value={selectedSupervisorId}
-                    onChange={(e) => setSelectedSupervisorId(e.target.value)}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-bold uppercase"
-                  >
-                    <option value="">Seleccionar Supervisor...</option>
-                    {supervisors.map(sup => (
-                      <option key={sup.id} value={sup.id}>{sup.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                  {newEntries.map((row, index) => (
-                    <div key={row.id} className="p-4 bg-bg-accent/50 border border-border-dim rounded-lg space-y-4 relative group/row animate-in fade-in slide-in-from-top-2 duration-300">
-                      <div className="flex justify-between items-center bg-bg-accent -mx-4 -mt-4 px-4 py-2 border-b border-border-dim rounded-t-lg">
-                        <span className="text-[9px] font-black text-brand-500 uppercase">Visita #{index + 1}</span>
-                        {newEntries.length > 1 && (
-                          <button 
-                            onClick={() => handleRemoveRow(row.id)}
-                            className="text-text-dim hover:text-red-500 transition-colors"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-text-dim uppercase">Fecha</label>
-                          <input 
-                            type="date"
-                            value={row.date}
-                            onChange={(e) => handleUpdateEntryRow(row.id, 'date', e.target.value)}
-                            className="w-full bg-bg-card border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-mono"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-text-dim uppercase">Sucursal</label>
-                          <select 
-                            value={row.branchId}
-                            onChange={(e) => handleUpdateEntryRow(row.id, 'branchId', e.target.value)}
-                            className="w-full bg-bg-card border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-bold uppercase"
-                          >
-                            <option value="">Seleccionar...</option>
-                            {branches.map(b => (
-                              <option key={b.id} value={b.id}>{b.name}</option>
+      ) : (
+        <>
+          {/* Grilla semanal */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-x-auto">
+            <table className="w-full border-collapse text-[10px]">
+              <thead>
+                <tr className="bg-bg-accent border-b border-border-dim">
+                  <th className="px-4 py-3 text-left text-text-dim font-bold uppercase tracking-widest">Líder</th>
+                  {weekDays.map((d, i) => (
+                    <th key={i} className="px-3 py-3 text-center text-text-dim font-bold uppercase tracking-widest">
+                      {DAYS_OF_WEEK[i].substring(0, 3)}<br />
+                      <span className="text-[8px] opacity-60">{d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/40">
+                {leadersWithAgenda.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-12 text-center text-text-dim italic uppercase opacity-50">No hay visitas agendadas para esta semana</td></tr>
+                ) : leadersWithAgenda.map(leader => (
+                  <tr key={leader} className="hover:bg-bg-accent/20">
+                    <td className="px-4 py-3 font-black text-text-main uppercase whitespace-nowrap">{leader}</td>
+                    {weekDays.map((d, i) => {
+                      const dayStr = fmtDate(d);
+                      const dayEntries = agendas.filter(a => a.supervisor_name === leader && a.date === dayStr);
+                      return (
+                        <td key={i} className="px-2 py-2 align-top">
+                          <div className="space-y-1">
+                            {dayEntries.map(e => (
+                              <div key={e.id} className="group bg-brand-500/10 border border-brand-500/30 rounded px-2 py-1 text-[8px]">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="font-black text-brand-500 uppercase truncate">{branchName(e.branch_id)}</span>
+                                  <button onClick={() => handleDeleteEntry(e.id)} className="opacity-0 group-hover:opacity-100 text-text-dim hover:text-red-500 transition-all shrink-0"><Trash2 size={10} /></button>
+                                </div>
+                                <span className="text-text-dim font-mono">{e.start_time}-{e.end_time}</span>
+                              </div>
                             ))}
-                          </select>
-                        </div>
-                      </div>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-text-dim uppercase">Desde</label>
-                          <input 
-                            type="time"
-                            value={row.startTime}
-                            onChange={(e) => handleUpdateEntryRow(row.id, 'startTime', e.target.value)}
-                            className="w-full bg-bg-card border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-mono"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-text-dim uppercase">Hasta</label>
-                          <input 
-                            type="time"
-                            value={row.endTime}
-                            onChange={(e) => handleUpdateEntryRow(row.id, 'endTime', e.target.value)}
-                            className="w-full bg-bg-card border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-mono"
-                          />
-                        </div>
-                      </div>
+          {/* Resumen de horas */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2 mb-4">
+              <BarChart3 size={15} /> Resumen de Horas — Semana {weekLabel}
+            </h3>
+            {leadersWithAgenda.length === 0 ? (
+              <p className="text-[10px] text-text-dim italic uppercase opacity-50">Sin datos para esta semana</p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-border-dim">
+                <table className="w-full border-collapse text-[10px]">
+                  <thead>
+                    <tr className="bg-bg-accent text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+                      <th className="px-4 py-3 text-left">Líder</th>
+                      {branches.map(b => <th key={b.id} className="px-3 py-3 text-center">{b.name}</th>)}
+                      <th className="px-4 py-3 text-center bg-brand-500/10 text-brand-500">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-dim/40">
+                    {leadersWithAgenda.map(leader => (
+                      <tr key={leader} className="hover:bg-bg-accent/20">
+                        <td className="px-4 py-3 font-black text-text-main uppercase whitespace-nowrap">{leader}</td>
+                        {branches.map(b => {
+                          const h = hoursSummary.map[leader]?.[b.id] || 0;
+                          return <td key={b.id} className="px-3 py-3 text-center font-mono text-text-dim">{h > 0 ? `${fmtHrs(h)}h` : '—'}</td>;
+                        })}
+                        <td className="px-4 py-3 text-center font-black text-brand-500 bg-brand-500/5">{fmtHrs(hoursSummary.totals[leader] || 0)}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Modal de carga */}
+      <AnimatePresence>
+        {showAddEntry && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between p-5 border-b border-border-dim">
+                <h3 className="text-sm font-black uppercase text-text-main tracking-tight">Agendar Visitas</h3>
+                <button onClick={() => setShowAddEntry(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="text-[9px] font-black text-text-dim uppercase tracking-widest">Líder</label>
+                  <select
+                    value={selectedLeader}
+                    onChange={(e) => setSelectedLeader(e.target.value)}
+                    className="w-full mt-1 bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-black uppercase text-brand-500"
+                  >
+                    <option value="">— Elegí un líder —</option>
+                    {leaders.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                  {leaders.length === 0 && <p className="text-[8px] text-text-dim italic uppercase mt-1 opacity-60">No hay empleados "Líder de…" en el maestro.</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black text-text-dim uppercase tracking-widest">Visitas</label>
+                  {newEntries.map(entry => (
+                    <div key={entry.id} className="grid grid-cols-12 gap-2 items-center bg-bg-accent/30 p-2 rounded border border-border-dim/40">
+                      <input type="date" value={entry.date} min={weekStart} max={weekEnd} onChange={(e) => handleUpdateEntryRow(entry.id, 'date', e.target.value)} className="col-span-3 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[9px] font-mono" />
+                      <select value={entry.branchId} onChange={(e) => handleUpdateEntryRow(entry.id, 'branchId', e.target.value)} className="col-span-4 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[9px] font-bold uppercase">
+                        <option value="">Sucursal…</option>
+                        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                      <input type="time" value={entry.startTime} onChange={(e) => handleUpdateEntryRow(entry.id, 'startTime', e.target.value)} className="col-span-2 bg-bg-card border border-border-dim rounded px-1 py-1.5 text-[9px] font-mono" />
+                      <input type="time" value={entry.endTime} onChange={(e) => handleUpdateEntryRow(entry.id, 'endTime', e.target.value)} className="col-span-2 bg-bg-card border border-border-dim rounded px-1 py-1.5 text-[9px] font-mono" />
+                      <button onClick={() => handleRemoveRow(entry.id)} className="col-span-1 text-text-dim hover:text-red-500 flex justify-center"><Trash2 size={13} /></button>
                     </div>
                   ))}
-
-                  <button 
-                    onClick={handleAddNewRow}
-                    className="w-full py-4 border-2 border-dashed border-border-dim rounded-lg text-text-dim hover:text-brand-500 hover:border-brand-500/50 hover:bg-brand-500/5 transition-all flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <Plus size={14} /> Agregar Otra Visita
-                  </button>
+                  <button onClick={handleAddNewRow} className="flex items-center gap-1 text-[9px] font-black uppercase text-brand-500 hover:text-brand-600"><Plus size={12} /> Agregar otra visita</button>
                 </div>
+
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded p-3 text-[9px] font-bold text-red-500 uppercase">
+                    <AlertCircle size={13} /> {error}
+                  </div>
+                )}
               </div>
-
-              {error && (
-                <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-3"
-                >
-                  <AlertCircle size={16} className="text-red-500 mt-0.5 shrink-0" />
-                  <p className="text-[10px] font-bold text-red-500 uppercase tracking-tight">{error}</p>
-                </motion.div>
-              )}
-
-              <div className="mt-8 flex gap-3 border-t border-border-dim pt-6">
-                <button 
-                  onClick={handleAddEntry}
-                  disabled={!selectedSupervisorId}
-                  className="flex-1 bg-brand-500 disabled:opacity-50 disabled:cursor-not-allowed text-black py-4 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/10"
-                >
-                  Guardar Toda la Agenda
+              <div className="flex gap-3 p-5 border-t border-border-dim">
+                <button onClick={handleSaveEntries} disabled={saving} className="flex-1 bg-brand-500 text-black py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 disabled:opacity-60 flex items-center justify-center gap-2">
+                  {saving ? <Loader2 className="animate-spin" size={14} /> : <Clock size={14} />}
+                  {saving ? 'Guardando…' : 'Guardar Agenda'}
                 </button>
-                <button 
-                  onClick={() => setShowAddEntry(false)}
-                  className="px-8 py-4 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
-                >
-                  Cerrar
-                </button>
+                <button onClick={() => setShowAddEntry(false)} disabled={saving} className="px-6 py-2.5 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent disabled:opacity-40">Cancelar</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }
