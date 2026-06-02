@@ -379,11 +379,25 @@ export default function SupervisionFlagsView({
 
   const handleSaveTemplate = async () => {
     if (!selectedTemplate) return;
+
+    // Asegurar un UUID válido: mapear los ids seeded conocidos, o generar uno nuevo.
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const seededUuidMap: Record<string, string> = {
+      't-servicio': '19c8f031-15b7-4b72-b5e0-47de31f24d71',
+      't-cocina': '29c8f031-15b7-4b72-b5e0-47de31f24d72',
+      't-delivery': '39c8f031-15b7-4b72-b5e0-47de31f24d73',
+      't-deposito': '49c8f031-15b7-4b72-b5e0-47de31f24d74',
+    };
+    let saveId = selectedTemplate.id;
+    if (!uuidRe.test(saveId)) {
+      saveId = seededUuidMap[saveId] || (crypto.randomUUID ? crypto.randomUUID() : '');
+    }
+
     try {
       const { error } = await supabase
         .from('supervision_checklists')
         .upsert({
-          id: selectedTemplate.id,
+          id: saveId,
           name: selectedTemplate.name,
           category: selectedTemplate.category,
           items: selectedTemplate.questions
@@ -391,12 +405,13 @@ export default function SupervisionFlagsView({
         
       if (error) throw error;
       
-      setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? selectedTemplate : t));
+      const savedTemplate = { ...selectedTemplate, id: saveId };
+      setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? savedTemplate : t));
+      setSelectedTemplate(savedTemplate);
       alert('¡Plantilla guardada con éxito en la Base de Datos!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving checklist template:', err);
-      alert('Error de conexión. Cambios salvados localmente.');
-      setTemplates(prev => prev.map(t => t.id === selectedTemplate.id ? selectedTemplate : t));
+      alert('Error al guardar la plantilla: ' + (err?.message || 'error desconocido'));
     }
   };
 
