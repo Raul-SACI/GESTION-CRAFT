@@ -316,54 +316,76 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
 
   // Fetch records
   useEffect(() => {
-    const fetchRecords = () => {
+    const fetchRecords = async () => {
       const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
       setLoading(true);
 
-      const savedStr = localStorage.getItem('craft_branch_daily_hours') || '[]';
-      let allLogs: HourRecord[] = [];
-      try {
-        allLogs = JSON.parse(savedStr);
-      } catch (e) {
-        console.error(e);
-      }
+      const buildDefaults = () => staffPool.map(emp => {
+        const roleLabel = ROLES.find(r => r.id === emp.position)?.label || emp.position;
+        const currentRate = getPositionRateFromMaestro(emp.position, roleLabel);
+        return {
+          id: `daily-${emp.id}-${selectedDate}`,
+          branchId: branchIdToFetch,
+          employeeName: emp.name,
+          date: selectedDate,
+          dayName, monthName, monthKey, weekNum,
+          roleId: emp.position,
+          rate: currentRate,
+          hours: 0,
+          confirmed: false,
+          shift: 'Mañana' as const
+        };
+      });
 
-      // Filter for this branch & selectedDate
-      const activeLogs = allLogs.filter(log => log.branchId === branchIdToFetch && log.date === selectedDate);
-      
-      if (activeLogs.length > 0) {
-        // Resolve rates dynamically in case we updated Maestro de personal!
-        const resolved = activeLogs.map(log => {
-          const roleLabel = ROLES.find(r => r.id === log.roleId)?.label || log.roleId;
-          const currentRate = getPositionRateFromMaestro(log.roleId, roleLabel);
-          return {
-            ...log,
-            rate: currentRate
-          };
-        });
-        setRecords(resolved);
-      } else {
-        // Automatically default with active employees for this branch to save input time!
-        const defaults = staffPool.map(emp => {
-          const roleLabel = ROLES.find(r => r.id === emp.position)?.label || emp.position;
-          const currentRate = getPositionRateFromMaestro(emp.position, roleLabel);
-          return {
-            id: `daily-${emp.id}-${selectedDate}`,
-            branchId: branchIdToFetch,
-            employeeName: emp.name,
-            date: selectedDate,
-            dayName,
-            monthName,
-            monthKey,
-            weekNum,
-            roleId: emp.position,
-            rate: currentRate,
-            hours: 0,
-            confirmed: false,
-            shift: 'Mañana' as const
-          };
-        });
-        setRecords(defaults);
+      try {
+        // Fuente de verdad: Supabase hour_logs (robusto entre dispositivos)
+        const { data: rows, error } = await supabase
+          .from('hour_logs')
+          .select('*')
+          .eq('branch_id', branchIdToFetch)
+          .eq('date', selectedDate);
+
+        if (error) throw error;
+
+        if (rows && rows.length > 0) {
+          const mapped: HourRecord[] = rows.map((row: any) => {
+            const roleId = row.position_id || row.position || 'mozos';
+            const roleLabel = ROLES.find(r => r.id === roleId)?.label || roleId;
+            const currentRate = getPositionRateFromMaestro(roleId, roleLabel);
+            return {
+              id: row.id,
+              branchId: row.branch_id,
+              employeeName: row.employee_name,
+              date: row.date,
+              dayName, monthName, monthKey,
+              weekNum: row.week_number || weekNum,
+              roleId,
+              rate: currentRate,
+              hours: Number(row.hours_actual) || 0,
+              confirmed: Boolean(row.confirmed),
+              shift: (row.shift === 'Tarde' ? 'Tarde' : 'Mañana') as 'Mañana' | 'Tarde'
+            };
+          });
+          setRecords(mapped);
+        } else {
+          // No hay registros en la base: defaults con el personal del maestro
+          setRecords(buildDefaults());
+        }
+      } catch (e) {
+        console.error('Error cargando hour_logs desde Supabase, usando respaldo local:', e);
+        // Fallback offline: localStorage
+        const savedStr = localStorage.getItem('craft_branch_daily_hours') || '[]';
+        let allLogs: HourRecord[] = [];
+        try { allLogs = JSON.parse(savedStr); } catch (err) { console.error(err); }
+        const activeLogs = allLogs.filter(log => log.branchId === branchIdToFetch && log.date === selectedDate);
+        if (activeLogs.length > 0) {
+          setRecords(activeLogs.map(log => {
+            const roleLabel = ROLES.find(r => r.id === log.roleId)?.label || log.roleId;
+            return { ...log, rate: getPositionRateFromMaestro(log.roleId, roleLabel) };
+          }));
+        } else {
+          setRecords(buildDefaults());
+        }
       }
 
       setLoading(false);
@@ -458,9 +480,10 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
     });
   };
 
-  const handleRemoveRow = (id: string) => {
+  const handleRemoveRow = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRecords(records.filter(r => r.id !== id));
-    
+
     // Remove from localStorage array
     const savedStr = localStorage.getItem('craft_branch_daily_hours') || '[]';
     try {
@@ -469,6 +492,16 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
       localStorage.setItem('craft_branch_daily_hours', JSON.stringify(filtered));
     } catch (e) {
       console.error(e);
+    }
+
+    // Si es un registro persistido en Supabase (UUID real), borrarlo también
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (uuidRe.test(id)) {
+      try {
+        await supabase.from('hour_logs').delete().eq('id', id);
+      } catch (e) {
+        console.error('Error borrando hour_log:', e);
+      }
     }
   };
 
@@ -524,21 +557,32 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
     const otherLogs = allLogs.filter(log => !(log.branchId === branchIdToUse && log.date === selectedDate));
     const mergedLogs = [...otherLogs, ...draftRecords];
     localStorage.setItem('craft_branch_daily_hours', JSON.stringify(mergedLogs));
-    // Guardar en Supabase
+    // Guardar en Supabase (solo los registros de ESTE día/sucursal)
     try {
-      const upsertData = mergedLogs.map((log: any) => ({
-        branch_id: log.branchId || branchIdToUse,
-        employee_name: log.employeeName || log.name || 'Sin nombre',
-        position: log.position || log.role || 'Sin cargo',
-        date: log.date,
-        month: log.date ? log.date.substring(0, 7) : selectedDate.substring(0, 7),
-        hours_planned: log.hoursPlanned || 0,
-        hours_actual: log.hoursActual || log.hours || 0,
-      }));
+      const upsertData = draftRecords.map((r) => {
+        const roleLabel = ROLES.find((rol: any) => rol.id === r.roleId)?.label || r.roleId;
+        return {
+          branch_id: branchIdToUse,
+          employee_name: r.employeeName || 'Sin nombre',
+          position: roleLabel,
+          position_id: r.roleId || 'unknown',
+          date: selectedDate,
+          month: monthKey,
+          week_number: weekNum,
+          hours_planned: 0,
+          hours_actual: r.hours || 0,
+          confirmed: false,
+          shift: r.shift || 'Mañana'
+        };
+      });
       if (upsertData.length > 0) {
-        await supabase.from('hour_logs').upsert(upsertData, { onConflict: 'branch_id,employee_name,date' });
+        const { error: upErr } = await supabase.from('hour_logs').upsert(upsertData, { onConflict: 'branch_id,employee_name,date,position_id' });
+        if (upErr) throw upErr;
       }
-    } catch(e) { console.error('Error sync hour_logs:', e); }
+    } catch(e: any) {
+      console.error('Error sync hour_logs:', e);
+      alert('Atención: no se pudo guardar en la base. ' + (e?.message || ''));
+    }
 
     setSuccessMsg('BORRADOR GUARDADO');
     setSaving(false);
@@ -597,6 +641,8 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           week_number: r.weekNum || getWeekFromDate(r.date),
           hours_planned: 0,
           hours_actual: r.hours || 0,
+          confirmed: true,
+          shift: r.shift || 'Mañana'
         };
         // Check if exists then update or insert
         const { data: existing } = await supabase
