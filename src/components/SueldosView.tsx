@@ -765,7 +765,16 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
               <input 
                 type="date" 
                 value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+                onChange={(e) => {
+                  const picked = e.target.value;
+                  const today = new Date().toISOString().split('T')[0];
+                  if (picked > today) {
+                    alert('No se pueden cargar horas de fechas futuras. Solo el día de hoy o días anteriores.');
+                    return;
+                  }
+                  setSelectedDate(picked);
+                }}
                 className="bg-transparent border-none text-xs font-black font-mono text-text-main outline-none uppercase cursor-pointer"
               />
             </div>
