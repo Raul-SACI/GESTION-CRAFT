@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Loader2, Trophy } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { TrendingUp, TrendingDown, Loader2, Trophy, ChevronDown, Check } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
@@ -36,7 +36,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
   const [loading, setLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedBranch, setSelectedBranch] = useState(fixedBranchId || 'all');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
   useEffect(() => {
     if (fixedBranchId) setSelectedBranch(fixedBranchId);
@@ -96,19 +96,18 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     return Array.from(new Set(cats)).sort();
   }, [rows, selectedMonth, selectedBranch]);
 
-  // Si el rubro seleccionado ya no existe al cambiar mes/sucursal, vuelve a "Todos".
+  // Quita de la selección los rubros que ya no existen al cambiar mes/sucursal.
   useEffect(() => {
-    if (selectedCategory !== 'all' && !availableCategories.includes(selectedCategory)) {
-      setSelectedCategory('all');
-    }
-  }, [availableCategories, selectedCategory]);
+    setSelectedCategories(prev => prev.filter(c => availableCategories.includes(c)));
+  }, [availableCategories]);
 
-  // Agrega por producto sumando las semanas del mes seleccionado (y sucursal/rubro si aplica).
+  // Agrega por producto sumando las semanas del mes seleccionado (y sucursal/rubros si aplica).
+  // Si no hay rubros marcados, se consideran TODOS.
   const aggregated = useMemo(() => {
     const filtered = rows.filter(r =>
       r.month === selectedMonth &&
       (selectedBranch === 'all' || r.branch_id === selectedBranch) &&
-      (selectedCategory === 'all' || (r.category || '').trim() === selectedCategory)
+      (selectedCategories.length === 0 || selectedCategories.includes((r.category || '').trim()))
     );
     const map: Record<string, AggregatedProduct> = {};
     filtered.forEach(r => {
@@ -124,7 +123,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
       map[key].total += Number(r.quantity) || 0;
     });
     return Object.values(map);
-  }, [rows, selectedMonth, selectedBranch, selectedCategory]);
+  }, [rows, selectedMonth, selectedBranch, selectedCategories]);
 
   const top10 = useMemo(
     () => [...aggregated].sort((a, b) => b.total - a.total).slice(0, 10),
@@ -200,14 +199,11 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-brand-500"
-          >
-            <option value="all">Todos los Rubros</option>
-            {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <CategoryMultiSelect
+            options={availableCategories}
+            selected={selectedCategories}
+            onChange={setSelectedCategories}
+          />
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
@@ -227,6 +223,87 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
         <div className="flex flex-col lg:flex-row gap-6">
           <RankTable title="10 Más Vendidos" data={top10} variant="top" />
           <RankTable title="10 Menos Vendidos" data={bottom10} variant="bottom" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Selector múltiple de rubros con panel de checkboxes desplegable. Exportado para reuso.
+export function CategoryMultiSelect({
+  options,
+  selected,
+  onChange,
+  labelAll = 'Todos los Rubros'
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (vals: string[]) => void;
+  labelAll?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const toggle = (val: string) => {
+    if (selected.includes(val)) onChange(selected.filter(v => v !== val));
+    else onChange([...selected, val]);
+  };
+
+  const label = selected.length === 0
+    ? labelAll
+    : selected.length === 1
+      ? selected[0]
+      : `${selected.length} rubros`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-brand-500 max-w-[220px]"
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown size={12} className="shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 w-64 max-h-72 overflow-y-auto bg-bg-sidebar border border-border-dim rounded-lg shadow-2xl p-1">
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="w-full text-left px-3 py-2 text-[10px] font-black uppercase text-text-dim hover:bg-bg-accent rounded"
+          >
+            Limpiar selección
+          </button>
+          {options.length === 0 && (
+            <div className="px-3 py-2 text-[10px] text-text-dim italic uppercase opacity-50">Sin rubros</div>
+          )}
+          {options.map(opt => {
+            const checked = selected.includes(opt);
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => toggle(opt)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-bold uppercase text-text-main hover:bg-bg-accent rounded text-left"
+              >
+                <span className={cn(
+                  "w-4 h-4 rounded border flex items-center justify-center shrink-0",
+                  checked ? "bg-brand-500 border-brand-500" : "border-border-dim"
+                )}>
+                  {checked && <Check size={11} className="text-black" />}
+                </span>
+                <span className="truncate">{opt}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

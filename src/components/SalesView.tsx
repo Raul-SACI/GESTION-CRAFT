@@ -39,7 +39,7 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { SalesData, Branch, SaleType, Product, ProductRankingEntry } from '../types';
-import MonthlyRankingTop from './MonthlyRankingTop';
+import MonthlyRankingTop, { CategoryMultiSelect } from './MonthlyRankingTop';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { AnimatePresence } from 'motion/react';
@@ -162,6 +162,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   
   // Rankings State
   const [rankings, setRankings] = useState<any[]>([]);
+  const [rkFilterProduct, setRkFilterProduct] = useState('');
+  const [rkFilterCode, setRkFilterCode] = useState('');
+  const [rkFilterCategories, setRkFilterCategories] = useState<string[]>([]);
+  const [rkFilterBranch, setRkFilterBranch] = useState('all');
+  const [rkFilterPeriod, setRkFilterPeriod] = useState('all');
   const [isImportingRanking, setIsImportingRanking] = useState(false);
   const [rankingToImport, setRankingToImport] = useState<{
     branchId: string;
@@ -514,6 +519,29 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
     return base;
   }, [salesRecords, localBranchId, filterMonth, filterWeek]);
+
+  // Opciones para los desplegables de filtro de la tabla de ranking
+  const rkCategoryOptions = useMemo(
+    () => Array.from(new Set(rankings.map(r => (r.category || '').trim()).filter(Boolean))).sort(),
+    [rankings]
+  );
+  const rkPeriodOptions = useMemo(
+    () => Array.from(new Set(rankings.map(r => `${r.month || ''}${r.week_number ? ` · S${r.week_number}` : ''}`).filter(Boolean))).sort().reverse(),
+    [rankings]
+  );
+
+  // Tabla de ranking con filtros por columna aplicados
+  const filteredRankings = useMemo(() => {
+    return rankings.filter(r => {
+      if (rkFilterProduct && !(r.product_name || '').toUpperCase().includes(rkFilterProduct.toUpperCase())) return false;
+      if (rkFilterCode && !(String(r.product_code || '')).toUpperCase().includes(rkFilterCode.toUpperCase())) return false;
+      if (rkFilterCategories.length > 0 && !rkFilterCategories.includes((r.category || '').trim())) return false;
+      if (rkFilterBranch !== 'all' && r.branch_id !== rkFilterBranch) return false;
+      const period = `${r.month || ''}${r.week_number ? ` · S${r.week_number}` : ''}`;
+      if (rkFilterPeriod !== 'all' && period !== rkFilterPeriod) return false;
+      return true;
+    });
+  }, [rankings, rkFilterProduct, rkFilterCode, rkFilterCategories, rkFilterBranch, rkFilterPeriod]);
 
   const allFilteredIds = useMemo(() => filteredSales.map(r => r.id), [filteredSales]);
   const isAllSelected = useMemo(() => {
@@ -2645,6 +2673,49 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                                 <th className="px-4 py-4 text-right">Cantidad</th>
                                 <th className="px-6 py-4"></th>
                              </tr>
+                             <tr className="bg-bg-sidebar border-b border-border-dim">
+                                <th className="px-2 py-2"></th>
+                                <th className="px-3 py-2">
+                                   <input
+                                     value={rkFilterProduct}
+                                     onChange={(e) => setRkFilterProduct(e.target.value)}
+                                     placeholder="Buscar…"
+                                     className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-normal normal-case text-text-main placeholder:text-text-dim/50"
+                                   />
+                                </th>
+                                <th className="px-3 py-2">
+                                   <input
+                                     value={rkFilterCode}
+                                     onChange={(e) => setRkFilterCode(e.target.value)}
+                                     placeholder="Cód…"
+                                     className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-normal normal-case text-text-main placeholder:text-text-dim/50 text-center"
+                                   />
+                                </th>
+                                <th className="px-3 py-2">
+                                   <CategoryMultiSelect
+                                     options={rkCategoryOptions}
+                                     selected={rkFilterCategories}
+                                     onChange={setRkFilterCategories}
+                                     labelAll="Todos"
+                                   />
+                                </th>
+                                <th className="px-3 py-2">
+                                   <select value={rkFilterBranch} onChange={(e) => setRkFilterBranch(e.target.value)}
+                                     className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-normal normal-case text-text-main">
+                                      <option value="all">Todas</option>
+                                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                                   </select>
+                                </th>
+                                <th className="px-3 py-2">
+                                   <select value={rkFilterPeriod} onChange={(e) => setRkFilterPeriod(e.target.value)}
+                                     className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-normal normal-case text-text-main">
+                                      <option value="all">Todos</option>
+                                      {rkPeriodOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                                   </select>
+                                </th>
+                                <th className="px-2 py-2"></th>
+                                <th className="px-2 py-2"></th>
+                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border-dim">
                              {loading && rankings.length === 0 ? (
@@ -2655,14 +2726,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                                      </span>
                                   </td>
                                </tr>
-                             ) : rankings.length === 0 ? (
+                             ) : filteredRankings.length === 0 ? (
                                <tr>
                                   <td colSpan={8} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
-                                     No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.
+                                     {rankings.length === 0
+                                       ? 'No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.'
+                                       : 'Ningún producto coincide con los filtros aplicados.'}
                                   </td>
                                </tr>
                              ) : (
-                               rankings.map((r, idx) => (
+                               filteredRankings.map((r, idx) => (
                                  <tr key={r.id || idx} className="hover:bg-bg-accent/50 transition-colors group">
                                     <td className="px-4 py-4 text-center font-black text-text-dim">{idx + 1}</td>
                                     <td className="px-6 py-4">
