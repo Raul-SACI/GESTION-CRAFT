@@ -1169,6 +1169,30 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
     });
   }, [weeks, filteredRows, holidaysList]);
 
+  // Resumen por PUESTO: agrupa todas las filas por roleLabel y suma horas y costo del mes.
+  const positionBreakdown = useMemo(() => {
+    const map: Record<string, { label: string; hours: number; cost: number }> = {};
+    weeks.forEach(week => {
+      week.days.forEach(day => {
+        if (day.isInMonth) {
+          const isHoliday = holidaysList.includes(day.dateStr);
+          filteredRows.forEach(row => {
+            const headcount = getHeadcount(row, day.dateStr, day.dayName);
+            if (headcount > 0) {
+              const hours = headcount * row.hoursPerDay;
+              const rate = isHoliday ? row.hourlyRate * 2 : row.hourlyRate;
+              const key = row.roleLabel || row.roleId || 'Sin puesto';
+              if (!map[key]) map[key] = { label: key, hours: 0, cost: 0 };
+              map[key].hours += hours;
+              map[key].cost += hours * rate;
+            }
+          });
+        }
+      });
+    });
+    return Object.values(map).sort((a, b) => b.hours - a.hours);
+  }, [weeks, filteredRows, holidaysList]);
+
   // Active Week Row Calculations
   const activeWeekCostSummary = useMemo(() => {
     let weekHrs = 0;
@@ -1405,6 +1429,24 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
                     <div className="text-right font-mono">
                       <span className="text-text-dim mr-1.5">{wb.hours}h</span>
                       <span className="font-bold text-brand-500">${wb.cost.toLocaleString('es-AR')}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Desglose por PUESTO */}
+            <div className="pt-3.5 border-t border-border-dim/50 space-y-2">
+              <p className="text-[8.5px] font-black text-text-dim uppercase tracking-wider">Presupuesto de Horas por Puesto:</p>
+              <div className="space-y-1">
+                {positionBreakdown.length === 0 ? (
+                  <p className="text-[8px] text-text-dim italic uppercase opacity-50 py-2">Sin datos cargados</p>
+                ) : positionBreakdown.map((pb) => (
+                  <div key={pb.label} className="flex justify-between items-center text-[9px] py-1 border-b border-border-dim/20 last:border-none font-sans">
+                    <span className="font-extrabold text-text-main uppercase truncate max-w-[120px]">{pb.label}</span>
+                    <div className="text-right font-mono shrink-0">
+                      <span className="text-text-dim mr-1.5">{pb.hours.toLocaleString()}h</span>
+                      <span className="font-bold text-brand-500">${pb.cost.toLocaleString('es-AR')}</span>
                     </div>
                   </div>
                 ))}
