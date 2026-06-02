@@ -202,7 +202,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Save User
   const handleSaveUser = async () => {
-    if (!userForm.name.trim()) {
+    if (!userForm.name?.trim()) {
       alert('Por favor, ingresa el nombre.');
       return;
     }
@@ -229,12 +229,12 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
         if (error) throw error;
       } else {
         // --- CREAR: llama a la Edge Function que crea en Auth + profiles ---
-        if (!userForm.email.trim()) {
+        if (!userForm.email?.trim()) {
           alert('Por favor, ingresa el email del usuario.');
           setLoading(false);
           return;
         }
-        if (!userForm.password.trim() || userForm.password.length < 6) {
+        if (!userForm.password?.trim() || userForm.password.length < 6) {
           alert('La contraseña debe tener al menos 6 caracteres.');
           setLoading(false);
           return;
@@ -464,7 +464,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                   </span>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
                       setIsAddingUser(true);
                     }}
                     className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
@@ -687,7 +687,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
                     <button 
                       onClick={() => {
                         setIsAddingUser(false);
-                        setUserForm({ id: '', name: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
                       }}
                       className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                     >
