@@ -41,7 +41,7 @@ const TYPE_ICONS: Record<string, any> = {
   other: Globe
 };
 
-export default function PasswordManagementView() {
+export default function PasswordManagementView({ isReadOnly }: { isReadOnly?: boolean } = {}) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -88,6 +88,7 @@ export default function PasswordManagementView() {
   };
 
   const handleAddAccount = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newAcc.service || !newAcc.username) return;
     const { data, error } = await supabase.from('passwords').insert([{
       service: newAcc.service.toUpperCase(),
@@ -110,6 +111,7 @@ export default function PasswordManagementView() {
   };
 
   const handleDeleteAccount = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!confirm('¿Eliminar esta cuenta?')) return;
     const { error } = await supabase.from('passwords').delete().eq('id', id);
     if (!error) {

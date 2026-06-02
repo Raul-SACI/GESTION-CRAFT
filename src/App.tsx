@@ -490,7 +490,13 @@ function AppContent() {
 
   // Tabs que son puramente de visualización/simulación (no escriben datos):
   // en estos, el modo solo-lectura NO debe bloquear los filtros ni la navegación.
-  const VIEW_ONLY_TABS = ['dashboard', 'socios_dashboard', 'performance_admin'];
+  // También se incluyen módulos que YA respetan isReadOnly internamente (bloquean sus
+  // propios guardados), por lo que el overlay global es innecesario en ellos.
+  const VIEW_ONLY_TABS = [
+    'dashboard', 'socios_dashboard', 'performance_admin',
+    'papeles_sucursal', 'novedades',
+    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas'
+  ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
   // Find current user's branch ID
@@ -1369,6 +1375,7 @@ function AppContent() {
                   userRole={currentUser.role} 
                   controlledItemIds={controlledItemIds}
                   items={items}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} />}
@@ -1404,13 +1411,14 @@ function AppContent() {
                   selectedBranchId={selectedBranchId}
                   items={items}
                   products={products}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'precios' && <PriceListView key="precios" />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} />}
-              {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} />}
+              {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" />}
+              {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'papeles_sucursal' && (
                 <DocumentsView 
                   key="papeles_sucursal" 

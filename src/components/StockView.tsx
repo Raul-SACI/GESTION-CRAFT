@@ -39,13 +39,15 @@ export default function StockView({
   branches, 
   userRole,
   controlledItemIds = [],
-  items = []
+  items = [],
+  isReadOnly
 }: { 
   selectedBranchId: string, 
   branches: Branch[],
   userRole?: string,
   controlledItemIds?: string[],
-  items?: StockItem[]
+  items?: StockItem[],
+  isReadOnly?: boolean
 }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const isAdmin = userRole === 'dueño' || userRole === 'administrativo';
@@ -231,7 +233,7 @@ export default function StockView({
           });
           return merged;
         });
-        if (upsertPromises.length > 0) {
+        if (upsertPromises.length > 0 && !isReadOnly) {
           Promise.all(upsertPromises).catch(e => console.warn('Auto-sync decomisos error:', e));
         }
       }
@@ -257,6 +259,7 @@ export default function StockView({
   }, [selectedBranchId, selectedDate, viewMode]);
 
   const updateItemData = async (id: string, field: string, value: number, targetDate: string = selectedDate) => {
+    if (isReadOnly) return;
     // Check if week is closed
     const currentWeekNum = getWeekNumber(targetDate);
     const closureKey = `${selectedBranchId}-${targetDate.substring(0, 7)}-${currentWeekNum}-${id}`;
@@ -416,6 +419,7 @@ export default function StockView({
   };
 
   const handleCloseWeek = async (itemId: string, itemName: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedBranchId) return;
     const currentMonth = selectedDate.substring(0, 7);
     const currentWeekNum = getWeekNumber(selectedDate);

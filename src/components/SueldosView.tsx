@@ -197,7 +197,7 @@ export function SearchableEmployeeSelect({ value, onChange, staffPool, disabled 
   );
 }
 
-export default function HourControlView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
+export default function HourControlView({ selectedBranchId, branches, isReadOnly }: { selectedBranchId: string, branches: Branch[], isReadOnly?: boolean }) {
   const activeBranches = branches.filter(b => b.isActive && b.id !== 'all');
   
   // When admin has 'all' selected, show a branch selector inside the module
@@ -379,6 +379,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
   }, [newStaff.position]);
 
   const handleManagementAddStaff = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newStaff.name.trim()) return;
     const nameUpper = newStaff.name.trim().toUpperCase();
     const resolvedRate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position);
@@ -491,6 +492,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
 
   // Helper to save a draft (local only, does not affect HR)
   const saveDraft = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSaving(true);
     setSaveSuccess(false);
 
@@ -546,6 +548,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
 
   // Helper to confirm and push to Resources Humanos Control Board
   const confirmDay = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSaving(true);
     setSaveSuccess(false);
 
@@ -1155,6 +1158,7 @@ export default function HourControlView({ selectedBranchId, branches }: { select
                         </div>
                         <button 
                           onClick={async () => {
+                            if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
                             await supabase.from('employees').delete().eq('id', staff.id);
                             setStaffPool(staffPool.filter(s => s.id !== staff.id));
                           }}

@@ -46,13 +46,15 @@ export default function DecomisosView({
   selectedBranchId,
   items,
   products,
-  onlyInsumos = false
+  onlyInsumos = false,
+  isReadOnly
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
   items: StockItem[],
   products: Product[],
-  onlyInsumos?: boolean
+  onlyInsumos?: boolean,
+  isReadOnly?: boolean
 }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [decomisos, setDecomisos] = useState<DailyWastage[]>([]);
@@ -110,6 +112,7 @@ export default function DecomisosView({
   };
 
   const handleAdd = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedBranchId || selectedBranchId === 'all') {
       alert('Por favor, selecciona una sucursal específica para cargar un decomiso.');
       return;
@@ -179,6 +182,7 @@ export default function DecomisosView({
   };
 
   const handleDelete = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!window.confirm('¿Eliminar este registro de decomiso?')) return;
     
     const { error } = await supabase

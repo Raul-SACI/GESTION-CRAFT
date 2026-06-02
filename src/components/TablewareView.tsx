@@ -25,9 +25,10 @@ import { Branch, TablewareItem, TablewareWeeklyCheck } from '../types';
 interface TablewareViewProps {
   branches: Branch[];
   selectedBranchId: string;
+  isReadOnly?: boolean;
 }
 
-export default function TablewareView({ branches, selectedBranchId }: TablewareViewProps) {
+export default function TablewareView({ branches, selectedBranchId, isReadOnly }: TablewareViewProps) {
   const [items, setItems] = useState<TablewareItem[]>([]);
   const [checks, setChecks] = useState<TablewareWeeklyCheck[]>([]);
   const [loading, setLoading] = useState(false);
@@ -166,6 +167,7 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
   };
 
   const confirmImport = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setLoading(true);
     try {
       // 1. Insert items and get them back with IDs
@@ -223,6 +225,7 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
   };
 
   const handleAddItem = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newItem.name || !newItem.category || selectedBranchId === 'all') return;
     setLoading(true);
     try {
@@ -245,6 +248,7 @@ export default function TablewareView({ branches, selectedBranchId }: TablewareV
   };
 
   const handleSaveWeeklyCheck = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (selectedBranchId === 'all') return;
     setLoading(true);
     try {
