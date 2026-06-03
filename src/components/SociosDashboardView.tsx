@@ -2,72 +2,194 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { 
-  Building2, 
-  Calendar, 
-  TrendingUp, 
-  TrendingDown, 
-  Star, 
-  DollarSign, 
-  Users, 
-  Utensils, 
-  MessageSquare, 
-  Clock, 
-  AlertTriangle, 
-  Percent, 
-  PieChart, 
-  Award, 
-  Sparkles,
-  ShoppingBag,
-  ExternalLink
+import {
+  Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils
 } from 'lucide-react';
-import { 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  Legend
-} from 'recharts';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
-import MonthlyRankingTop from './MonthlyRankingTop';
+import { supabase } from '../lib/supabase';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
 }
 
+interface BranchSales {
+  branchId: string;
+  branchName: string;
+  netCurrent: number;
+  grossCurrent: number;
+  ticketsCurrent: number;
+  netPrev: number;
+  grossPrev: number;
+  ticketsPrev: number;
+  projection: number;
+  googleRating: number;
+  googleVotes: number;
+  pyResto: number | null;
+  pyCafe: number | null;
+}
+
+const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+const pct = (curr: number, prev: number): number | null => {
+  if (!prev || prev === 0) return null;
+  return ((curr - prev) / prev) * 100;
+};
+
+const prevMonthOf = (ym: string): string => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
 export default function SociosDashboardView({ branches }: SociosDashboardViewProps) {
   const [selectedBranch, setSelectedBranch] = useState<string>('all');
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-05');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<BranchSales[]>([]);
 
-  // All zeros until real data is loaded from Supabase
-  const emptyRep = { googleRating: 0, googleVotes: 0, pyRating: 0, pyCafeRating: 0, pyDelay: 0, complaintsCount: 0 };
-  const emptyPL = { sales: 0, cmv: 0, salaries: 0, rent: 0, marketing: 0, other: 0 };
+  const operativeBranches = useMemo(
+    () => branches.filter(b => !/almac/i.test(b.name)),
+    [branches]
+  );
 
-  const monthlySalesTrend: { name: string; Ventas: number; EBITDA: number }[] = [];
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      const prevMonth = prevMonthOf(selectedMonth);
+      const [cy, cm] = selectedMonth.split('-').map(Number);
+      const monthStart = `${selectedMonth}-01`;
+      const monthEnd = `${selectedMonth}-${String(new Date(cy, cm, 0).getDate()).padStart(2, '0')}`;
+      const pStart = `${prevMonth}-01`;
+      const [py, pm] = prevMonth.split('-').map(Number);
+      const pEnd = `${prevMonth}-${String(new Date(py, pm, 0).getDate()).padStart(2, '0')}`;
 
-  const currentRep = emptyRep;
-  const currentPL = emptyPL;
+      const fetchTickets = async (start: string, end: string) => {
+        let all: any[] = [];
+        let page = 0;
+        const size = 1000;
+        let more = true;
+        while (more && page < 50) {
+          const { data: rows, error } = await supabase
+            .from('sales_tickets')
+            .select('branch_id, date, gross_sales, net_sales, orders')
+            .gte('date', start)
+            .lte('date', end)
+            .range(page * size, (page + 1) * size - 1);
+          if (error || !rows || rows.length === 0) { more = false; break; }
+          all = all.concat(rows);
+          more = rows.length === size;
+          page++;
+        }
+        return all;
+      };
 
-  const computedEBITDA = currentPL.sales - (currentPL.cmv + currentPL.salaries + currentPL.rent + currentPL.marketing + currentPL.other);
-  const ebitdaMarginVal = (computedEBITDA / currentPL.sales) * 100;
-  const cmvPercentVal = (currentPL.cmv / currentPL.sales) * 100;
-  const staffPercentVal = (currentPL.salaries / currentPL.sales) * 100;
+      const [currTickets, prevTickets, pyRows] = await Promise.all([
+        fetchTickets(monthStart, monthEnd),
+        fetchTickets(pStart, pEnd),
+        supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth)
+      ]);
+
+      const agg: Record<string, BranchSales> = {};
+      operativeBranches.forEach(b => {
+        agg[b.id] = {
+          branchId: b.id,
+          branchName: b.name,
+          netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0,
+          netPrev: 0, grossPrev: 0, ticketsPrev: 0,
+          projection: 0,
+          googleRating: (b as any).googleRating || 0,
+          googleVotes: (b as any).googleRatingCount || 0,
+          pyResto: null, pyCafe: null
+        };
+      });
+
+      const daysWithData: Record<string, Set<string>> = {};
+      currTickets.forEach(t => {
+        const a = agg[t.branch_id];
+        if (!a) return;
+        a.netCurrent += Number(t.net_sales) || 0;
+        a.grossCurrent += Number(t.gross_sales) || 0;
+        a.ticketsCurrent += Number(t.orders) || 0;
+        if (!daysWithData[t.branch_id]) daysWithData[t.branch_id] = new Set();
+        daysWithData[t.branch_id].add(t.date);
+      });
+      prevTickets.forEach(t => {
+        const a = agg[t.branch_id];
+        if (!a) return;
+        a.netPrev += Number(t.net_sales) || 0;
+        a.grossPrev += Number(t.gross_sales) || 0;
+        a.ticketsPrev += Number(t.orders) || 0;
+      });
+
+      const daysInMonth = new Date(cy, cm, 0).getDate();
+      Object.values(agg).forEach(a => {
+        const ud = daysWithData[a.branchId]?.size || 0;
+        a.projection = ud > 0 ? (a.netCurrent / ud) * daysInMonth : 0;
+      });
+
+      if (pyRows.data) {
+        const acc: Record<string, { resto: number[]; cafe: number[] }> = {};
+        pyRows.data.forEach((row: any) => {
+          if (row.rating === null || row.rating === undefined) return;
+          if (!acc[row.branch_id]) acc[row.branch_id] = { resto: [], cafe: [] };
+          if (row.channel === 'resto') acc[row.branch_id].resto.push(Number(row.rating));
+          if (row.channel === 'cafe') acc[row.branch_id].cafe.push(Number(row.rating));
+        });
+        Object.keys(acc).forEach(bid => {
+          if (!agg[bid]) return;
+          const r = acc[bid].resto, c = acc[bid].cafe;
+          agg[bid].pyResto = r.length ? r.reduce((s, x) => s + x, 0) / r.length : null;
+          agg[bid].pyCafe = c.length ? c.reduce((s, x) => s + x, 0) / c.length : null;
+        });
+      }
+
+      setData(Object.values(agg));
+      setLoading(false);
+    };
+    load();
+  }, [selectedMonth, operativeBranches]);
+
+  const shown = useMemo(
+    () => selectedBranch === 'all' ? data : data.filter(d => d.branchId === selectedBranch),
+    [data, selectedBranch]
+  );
+
+  const totals = useMemo(() => {
+    return shown.reduce((acc, d) => ({
+      netCurrent: acc.netCurrent + d.netCurrent,
+      grossCurrent: acc.grossCurrent + d.grossCurrent,
+      ticketsCurrent: acc.ticketsCurrent + d.ticketsCurrent,
+      netPrev: acc.netPrev + d.netPrev,
+      grossPrev: acc.grossPrev + d.grossPrev,
+      ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
+      projection: acc.projection + d.projection
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0 });
+  }, [shown]);
+
+  const prevMonthLabel = prevMonthOf(selectedMonth);
+
+  const DeltaBadge = ({ curr, prev }: { curr: number; prev: number }) => {
+    const p = pct(curr, prev);
+    if (p === null) return <span className="text-text-dim text-[10px] font-bold">— sin datos previos</span>;
+    const up = p >= 0;
+    return (
+      <div className={cn('flex items-center gap-1 text-[10px] font-bold', up ? 'text-emerald-500' : 'text-red-500')}>
+        {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}</span>
+      </div>
+    );
+  };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6 pb-20 font-sans"
     >
-      {/* Executive Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <div className="bg-brand-500/15 p-3 text-brand-500 border border-brand-500/25 rounded-xl shadow-lg shadow-brand-500/5">
@@ -81,13 +203,11 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             <h2 className="text-2xl font-black text-text-main uppercase tracking-tight mt-1">
               Dashboard de Socios {selectedBranch !== 'all' ? `• ${(branches.find(b => b.id === selectedBranch))?.name}` : '(Vista Consolidada)'}
             </h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest mt-0.5">Indicadores Financieros Clave, Reputación Online & Estado de Resultados</p>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest mt-0.5">Ventas, Reputación Online & Proyección</p>
           </div>
         </div>
 
-        {/* Global Toolbar */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Branch filter selection */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-1.5 flex items-center gap-2">
             <Building2 size={14} className="text-brand-500" />
             <select
@@ -95,363 +215,169 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               onChange={(e) => setSelectedBranch(e.target.value)}
               className="bg-transparent border-none text-[10.5px] font-extrabold text-text-main outline-none uppercase font-sans cursor-pointer focus:ring-0"
             >
-              <option value="all" className="bg-bg-sidebar text-text-main">Todas las Sucursales</option>
-              {branches.map(b => (
-                <option key={b.id} value={b.id} className="bg-bg-sidebar text-text-main">{b.name}</option>
+              <option value="all">Todas las Sucursales</option>
+              {operativeBranches.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
           </div>
-
           <div className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-1.5 flex items-center gap-2 font-mono">
             <Calendar size={14} className="text-brand-500" />
-            <span className="text-[10px] font-extrabold uppercase text-text-main">{selectedMonth}</span>
+            <input
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-transparent border-none text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer"
+            />
           </div>
         </div>
       </div>
 
-      {/* Primary KPI Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        
-        {/* Metric 1: Consolidated Sales */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-            <DollarSign size={50} className="text-brand-600 dark:text-brand-500" />
-          </div>
-          <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Facturadas</p>
-          <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">
-            ${currentPL.sales.toLocaleString('es-AR')}
-          </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[10px] text-emerald-500 font-bold">
-            <TrendingUp size={12} />
-            <span>+12.4% vs Mes Anterior</span>
-          </div>
+      {loading ? (
+        <div className="py-32 flex flex-col items-center justify-center text-text-dim">
+          <Loader2 size={36} className="animate-spin text-brand-500" />
+          <p className="mt-4 text-[10px] font-black uppercase tracking-widest">Cargando datos consolidados…</p>
         </div>
-
-        {/* Metric 2: EBITDA summary */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-            <PieChart size={50} className="text-brand-600 dark:text-brand-500" />
-          </div>
-          <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Resultado EBITDA</p>
-          <p className="text-2xl font-mono font-black text-brand-600 dark:text-brand-500 tracking-tight mt-1.5">
-            ${computedEBITDA.toLocaleString('es-AR')}
-          </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[10px] text-brand-600 dark:text-brand-500 font-extrabold">
-            <Percent size={12} />
-            <span>Margen Operativo: {ebitdaMarginVal.toFixed(1)}%</span>
-          </div>
-        </div>
-
-        {/* Metric 3: Google Maps Reputation */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-            <Star size={50} className="text-yellow-500" />
-          </div>
-          <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Calificación Google Maps</p>
-          <div className="flex items-baseline gap-2 mt-1.5">
-            <p className="text-2xl font-mono font-black text-text-main tracking-tight">
-              {currentRep.googleRating}
-            </p>
-            <div className="flex text-yellow-500">
-              {[...Array(5)].map((_, i) => (
-                <Star 
-                  key={i} 
-                  size={12} 
-                  fill={i < Math.floor(currentRep.googleRating) ? 'currentColor' : 'none'} 
-                  className={cn(i < Math.floor(currentRep.googleRating) ? "text-yellow-500" : "text-text-dim/40")}
-                />
-              ))}
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
+              <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Netas del Mes</p>
+              <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{fmt(totals.netCurrent)}</p>
+              <div className="mt-2"><DeltaBadge curr={totals.netCurrent} prev={totals.netPrev} /></div>
             </div>
-          </div>
-          <div className="flex items-center gap-1 mt-2 text-[10px] text-[#8B949E] font-bold">
-            <MessageSquare size={12} className="text-blue-400" />
-            <span>Basado en {currentRep.googleVotes} reseñas verificadas</span>
-          </div>
-        </div>
 
-        {/* Metric 4: Delivery Reputation */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
-            <ShoppingBag size={50} className="text-[#ED1C24]" />
-          </div>
-          <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Calificación Pedidos Ya</p>
-          <div className="flex items-baseline gap-3 mt-1.5">
-            <p className="text-2xl font-mono font-black text-pink-600 dark:text-pink-500 tracking-tight">
-              {currentRep.pyRating} ⭐
-            </p>
-            <span className="text-[9.5px] font-black text-text-dim uppercase tracking-tighter">Cafetería: {currentRep.pyCafeRating} ⭐</span>
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-[10px] font-bold">
-            <div className="flex items-center gap-1 text-emerald-500">
-              <Clock size={11} />
-              <span>{currentRep.pyDelay} min demora</span>
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
+              <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Brutas del Mes</p>
+              <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{fmt(totals.grossCurrent)}</p>
+              <div className="mt-2"><DeltaBadge curr={totals.grossCurrent} prev={totals.grossPrev} /></div>
             </div>
-            {currentRep.complaintsCount > 2 ? (
-              <div className="flex items-center gap-1 text-red-500 bg-red-500/10 px-1.5 py-0.25 rounded border border-red-500/20">
-                <AlertTriangle size={10} />
-                <span>{currentRep.complaintsCount} reclamos</span>
-              </div>
-            ) : (
-              <span className="text-text-dim">Demora óptima</span>
-            )}
-          </div>
-        </div>
-      </div>
 
-      {/* Grid: Trends Chart & Online Reputation deep dive */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Trend area chart */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 lg:col-span-2 space-y-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Evolución Histórica de Ventas & EBITDA</h3>
-              <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Historial acumulado de los últimos 5 meses</p>
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Receipt size={50} className="text-brand-500" /></div>
+              <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Tickets del Mes</p>
+              <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{totals.ticketsCurrent.toLocaleString('es-AR')}</p>
+              <div className="mt-2"><DeltaBadge curr={totals.ticketsCurrent} prev={totals.ticketsPrev} /></div>
             </div>
-            <div className="flex items-center gap-4 text-[9.5px] font-mono font-black">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-brand-500/80 rounded-sm"></span>
-                <span className="text-text-main">Ventas</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 bg-emerald-500/80 rounded-sm"></span>
-                <span className="text-text-main">EBITDA</span>
-              </div>
+
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Target size={50} className="text-emerald-500" /></div>
+              <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Proyección Neta del Mes</p>
+              <p className="text-2xl font-mono font-black text-emerald-600 dark:text-emerald-500 tracking-tight mt-1.5">{fmt(totals.projection)}</p>
+              <p className="text-[9px] text-text-dim font-bold uppercase mt-2">Estimado a fin de mes</p>
             </div>
           </div>
 
-          <div className="h-[260px] w-full pt-1.5">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlySalesTrend} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ED1C24" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#ED1C24" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorEbitda" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.15}/>
-                    <stop offset="95%" stopColor="#10B981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#444" opacity={0.15} />
-                <XAxis 
-                  dataKey="name" 
-                  stroke="#888888" 
-                  fontSize={10} 
-                  tickLine={false} 
-                  axisLine={false} 
-                  tickMargin={8}
-                />
-                <YAxis 
-                  stroke="#888888" 
-                  fontSize={8} 
-                  tickLine={false} 
-                  axisLine={false} 
-                  tickFormatter={(val) => `$${(val / 1000000).toFixed(0)}M`}
-                />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1E293B', 
-                    borderRadius: '8px', 
-                    color: '#fff', 
-                    border: '1px solid #475569',
-                    fontFamily: 'monospace',
-                    fontSize: '11px'
-                  }} 
-                  formatter={(value: any) => [`$${value.toLocaleString('es-AR')}`]}
-                />
-                <Area type="monotone" dataKey="Ventas" stroke="#ED1C24" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSales)" />
-                <Area type="monotone" dataKey="EBITDA" stroke="#10B981" strokeWidth={2.5} fillOpacity={1} fill="url(#colorEbitda)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Reputational Module Side widget */}
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-4 shadow-sm">
-          <div>
-            <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Análisis de Reputación Online</h3>
-            <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Google vs Pedidos Ya - Rating Detallado</p>
-          </div>
-
-          <div className="space-y-4 pt-2">
-            
-            {/* Google card */}
-            <div className="bg-bg-main/30 border border-border-dim/60 rounded-lg p-3.5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                  <span className="text-[10px] font-black uppercase text-text-main">Google Maps Business</span>
-                </div>
-                <a href="https://maps.google.com" target="_blank" referrerPolicy="no-referrer" className="text-[9px] text-[#8B949E] hover:text-brand-500 flex items-center gap-1 font-bold uppercase">
-                  Ver Enlace <ExternalLink size={10} />
-                </a>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-mono font-black text-text-main tracking-tight">{currentRep.googleRating} ⭐</p>
-                  <p className="text-[8.5px] font-bold text-text-dim uppercase mt-1">Calificación de la Sucursal</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-base font-mono font-bold text-[#E2E8F0]">{currentRep.googleVotes}</p>
-                  <p className="text-[8.5px] font-bold text-text-dim uppercase mt-1">Reseñas Registradas</p>
-                </div>
-              </div>
-              {/* Quality indicator */}
-              <div className="w-full bg-border-dim/40 h-1.5 rounded-full overflow-hidden">
-                <div 
-                  className="bg-brand-500 h-full rounded-full" 
-                  style={{ width: `${(currentRep.googleRating / 5) * 100}%` }}
-                ></div>
-              </div>
-            </div>
-
-            {/* Pedidos Ya card */}
-            <div className="bg-bg-main/30 border border-border-dim/60 rounded-lg p-3.5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse"></div>
-                  <span className="text-[10px] font-black uppercase text-text-main">Pedidos Ya Integración</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-[8px] font-bold text-text-dim uppercase">Restaurante</span>
-                  <p className="text-lg font-mono font-black text-text-main mt-0.5">{currentRep.pyRating} ⭐</p>
-                </div>
-                <div>
-                  <span className="text-[8px] font-bold text-text-dim uppercase">Cafetería</span>
-                  <p className="text-lg font-mono font-black text-text-main mt-0.5">{currentRep.pyCafeRating} ⭐</p>
-                </div>
-              </div>
-              <div className="border-t border-border-dim/30 pt-2 flex items-center justify-between text-[9px] font-bold uppercase text-text-dim">
-                <span>Promedio Demora</span>
-                <span className="font-mono text-emerald-500 font-extrabold">{currentRep.pyDelay} minutos</span>
-              </div>
-            </div>
-
-          </div>
-        </div>
-
-      </div>
-
-      {/* Estado de Resultado (P&L Summary) segment */}
-      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-5 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Estado de Resultado Ejecutivo (P&L Relativo)</h3>
-            <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Vista ágil del margen operativo, costo de materia prima & salarios del personal</p>
-          </div>
-          <div className="text-[10px] font-black text-brand-500 bg-brand-500/10 border border-brand-500/25 px-3 py-1 rounded-md uppercase">
-            Egresos Totales: ${((currentPL.cmv + currentPL.salaries + currentPL.rent + currentPL.marketing + currentPL.other) / 1000000).toFixed(1)}M
-          </div>
-        </div>
-
-        {/* Interactive P&L bar breakdown */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center border-b border-border-dim/30 pb-6">
-          
-          <div className="lg:col-span-4 space-y-4">
-            <h4 className="text-[10.5px] font-black text-text-main uppercase tracking-wider">Distribución Porcentual del Margen</h4>
-            <div className="space-y-3">
-              {/* Costo Mercaderia (CMV) */}
-              <div className="space-y-1">
-                <div className="flex justify-between items-center text-[9.5px] font-bold">
-                  <span className="text-text-dim uppercase">CMV (Insumos/Comida)</span>
-                  <span className="font-mono text-text-main">{cmvPercentVal.toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-border-dim/40 h-2 rounded-md overflow-hidden">
-                  <div className="bg-[#FFA500] h-full" style={{ width: `${cmvPercentVal}%` }}></div>
-                </div>
-              </div>
-              
-              {/* Personal (Sueldos) */}
-              <div className="space-y-1">
-                <div className="flex justify-between items-center text-[9.5px] font-bold">
-                  <span className="text-text-dim uppercase">Costo Laboral (Sueldos)</span>
-                  <span className="font-mono text-text-main">{staffPercentVal.toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-border-dim/40 h-2 rounded-md overflow-hidden">
-                  <div className="bg-[#4169E1] h-full" style={{ width: `${staffPercentVal}%` }}></div>
-                </div>
-              </div>
-
-              {/* EBITDA */}
-              <div className="space-y-1">
-                <div className="flex justify-between items-center text-[9.5px] font-black">
-                  <span className="text-emerald-500 uppercase">Margen Neto EBITDA</span>
-                  <span className="font-mono text-emerald-500">{ebitdaMarginVal.toFixed(1)}%</span>
-                </div>
-                <div className="w-full bg-border-dim/40 h-2 rounded-md overflow-hidden">
-                  <div className="bg-[#10B981] h-full" style={{ width: `${ebitdaMarginVal}%` }}></div>
-                </div>
-              </div>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+            <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-4">Ventas por Sucursal · {selectedMonth}</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                    <th className="px-3 py-2">Sucursal</th>
+                    <th className="px-3 py-2 text-right">V. Netas</th>
+                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">V. Brutas</th>
+                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">Tickets</th>
+                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">Proyección</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim">
+                  {shown.map(d => {
+                    const pn = pct(d.netCurrent, d.netPrev);
+                    const pg = pct(d.grossCurrent, d.grossPrev);
+                    const pt = pct(d.ticketsCurrent, d.ticketsPrev);
+                    const cell = (p: number | null) => p === null
+                      ? <span className="text-text-dim">—</span>
+                      : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>;
+                    return (
+                      <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.netCurrent)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pn)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.grossCurrent)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pg)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
+                      </tr>
+                    );
+                  })}
+                  {shown.length > 1 && (
+                    <tr className="text-[11px] font-black bg-bg-accent/40 border-t-2 border-border-dim">
+                      <td className="px-3 py-2.5 uppercase text-text-main">Total</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(totals.netCurrent)}</td>
+                      <td className="px-3 py-2.5"></td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(totals.grossCurrent)}</td>
+                      <td className="px-3 py-2.5"></td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-main">{totals.ticketsCurrent.toLocaleString('es-AR')}</td>
+                      <td className="px-3 py-2.5"></td>
+                      <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{fmt(totals.projection)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 
-          <div className="lg:col-span-8 overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[500px]">
-              <thead>
-                <tr className="border-b border-border-dim/60 text-[9px] font-black text-text-dim uppercase tracking-wider">
-                  <th className="pb-2.5">Rubro / Concepto de Negocio</th>
-                  <th className="pb-2.5 text-right">Monto Estimado ({selectedMonth})</th>
-                  <th className="pb-2.5 text-right">% Participación</th>
-                  <th className="pb-2.5 text-right">Rendimiento Operativo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-dim/40 text-[10px]">
-                <tr>
-                  <td className="py-2 text-[#E2E8F0] font-black">Ingresos por Ventas de la Unidad</td>
-                  <td className="py-2 text-right font-mono text-text-main font-bold">${currentPL.sales.toLocaleString('es-AR')}</td>
-                  <td className="py-2 text-right font-mono text-text-main">100.0%</td>
-                  <td className="py-2 text-right"><span className="text-emerald-500 font-extrabold uppercase text-[8px] bg-emerald-500/10 px-1.5 py-0.5 rounded">Saludable</span></td>
-                </tr>
-                <tr>
-                  <td className="py-2 text-text-dim">Costo de Materia Prima Comercializada (CMV)</td>
-                  <td className="py-2 text-right font-mono text-amber-500/90 font-bold">-${currentPL.cmv.toLocaleString('es-AR')}</td>
-                  <td className="py-2 text-right font-mono text-text-dim">-{cmvPercentVal.toFixed(1)}%</td>
-                  <td className="py-2 text-right text-text-dim uppercase text-[8.5px]">Objetivo &lt; 35.0%</td>
-                </tr>
-                <tr>
-                  <td className="py-2 text-text-dim">Sueldos de Estructura de Personal (RRHH)</td>
-                  <td className="py-2 text-right font-mono text-[#4169E1] font-bold">-${currentPL.salaries.toLocaleString('es-AR')}</td>
-                  <td className="py-2 text-right font-mono text-text-dim">-{staffPercentVal.toFixed(1)}%</td>
-                  <td className="py-2 text-right text-text-dim uppercase text-[8.5px]">Objetivo &lt; 25.0%</td>
-                </tr>
-                <tr>
-                  <td className="py-2 text-text-dim">Alquileres Comunes de Locales & Expensas</td>
-                  <td className="py-2 text-right font-mono text-text-main">-${currentPL.rent.toLocaleString('es-AR')}</td>
-                  <td className="py-2 text-right font-mono text-text-dim">-{((currentPL.rent / currentPL.sales) * 100).toFixed(1)}%</td>
-                  <td className="py-2 text-right text-text-dim uppercase text-[8.5px]">Fijo de Estructura</td>
-                </tr>
-                <tr>
-                  <td className="py-2 text-text-dim">Inversión en Marketing & Posicionamiento</td>
-                  <td className="py-2 text-right font-mono text-text-main">-${currentPL.marketing.toLocaleString('es-AR')}</td>
-                  <td className="py-2 text-right font-mono text-text-dim">-{((currentPL.marketing / currentPL.sales) * 100).toFixed(1)}%</td>
-                  <td className="py-2 text-right text-text-dim">Banners & Ads</td>
-                </tr>
-                <tr className="bg-bg-main/30 font-black border-t-2 border-border-dim/60">
-                  <td className="py-3 text-brand-600 dark:text-brand-500 font-black">Ganancia Estimada de Socios(EBITDA)</td>
-                  <td className="py-3 text-right font-mono text-brand-600 dark:text-brand-500 font-black">${computedEBITDA.toLocaleString('es-AR')}</td>
-                  <td className="py-3 text-right font-mono text-brand-600 dark:text-brand-500">{ebitdaMarginVal.toFixed(1)}%</td>
-                  <td className="py-3 text-right"><span className="text-emerald-500 font-extrabold uppercase text-[8.5px] bg-emerald-500/10 px-2 py-0.5 rounded">Excelente</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <Star size={16} className="text-yellow-500" />
+                <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Calificación Google Maps</h3>
+              </div>
+              <div className="space-y-2.5">
+                {shown.map(d => (
+                  <div key={d.branchId} className="flex items-center justify-between bg-bg-main/30 border border-border-dim/60 rounded-lg px-3 py-2.5">
+                    <span className="text-[10px] font-black uppercase text-text-main truncate">{d.branchName}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-mono font-black text-text-main">{d.googleRating ? d.googleRating.toFixed(1) : '—'}</span>
+                      <Star size={13} className="text-yellow-500" fill="currentColor" />
+                      <span className="text-[9px] text-text-dim font-bold">({d.googleVotes.toLocaleString('es-AR')})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        {/* Socio Advice Warning Banner */}
-        <div className="bg-brand-500/[0.03] border border-brand-500/20 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Sparkles size={18} className="text-brand-500 animate-pulse flex-shrink-0" />
-            <p className="text-[10px] text-text-dim leading-relaxed">
-              <strong className="text-text-main">Nota del Sistema Inteligente:</strong> El margen neto consolidado actual de la empresa es del <strong className="text-emerald-500">{ebitdaMarginVal.toFixed(1)}%</strong>. Esto representa un desempeño superior respecto al promedio gastronómico regional (18%). Se recomienda mantener control de desvíos diario.
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-4">
+                <ShoppingBag size={16} className="text-[#ED1C24]" />
+                <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Calificación Pedidos Ya · {selectedMonth}</h3>
+              </div>
+              <div className="space-y-2.5">
+                {shown.map(d => (
+                  <div key={d.branchId} className="flex items-center justify-between bg-bg-main/30 border border-border-dim/60 rounded-lg px-3 py-2.5">
+                    <span className="text-[10px] font-black uppercase text-text-main truncate">{d.branchName}</span>
+                    <div className="flex items-center gap-4 shrink-0">
+                      <div className="flex items-center gap-1" title="Resto">
+                        <Utensils size={12} className="text-pink-500" />
+                        <span className="text-[11px] font-mono font-black text-text-main">{d.pyResto !== null ? d.pyResto.toFixed(1) : '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1" title="Cafe">
+                        <Coffee size={12} className="text-amber-600" />
+                        <span className="text-[11px] font-mono font-black text-text-main">{d.pyCafe !== null ? d.pyCafe.toFixed(1) : '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Promedio de las semanas cargadas en el modulo Pedidos Ya</p>
+            </div>
+          </div>
+
+          <div className="bg-bg-sidebar border border-dashed border-border-dim rounded-xl p-6 text-center">
+            <p className="text-[10px] font-black uppercase tracking-widest text-text-dim">Estado de Resultados</p>
+            <p className="text-[10px] text-text-dim mt-2 max-w-lg mx-auto leading-relaxed">
+              El Estado de Resultados del mes anterior y el proyectado del mes actual se mostraran aca una vez que mejoremos ese modulo y comience a guardar sus datos en la base.
             </p>
           </div>
-        </div>
-
-        <MonthlyRankingTop branches={branches} />
-      </div>
+        </>
+      )}
     </motion.div>
   );
 }
