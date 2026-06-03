@@ -834,7 +834,7 @@ export default function PerformanceAdminView({
           <div className="p-5 border-b border-border-dim/60 bg-bg-accent/10 flex items-center justify-between">
             <div>
               <h3 className="text-xs font-black text-text-main uppercase tracking-wider">
-                Resumen de Configuraciones - {activeRole === 'encargado' ? 'Encargados' : 'Jefes de Cocina'}
+                Resumen de Configuraciones · {activeRole === 'encargado' ? 'Encargados' : activeRole === 'jefe_cocina' ? 'Jefes de Cocina' : 'Segundos de Cocina'}
               </h3>
               <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mt-0.5">Mes: {selectedMonth} • Compara objetivos y métricas vigentes</p>
             </div>
@@ -846,127 +846,78 @@ export default function PerformanceAdminView({
               <span className="text-[10px] text-text-dim font-black uppercase tracking-widest animate-pulse">Cargando Tablero Consolidado...</span>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-border-dim bg-bg-accent/10 whitespace-nowrap">
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Objetivo Ventas (Mes)</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Pena Bandera Roja</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Variables y Métricas (%)</th>
-                    <th className="p-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-dim/30">
-                  {activeBranches.map(branch => {
-                    // Find config for this branch & active role
-                    const config = allConfigs.find(
-                      c => c.branch_id === branch.id && c.role === activeRole
-                    );
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 p-5">
+              {activeBranches.map(branch => {
+                const config = allConfigs.find(c => c.branch_id === branch.id && c.role === activeRole);
+                const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 15000;
+                const variablesList: any[] = config?.variables || [];
 
-                    // If not configured, we shows a gray state block
-                    const salesGoal = config?.sales_goal || 0;
-                    const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 15000;
-                    const variablesList: any[] = config?.variables || [];
-
-                    return (
-                      <tr key={branch.id} className="hover:bg-bg-accent/10 transition-colors">
-                        {/* Branch Name */}
-                        <td className="p-4 min-w-[150px]">
-                          <div className="flex flex-col">
-                            <span className="text-[11px] font-black text-text-main uppercase tracking-tight">{branch.name}</span>
-                            <span className="text-[8px] text-text-dim font-bold uppercase tracking-widest mt-0.5">{branch.location || 'Tucumán'}</span>
+                return (
+                  <div key={branch.id} className="bg-bg-accent/20 border border-border-dim rounded-xl overflow-hidden flex flex-col">
+                    {/* Encabezado de la tarjeta: sucursal */}
+                    <div className="flex items-center justify-between gap-3 p-4 border-b border-border-dim/50 bg-bg-sidebar">
+                      <div className="min-w-0">
+                        <span className="text-[12px] font-black text-text-main uppercase tracking-tight block truncate">{branch.name}</span>
+                        <span className="text-[8px] text-text-dim font-bold uppercase tracking-widest">{branch.location || 'Tucumán'}</span>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        {config && (
+                          <div className="text-right">
+                            <span className="block text-[7px] text-text-dim font-black uppercase tracking-widest">Bandera Roja</span>
+                            <span className="text-[11px] font-mono font-black text-red-400">-${redFlagPenalty.toLocaleString('es-AR')}</span>
                           </div>
-                        </td>
+                        )}
+                        <button
+                          onClick={() => setLocalBranchId(branch.id)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[9px] uppercase tracking-wider px-3 py-2 rounded transition-colors"
+                        >
+                          Configurar
+                        </button>
+                      </div>
+                    </div>
 
-                        {/* Sales Goal */}
-                        <td className="p-4">
-                          {config ? (
-                            <span className="text-xs font-mono font-bold text-text-main">
-                              ${salesGoal.toLocaleString('es-AR')}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-500/70 italic font-black uppercase">Sin configurar</span>
-                          )}
-                        </td>
-
-                        {/* Red Flag Penalty */}
-                        <td className="p-4">
-                          {config ? (
-                            <span className="text-xs font-mono text-red-400 font-bold">
-                              -${redFlagPenalty.toLocaleString('es-AR')}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-text-dim/50 italic font-bold">--</span>
-                          )}
-                        </td>
-
-                        {/* Variables List summary breakdown with scales & tiers */}
-                        <td className="p-4 min-w-[320px] max-w-[500px]">
-                          {config && variablesList.length > 0 ? (
-                            <div className="space-y-3">
-                              {variablesList.map((v, idx) => (
-                                <div 
-                                  key={v.id || idx} 
-                                  className="p-3 bg-bg-accent/40 rounded border border-border-dim/40 hover:border-border-dim transition-all"
-                                >
-                                  {/* Variable name & weight headers */}
-                                  <div className="flex justify-between items-center mb-1.5 pb-1 border-b border-border-dim/20">
-                                    <span className="text-[10px] font-black uppercase text-blue-400">
-                                      {v.name} ({v.unit})
-                                    </span>
-                                    {v.weight !== undefined && (
-                                      <span className="px-1.5 py-0.5 bg-blue-500/10 text-blue-300 rounded text-[8px] font-black uppercase">
-                                        Peso: {v.weight}%
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Tiers/Scales list for this variable */}
-                                  {v.tiers && v.tiers.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px] leading-tight">
-                                      {v.tiers.map((t: any, tIdx: number) => (
-                                        <div key={t.id || tIdx} className="flex justify-between items-center bg-bg-sidebar/50 px-1.5 py-0.5 rounded border border-border-dim/10">
-                                          <span className="text-text-dim font-bold">
-                                            {v.isLowerBetter ? '≤' : '≥'}{t.threshold} {v.unit}
-                                          </span>
-                                          <span className="text-green-400 font-extrabold ml-2">
-                                            ${t.prize?.toLocaleString('es-AR') || '0'}
-                                          </span>
-                                        </div>
-                                      ))}
+                    {/* Cuerpo: chips de variables */}
+                    <div className="p-4 flex-1">
+                      {config && variablesList.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {variablesList.map((v, idx) => (
+                            <div key={v.id || idx} className="bg-bg-sidebar border border-border-dim/40 rounded-lg p-2.5">
+                              <div className="flex items-center gap-1.5 mb-2">
+                                <span className="text-[9px] font-black uppercase text-blue-400 truncate">{v.name}</span>
+                                <span className="text-[7px] text-text-dim font-bold shrink-0">({v.unit})</span>
+                                <span className={cn("ml-auto text-[7px] font-black uppercase px-1 py-0.5 rounded shrink-0",
+                                  v.isLowerBetter ? "bg-amber-500/10 text-amber-500" : "bg-emerald-500/10 text-emerald-500")}>
+                                  {v.isLowerBetter ? '↓ menos' : '↑ más'}
+                                </span>
+                              </div>
+                              {v.tiers && v.tiers.length > 0 ? (
+                                <div className="space-y-1">
+                                  {v.tiers.map((t: any, tIdx: number) => (
+                                    <div key={t.id || tIdx} className="flex justify-between items-center font-mono text-[9px] bg-bg-accent/30 px-2 py-1 rounded">
+                                      <span className="text-text-dim font-bold">{v.isLowerBetter ? '≤' : '≥'}{t.threshold}{v.unit === '%' ? '%' : v.unit === '★' ? '★' : ''}</span>
+                                      <span className="text-emerald-400 font-extrabold">${t.prize?.toLocaleString('es-AR') || '0'}</span>
                                     </div>
-                                  ) : (
-                                    <span className="text-[8px] text-amber-500/70 italic font-bold">Sin escalas definidas</span>
-                                  )}
+                                  ))}
                                 </div>
-                              ))}
+                              ) : (
+                                <span className="text-[8px] text-amber-500/70 italic font-bold">Sin escalas</span>
+                              )}
                             </div>
-                          ) : config ? (
-                            <span className="text-[9px] text-amber-400 font-black uppercase tracking-wider bg-amber-400/10 px-2 py-1 rounded border border-amber-400/20">
-                              ⚠️ Config Sin Variables
-                            </span>
-                          ) : (
-                            <span className="text-[9px] text-text-dim font-black uppercase tracking-wider bg-bg-accent/40 px-2 py-1 rounded border border-border-dim/40">
-                              ❌ No inicializado para {selectedMonth}
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Quick Configuration action */}
-                        <td className="p-4 text-right">
-                          <button
-                            onClick={() => setLocalBranchId(branch.id)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[10px] uppercase tracking-wider px-3 py-1.5 rounded transition-colors inline-flex items-center gap-1"
-                          >
-                            <span>Configurar</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          ))}
+                        </div>
+                      ) : config ? (
+                        <div className="flex items-center justify-center py-6">
+                          <span className="text-[9px] text-amber-400 font-black uppercase tracking-wider bg-amber-400/10 px-3 py-1.5 rounded border border-amber-400/20">⚠️ Configuración sin variables</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center py-6">
+                          <span className="text-[9px] text-text-dim font-black uppercase tracking-wider bg-bg-accent/40 px-3 py-1.5 rounded border border-border-dim/40">❌ No configurado para {selectedMonth}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
