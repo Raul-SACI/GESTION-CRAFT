@@ -62,7 +62,7 @@ export default function SupervisionFlagsView({
   // Asignaciones formulario↔supervisor: { supervisorName: [checklistId, ...] }
   const [formAssignments, setFormAssignments] = useState<Record<string, string[]>>({});
   // Periodicidad: { "checklistId|branchId": "semanal"|"quincenal"|"mensual" }
-  const [schedules, setSchedules] = useState<Record<string, string>>({});
+  const [schedules, setSchedules] = useState<Record<string, { frequency: string; start_date: string | null }>>({});
   const [savingSchedule, setSavingSchedule] = useState<string | null>(null);
   const [savingAssignment, setSavingAssignment] = useState<string | null>(null);
   const [selectedBranchesForEditing, setSelectedBranchesForEditing] = useState<string[]>([]);
@@ -126,10 +126,10 @@ export default function SupervisionFlagsView({
       // Cargar periodicidades (schedule) existentes
       const { data: scheds, error: schedError } = await supabase
         .from('supervision_schedules')
-        .select('checklist_id, branch_id, frequency');
+        .select('checklist_id, branch_id, frequency, start_date');
       if (!schedError && scheds) {
-        const map: Record<string, string> = {};
-        scheds.forEach(s => { map[`${s.checklist_id}|${s.branch_id}`] = s.frequency; });
+        const map: Record<string, { frequency: string; start_date: string | null }> = {};
+        scheds.forEach(s => { map[`${s.checklist_id}|${s.branch_id}`] = { frequency: s.frequency, start_date: s.start_date || null }; });
         setSchedules(map);
       }
     } catch (err) {
@@ -160,8 +160,8 @@ export default function SupervisionFlagsView({
     return templates.filter(t => uuidRe.test(t.id));
   }, [templates]);
 
-  // Guardar la periodicidad de un formulario en una sucursal
-  const setScheduleFrequency = async (checklistId: string, branchId: string, frequency: string) => {
+  // Guardar la periodicidad (frecuencia + fecha de inicio) de un formulario en una sucursal
+  const setScheduleConfig = async (checklistId: string, branchId: string, frequency: string, startDate: string | null) => {
     const key = `${checklistId}|${branchId}`;
     setSavingSchedule(key);
     try {
@@ -175,11 +175,13 @@ export default function SupervisionFlagsView({
         if (error) throw error;
         setSchedules(prev => { const n = { ...prev }; delete n[key]; return n; });
       } else {
+        // Si se define frecuencia y no hay fecha de inicio, usar hoy por defecto
+        const finalStart = startDate || new Date().toISOString().split('T')[0];
         const { error } = await supabase
           .from('supervision_schedules')
-          .upsert({ checklist_id: checklistId, branch_id: branchId, frequency }, { onConflict: 'checklist_id,branch_id' });
+          .upsert({ checklist_id: checklistId, branch_id: branchId, frequency, start_date: finalStart }, { onConflict: 'checklist_id,branch_id' });
         if (error) throw error;
-        setSchedules(prev => ({ ...prev, [key]: frequency }));
+        setSchedules(prev => ({ ...prev, [key]: { frequency, start_date: finalStart } }));
       }
     } catch (err: any) {
       console.error('Error guardando periodicidad:', err);
@@ -792,7 +794,7 @@ export default function SupervisionFlagsView({
                   branches={branches}
                   schedules={schedules}
                   savingSchedule={savingSchedule}
-                  onSetFrequency={setScheduleFrequency}
+                  onSetConfig={setScheduleConfig}
                 />
               ) : adminTab === 'historial' ? (
                 <SupervisionHistoryList 
@@ -1193,13 +1195,13 @@ export default function SupervisionFlagsView({
 
 // Editor de periodicidad: por cada formulario y sucursal, elegir Semanal/Quincenal/Mensual.
 function SupervisionScheduleEditor({
-  templates, branches, schedules, savingSchedule, onSetFrequency
+  templates, branches, schedules, savingSchedule, onSetConfig
 }: {
-  templates: AuditTemplate[];
+  templates: any[];
   branches: Branch[];
-  schedules: Record<string, string>;
+  schedules: Record<string, { frequency: string; start_date: string | null }>;
   savingSchedule: string | null;
-  onSetFrequency: (checklistId: string, branchId: string, frequency: string) => void;
+  onSetConfig: (checklistId: string, branchId: string, frequency: string, startDate: string | null) => void;
 }) {
   return (
     <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 shadow-xl space-y-4">
@@ -1225,26 +1227,42 @@ function SupervisionScheduleEditor({
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 p-3">
                 {branches.map(b => {
                   const key = `${t.id}|${b.id}`;
-                  const value = schedules[key] || '';
+                  const cfg = schedules[key];
+                  const freq = cfg?.frequency || '';
+                  const startDate = cfg?.start_date || '';
                   const isSaving = savingSchedule === key;
                   return (
-                    <div key={b.id} className="flex items-center justify-between gap-2 bg-bg-accent/30 rounded border border-border-dim/40 px-3 py-2">
-                      <span className="text-[9px] font-bold text-text-dim uppercase truncate">{b.name}</span>
-                      <select
-                        value={value}
-                        disabled={isSaving}
-                        onChange={(e) => onSetFrequency(t.id, b.id, e.target.value)}
-                        className={cn(
-                          "bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-black uppercase shrink-0",
-                          value ? "text-brand-500" : "text-text-dim",
-                          isSaving && "opacity-50"
-                        )}
-                      >
-                        <option value="">— Sin definir</option>
-                        <option value="semanal">Semanal</option>
-                        <option value="quincenal">Quincenal</option>
-                        <option value="mensual">Mensual</option>
-                      </select>
+                    <div key={b.id} className="bg-bg-accent/30 rounded border border-border-dim/40 px-3 py-2 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[9px] font-bold text-text-dim uppercase truncate">{b.name}</span>
+                        <select
+                          value={freq}
+                          disabled={isSaving}
+                          onChange={(e) => onSetConfig(t.id, b.id, e.target.value, startDate || null)}
+                          className={cn(
+                            "bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-black uppercase shrink-0",
+                            freq ? "text-brand-500" : "text-text-dim",
+                            isSaving && "opacity-50"
+                          )}
+                        >
+                          <option value="">— Sin definir</option>
+                          <option value="semanal">Semanal</option>
+                          <option value="quincenal">Quincenal</option>
+                          <option value="mensual">Mensual</option>
+                        </select>
+                      </div>
+                      {freq && (
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-border-dim/30">
+                          <span className="text-[8px] font-bold text-text-dim uppercase">Inicia:</span>
+                          <input
+                            type="date"
+                            value={startDate}
+                            disabled={isSaving}
+                            onChange={(e) => onSetConfig(t.id, b.id, freq, e.target.value || null)}
+                            className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-bold text-text-main shrink-0 outline-none focus:border-brand-500/50"
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}

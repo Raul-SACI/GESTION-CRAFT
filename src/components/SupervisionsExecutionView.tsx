@@ -31,7 +31,7 @@ interface AuditResult {
 export default function SupervisionsExecutionView({ branches, isReadOnly = false }: { branches: Branch[]; isReadOnly?: boolean }) {
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [dbResponses, setDbResponses] = useState<any[]>([]);
-  const [schedules, setSchedules] = useState<{ checklist_id: string; branch_id: string; frequency: string }[]>([]);
+  const [schedules, setSchedules] = useState<{ checklist_id: string; branch_id: string; frequency: string; start_date?: string | null }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modal execution state
@@ -130,7 +130,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       try {
         const { data: schedData } = await supabase
           .from('supervision_schedules')
-          .select('checklist_id, branch_id, frequency');
+          .select('checklist_id, branch_id, frequency, start_date');
         if (schedData) setSchedules(schedData);
       } catch (e) {
         setSchedules([]);
@@ -154,6 +154,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
   // Calcula alertas: para cada periodicidad cargada, ve si la última supervisión está vencida.
   const scheduleAlerts = useMemo(() => {
     const today = new Date();
+    today.setHours(12, 0, 0, 0);
     return schedules.map(sch => {
       const days = freqDays[sch.frequency] || 7;
       // Última respuesta de ese formulario + sucursal
@@ -163,23 +164,48 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       const last = matching[0];
       const templateName = templates.find(t => t.id === sch.checklist_id)?.name || 'Formulario';
       const branchName = branches.find(b => b.id === sch.branch_id)?.name || sch.branch_id;
+      const base = { key: `${sch.checklist_id}|${sch.branch_id}`, templateName, branchName, frequency: sch.frequency };
+
+      // Calcula la fecha de vencimiento (inicio del período + días)
+      const computeDueDate = (fromDate: Date) => {
+        const d = new Date(fromDate);
+        d.setDate(d.getDate() + days);
+        return d;
+      };
 
       if (!last) {
-        return { key: `${sch.checklist_id}|${sch.branch_id}`, templateName, branchName, frequency: sch.frequency, status: 'never' as const, daysSince: null, lastDate: null };
+        // Nunca realizada: el vencimiento corre desde la fecha de inicio (si está definida)
+        if (sch.start_date) {
+          const startDate = new Date(sch.start_date + 'T12:00:00');
+          const dueDate = computeDueDate(startDate);
+          const daysLeft = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          if (today.getTime() < startDate.getTime()) {
+            // Todavía no empezó
+            return { ...base, status: 'upcoming' as const, daysSince: null, lastDate: null, dueDate: dueDate.toISOString().split('T')[0], daysLeft };
+          }
+          if (daysLeft >= 0) {
+            return { ...base, status: 'pending' as const, daysSince: null, lastDate: null, dueDate: dueDate.toISOString().split('T')[0], daysLeft };
+          }
+          return { ...base, status: 'overdue' as const, daysSince: -daysLeft, lastDate: null, dueDate: dueDate.toISOString().split('T')[0], daysLeft };
+        }
+        // Sin fecha de inicio: se considera nunca realizada (pendiente sin plazo definido)
+        return { ...base, status: 'never' as const, daysSince: null, lastDate: null, dueDate: null, daysLeft: null };
       }
+
       const lastDate = new Date(last.date + 'T12:00:00');
+      const dueDate = computeDueDate(lastDate);
       const daysSince = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
+      const daysLeft = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       const overdue = daysSince > days;
       return {
-        key: `${sch.checklist_id}|${sch.branch_id}`,
-        templateName, branchName, frequency: sch.frequency,
+        ...base,
         status: overdue ? ('overdue' as const) : ('ok' as const),
-        daysSince, lastDate: last.date
+        daysSince, lastDate: last.date, dueDate: dueDate.toISOString().split('T')[0], daysLeft
       };
     });
   }, [schedules, dbResponses, templates, branches]);
 
-  const pendingAlerts = scheduleAlerts.filter(a => a.status === 'overdue' || a.status === 'never');
+  const pendingAlerts = scheduleAlerts.filter(a => a.status === 'overdue' || a.status === 'never' || a.status === 'pending');
 
   // Filtered branches logic
   const activeSupervisor = supervisors.find(s => s.id === selectedSupId);
@@ -379,27 +405,54 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
         </div>
       </div>
 
-      {/* Alertas de periodicidad vencida */}
+      {/* Alertas de periodicidad agrupadas por sucursal */}
       {pendingAlerts.length > 0 && (
-        <div className="bg-red-500/5 border border-red-500/30 rounded-lg p-5 space-y-3">
+        <div className="bg-red-500/5 border border-red-500/30 rounded-lg p-5 space-y-4">
           <div className="flex items-center gap-2">
             <AlertCircle size={16} className="text-red-500" />
             <h3 className="text-[11px] font-black uppercase tracking-widest text-red-500">
               Supervisiones Pendientes / Vencidas ({pendingAlerts.length})
             </h3>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {pendingAlerts.map(a => (
-              <div key={a.key} className="flex items-center justify-between gap-3 bg-bg-sidebar border border-red-500/20 rounded p-3">
-                <div className="min-w-0">
-                  <p className="text-[11px] font-black uppercase text-text-main truncate">{a.templateName}</p>
-                  <p className="text-[9px] font-bold text-text-dim uppercase">{a.branchName} · {a.frequency}</p>
-                </div>
-                <span className="text-[9px] font-black uppercase text-red-500 shrink-0 text-right">
-                  {a.status === 'never' ? 'NUNCA REALIZADA' : `VENCIDA · hace ${a.daysSince}d`}
-                </span>
-              </div>
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(() => {
+              // Agrupar por sucursal
+              const byBranch: Record<string, typeof pendingAlerts> = {};
+              pendingAlerts.forEach(a => {
+                if (!byBranch[a.branchName]) byBranch[a.branchName] = [];
+                byBranch[a.branchName].push(a);
+              });
+              return Object.entries(byBranch)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([branchName, items]) => (
+                  <div key={branchName} className="bg-bg-sidebar border border-red-500/20 rounded-lg overflow-hidden">
+                    <div className="bg-red-500/10 px-4 py-2.5 border-b border-red-500/20 flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase text-text-main tracking-tight">{branchName}</span>
+                      <span className="text-[8px] font-black uppercase text-red-500 bg-red-500/10 px-2 py-0.5 rounded-full">{items.length} pendiente{items.length > 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="divide-y divide-border-dim/40">
+                      {items.map(a => (
+                        <div key={a.key} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-black uppercase text-text-main truncate">{a.templateName}</p>
+                            <p className="text-[8px] font-bold text-text-dim uppercase">{a.frequency}{a.dueDate ? ` · vence ${a.dueDate.split('-').reverse().join('/')}` : ''}</p>
+                          </div>
+                          <span className={cn(
+                            "text-[8px] font-black uppercase shrink-0 text-right px-2 py-1 rounded",
+                            a.status === 'overdue' ? "text-red-500 bg-red-500/10" :
+                            a.status === 'never' ? "text-amber-500 bg-amber-500/10" :
+                            "text-blue-500 bg-blue-500/10"
+                          )}>
+                            {a.status === 'never' ? 'NUNCA REALIZADA' :
+                             a.status === 'overdue' ? `VENCIDA · hace ${a.daysSince}d` :
+                             a.daysLeft === 0 ? 'VENCE HOY' : `QUEDAN ${a.daysLeft}d`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+            })()}
           </div>
         </div>
       )}
