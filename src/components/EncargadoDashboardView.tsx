@@ -721,12 +721,15 @@ export default function EncargadoDashboardView({
           currentValue = livePyRestoScore;
         } else if (lowerName.includes('pedidos') && lowerName.includes('caf')) {
           currentValue = livePyCafeScore;
-        } else if (lowerName.includes('desv') || lowerName.includes('desperdi') || lowerName.includes('insumo')) {
-          // Desvío promedio de insumos controlados del mes (en %)
-          currentValue = averageStockDeviation;
         } else if (lowerName.includes('hora') || lowerName.includes('presup')) {
           // Desvío de horas vs presupuesto (en %)
           currentValue = hoursDeviationPct;
+        } else if (lowerName.includes('desv') || lowerName.includes('desperdi') || lowerName.includes('insumo') || lowerName.includes('stock')) {
+          // Desvío promedio de insumos controlados del mes (en %)
+          currentValue = averageStockDeviation;
+        } else if (lowerName.includes('venta')) {
+          // Ventas Netas reales del mes (del módulo Ventas)
+          currentValue = liveNetSales;
         } else {
           currentValue = 0;
         }
@@ -1180,17 +1183,9 @@ export default function EncargadoDashboardView({
                 <Award size={18} className="text-brand-500" />
                 <div>
                   <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Cálculo de Premios Operativos</h3>
-                  <p className="text-[8px] text-text-dim uppercase font-bold mt-0.5">Cálculo automático de bonos según variables met</p>
+                  <p className="text-[8px] text-text-dim uppercase font-bold mt-0.5">Premio que va alcanzando la sucursal según la configuración cargada</p>
                 </div>
               </div>
-              {onNavigateToTab && (
-                <button 
-                  onClick={() => onNavigateToTab('performance')}
-                  className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-brand-500/20 transition-all cursor-pointer"
-                >
-                  Configurar
-                </button>
-              )}
             </div>
 
             {/* List calculated bonuses */}
@@ -1200,14 +1195,6 @@ export default function EncargadoDashboardView({
                   <span className="text-3xl">⚙️</span>
                   <p className="text-[10px] font-black text-text-dim uppercase tracking-wider">Sin configuración de premios</p>
                   <p className="text-[9px] text-text-dim/70">La administración aún no cargó los objetivos y premios para este mes y sucursal.</p>
-                  {onNavigateToTab && (
-                    <button
-                      onClick={() => onNavigateToTab('performance_admin')}
-                      className="mt-2 bg-brand-500/10 text-brand-500 border border-brand-500/20 px-3 py-1.5 rounded text-[8px] font-black uppercase tracking-wider hover:bg-brand-500/20 transition-all cursor-pointer"
-                    >
-                      Ir a Configuración
-                    </button>
-                  )}
                 </div>
               )}
               {activeConfigs.length > 0 && ['encargado', 'jefe_cocina', 'segundo_cocina'].map(role => {
