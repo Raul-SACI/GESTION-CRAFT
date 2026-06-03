@@ -81,12 +81,18 @@ export default function DecomisosView({
     if (!selectedBranchId) return;
     setLoading(true);
     try {
+      // Último día real del mes seleccionado (evita fechas inválidas como 2026-06-31)
+      const [yy, mm] = selectedMonth.split('-').map(Number);
+      const lastDay = new Date(yy, mm, 0).getDate();
+      const monthStart = `${selectedMonth}-01`;
+      const monthEnd = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+
       const { data, error } = await supabase
         .from('daily_wastage')
         .select('*')
         .match(selectedBranchId === 'all' ? {} : { branch_id: selectedBranchId })
-        .gte('date', `${selectedMonth}-01`)
-        .lte('date', `${selectedMonth}-31`)
+        .gte('date', monthStart)
+        .lte('date', monthEnd)
         .order('date', { ascending: false });
 
       if (error) {
