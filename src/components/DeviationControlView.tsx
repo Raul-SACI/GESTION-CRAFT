@@ -36,7 +36,8 @@ export default function DeviationControlView({
   items,
   setItems,
   products,
-  setProducts
+  setProducts,
+  isReadOnly = false
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
@@ -46,7 +47,8 @@ export default function DeviationControlView({
   items: StockItem[],
   setItems: React.Dispatch<React.SetStateAction<StockItem[]>>,
   products: Product[],
-  setProducts: React.Dispatch<React.SetStateAction<Product[]>>
+  setProducts: React.Dispatch<React.SetStateAction<Product[]>>,
+  isReadOnly?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla'>('comparativo');
   
@@ -118,6 +120,7 @@ export default function DeviationControlView({
   }, [selectedBranchId, selectedMonth]);
 
   const updateDailyLog = async (date: string, itemId: string, field: string, value: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     // Map field to DB column
     const columnMap: Record<string, string> = {
       purchases: 'compras',
@@ -227,6 +230,7 @@ export default function DeviationControlView({
   };
 
   const handleImportItems = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -261,6 +265,7 @@ export default function DeviationControlView({
   };
 
   const handleImportProducts = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -323,6 +328,7 @@ export default function DeviationControlView({
   }, [products]);
 
   const handleImportRecipes = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -440,6 +446,7 @@ export default function DeviationControlView({
   }, [selectedMonth, selectedBranchId, initialControlledItemIds]);
 
   const saveMonthlyControl = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedBranchId || selectedBranchId === 'all') {
       alert('Por favor, seleccione una sucursal específica para confirmar el control mensual.');
       return;
@@ -466,6 +473,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
   };
 
   const saveMonthlyControlForAllBranches = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (controlledIds.length === 0) {
       if (!confirm('⚠️ No has seleccionado ningún insumo. ¿Estás seguro de que deseas vaciar el control mensual para TODAS las sucursales?')) {
         return;
@@ -525,6 +533,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
   };
 
   const addIngredientToRecipe = async (productId: string, itemId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const currentRecipe = recipes[productId] || [];
     if (currentRecipe.some(r => r.itemId === itemId)) return;
 
@@ -541,6 +550,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
   };
 
   const updateIngredientQuantity = async (productId: string, itemId: string, displayVal: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const item = items.find(i => i.id === itemId);
     const unit = recipeDisplayUnits[`${productId}-${itemId}`] || item?.unit || '';
     const quantity = (unit === 'gr' || unit === 'ml') ? displayVal / 1000 : displayVal;
@@ -559,6 +569,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
   };
 
   const removeIngredientFromRecipe = async (productId: string, itemId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const { error } = await supabase
       .from('recipes')
       .delete()
@@ -1451,6 +1462,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                    </div>
                    <button 
                     onClick={async () => {
+                        if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
                         if (editingItem) {
                           await supabase.from('stock_items').update(itemForm).eq('id', editingItem.id);
                           setEditingItem(null);
@@ -1488,6 +1500,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </button>
                         <button 
                           onClick={async () => {
+                        if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
                             if (window.confirm('¿Está seguro de eliminar este insumo? Se eliminará de todas las recetas y del control de desvíos.')) {
                               const { error } = await supabase.from('stock_items').delete().eq('id', item.id);
                               if (!error) {
@@ -1550,6 +1563,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                    </div>
                    <button 
                     onClick={async () => {
+                        if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
                         if (editingProduct) {
                           await supabase.from('products').update(productForm).eq('id', editingProduct.id);
                           setEditingProduct(null);
@@ -1587,6 +1601,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </button>
                         <button 
                           onClick={async () => {
+                        if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
                             if (window.confirm('¿Está seguro de eliminar este producto?')) {
                               const { error } = await supabase.from('products').delete().eq('id', p.id);
                               if (!error) {

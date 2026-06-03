@@ -28,7 +28,7 @@ interface AuditResult {
   };
 }
 
-export default function SupervisionsExecutionView({ branches }: { branches: Branch[] }) {
+export default function SupervisionsExecutionView({ branches, isReadOnly = false }: { branches: Branch[]; isReadOnly?: boolean }) {
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [dbResponses, setDbResponses] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<{ checklist_id: string; branch_id: string; frequency: string }[]>([]);
@@ -226,6 +226,7 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
   const totalRojo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.red, 0);
 
   const handleOpenAudit = (branch: Branch) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSelectedBranch(branch);
     if (templates.length > 0) {
       setSelectedTemplate(templates[0]);
@@ -261,6 +262,7 @@ export default function SupervisionsExecutionView({ branches }: { branches: Bran
   };
 
   const handleSubmitAudit = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedBranch || !selectedTemplate) return;
 
     // Validate non-text answers

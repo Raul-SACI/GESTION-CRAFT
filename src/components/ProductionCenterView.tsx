@@ -22,7 +22,7 @@ import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { ProductionItem, ProductionLog } from '../types';
 
-export default function ProductionCenterView() {
+export default function ProductionCenterView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [items, setItems] = useState<ProductionItem[]>([]);
   const [logs, setLogs] = useState<ProductionLog[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +80,7 @@ export default function ProductionCenterView() {
   }, []);
 
   const handleAddItem = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newItem.name || !newItem.unit) return;
     setLoading(true);
     try {
@@ -100,6 +101,7 @@ export default function ProductionCenterView() {
   };
 
   const handleSaveDailyLog = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setLoading(true);
     try {
       const entries = Object.entries(dailyInputs)
@@ -132,6 +134,7 @@ export default function ProductionCenterView() {
   };
 
   const deleteItem = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!confirm('¿Seguro que desea eliminar este artículo? se perderán los registros asociados.')) return;
     try {
       await supabase.from('production_logs').delete().eq('item_id', id);

@@ -68,7 +68,7 @@ interface CoverageRule {
   label: string | null;
 }
 
-export default function SupervisorAgendaView({ branches, mode = 'armado' }: { branches: Branch[]; mode?: 'armado' | 'control' }) {
+export default function SupervisorAgendaView({ branches, mode = 'armado', isReadOnly = false }: { branches: Branch[]; mode?: 'armado' | 'control'; isReadOnly?: boolean }) {
   const isControl = mode === 'control';
   const [leaders, setLeaders] = useState<string[]>([]);
   const [agendas, setAgendas] = useState<AgendaEntry[]>([]);
@@ -161,21 +161,25 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
   const isOverlapping = (s1: string, e1: string, s2: string, e2: string) => s1 < e2 && s2 < e1;
 
   const handleAddNewRow = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setNewEntries([...newEntries, { id: Date.now().toString() + Math.random(), date: weekStart, branchId: '', startTime: '09:00', endTime: '13:00' }]);
     setError(null);
   };
 
   const handleRemoveRow = (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (newEntries.length > 1) setNewEntries(newEntries.filter(e => e.id !== id));
     setError(null);
   };
 
   const handleUpdateEntryRow = (id: string, field: string, value: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setNewEntries(newEntries.map(e => e.id === id ? { ...e, [field]: value } : e));
     setError(null);
   };
 
   const handleSaveEntries = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedLeader) { setError('Elegí un líder.'); return; }
     const valid = newEntries.filter(e => e.branchId && e.date);
     if (valid.length === 0) { setError('Cargá al menos una visita con sucursal y fecha.'); return; }
@@ -242,6 +246,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
   };
 
   const handleDeleteEntry = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!window.confirm('¿Eliminar esta visita de la agenda?')) return;
     try {
       const { error: delErr } = await supabase.from('supervisor_agenda').delete().eq('id', id);
@@ -256,6 +261,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
 
   // Tildar cumplimiento por visita o por día
   const toggleCompliance = async (type: 'entry' | 'day', refValue: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const key = `${type}|${refValue}`;
     const current = compliance[key] || false;
     const next = !current;
@@ -277,6 +283,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
 
   // Guardar una nueva regla de cobertura
   const handleSaveRule = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!ruleForm.branchId) { alert('Elegí una sucursal.'); return; }
     if (ruleForm.ruleType === 'specific' && !ruleForm.specificDate) { alert('Elegí una fecha.'); return; }
     if (hoursBetween(ruleForm.startTime, ruleForm.endTime) <= 0) { alert('El horario de fin debe ser posterior al de inicio.'); return; }
@@ -303,6 +310,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado' }: { br
   };
 
   const handleDeleteRule = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!window.confirm('¿Eliminar esta regla de cobertura?')) return;
     try {
       const { error: delErr } = await supabase.from('coverage_rules').delete().eq('id', id);

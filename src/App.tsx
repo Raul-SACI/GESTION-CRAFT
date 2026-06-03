@@ -499,7 +499,11 @@ function AppContent() {
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities',
     'finanzas_mensual', 'p&l', 'cronograma_pagos',
-    'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios'
+    'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios',
+    'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
+    'papeles_administracion', 'supervision_banderas', 'registro_supervision',
+    'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
+    'ventas'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -1384,7 +1388,7 @@ function AppContent() {
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} />}
+              {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" isReadOnly={isCurrentTabReadOnly} />}
@@ -1403,14 +1407,15 @@ function AppContent() {
                   setItems={setItems}
                   products={products}
                   setProducts={setProducts}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} currentUserRole={currentUser.role} />}
+              {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} currentUserRole={currentUser.role} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} />}
-              {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
-              {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}
-              {activeTab === 'control_agendas' && <SupervisorAgendaView key="control_agendas" branches={branches} mode="control" />}
+              {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'control_agendas' && <SupervisorAgendaView key="control_agendas" branches={branches} mode="control" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'decomisos' && (
                 <DecomisosView 
                   key="decomisos" 
@@ -1437,7 +1442,7 @@ function AppContent() {
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" />}
+              {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'decomisos_deposito' && (
                 <DecomisosView
                   key="decomisos_deposito"
@@ -1446,6 +1451,7 @@ function AppContent() {
                   items={items}
                   products={products}
                   onlyInsumos={true}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'produccion_stock_control' && (
@@ -1456,6 +1462,7 @@ function AppContent() {
                   userRole={currentUser.role}
                   controlledItemIds={controlledItemIds}
                   items={items}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'papeles_administracion' && (
@@ -1473,6 +1480,7 @@ function AppContent() {
                   onUpdateBranch={handleUpdateBranch} 
                   onAddBranchClick={() => setShowAddBranch(true)}
                   onDeleteBranch={handleDeleteBranch}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
             </AnimatePresence>

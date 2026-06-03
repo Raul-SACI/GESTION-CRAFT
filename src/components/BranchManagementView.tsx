@@ -106,12 +106,14 @@ export default function BranchManagementView({
   branches, 
   onUpdateBranch,
   onAddBranchClick,
-  onDeleteBranch
+  onDeleteBranch,
+  isReadOnly = false
 }: { 
   branches: Branch[], 
   onUpdateBranch: (branch: Branch) => void,
   onAddBranchClick: () => void,
-  onDeleteBranch: (branchId: string) => void
+  onDeleteBranch: (branchId: string) => void,
+  isReadOnly?: boolean
 }) {
   const activeTab = 'branches';
   
@@ -155,6 +157,7 @@ export default function BranchManagementView({
   };
 
   const handleSave = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (editingId) {
       onUpdateBranch(editValues as Branch);
       setEditingId(null);
@@ -229,6 +232,7 @@ export default function BranchManagementView({
   };
 
   const handleConnectGoogle = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     addLog("Iniciando flujo Google Cloud Credentials...");
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -265,6 +269,7 @@ export default function BranchManagementView({
   };
 
   const handleDisconnectGoogle = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     try {
       await supabase.from('google_credentials').delete().eq('id', 'default');
       setGoogleConnected(false);
@@ -276,6 +281,7 @@ export default function BranchManagementView({
   };
 
   const saveMappingAndCreds = async (newMapping: Record<string, string>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     try {
       const { error } = await supabase
         .from('google_credentials')
@@ -306,6 +312,7 @@ export default function BranchManagementView({
   };
 
   const handleSyncReviews = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSyncing(true);
     setSyncLogs([]);
     addLog("Iniciando sincronización con la API de Google Business Profile (Real-Time Places API)...");

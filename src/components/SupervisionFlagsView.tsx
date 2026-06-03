@@ -30,7 +30,8 @@ export default function SupervisionFlagsView({
   hideToggle = false,
   customTitle,
   currentUserName,
-  currentUserRole
+  currentUserRole,
+  isReadOnly = false
 }: { 
   branches: Branch[]; 
   initialViewMode?: 'admin' | 'supervisor';
@@ -38,6 +39,7 @@ export default function SupervisionFlagsView({
   customTitle?: string;
   currentUserName?: string;
   currentUserRole?: string;
+  isReadOnly?: boolean;
 }) {
   const [viewMode, setViewMode] = useState<'admin' | 'supervisor'>(initialViewMode);
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
@@ -189,6 +191,7 @@ export default function SupervisionFlagsView({
 
   // Eliminar una supervisión realizada (solo administrador). Borrado permanente.
   const handleDeleteResponse = async (responseId: string, label: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (currentUserRole !== 'administrador' && currentUserRole !== 'dueño') {
       alert('Solo un administrador puede eliminar supervisiones.');
       return;
@@ -211,6 +214,7 @@ export default function SupervisionFlagsView({
   };
 
   const handleSaveAssignments = async (supId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     try {
       const { error } = await supabase
         .from('profiles')
@@ -233,6 +237,7 @@ export default function SupervisionFlagsView({
 
   // Asignar o quitar un formulario a un supervisor (por nombre)
   const toggleFormAssignment = async (supervisorName: string, checklistId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const key = supervisorName.toUpperCase().trim();
     const current = formAssignments[key] || [];
     const isAssigned = current.includes(checklistId);
@@ -262,6 +267,7 @@ export default function SupervisionFlagsView({
   };
 
   const handleCreateSupervisor = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newSupervisorName.trim()) return;
     try {
       const { data, error } = await supabase
@@ -321,6 +327,7 @@ export default function SupervisionFlagsView({
   const endOfWeekStr = getEndOfWeekDate().toISOString().split('T')[0];
 
   const handleResetTemplates = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!window.confirm("¿Está seguro de que desea restaurar las plantillas oficiales a sus valores por defecto? Esto actualizará las preguntas y secciones de los formularios oficiales (Servicio, Cocina, Delivery y Depósito Central) en la base de datos de forma inmediata.")) {
       return;
     }
@@ -445,6 +452,7 @@ export default function SupervisionFlagsView({
   }, []);
 
   const handleSaveTemplate = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
 
     // Asegurar un UUID válido: mapear los ids seeded conocidos, o generar uno nuevo.
@@ -483,6 +491,7 @@ export default function SupervisionFlagsView({
   };
 
   const handleCreateTemplate = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const newId = Math.random().toString(36).substr(2, 9);
     const newT: AuditTemplate = {
       id: newId,
@@ -523,6 +532,7 @@ export default function SupervisionFlagsView({
   };
 
   const addQuestion = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
     const newQuestion: Question = {
       id: 'q_' + Math.random().toString(36).substr(2, 7),
@@ -541,6 +551,7 @@ export default function SupervisionFlagsView({
   };
 
   const updateQuestionText = (qId: string, text: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
     setSelectedTemplate({
       ...selectedTemplate,
@@ -549,6 +560,7 @@ export default function SupervisionFlagsView({
   };
 
   const updateQuestionCategory = (qId: string, category: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
     setSelectedTemplate({
       ...selectedTemplate,
@@ -557,6 +569,7 @@ export default function SupervisionFlagsView({
   };
 
   const deleteQuestion = (qId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
     setSelectedTemplate({
       ...selectedTemplate,
@@ -590,6 +603,7 @@ export default function SupervisionFlagsView({
   };
 
   const handleSubmitAudit = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate || !selectedBranchId) return;
     
     // Validate we've answered all non-text questions

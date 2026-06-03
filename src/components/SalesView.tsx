@@ -48,6 +48,7 @@ interface SalesViewProps {
   branches: Branch[];
   selectedBranchId: string;
   products: Product[];
+  isReadOnly?: boolean;
 }
 
 const SALE_TYPES: SaleType[] = ['Turno Mañana', 'Turno Tarde', 'Pedidos Ya Restó', 'Pedidos Ya Café'];
@@ -127,7 +128,7 @@ const findBestBranchMatch = (excelBranch: any, branches: Branch[], selectedBranc
   return '';
 };
 
-export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
+export default function SalesView({ branches, selectedBranchId, products, isReadOnly = false }: SalesViewProps) {
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [activeSubTab, setActiveSubTab] = useState<'daily' | 'rankings'>('daily');
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
@@ -408,6 +409,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   });
 
   const handleSave = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setLoading(true);
     try {
       // Delete existing records for this branch/date to avoid duplicates when editing
@@ -554,6 +556,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const handleDeleteSelected = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     // Trabaja sobre las filas mostradas (displayedRecords) que estén seleccionadas.
     const rowsToDelete = displayedRecords.filter((r: any) => selectedRowIds.includes(r.id));
     if (rowsToDelete.length === 0) return;
@@ -604,6 +607,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const handleClearAllSales = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (window.confirm("⚠️ ADVERTENCIA DE CONTROL TOTAL ⚠️\n\n¿Está absolutamente seguro de que desea eliminar TODAS las ventas y rankings de artículos cargados en el sistema? Esto vaciará permanentemente las tablas de ventas para todos los locales sin poder recuperar los datos cargados. ¿Desea continuar?")) {
       if (window.confirm("CONFIRME DE NUEVO:\n\nEsta acción eliminará TODO el historial inmediatamente de Supabase. Si está importando una planilla de 6000 filas de nuevo, esta es la acción recomendada para iniciar desde cero sin duplicados. ¿Proceder con el vaciado total?")) {
         try {
@@ -1062,6 +1066,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
 
   // ── Import full ticket detail from system export (SUCURSAL, FECHA, TURNO, HORA, CUBIERTOS, ORDENES, COBRO, Ventas Brutas, Ventas Netas, IVA)
   const handleImportTicketsExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
@@ -1284,6 +1289,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const handleImportRankingExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1319,6 +1325,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const confirmRankingImport = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!rankingToImport) return;
 
     // Confirmación explícita antes de guardar
@@ -1710,6 +1717,7 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const confirmManualImport = async (records: any[]) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setLoading(true);
     try {
       // Prevent duplicates by deleting existing records for standard branch and dates in our list

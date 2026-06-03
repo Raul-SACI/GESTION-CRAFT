@@ -66,7 +66,7 @@ const SYSTEM_MODULES = [
   { id: 'usuarios', label: 'Usuarios/Roles', category: 'Configuración' },
 ];
 
-export default function UsersView({ selectedBranchId, branches, onUsersChanged }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void }) {
+export default function UsersView({ selectedBranchId, branches, onUsersChanged, isReadOnly = false }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void, isReadOnly?: boolean }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'roles'>('users');
   
@@ -110,6 +110,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
   const [isSavingPass, setIsSavingPass] = useState(false);
 
   const handleSavePassword = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedUserForPass) return;
     setIsSavingPass(true);
     try {
@@ -202,6 +203,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Save User
   const handleSaveUser = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!userForm.name?.trim()) {
       alert('Por favor, ingresa el nombre.');
       return;
@@ -291,6 +293,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Delete User
   const handleDeleteUser = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!confirm('¿Estás seguro de eliminar este usuario del sistema?')) return;
     setLoading(true);
     try {
@@ -307,6 +310,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Save Custom Role
   const handleSaveRole = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!roleForm.name) {
       alert('Por favor, ingresa el nombre de la función / rol.');
       return;
@@ -349,6 +353,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
 
   // Handle Delete Custom Role
   const handleDeleteRole = async (roleId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
 
     if (!confirm('¿Estás seguro de eliminar este rol? Los usuarios asociados perderán sus accesos predeterminados.')) return;
     setLoading(true);
@@ -364,6 +369,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged }
   };
 
   const toggleModuleInRole = (moduleId: string, level?: 'view' | 'edit' | null) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRoleForm(prev => {
       const modules = prev.allowed_modules as Record<string, 'edit' | 'view'>;
       const current = modules[moduleId];
