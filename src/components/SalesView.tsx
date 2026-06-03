@@ -561,17 +561,39 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     if (window.confirm(`¿Eliminar los ${rowsToDelete.length} registros seleccionados (por sucursal, fecha y turno)? Esta acción es irreversible.`)) {
       try {
         setLoading(true);
+        let totalDeleted = 0;
         for (const r of rowsToDelete) {
-          const shiftDb = String(r.type).includes('Mañana') ? 'Mañana' : 'Tarde';
-          // Borrar de ambas tablas (sales agregada y sales_tickets detallada) por branch+date+turno
-          await supabase.from('sales').delete()
-            .eq('branch_id', r.branchId).eq('date', r.date).eq('shift', shiftDb);
-          await supabase.from('sales_tickets').delete()
-            .eq('branch_id', r.branchId).eq('date', r.date).eq('shift', shiftDb);
+          const esMañana = String(r.type).includes('Mañana');
+          // Borrar por branch+date y filtrar el turno de forma flexible:
+          // "Mañana" se borra como Mañana; cualquier otro turno (Tarde/Noche) se borra como NO-Mañana.
+          for (const tabla of ['sales', 'sales_tickets']) {
+            // Traer los shifts existentes de ese branch+date para decidir cuáles borrar
+            const { data: existing } = await supabase
+              .from(tabla)
+              .select('id, shift')
+              .eq('branch_id', r.branchId)
+              .eq('date', r.date);
+            if (existing && existing.length > 0) {
+              const idsToDelete = existing
+                .filter((row: any) => {
+                  const rowEsMañana = String(row.shift || '').toLowerCase().includes('mañana') || String(row.shift || '').toLowerCase().includes('manana');
+                  return esMañana ? rowEsMañana : !rowEsMañana;
+                })
+                .map((row: any) => row.id);
+              // Borrar en chunks
+              for (let i = 0; i < idsToDelete.length; i += 100) {
+                const chunk = idsToDelete.slice(i, i + 100);
+                if (chunk.length > 0) {
+                  await supabase.from(tabla).delete().in('id', chunk);
+                  totalDeleted += chunk.length;
+                }
+              }
+            }
+          }
         }
         setSelectedRowIds([]);
         await fetchData();
-        alert('¡Registros eliminados con éxito!');
+        alert(`¡Eliminación completada! Se borraron ${totalDeleted} registros.`);
       } catch (err: any) {
         console.error('Error deleting records:', err);
         alert('Error al eliminar los registros: ' + (err?.message || 'error'));
