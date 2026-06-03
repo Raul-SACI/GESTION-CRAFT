@@ -21,16 +21,19 @@ import { Branch, PLRecord } from '../types';
 export default function ProfitLossView({ 
   branches, 
   selectedBranchId, 
-  onBranchChange 
+  onBranchChange,
+  isReadOnly = false
 }: { 
   branches: Branch[], 
   selectedBranchId: string, 
-  onBranchChange?: (id: string) => void 
+  onBranchChange?: (id: string) => void,
+  isReadOnly?: boolean
 }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [records, setRecords] = useState<PLRecord[]>([]);
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
 

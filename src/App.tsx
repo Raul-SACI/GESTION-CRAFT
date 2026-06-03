@@ -496,7 +496,9 @@ function AppContent() {
     'dashboard', 'socios_dashboard', 'performance_admin',
     'papeles_sucursal', 'novedades',
     'stock', 'vajilla', 'horas', 'decomisos', 'cuentas',
-    'gestion_sueldos', 'consumo', 'pedidos_ya'
+    'gestion_sueldos', 'consumo', 'pedidos_ya',
+    'finanzas_estimado', 'bank_liabilities', 'tax_liabilities',
+    'finanzas_mensual', 'p&l', 'cronograma_pagos'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -1382,11 +1384,11 @@ function AppContent() {
                 />
               )}
               {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} />}
-              {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} />}
-              {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" />}
-              {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" />}
-              {activeTab === 'tax_liabilities' && <FinanceView key="tax_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="tax" />}
-              {activeTab === 'cronograma_pagos' && <PaymentScheduleView key="cronograma_pagos" />}
+              {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'tax_liabilities' && <FinanceView key="tax_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="tax" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'cronograma_pagos' && <PaymentScheduleView key="cronograma_pagos" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'finanzas_mensual' && <MonthlyCashFlowView key="finanzas_mensual" />}
               {activeTab === 'control_desvios' && (
                 <DeviationControlView 

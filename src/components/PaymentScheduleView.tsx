@@ -46,7 +46,7 @@ const SEED_PAYMENTS: ScheduledPayment[] = [
   { id: 'sched-5', description: 'Proveedor Carnes', dueDate: '2026-05-18', amount: 280000, status: 'paid', category: 'other' },
 ];
 
-export default function PaymentScheduleView() {
+export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
@@ -242,6 +242,7 @@ export default function PaymentScheduleView() {
   };
 
   const handleSaveCommitment = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!formDescription.trim() || formAmount <= 0 || !formDueDate) {
       alert('Por favor complete la descripción, un monto válido y la fecha de vencimiento.');
       return;
@@ -287,6 +288,7 @@ export default function PaymentScheduleView() {
   };
 
   const handleDeleteCommitment = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (window.confirm('¿Está seguro de eliminar este compromiso de pago?')) {
       await supabase.from('payment_schedule').delete().eq('id', id);
       setPayments(payments.filter(p => p.id !== id));

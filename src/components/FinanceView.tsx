@@ -245,11 +245,13 @@ const INITIAL_PAYMENTS: ScheduledPayment[] = [
 export default function FinanceView({ 
   branches, 
   selectedBranchId, 
-  mode = 'default' 
+  mode = 'default',
+  isReadOnly = false
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
-  mode?: 'default' | 'bank' | 'tax'
+  mode?: 'default' | 'bank' | 'tax',
+  isReadOnly?: boolean
 }) {
   const today = useMemo(() => new Date(), []);
   const lastWeek = useMemo(() => {
@@ -277,6 +279,7 @@ export default function FinanceView({
   });
 
   const savePayments = async (newPayments: ScheduledPayment[]) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setPayments(newPayments);
     localStorage.setItem('craft_scheduled_payments', JSON.stringify(newPayments));
     // Sincronizar con Supabase
@@ -327,11 +330,13 @@ export default function FinanceView({
   });
 
   const saveTaxEntities = (newEntities: Array<{ value: string; label: string }>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setTaxEntities(newEntities);
     localStorage.setItem('craft_tax_entities', JSON.stringify(newEntities));
   };
 
   const saveTaxTypes = (newTypes: Array<{ value: string; label: string }>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setTaxTypes(newTypes);
     localStorage.setItem('craft_tax_types', JSON.stringify(newTypes));
   };
@@ -399,6 +404,7 @@ export default function FinanceView({
   });
 
   const saveWeeklyClosings = (newClosings: Record<string, Record<string, number>>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setWeeklyClosings(newClosings);
     localStorage.setItem('craft_weekly_closings', JSON.stringify(newClosings));
     // Guardar en Supabase como finance_liabilities con type='weekly_closing'
@@ -907,6 +913,7 @@ export default function FinanceView({
   }, [activeWeekRange.days, allEntries, weekStartBalances, categories]);
 
   const toggleGroupExecution = (itemId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const row = groupedRows[itemId];
     if (!row || row.entriesInPeriod.length === 0) return;
     const targetState = !row.isExecuted;
@@ -932,6 +939,7 @@ export default function FinanceView({
   const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
 
   const toggleExecution = (entryId: string | undefined) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!entryId) return;
     if (entryId.startsWith('payment-')) {
       const paymentId = entryId.replace('payment-', '');
@@ -950,6 +958,7 @@ export default function FinanceView({
   const [searchQuery, setSearchQuery] = useState('');
 
   const togglePaymentPaid = (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const updated = payments.map(p => {
       if (p.id === id) {
         return { ...p, status: (p.status === 'paid' ? 'pending' : 'paid') as 'pending' | 'paid' };
@@ -960,6 +969,7 @@ export default function FinanceView({
   };
 
   const handleDeletePayment = (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     savePayments(payments.filter(p => p.id !== id));
   };
 
@@ -1030,6 +1040,7 @@ export default function FinanceView({
   }, [payments]);
 
   const handleAddPayment = (payment: Partial<ScheduledPayment>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const newPay: ScheduledPayment = {
       id: `pay_${Date.now()}`,
       description: payment.description || 'Nuevo Pago',
@@ -1043,6 +1054,7 @@ export default function FinanceView({
   };
 
   const handleAddNote = (text: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const colors = ['border-brand-500', 'border-blue-500', 'border-emerald-500', 'border-amber-500'];
     const newNote: TreasuryNote = {
       id: `note_${Date.now()}`,
@@ -1054,6 +1066,7 @@ export default function FinanceView({
   };
 
   const handleAddReminder = async (reminder: Omit<Reminder, 'id'>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const newRem: Reminder = {
       id: `rem_${Date.now()}`,
       ...reminder
