@@ -87,44 +87,34 @@ const findBestBranchMatch = (excelBranch: any, branches: Branch[], selectedBranc
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]/g, ""); // Keep only lowercase letters and numbers
 
-  if (clean.includes("bnorte") || clean.includes("barrionorte") || clean.includes("bbelgrano") || clean.includes("belgrano") || clean.includes("craftbn")) {
-    const found = branches.find(b => {
-      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      return b.id === 'bn' || bClean.includes("barrionorte") || bClean.includes("bnorte") || (bClean.includes("barrio") && bClean.includes("norte"));
-    });
-    if (found) return found.id;
-  }
-  
-  if (clean.includes("bsur") || clean.includes("barriosur") || clean.includes("craftbs")) {
-    const found = branches.find(b => {
-      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      return b.id === 'bs' || bClean.includes("barriosur") || bClean.includes("bsur") || (bClean.includes("barrio") && bClean.includes("sur"));
-    });
-    if (found) return found.id;
-  }
-  
-  if (clean.includes("casco") || clean.includes("viejo") || clean.includes("cascoviejo") || clean.includes("mt") || clean.includes("craftmt")) {
-    const found = branches.find(b => {
-      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      return b.id === 'mt' || bClean.includes("casco") || bClean.includes("viejo") || bClean.includes("cascoviejo");
-    });
-    if (found) return found.id;
-  }
-  
-  if (clean.includes("peron") || clean.includes("pn") || clean.includes("craftpn")) {
-    const found = branches.find(b => {
-      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      return b.id === 'pn' || bClean.includes("peron");
-    });
-    if (found) return found.id;
-  }
-  
-  if (clean.includes("matedeluna") || clean.includes("deluna") || clean.includes("ml") || clean.includes("craftml")) {
-    const found = branches.find(b => {
-      const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
-      return b.id === 'ml' || bClean.includes("matedeluna") || bClean.includes("mateluna") || (bClean.includes("mate") && bClean.includes("luna"));
-    });
-    if (found) return found.id;
+  const matchByKeywords = (keywords: string[]) => branches.find(b => {
+    const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    return keywords.some(k => bClean.includes(k));
+  });
+
+  // Alias explícitos de los nombres que vienen en las planillas de ventas.
+  // Cada alias apunta a las palabras clave del nombre real de la sucursal en el sistema.
+  const ALIASES: { match: string[]; target: string[] }[] = [
+    { match: ['bnorte', 'barrionorte'], target: ['barrionorte', 'barrio'] },
+    { match: ['bsur', 'barriosur'], target: ['barriosur', 'barrio'] },
+    { match: ['shell', 'matedeluna', 'mateluna', 'deluna'], target: ['matedeluna', 'mateluna', 'mate'] },
+    { match: ['mercato', 'casco', 'viejo', 'cascoviejo'], target: ['cascoviejo', 'casco', 'viejo'] },
+    { match: ['peron'], target: ['peron'] },
+    { match: ['almacen', 'produccion'], target: ['almacen', 'produccion'] }
+  ];
+
+  for (const alias of ALIASES) {
+    if (alias.match.some(m => clean.includes(m))) {
+      // Encontrar la sucursal cuyo nombre contiene alguna de las target keywords
+      const found = branches.find(b => {
+        const bClean = b.name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+        // Para barrio norte/sur necesitamos distinguir; chequeamos ambas palabras
+        if (alias.match.includes('bnorte')) return bClean.includes('barrio') && bClean.includes('norte');
+        if (alias.match.includes('bsur')) return bClean.includes('barrio') && bClean.includes('sur');
+        return alias.target.some(t => bClean.includes(t));
+      });
+      if (found) return found.id;
+    }
   }
 
   const match = branches.find(b => {
@@ -133,7 +123,8 @@ const findBestBranchMatch = (excelBranch: any, branches: Branch[], selectedBranc
   });
   
   if (match) return match.id;
-  return selectedBranchId === 'all' ? (branches[0]?.id || 'bn') : selectedBranchId;
+  // Si no matchea con ninguna sucursal conocida (ej: CRAFT FLIP), devolver vacío para descartar.
+  return '';
 };
 
 export default function SalesView({ branches, selectedBranchId, products }: SalesViewProps) {
@@ -1576,6 +1567,9 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         // 1. Find branch mapping - utilizing robust abbreviation and keyword matching helpers
         const excelBranch = getValue(row, 'Sucursal') || getValue(row, 'Branch');
         const targetBranchId = findBestBranchMatch(excelBranch, branches, selectedBranchId);
+
+        // Si la sucursal no corresponde a ninguna conocida (ej: CRAFT FLIP), descartar la fila.
+        if (!targetBranchId) return;
 
         // 2. Parse Date (D/M/YYYY or DD/MM/YYYY standard Spanish format)
         const dateInput = getValue(row, 'Fecha') || getValue(row, 'Date');
