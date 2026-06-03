@@ -901,7 +901,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
         if (rowCells.length < 3) continue;
         
         const csvRoleName = rowCells[roleColIdx] || 'Personal';
-        const shiftVal = (rowCells[shiftColIdx] || 'Tarde').trim() as 'Mañana' | 'Tarde';
+        const shiftRaw = (rowCells[shiftColIdx] || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        const shiftVal: 'Mañana' | 'Tarde' = shiftRaw.includes('manana') ? 'Mañana' : 'Tarde';
         const hoursPerDayVal = parseInt(rowCells[hoursColIdx]) || 8;
         
         const matchedRole = sucursalRolesList.find((rl: any) => 
@@ -923,7 +924,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
         parsedPreviewRows.push({
           roleId: matchedRole.id,
           roleLabel: matchedRole.label,
-          shift: ['Mañana', 'Tarde'].includes(shiftVal) ? shiftVal : 'Tarde',
+          shift: shiftVal,
           countGroupA: 1,
           countGroupB: 1,
           hoursPerDay: hoursPerDayVal,
