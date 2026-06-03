@@ -96,7 +96,14 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
     return list.sort((a, b) => b.total - a.total);
   }, [currentLogs, prevLogs, search]);
 
-  const totalProduced = useMemo(() => articles.reduce((s, a) => s + a.total, 0), [articles]);
+  // Promedio del % de variación de la producción vs mes anterior
+  // (solo artículos con producción el mes anterior, para que el % tenga sentido)
+  const avgVariation = useMemo(() => {
+    const withPrev = articles.filter(a => a.prevTotal > 0);
+    if (withPrev.length === 0) return null;
+    const sum = withPrev.reduce((s, a) => s + ((a.total - a.prevTotal) / a.prevTotal) * 100, 0);
+    return sum / withPrev.length;
+  }, [articles]);
 
   // Días del mes con producción (para el desglose)
   const daysInMonth = useMemo(() => {
@@ -266,19 +273,22 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
           <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Artículos Producidos</p>
           <p className="text-2xl font-mono font-black text-text-main mt-1">{articles.length}</p>
         </div>
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Total Unidades (suma)</p>
-          <p className="text-2xl font-mono font-black text-brand-500 mt-1">{fmtQty(totalProduced)}</p>
-          <p className="text-[8px] text-text-dim uppercase font-bold mt-1 opacity-70">Suma de cantidades (unidades mixtas)</p>
-        </div>
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Comparativa</p>
-          <p className="text-[10px] font-bold text-text-dim mt-2 uppercase">vs {prevMonth}</p>
+          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Variación Promedio de Producción</p>
+          {avgVariation === null ? (
+            <p className="text-2xl font-mono font-black text-text-dim mt-1">—</p>
+          ) : (
+            <p className={cn("text-2xl font-mono font-black mt-1 flex items-center gap-1.5", avgVariation >= 0 ? "text-emerald-500" : "text-red-500")}>
+              {avgVariation >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
+              {avgVariation >= 0 ? '+' : ''}{avgVariation.toFixed(1)}%
+            </p>
+          )}
+          <p className="text-[8px] text-text-dim uppercase font-bold mt-1 opacity-70">Promedio del cambio por artículo vs {prevMonth}</p>
         </div>
       </div>
 
