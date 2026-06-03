@@ -82,12 +82,14 @@ export default function DeviationControlView({
   // Fetch Daily Logs
   useEffect(() => {
     const fetchDailyLogs = async () => {
+      const [dy, dm] = selectedMonth.split('-').map(Number);
+      const lastDay = new Date(dy, dm, 0).getDate();
       const { data, error } = await supabase
         .from('inventory_logs')
         .select('*')
         .match({ branch_id: selectedBranchId })
         .gte('date', `${selectedMonth}-01`)
-        .lte('date', `${selectedMonth}-31`);
+        .lte('date', `${selectedMonth}-${String(lastDay).padStart(2, '0')}`);
 
       if (data) {
         setDailyLogs(data.map(d => {

@@ -1269,17 +1269,24 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
 
       // Delete existing aggregated sales for these months/branches then insert
       for (const month of months) {
+        const [my, mm] = month.split('-').map(Number);
+        const mLastDay = new Date(my, mm, 0).getDate();
         await supabase.from('sales').delete()
           .gte('date', `${month}-01`)
-          .lte('date', `${month}-31`)
+          .lte('date', `${month}-${String(mLastDay).padStart(2, '0')}`)
           .in('branch_id', branchIds);
       }
+      let aggErrors = 0;
       for (let i = 0; i < aggRecords.length; i += 200) {
         const { error } = await supabase.from('sales').insert(aggRecords.slice(i, i + 200));
-        if (error) console.warn('Error saving aggregated sales:', error.message);
+        if (error) { console.warn('Error saving aggregated sales:', error.message); aggErrors++; }
       }
 
-      alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${months.join(', ')})`);
+      if (aggErrors > 0) {
+        alert(`✅ ${inserted.toLocaleString()} tickets importados (${months.join(', ')}).\n\n⚠️ Atención: hubo un problema al actualizar el resumen de ventas (${aggErrors} lote/s). Los tickets se guardaron, pero algunos reportes que usan el resumen podrían no reflejarlo. Reintentá la importación si notás diferencias.`);
+      } else {
+        alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${months.join(', ')})`);
+      }
     } catch (err: any) {
       console.error('Error importando tickets:', err);
       alert(`Error al importar: ${err.message}`);

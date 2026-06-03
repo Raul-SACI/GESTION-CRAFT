@@ -193,12 +193,14 @@ export default function EncargadoDashboardView({
   // 3. Fetch Deviations (inventory logs)
   const fetchDeviations = async (branchId: string, month: string) => {
     try {
+      const [iy, im] = month.split('-').map(Number);
+      const iLastDay = new Date(iy, im, 0).getDate();
       const { data, error } = await supabase
         .from('inventory_logs')
         .select('*')
         .match({ branch_id: branchId })
         .gte('date', `${month}-01`)
-        .lte('date', `${month}-31`);
+        .lte('date', `${month}-${String(iLastDay).padStart(2, '0')}`);
 
       if (!error && data && data.length > 0) {
         const totalW = data.reduce((sum, item) => sum + (Number(item.decomisos) || 0), 0);
@@ -323,12 +325,14 @@ export default function EncargadoDashboardView({
 
       // Supervision responses for Red/Yellow/Green flags
       try {
+        const [sy, sm] = month.split('-').map(Number);
+        const sLastDay = new Date(sy, sm, 0).getDate();
         const { data: responses, error: respError } = await supabase
           .from('supervision_responses')
           .select('*')
           .eq('branch_id', branchId)
           .gte('date', `${month}-01`)
-          .lte('date', `${month}-31`);
+          .lte('date', `${month}-${String(sLastDay).padStart(2, '0')}`);
 
         if (!respError && responses) {
           setSupervisionResponses(responses);

@@ -270,12 +270,14 @@ export default function ConsumoView({
     setSaving(true);
     try {
       // Calcular ventas netas del mes desde la tabla sales
+      const [csy, csm] = selectedMonth.split('-').map(Number);
+      const csLastDay = new Date(csy, csm, 0).getDate();
       const { data: salesData } = await supabase
         .from('sales')
         .select('net_sales')
         .eq('branch_id', branchKey)
         .gte('date', `${selectedMonth}-01`)
-        .lte('date', `${selectedMonth}-31`);
+        .lte('date', `${selectedMonth}-${String(csLastDay).padStart(2, '0')}`);
       
       const netSales = salesData?.reduce((sum, s) => sum + (Number(s.net_sales) || 0), 0) || 0;
       const cmvPct = netSales > 0 ? (totalCMV / netSales) * 100 : 0;
