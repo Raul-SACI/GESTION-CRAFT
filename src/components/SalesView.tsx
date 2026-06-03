@@ -1072,8 +1072,16 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       const norm = b.name.toUpperCase().trim();
       branchMap[norm] = b.id;
       // Also map common aliases
-      if (norm.includes('BARRIO NORTE')) branchMap['CRAFT BARRIO NORTE'] = b.id;
-      if (norm.includes('BARRIO SUR'))   branchMap['CRAFT BARRIO SUR'] = b.id;
+      if (norm.includes('BARRIO NORTE')) {
+        branchMap['CRAFT BARRIO NORTE'] = b.id;
+        branchMap['CRAFT BNORTE'] = b.id;
+        branchMap['BNORTE'] = b.id;
+      }
+      if (norm.includes('BARRIO SUR')) {
+        branchMap['CRAFT BARRIO SUR'] = b.id;
+        branchMap['CRAFT BSUR'] = b.id;
+        branchMap['BSUR'] = b.id;
+      }
       if (norm.includes('CASCO VIEJO') || norm.includes('MERCATO')) {
         branchMap['CRAFT CASCO VIEJO'] = b.id;
         branchMap['CRAFT MERCATO'] = b.id;
@@ -1082,7 +1090,11 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
         branchMap['CRAFT PERON'] = b.id;
         branchMap['CRAFT PERÓN'] = b.id;
       }
-      if (norm.includes('MATE DE LUNA') || norm.includes('MATE')) branchMap['CRAFT MATE DE LUNA'] = b.id;
+      if (norm.includes('MATE DE LUNA') || norm.includes('MATE')) {
+        branchMap['CRAFT MATE DE LUNA'] = b.id;
+        branchMap['CRAFT SHELL'] = b.id;
+        branchMap['SHELL'] = b.id;
+      }
     });
     const shiftMap: Record<string, string> = {
       'MED': 'Mañana', 'NOC': 'Noche', 'NOC ': 'Noche'
