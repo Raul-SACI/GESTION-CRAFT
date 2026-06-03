@@ -280,13 +280,15 @@ export default function PerformanceAdminView({
         .upsert(payloads, { onConflict: 'branch_id,month,role' });
 
       if (error) {
-        console.warn('Supabase upsert for reports failed, but saved locally:', error);
+        console.error('Error al guardar resultados en Supabase:', error);
+        alert('ATENCIÓN: No se pudieron guardar los resultados en la base de datos.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nReintentá guardar.');
+        return;
       }
       alert('Resultados reales guardados exitosamente.');
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save results error:', err);
-      alert('Resultados guardados exitosamente en la memoria local.');
+      alert('ATENCIÓN: Ocurrió un error al guardar los resultados. ' + (err?.message || '') + '\n\nReintentá guardar.');
     } finally {
       setSaving(false);
     }
@@ -444,13 +446,15 @@ export default function PerformanceAdminView({
         .upsert(payloads, { onConflict: 'branch_id,month,role' });
 
       if (error) {
-        console.warn('Supabase upsert for config failed, but saved locally:', error);
+        console.error('Error al guardar configuración en Supabase:', error);
+        alert('ATENCIÓN: No se pudo guardar en la base de datos.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nLos datos quedaron solo en este dispositivo. Reintentá guardar.');
+        return;
       }
       alert('Configuración guardada exitosamente.');
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err);
-      alert('Configuración guardada exitosamente en la memoria local.');
+      alert('ATENCIÓN: Ocurrió un error al guardar. ' + (err?.message || '') + '\n\nReintentá guardar.');
     } finally {
       setSaving(false);
     }
@@ -537,14 +541,17 @@ export default function PerformanceAdminView({
         .upsert(payloads, { onConflict: 'branch_id,month,role' });
 
       if (error) {
-        console.warn('Supabase upsert for config failed, but saved locally:', error);
+        console.error('Error al copiar al mes siguiente en Supabase:', error);
+        alert('ATENCIÓN: No se pudo copiar al mes siguiente en la base de datos.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nReintentá.');
+        setSaving(false);
+        return;
       }
 
       alert(`¡Éxito! Las variables y escalas de premios se copiaron exitosamente a ${nextMonthString}. Cambiaremos de mes automáticamente para revisar/guardar.`);
       setSelectedMonth(nextMonthString);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error copying config to next month:', err);
-      alert('Error al copiar la configuración de premios al mes siguiente.');
+      alert('ATENCIÓN: Error al copiar la configuración al mes siguiente. ' + (err?.message || '') + '\n\nReintentá.');
     } finally {
       setSaving(false);
     }
@@ -625,7 +632,10 @@ export default function PerformanceAdminView({
         .upsert(payloads, { onConflict: 'branch_id,month,role' });
 
       if (upsertErr) {
-        console.warn('database upsert failed during copy branch config, but will sync locally:', upsertErr);
+        console.error('Error al copiar configuración a sucursales en Supabase:', upsertErr);
+        alert('ATENCIÓN: No se pudo copiar a las sucursales en la base de datos.\n\nDetalle: ' + (upsertErr.message || 'error desconocido') + '\n\nReintentá la copia.');
+        setSaving(false);
+        return;
       }
 
       // Step 3: Write to LocalStorage for each target branch to prevent disappearing on refresh
@@ -671,9 +681,9 @@ export default function PerformanceAdminView({
       alert('Configuración copiada exitosamente a las sucursales seleccionadas.');
       setShowCopyBranchModal(false);
       setTargetBranches([]);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error during branch copy process:', err);
-      alert('Ocurrió un error al copiar las configuraciones en el servidor, se guardó en memoria local.');
+      alert('ATENCIÓN: Ocurrió un error al copiar las configuraciones. ' + (err?.message || '') + '\n\nReintentá la copia.');
     } finally {
       setSaving(false);
     }
