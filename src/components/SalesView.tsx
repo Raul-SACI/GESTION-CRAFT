@@ -133,6 +133,8 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   const [salesRecords, setSalesRecords] = useState<SalesData[]>([]);
   const [allTicketsData, setAllTicketsData] = useState<any[]>([]);
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  // Filtros por columna del historial diario
+  const [histFilters, setHistFilters] = useState({ branch: 'all', week: 'all', day: 'all', shift: 'all', medio: 'all', date: '' });
   const [isAdding, setIsAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -534,16 +536,6 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
     });
   }, [rankings, rkFilterProduct, rkFilterCode, rkFilterCategories, rkFilterBranch, rkFilterPeriod]);
 
-  const allFilteredIds = useMemo(() => filteredSales.map(r => r.id), [filteredSales]);
-  const isAllSelected = useMemo(() => {
-    if (allFilteredIds.length === 0) return false;
-    return allFilteredIds.every(id => selectedRowIds.includes(id));
-  }, [allFilteredIds, selectedRowIds]);
-
-  const selectedFilteredCount = useMemo(() => {
-    return filteredSales.filter(r => selectedRowIds.includes(r.id)).length;
-  }, [filteredSales, selectedRowIds]);
-
   const handleSelectAllToggle = () => {
     if (isAllSelected) {
       setSelectedRowIds(prev => prev.filter(id => !allFilteredIds.includes(id)));
@@ -562,30 +554,27 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
   };
 
   const handleDeleteSelected = async () => {
-    const selectedIdsInFilter = allFilteredIds.filter(id => selectedRowIds.includes(id));
-    if (selectedIdsInFilter.length === 0) return;
+    // Trabaja sobre las filas mostradas (displayedRecords) que estén seleccionadas.
+    const rowsToDelete = displayedRecords.filter((r: any) => selectedRowIds.includes(r.id));
+    if (rowsToDelete.length === 0) return;
 
-    if (window.confirm(`¿Está seguro de que desea eliminar los ${selectedIdsInFilter.length} registros seleccionados? Esta acción es irreversible.`)) {
+    if (window.confirm(`¿Eliminar los ${rowsToDelete.length} registros seleccionados (por sucursal, fecha y turno)? Esta acción es irreversible.`)) {
       try {
         setLoading(true);
-        
-        // Chunk the deletion to avoid 414 Request-URI Too Large errors due to URL length limits API / Kong
-        const chunkSize = 100;
-        for (let i = 0; i < selectedIdsInFilter.length; i += chunkSize) {
-          const chunk = selectedIdsInFilter.slice(i, i + chunkSize);
-          const { error } = await supabase
-            .from('sales')
-            .delete()
-            .in('id', chunk);
-          if (error) throw error;
+        for (const r of rowsToDelete) {
+          const shiftDb = String(r.type).includes('Mañana') ? 'Mañana' : 'Tarde';
+          // Borrar de ambas tablas (sales agregada y sales_tickets detallada) por branch+date+turno
+          await supabase.from('sales').delete()
+            .eq('branch_id', r.branchId).eq('date', r.date).eq('shift', shiftDb);
+          await supabase.from('sales_tickets').delete()
+            .eq('branch_id', r.branchId).eq('date', r.date).eq('shift', shiftDb);
         }
-        
-        setSelectedRowIds(prev => prev.filter(id => !selectedIdsInFilter.includes(id)));
+        setSelectedRowIds([]);
         await fetchData();
         alert('¡Registros eliminados con éxito!');
-      } catch (err) {
-        console.error('Error deleting records in batch:', err);
-        alert('Error al intentar eliminar los registros seleccionados.');
+      } catch (err: any) {
+        console.error('Error deleting records:', err);
+        alert('Error al eliminar los registros: ' + (err?.message || 'error'));
       } finally {
         setLoading(false);
       }
@@ -710,6 +699,38 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
       };
     });
   }, [filteredTicketsByHour, salesRecords, localBranchId, filterMonth, filterWeek]);
+
+  // Aplica los filtros de columna del historial sobre la lista mostrada.
+  const displayedRecords = useMemo(() => {
+    return hourFilteredSalesRecords.filter((r: any) => {
+      if (histFilters.branch !== 'all' && r.branchId !== histFilters.branch) return false;
+      if (histFilters.week !== 'all' && String(r.week) !== histFilters.week) return false;
+      if (histFilters.day !== 'all' && String(r.dayName) !== histFilters.day) return false;
+      if (histFilters.shift !== 'all' && String(r.type) !== histFilters.shift) return false;
+      if (histFilters.medio !== 'all' && String(r.medioCobro) !== histFilters.medio) return false;
+      if (histFilters.date && String(r.date) !== histFilters.date) return false;
+      return true;
+    });
+  }, [hourFilteredSalesRecords, histFilters]);
+
+  // Opciones únicas para los selectores de filtro
+  const histOptions = useMemo(() => ({
+    weeks: Array.from(new Set(hourFilteredSalesRecords.map((r: any) => String(r.week)))).sort(),
+    days: Array.from(new Set(hourFilteredSalesRecords.map((r: any) => String(r.dayName)).filter(Boolean))),
+    shifts: Array.from(new Set(hourFilteredSalesRecords.map((r: any) => String(r.type)))),
+    medios: Array.from(new Set(hourFilteredSalesRecords.map((r: any) => String(r.medioCobro)).filter(Boolean)))
+  }), [hourFilteredSalesRecords]);
+
+  // Selección basada en las filas mostradas (con filtros de columna aplicados)
+  const allFilteredIds = useMemo(() => displayedRecords.map((r: any) => r.id), [displayedRecords]);
+  const isAllSelected = useMemo(() => {
+    if (allFilteredIds.length === 0) return false;
+    return allFilteredIds.every(id => selectedRowIds.includes(id));
+  }, [allFilteredIds, selectedRowIds]);
+  const selectedFilteredCount = useMemo(() => {
+    return displayedRecords.filter((r: any) => selectedRowIds.includes(r.id)).length;
+  }, [displayedRecords, selectedRowIds]);
+
 
   // Chart Data: Weekday Sales (filtered by hour range)
 
@@ -2477,16 +2498,63 @@ export default function SalesView({ branches, selectedBranchId, products }: Sale
                     <th className="px-3 py-3 text-right">IVA</th>
                     <th className="px-4 py-3"></th>
                   </tr>
+                  <tr className="bg-bg-sidebar border-b border-border-dim">
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2">
+                      <select value={histFilters.branch} onChange={e => setHistFilters({ ...histFilters, branch: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-normal normal-case">
+                        <option value="all">Todas</option>
+                        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    </th>
+                    <th className="px-2 py-2">
+                      <input type="date" value={histFilters.date} onChange={e => setHistFilters({ ...histFilters, date: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-mono" />
+                    </th>
+                    <th className="px-2 py-2">
+                      <select value={histFilters.week} onChange={e => setHistFilters({ ...histFilters, week: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-normal normal-case">
+                        <option value="all">Todas</option>
+                        {histOptions.weeks.map(w => <option key={w} value={w}>{w}</option>)}
+                      </select>
+                    </th>
+                    <th className="px-2 py-2">
+                      <select value={histFilters.day} onChange={e => setHistFilters({ ...histFilters, day: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-normal normal-case">
+                        <option value="all">Todos</option>
+                        {histOptions.days.map(d => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </th>
+                    <th className="px-2 py-2">
+                      <select value={histFilters.shift} onChange={e => setHistFilters({ ...histFilters, shift: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-normal normal-case">
+                        <option value="all">Todos</option>
+                        {histOptions.shifts.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2">
+                      <select value={histFilters.medio} onChange={e => setHistFilters({ ...histFilters, medio: e.target.value })} className="w-full bg-bg-card border border-border-dim rounded px-1 py-1 text-[8px] font-normal normal-case">
+                        <option value="all">Todos</option>
+                        {histOptions.medios.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2"></th>
+                    <th className="px-2 py-2">
+                      {(histFilters.branch !== 'all' || histFilters.week !== 'all' || histFilters.day !== 'all' || histFilters.shift !== 'all' || histFilters.medio !== 'all' || histFilters.date) && (
+                        <button onClick={() => setHistFilters({ branch: 'all', week: 'all', day: 'all', shift: 'all', medio: 'all', date: '' })} className="text-[8px] font-black uppercase text-brand-500 hover:text-brand-600 whitespace-nowrap">Limpiar</button>
+                      )}
+                    </th>
+                  </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim font-medium">
-                  {hourFilteredSalesRecords.length === 0 ? (
+                  {displayedRecords.length === 0 ? (
                     <tr>
                       <td colSpan={14} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                         No hay registros cargados para este periodo
                       </td>
                     </tr>
                   ) : (
-                    hourFilteredSalesRecords.map((record) => {
+                    displayedRecords.map((record) => {
                       const isSelected = selectedRowIds.includes(record.id);
                       return (
                         <tr key={record.id} className={cn(
