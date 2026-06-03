@@ -31,6 +31,30 @@ interface AggregatedProduct {
   total: number;
 }
 
+// Normaliza un rubro/categoría para unificar variantes con errores de tipeo o acentos.
+// Ej: "INFUCIONES & CAFETERIA" y "INFUSIONES & CAFETERÍA" -> mismo rubro.
+function normalizeCategory(cat?: string): string {
+  if (!cat) return '';
+  let s = cat.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/\s+/g, ' ').trim();
+  // Correcciones conocidas de tipeo
+  s = s.replace(/infuciones/g, 'infusiones');
+  return s;
+}
+
+// Etiqueta "linda" de un rubro ya normalizado (Title Case con & respetado).
+function prettyCategory(normalized: string): string {
+  if (!normalized) return '—';
+  return normalized.split(' ').map(w => w === '&' ? '&' : (w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+}
+
+// Normaliza el nombre de producto para agrupar el mismo artículo aunque difiera en mayúsculas/acentos.
+function normalizeProductName(name?: string): string {
+  if (!name) return '';
+  return name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+}
+
 export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRankingTopProps) {
   const [rows, setRows] = useState<RankingRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,12 +112,12 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     }
   }, [availableMonths, selectedMonth]);
 
-  // Rubros disponibles según el mes y sucursal seleccionados.
+  // Rubros disponibles según el mes y sucursal seleccionados (normalizados para unificar variantes).
   const availableCategories = useMemo(() => {
     const cats = rows
       .filter(r => r.month === selectedMonth && (selectedBranch === 'all' || r.branch_id === selectedBranch))
-      .map(r => (r.category || '').trim())
-      .filter(Boolean);
+      .map(r => prettyCategory(normalizeCategory(r.category)))
+      .filter(c => c && c !== '—');
     return Array.from(new Set(cats)).sort();
   }, [rows, selectedMonth, selectedBranch]);
 
@@ -108,17 +132,19 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     const filtered = rows.filter(r =>
       r.month === selectedMonth &&
       (selectedBranch === 'all' || r.branch_id === selectedBranch) &&
-      (selectedCategories.length === 0 || selectedCategories.includes((r.category || '').trim())) &&
+      (selectedCategories.length === 0 || selectedCategories.includes(prettyCategory(normalizeCategory(r.category)))) &&
       (productSearch.trim() === '' || (r.product_name || '').toLowerCase().includes(productSearch.trim().toLowerCase()))
     );
     const map: Record<string, AggregatedProduct> = {};
     filtered.forEach(r => {
-      const key = (r.product_code || '') + '|' + r.product_name;
+      // Agrupar por nombre de producto normalizado para unificar el mismo artículo
+      // aunque venga con distinto código o variante de rubro.
+      const key = normalizeProductName(r.product_name);
       if (!map[key]) {
         map[key] = {
           product_name: r.product_name,
           product_code: r.product_code,
-          category: r.category,
+          category: prettyCategory(normalizeCategory(r.category)),
           total: 0
         };
       }
