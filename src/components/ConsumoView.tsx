@@ -48,8 +48,18 @@ export default function ConsumoView({
   const [movements, setMovements] = useState<ConsumptionDetail[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Datos consolidados por sucursal (mes actual y anterior) para la vista CONSOLIDADO
+  const [consolidated, setConsolidated] = useState<any[]>([]);
+  const [loadingConsolidated, setLoadingConsolidated] = useState(false);
 
   const branchKey = selectedBranchId === 'all' ? branches[0]?.id || 'all' : selectedBranchId;
+
+  // Límites de fecha del mes seleccionado (para que no se carguen fechas de otros meses)
+  const monthStart = `${selectedMonth}-01`;
+  const monthEnd = (() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return `${selectedMonth}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  })();
 
   // Cargar datos desde Supabase
   useEffect(() => {
@@ -111,6 +121,46 @@ export default function ConsumoView({
     load();
   }, [branchKey, selectedMonth]);
 
+  // Carga consolidada: CMV por sucursal del mes actual y del mes anterior
+  useEffect(() => {
+    if (selectedBranchId !== 'all') return;
+    const loadConsolidated = async () => {
+      setLoadingConsolidated(true);
+      try {
+        const prevMonth = (() => {
+          const [y, m] = selectedMonth.split('-').map(Number);
+          const d = new Date(y, m - 1, 1); d.setMonth(d.getMonth() - 1);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        })();
+        const realBranches = branches.filter(b => b.id !== 'all');
+        const [summaries, details] = await Promise.all([
+          supabase.from('cmv_monthly').select('*').in('month', [selectedMonth, prevMonth]),
+          supabase.from('cmv_details').select('branch_id, month, type, amount').in('month', [selectedMonth, prevMonth])
+        ]);
+        const calcCmv = (bid: string, month: string) => {
+          const sum = (summaries.data || []).find((s: any) => s.branch_id === bid && s.month === month);
+          if (!sum && !(details.data || []).some((d: any) => d.branch_id === bid && d.month === month)) return null;
+          const ini = Number(sum?.initial_existence) || 0;
+          const fin = Number(sum?.final_existence) || 0;
+          const purch = (details.data || []).filter((d: any) => d.branch_id === bid && d.month === month && d.type === 'purchase').reduce((a: number, d: any) => a + (Number(d.amount) || 0), 0);
+          const mov = (details.data || []).filter((d: any) => d.branch_id === bid && d.month === month && d.type === 'movement').reduce((a: number, d: any) => a + (Number(d.amount) || 0), 0);
+          return ini + purch + mov - fin;
+        };
+        setConsolidated(realBranches.map(b => ({
+          branchId: b.id,
+          branchName: b.name,
+          current: calcCmv(b.id, selectedMonth),
+          prev: calcCmv(b.id, prevMonth)
+        })));
+      } catch (e) {
+        console.error('Error cargando consolidado CMV:', e);
+      } finally {
+        setLoadingConsolidated(false);
+      }
+    };
+    loadConsolidated();
+  }, [selectedBranchId, selectedMonth, branches]);
+
   const handleAdjustMonth = (offset: number) => {
     const [yearStr, monthStr] = selectedMonth.split('-');
     const date = new Date(parseInt(yearStr), parseInt(monthStr) - 1 + offset, 1);
@@ -146,6 +196,10 @@ export default function ConsumoView({
   const addPurchase = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newPurchase.amount || !newPurchase.periodStart || !newPurchase.periodEnd) return;
+    if (newPurchase.periodStart < monthStart || newPurchase.periodStart > monthEnd || newPurchase.periodEnd < monthStart || newPurchase.periodEnd > monthEnd) {
+      alert(`Las fechas deben estar dentro del mes seleccionado (${selectedMonth}).`);
+      return;
+    }
     const { data, error } = await supabase.from('cmv_details').insert([{
       branch_id: branchKey,
       month: selectedMonth,
@@ -172,6 +226,10 @@ export default function ConsumoView({
   const addMovement = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newMovement.amount || !newMovement.periodStart || !newMovement.periodEnd) return;
+    if (newMovement.periodStart < monthStart || newMovement.periodStart > monthEnd || newMovement.periodEnd < monthStart || newMovement.periodEnd > monthEnd) {
+      alert(`Las fechas deben estar dentro del mes seleccionado (${selectedMonth}).`);
+      return;
+    }
     const { data, error } = await supabase.from('cmv_details').insert([{
       branch_id: branchKey,
       month: selectedMonth,
@@ -267,6 +325,10 @@ export default function ConsumoView({
         {onBranchChange && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Sucursal:</span>
+            <button onClick={() => onBranchChange('all')}
+              className={cn("px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all",
+                selectedBranchId === 'all' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main"
+              )}>Consolidado (Todas)</button>
             {branches.map(b => (
               <button key={b.id} onClick={() => onBranchChange(b.id)}
                 className={cn("px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all",
@@ -288,6 +350,46 @@ export default function ConsumoView({
         <div className="flex items-center justify-center py-20">
           <Loader2 className="animate-spin text-brand-500" size={32} />
         </div>
+      ) : selectedBranchId === 'all' ? (
+        /* Vista CONSOLIDADA: tabla comparativa por sucursal (mes anterior vs actual) */
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+          <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-1">CMV Consolidado por Sucursal</h3>
+          <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Comparativa mes anterior vs mes actual · {selectedMonth}</p>
+          {loadingConsolidated ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="animate-spin text-brand-500" size={24} /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                    <th className="px-3 py-2">Sucursal</th>
+                    <th className="px-3 py-2 text-right">CMV Mes Anterior</th>
+                    <th className="px-3 py-2 text-right">CMV Mes Actual</th>
+                    <th className="px-3 py-2 text-right">Variación</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim">
+                  {consolidated.map(c => {
+                    const variation = (c.prev && c.prev !== 0 && c.current !== null) ? ((c.current - c.prev) / c.prev) * 100 : null;
+                    return (
+                      <tr key={c.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{c.branchName}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-dim">{c.prev !== null ? '$' + Math.round(c.prev).toLocaleString('es-AR') : '— sin carga'}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{c.current !== null ? '$' + Math.round(c.current).toLocaleString('es-AR') : '— sin carga'}</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-bold">
+                          {variation !== null
+                            ? <span className={variation <= 0 ? 'text-emerald-500' : 'text-red-500'}>{variation > 0 ? '+' : ''}{variation.toFixed(1)}%</span>
+                            : <span className="text-text-dim">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Para cargar compras y movimientos, elegí una sucursal específica arriba.</p>
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -306,8 +408,8 @@ export default function ConsumoView({
               </div>
               <div className="bg-bg-sidebar border border-border-dim rounded p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Desde</label><input type="date" value={newPurchase.periodStart} onChange={(e) => setNewPurchase({...newPurchase, periodStart: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
-                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Hasta</label><input type="date" value={newPurchase.periodEnd} onChange={(e) => setNewPurchase({...newPurchase, periodEnd: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
+                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Desde</label><input type="date" value={newPurchase.periodStart} min={monthStart} max={monthEnd} onChange={(e) => setNewPurchase({...newPurchase, periodStart: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
+                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Hasta</label><input type="date" value={newPurchase.periodEnd} min={monthStart} max={monthEnd} onChange={(e) => setNewPurchase({...newPurchase, periodEnd: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="col-span-2"><input placeholder="Detalle (Opcional)" value={newPurchase.details} onChange={(e) => setNewPurchase({...newPurchase, details: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-bold" /></div>
@@ -328,8 +430,8 @@ export default function ConsumoView({
               </div>
               <div className="bg-bg-sidebar border border-border-dim rounded p-4 space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Desde</label><input type="date" value={newMovement.periodStart} onChange={(e) => setNewMovement({...newMovement, periodStart: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
-                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Hasta</label><input type="date" value={newMovement.periodEnd} onChange={(e) => setNewMovement({...newMovement, periodEnd: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
+                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Desde</label><input type="date" value={newMovement.periodStart} min={monthStart} max={monthEnd} onChange={(e) => setNewMovement({...newMovement, periodStart: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
+                  <div className="space-y-1"><label className="text-[8px] font-bold text-text-dim uppercase">Hasta</label><input type="date" value={newMovement.periodEnd} min={monthStart} max={monthEnd} onChange={(e) => setNewMovement({...newMovement, periodEnd: e.target.value})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono" /></div>
                 </div>
                 <input type="number" placeholder="Importe Total EG" value={newMovement.amount || ''} onChange={(e) => setNewMovement({...newMovement, amount: parseFloat(e.target.value) || 0})} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono text-right" />
                 <button onClick={addMovement} className="w-full bg-brand-500 text-black py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center justify-center gap-2"><Plus size={14} /> CARGAR TOTAL EG</button>
