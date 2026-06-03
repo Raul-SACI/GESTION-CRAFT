@@ -1,457 +1,358 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Factory, 
-  Plus, 
-  Save, 
-  Loader2, 
-  X, 
-  Calendar, 
-  TrendingUp,
-  Package,
-  ChevronDown,
-  History,
-  FileUp,
-  Download,
-  CheckCircle2,
-  Trash2,
-  AlertCircle
+/**
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion } from 'motion/react';
+import {
+  Factory, Loader2, Calendar, TrendingUp, TrendingDown, Package,
+  FileUp, CheckCircle2, Search
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
-import { ProductionItem, ProductionLog } from '../types';
+
+interface ProdLog {
+  code: string;
+  name: string;
+  unit: string;
+  date: string;
+  month: string;
+  quantity: number;
+}
+
+const prevMonthOf = (ym: string): string => {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  d.setMonth(d.getMonth() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const fmtQty = (n: number) => (Number.isInteger(n) ? n.toString() : n.toFixed(1));
 
 export default function ProductionCenterView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
-  const [items, setItems] = useState<ProductionItem[]>([]);
-  const [logs, setLogs] = useState<ProductionLog[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(false);
-  const [isAddingItem, setIsAddingItem] = useState(false);
-  const [isLoggingDaily, setIsLoggingDaily] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [currentLogs, setCurrentLogs] = useState<ProdLog[]>([]);
+  const [prevLogs, setPrevLogs] = useState<ProdLog[]>([]);
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Form States
-  const [newItem, setNewItem] = useState({ name: '', unit: '', category: '' });
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [dailyInputs, setDailyInputs] = useState<Record<string, number>>({});
-  
-  // Import State
-  const [isImporting, setIsImporting] = useState(false);
-  const [importPreview, setImportPreview] = useState<any[]>([]);
-
-  const categories = useMemo(() => Array.from(new Set(items.map(i => i.category))), [items]);
+  const prevMonth = prevMonthOf(selectedMonth);
 
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: itemsData } = await supabase.from('production_items').select('*').order('name');
-      if (itemsData) {
-        setItems(itemsData.map(i => ({
-          id: i.id,
-          name: i.name,
-          unit: i.unit,
-          category: i.category
-        })));
-      }
-
-      const { data: logsData } = await supabase
+      const { data: curr } = await supabase
         .from('production_logs')
-        .select('*')
-        .order('date', { ascending: false });
-      
-      if (logsData) {
-        setLogs(logsData.map(l => ({
-          id: l.id,
-          itemId: l.item_id,
-          date: l.date,
-          quantity: l.quantity,
-          batchNumber: l.batch_number,
-          notes: l.notes
-        })));
+        .select('code, date, month, quantity, production_items(name, unit)')
+        .eq('month', selectedMonth);
+      const { data: prev } = await supabase
+        .from('production_logs')
+        .select('code, month, quantity')
+        .eq('month', prevMonth);
+
+      const mapCurr: ProdLog[] = (curr || []).map((r: any) => ({
+        code: r.code,
+        name: r.production_items?.name || r.code,
+        unit: r.production_items?.unit || '',
+        date: r.date,
+        month: r.month,
+        quantity: Number(r.quantity) || 0
+      }));
+      setCurrentLogs(mapCurr);
+      setPrevLogs((prev || []).map((r: any) => ({
+        code: r.code, name: '', unit: '', date: '', month: r.month, quantity: Number(r.quantity) || 0
+      })));
+    } catch (e) {
+      console.error('Error cargando producción:', e);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [selectedMonth]);
+
+  // Agregación por artículo del mes actual
+  const articles = useMemo(() => {
+    const byCode: Record<string, { code: string; name: string; unit: string; total: number; byDate: Record<string, number> }> = {};
+    currentLogs.forEach(l => {
+      if (!byCode[l.code]) byCode[l.code] = { code: l.code, name: l.name, unit: l.unit, total: 0, byDate: {} };
+      byCode[l.code].total += l.quantity;
+      byCode[l.code].byDate[l.date] = (byCode[l.code].byDate[l.date] || 0) + l.quantity;
+    });
+    const prevByCode: Record<string, number> = {};
+    prevLogs.forEach(l => { prevByCode[l.code] = (prevByCode[l.code] || 0) + l.quantity; });
+
+    let list = Object.values(byCode).map(a => ({
+      ...a,
+      prevTotal: prevByCode[a.code] || 0
+    }));
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(a => a.name.toLowerCase().includes(q) || a.code.includes(q));
+    }
+    return list.sort((a, b) => b.total - a.total);
+  }, [currentLogs, prevLogs, search]);
+
+  const totalProduced = useMemo(() => articles.reduce((s, a) => s + a.total, 0), [articles]);
+
+  // Días del mes con producción (para el desglose)
+  const daysInMonth = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
+  }, [selectedMonth]);
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+
+      // Detectar encabezados
+      const header = rows[0].map((h: any) => String(h || '').toLowerCase());
+      const colFecha = header.findIndex((h: string) => h.includes('fecha'));
+      const colCode = header.findIndex((h: string) => h.includes('cód') || h.includes('cod') || h.includes('artículo') && h.includes('cód'));
+      const colDesc = header.findIndex((h: string) => h.includes('desc'));
+      const colUm = header.findIndex((h: string) => h.includes('u.m') || h.includes('unidad') || h.includes('um'));
+      const colCant = header.findIndex((h: string) => h.includes('cantidad'));
+
+      if (colFecha < 0 || colCode < 0 || colCant < 0) {
+        alert('No se reconocieron las columnas. Se esperan: Fecha, Cód. Artículo, Desc. artículo, U.M., Cantidad.');
+        setImporting(false);
+        return;
       }
-    } catch (err) {
-      console.error('Error fetching production center data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+      // Parsear filas
+      const parsed: { code: string; name: string; unit: string; date: string; month: string; quantity: number }[] = [];
+      const monthsTouched = new Set<string>();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || r[colCode] === undefined || r[colCode] === null || r[colCode] === '') continue;
+        // Fecha
+        let dateStr = '';
+        const rawDate = r[colFecha];
+        if (rawDate instanceof Date) {
+          dateStr = `${rawDate.getFullYear()}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${String(rawDate.getDate()).padStart(2, '0')}`;
+        } else if (typeof rawDate === 'string') {
+          // dd/mm/yyyy o yyyy-mm-dd
+          const parts = rawDate.split(/[\/\-]/);
+          if (parts.length === 3) {
+            if (parts[0].length === 4) dateStr = `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`;
+            else dateStr = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+          }
+        }
+        if (!dateStr) continue;
+        const month = dateStr.slice(0, 7);
+        monthsTouched.add(month);
+        parsed.push({
+          code: String(r[colCode]).trim(),
+          name: colDesc >= 0 ? String(r[colDesc] || '').trim() : String(r[colCode]),
+          unit: colUm >= 0 ? String(r[colUm] || '').trim() : '',
+          date: dateStr,
+          month,
+          quantity: parseFloat(String(r[colCant]).replace(',', '.')) || 0
+        });
+      }
 
-  const handleAddItem = async () => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    if (!newItem.name || !newItem.unit) return;
-    setLoading(true);
-    try {
-      const { error } = await supabase.from('production_items').insert([{
-        name: newItem.name.toUpperCase(),
-        unit: newItem.unit.toUpperCase(),
-        category: newItem.category.toUpperCase() || 'GENERAL'
-      }]);
-      if (error) throw error;
-      setIsAddingItem(false);
-      setNewItem({ name: '', unit: '', category: '' });
-      fetchData();
-    } catch (err) {
-      alert('Error al guardar el artículo');
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (parsed.length === 0) {
+        alert('No se encontraron filas válidas en la planilla.');
+        setImporting(false);
+        return;
+      }
 
-  const handleSaveDailyLog = async () => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    setLoading(true);
-    try {
-      const entries = Object.entries(dailyInputs)
-        .filter(([_, qty]) => {
-          const val = qty as number;
-          return val > 0;
-        })
-        .map(([itemId, qty]) => ({
-          item_id: itemId,
-          date: selectedDate,
-          quantity: qty as number
-        }));
+      // 1. Upsert de artículos (por código)
+      const uniqueArticles: Record<string, { code: string; name: string; unit: string }> = {};
+      parsed.forEach(p => { uniqueArticles[p.code] = { code: p.code, name: p.name, unit: p.unit }; });
+      const { error: itemsErr } = await supabase
+        .from('production_items')
+        .upsert(Object.values(uniqueArticles), { onConflict: 'code' });
+      if (itemsErr) throw itemsErr;
 
-      if (entries.length === 0) return;
+      // Releer items para mapear code -> id
+      const { data: itemsData } = await supabase.from('production_items').select('id, code');
+      const codeToId: Record<string, string> = {};
+      (itemsData || []).forEach((it: any) => { codeToId[it.code] = it.id; });
 
-      const { error } = await supabase.from('production_logs').upsert(entries, {
-        onConflict: 'item_id,date'
+      // 2. Borrar los meses que vienen en la planilla (reemplazo)
+      for (const m of monthsTouched) {
+        await supabase.from('production_logs').delete().eq('month', m);
+      }
+
+      // 3. Insertar logs (consolidando por code+date)
+      const logMap: Record<string, { item_id: string; code: string; date: string; month: string; quantity: number }> = {};
+      parsed.forEach(p => {
+        const key = `${p.code}|${p.date}`;
+        if (!logMap[key]) logMap[key] = { item_id: codeToId[p.code], code: p.code, date: p.date, month: p.month, quantity: 0 };
+        logMap[key].quantity += p.quantity;
       });
-      
-      if (error) throw error;
-      setIsLoggingDaily(false);
-      setDailyInputs({});
-      fetchData();
-    } catch (err) {
-      console.error(err);
-      alert('Error al guardar la producción diaria');
+      const logsToInsert = Object.values(logMap);
+      // Insertar en lotes
+      for (let i = 0; i < logsToInsert.length; i += 500) {
+        const chunk = logsToInsert.slice(i, i + 500);
+        const { error: logErr } = await supabase.from('production_logs').insert(chunk);
+        if (logErr) throw logErr;
+      }
+
+      alert(`¡Importación exitosa! ${logsToInsert.length} registros de producción cargados (${Object.keys(uniqueArticles).length} artículos).`);
+      // Si la planilla es de otro mes, cambiar a ese mes
+      const firstMonth = Array.from(monthsTouched)[0];
+      if (firstMonth && firstMonth !== selectedMonth) setSelectedMonth(firstMonth);
+      else fetchData();
+    } catch (err: any) {
+      console.error('Error importando producción:', err);
+      alert('ATENCIÓN: Error al importar. ' + (err?.message || 'error desconocido'));
     } finally {
-      setLoading(false);
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
-
-  const deleteItem = async (id: string) => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    if (!confirm('¿Seguro que desea eliminar este artículo? se perderán los registros asociados.')) return;
-    try {
-      await supabase.from('production_logs').delete().eq('item_id', id);
-      await supabase.from('production_items').delete().eq('id', id);
-      fetchData();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const getProductionForMonth = (itemId: string, monthStr: string) => {
-    return logs
-      .filter(l => l.itemId === itemId && l.date.startsWith(monthStr))
-      .reduce((sum, curr) => sum + curr.quantity, 0);
-  };
-
-  const currentMonthStr = new Date().toISOString().substring(0, 7); // YYYY-MM
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
-    >
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pb-20">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="bg-brand-500/10 p-2 text-brand-500 border border-brand-500/20 rounded">
-            <Factory size={20} />
+          <div className="bg-brand-500/15 p-3 text-brand-500 border border-brand-500/25 rounded-xl">
+            <Factory size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-text-main uppercase tracking-tight">Centro de Producción</h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic">Producción del mes / Control diario</p>
+            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Producción del Mes</h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest">Cantidad producida por artículo · {selectedMonth}</p>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button 
-            onClick={() => setIsAddingItem(true)}
-            className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-          >
-            <Plus size={14} /> NUEVO ARTÍCULO
-          </button>
-          <button 
-            onClick={() => setIsLoggingDaily(true)}
-            className="bg-brand-500 hover:bg-brand-600 text-black px-5 py-2 rounded text-[9px] font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2"
-          >
-            <TrendingUp size={14} /> CARGA DIARIA
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-1.5 flex items-center gap-2 font-mono">
+            <Calendar size={14} className="text-brand-500" />
+            <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-transparent border-none text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer" />
+          </div>
+          {!isReadOnly && (
+            <>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} className="hidden" />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                className="flex items-center gap-2 bg-brand-500 text-black px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg disabled:opacity-60"
+              >
+                {importing ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+                {importing ? 'Importando…' : 'Importar Planilla'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Summary sidebar */}
-        <div className="lg:col-span-1 space-y-6">
-           <div className="bg-bg-sidebar border border-border-dim p-6 rounded space-y-6">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-[#8B949E] border-b border-border-dim pb-2">Métricas del Mes</h3>
-              
-              <div className="space-y-4">
-                 <div className="bg-bg-accent p-4 rounded border border-border-dim">
-                    <p className="text-[9px] font-bold text-text-dim uppercase mb-1">Total Artículos Producidos</p>
-                    <p className="text-2xl font-mono font-black text-text-main">
-                      {new Set(logs.filter(l => l.date.startsWith(currentMonthStr)).map(l => l.itemId)).size}
-                    </p>
-                 </div>
-
-                 <div className="bg-brand-500/5 border border-brand-500/20 p-4 rounded text-brand-500">
-                    <div className="flex items-center gap-2 mb-2">
-                       <History size={16} />
-                       <span className="text-[10px] font-black uppercase">Última Carga</span>
-                    </div>
-                    <p className="text-[9px] font-bold uppercase leading-relaxed text-text-main">
-                      {logs[0] ? new Date(logs[0].date).toLocaleDateString() : 'Sin registros'}
-                    </p>
-                 </div>
-              </div>
-           </div>
-
-           <div className="bg-bg-sidebar border border-border-dim p-6 rounded">
-              <h4 className="text-[10px] font-black uppercase text-text-dim mb-3">Top Producción</h4>
-              <div className="space-y-3">
-                 {items.slice(0, 5).map((item) => {
-                   const monthTotal = getProductionForMonth(item.id, currentMonthStr);
-                   if (monthTotal === 0) return null;
-                   return (
-                     <div key={item.id} className="flex justify-between items-center text-[10px]">
-                        <span className="text-text-dim uppercase font-bold truncate max-w-[120px]">{item.name}</span>
-                        <span className="text-brand-500 font-mono font-black">{monthTotal} {item.unit}</span>
-                     </div>
-                   );
-                 }).filter(Boolean)}
-                 {!logs.some(l => l.date.startsWith(currentMonthStr)) && (
-                   <p className="text-[9px] text-text-dim italic uppercase tracking-tighter">Sin datos este mes</p>
-                 )}
-              </div>
-           </div>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Artículos Producidos</p>
+          <p className="text-2xl font-mono font-black text-text-main mt-1">{articles.length}</p>
         </div>
-
-        {/* Main List Table */}
-        <div className="lg:col-span-3 space-y-8">
-           {categories.length === 0 ? (
-             <div className="bg-bg-sidebar border border-border-dim p-20 rounded text-center flex flex-col items-center justify-center">
-                <Package size={40} className="text-text-dim/20 mb-4" />
-                <p className="text-[10px] font-bold text-text-dim uppercase tracking-widest">No hay artículos definidos en el centro de producción</p>
-                <button 
-                  onClick={() => setIsAddingItem(true)}
-                  className="mt-4 text-brand-500 text-[10px] font-black uppercase hover:underline"
-                >
-                  Definir primer artículo ahora
-                </button>
-             </div>
-           ) : (
-             categories.map(cat => (
-               <div key={cat} className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-sm">
-                  <div className="bg-bg-accent px-6 py-4 border-b border-border-dim flex justify-between items-center">
-                     <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main flex items-center gap-2">
-                        <ChevronDown size={14} className="text-brand-500" /> {cat}
-                     </h3>
-                     <span className="text-[9px] font-bold text-text-dim uppercase opacity-40">{items.filter(i => i.category === cat).length} ARTÍCULOS</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-[10px]">
-                        <thead>
-                           <tr className="text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim bg-bg-sidebar">
-                              <th className="px-6 py-4">Artículo</th>
-                              <th className="px-6 py-4 text-center">Unidad</th>
-                              <th className="px-6 py-4 text-center">Última Producción</th>
-                              <th className="px-6 py-4 text-center">Fecha</th>
-                              <th className="px-6 py-4 text-center">Total Mes ({currentMonthStr})</th>
-                              <th className="px-6 py-4 text-right">Acciones</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border-dim/30">
-                           {items.filter(i => i.category === cat).map(item => {
-                             const lastLog = logs.find(l => l.itemId === item.id);
-                             const monthTotal = getProductionForMonth(item.id, currentMonthStr);
-
-                             return (
-                               <tr key={item.id} className="hover:bg-bg-accent/30 transition-colors">
-                                  <td className="px-6 py-4 font-black text-text-main uppercase group relative">
-                                    {item.name}
-                                  </td>
-                                  <td className="px-6 py-4 text-center font-mono text-text-dim uppercase">{item.unit}</td>
-                                  <td className="px-6 py-4 text-center font-mono font-black text-brand-500">
-                                     {lastLog ? lastLog.quantity : '--'}
-                                  </td>
-                                  <td className="px-6 py-4 text-center text-text-dim font-bold">
-                                     {lastLog ? new Date(lastLog.date).toLocaleDateString() : '--'}
-                                  </td>
-                                  <td className="px-6 py-4 text-center">
-                                     <span className="bg-brand-500/10 text-brand-500 px-3 py-1 rounded font-mono font-black text-sm">
-                                        {monthTotal}
-                                     </span>
-                                  </td>
-                                  <td className="px-6 py-4 text-right">
-                                     <button 
-                                      onClick={() => deleteItem(item.id)}
-                                      className="text-text-dim hover:text-red-500 transition-colors p-1"
-                                     >
-                                       <Trash2 size={14} />
-                                     </button>
-                                  </td>
-                               </tr>
-                             );
-                           })}
-                        </tbody>
-                     </table>
-                  </div>
-               </div>
-             ))
-           )}
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Total Unidades (suma)</p>
+          <p className="text-2xl font-mono font-black text-brand-500 mt-1">{fmtQty(totalProduced)}</p>
+          <p className="text-[8px] text-text-dim uppercase font-bold mt-1 opacity-70">Suma de cantidades (unidades mixtas)</p>
+        </div>
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Comparativa</p>
+          <p className="text-[10px] font-bold text-text-dim mt-2 uppercase">vs {prevMonth}</p>
         </div>
       </div>
 
-      {/* Modal: Agregar Artículo */}
-      <AnimatePresence>
-        {isAddingItem && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-             <motion.div 
-               initial={{ opacity: 0, scale: 0.95 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 0.95 }}
-               className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
-             >
-                <div className="bg-bg-accent p-6 border-b border-border-dim flex justify-between items-center">
-                   <h3 className="text-sm font-black text-text-main uppercase tracking-widest">Nuevo Artículo de Producción</h3>
-                   <button onClick={() => setIsAddingItem(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
-                </div>
-                <div className="p-8 space-y-6">
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-text-dim uppercase tracking-wider">Categoría / Familia</label>
-                      <input 
-                        type="text"
-                        placeholder="EJ: PANADERÍA, PASTELERÍA..."
-                        className="w-full bg-bg-main border border-border-dim rounded px-4 py-3 text-xs font-bold uppercase tracking-widest focus:border-brand-500 outline-none transition-all"
-                        value={newItem.category}
-                        onChange={(e) => setNewItem({...newItem, category: e.target.value})}
-                      />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-text-dim uppercase tracking-wider">Nombre del Producto</label>
-                      <input 
-                        type="text"
-                        placeholder="EJ: PAN DE CAMPO"
-                        className="w-full bg-bg-main border border-border-dim rounded px-4 py-3 text-xs font-bold uppercase tracking-widest focus:border-brand-500 outline-none transition-all"
-                        value={newItem.name}
-                        onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-                      />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-[10px] font-black text-text-dim uppercase tracking-wider">Unidad de Medida</label>
-                      <input 
-                        type="text"
-                        placeholder="EJ: UN, KG, DOCENA..."
-                        className="w-full bg-bg-main border border-border-dim rounded px-4 py-3 text-xs font-bold uppercase tracking-widest focus:border-brand-500 outline-none transition-all"
-                        value={newItem.unit}
-                        onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
-                      />
-                   </div>
-                   
-                   <button 
-                     onClick={handleAddItem}
-                     disabled={loading}
-                     className="w-full bg-brand-500 text-black py-4 rounded font-black text-[11px] uppercase tracking-widest shadow-xl shadow-brand-500/20 flex items-center justify-center gap-2"
-                   >
-                     {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-                     GUARDAR PRODUCTO
-                   </button>
-                </div>
-             </motion.div>
+      {/* Buscador */}
+      <div className="relative flex items-center max-w-xs">
+        <Search size={14} className="absolute left-3 text-text-dim pointer-events-none" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar artículo o código…"
+          className="bg-bg-sidebar border border-border-dim rounded-lg pl-9 pr-3 py-2 text-[11px] font-bold text-text-main w-full outline-none focus:border-brand-500/50" />
+      </div>
+
+      {/* Tabla de artículos */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="py-20 flex flex-col items-center justify-center text-text-dim">
+            <Loader2 size={28} className="animate-spin text-brand-500" />
+            <p className="mt-3 text-[10px] font-black uppercase tracking-widest">Cargando producción…</p>
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="py-20 flex flex-col items-center justify-center text-text-dim opacity-50">
+            <Package size={40} />
+            <p className="mt-4 text-[10px] font-black uppercase tracking-widest">No hay producción cargada para {selectedMonth}</p>
+            <p className="mt-1 text-[9px] font-bold uppercase">Usá "Importar Planilla" para cargar los datos</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim bg-bg-accent/10">
+                  <th className="px-4 py-3">Código</th>
+                  <th className="px-4 py-3">Artículo</th>
+                  <th className="px-4 py-3 text-center">U.M.</th>
+                  <th className="px-4 py-3 text-right">Producido (mes)</th>
+                  <th className="px-4 py-3 text-right">Mes anterior</th>
+                  <th className="px-4 py-3 text-right">Variación</th>
+                  <th className="px-4 py-3 text-center">Por día</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/40">
+                {articles.map(a => {
+                  const variation = a.prevTotal > 0 ? ((a.total - a.prevTotal) / a.prevTotal) * 100 : null;
+                  const isExp = expanded === a.code;
+                  return (
+                    <React.Fragment key={a.code}>
+                      <tr className="text-[11px] font-medium hover:bg-bg-accent/20">
+                        <td className="px-4 py-2.5 font-mono text-text-dim">{a.code}</td>
+                        <td className="px-4 py-2.5 font-black uppercase text-text-main">{a.name}</td>
+                        <td className="px-4 py-2.5 text-center text-text-dim font-bold">{a.unit}</td>
+                        <td className="px-4 py-2.5 text-right font-mono font-black text-brand-500">{fmtQty(a.total)}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-text-dim">{a.prevTotal > 0 ? fmtQty(a.prevTotal) : '—'}</td>
+                        <td className="px-4 py-2.5 text-right font-mono text-[10px] font-bold">
+                          {variation === null ? <span className="text-text-dim">—</span> :
+                            <span className={cn('inline-flex items-center gap-0.5', variation >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                              {variation >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+                              {variation >= 0 ? '+' : ''}{variation.toFixed(1)}%
+                            </span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <button onClick={() => setExpanded(isExp ? null : a.code)}
+                            className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600">
+                            {isExp ? 'Ocultar' : 'Ver'}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExp && (
+                        <tr className="bg-bg-accent/20">
+                          <td colSpan={7} className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1.5">
+                              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                                const dateStr = `${selectedMonth}-${String(day).padStart(2, '0')}`;
+                                const qty = a.byDate[dateStr] || 0;
+                                return (
+                                  <div key={day} className={cn('flex flex-col items-center justify-center rounded border px-1.5 py-1 min-w-[34px]',
+                                    qty > 0 ? 'bg-brand-500/10 border-brand-500/30' : 'bg-bg-sidebar border-border-dim/30 opacity-40')}>
+                                    <span className="text-[7px] font-black text-text-dim">{day}</span>
+                                    <span className={cn('text-[9px] font-mono font-black', qty > 0 ? 'text-brand-500' : 'text-text-dim')}>{qty > 0 ? fmtQty(qty) : '·'}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
-      </AnimatePresence>
-
-      {/* Modal: Carga Diaria */}
-      <AnimatePresence>
-        {isLoggingDaily && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-             <motion.div 
-               initial={{ opacity: 0, scale: 0.95 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 0.95 }}
-               className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden"
-             >
-                <div className="bg-bg-accent p-6 border-b border-border-dim flex justify-between items-center">
-                   <div>
-                      <h3 className="text-sm font-black text-text-main uppercase tracking-widest">Carga de Producción Diaria</h3>
-                      <p className="text-[10px] text-text-dim font-bold uppercase mt-1">Registrar lo producido el día de hoy</p>
-                   </div>
-                   <button onClick={() => setIsLoggingDaily(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
-                </div>
-
-                <div className="p-6 bg-bg-main border-b border-border-dim flex items-center gap-6">
-                   <div className="space-y-2">
-                      <label className="text-[9px] font-black text-text-dim uppercase">Fecha de Producción</label>
-                      <input 
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-xs font-mono text-brand-500 outline-none"
-                      />
-                   </div>
-                   <div className="p-3 bg-brand-500/5 rounded border border-brand-500/10">
-                      <p className="text-[9px] font-bold text-brand-500 uppercase flex items-center gap-2">
-                         <AlertCircle size={14} /> Ingrese las cantidades producidas para los artículos correspondientes
-                      </p>
-                   </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-0 custom-scrollbar">
-                   <table className="w-full text-left border-collapse">
-                      <thead className="sticky top-0 z-10 bg-bg-accent">
-                         <tr className="text-[10px] font-black text-text-dim uppercase tracking-widest border-b border-border-dim">
-                            <th className="px-8 py-4">Artículo</th>
-                            <th className="px-8 py-4 text-center">Unidad</th>
-                            <th className="px-8 py-4 text-center">Cantidad Producida</th>
-                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border-dim/20">
-                         {items.map(item => (
-                           <tr key={item.id} className="hover:bg-bg-accent/30 transition-colors">
-                              <td className="px-8 py-4">
-                                 <p className="text-[11px] font-black text-text-main uppercase">{item.name}</p>
-                                 <p className="text-[9px] font-bold text-text-dim uppercase opacity-50">{item.category}</p>
-                              </td>
-                              <td className="px-8 py-4 text-center font-mono text-text-dim uppercase">{item.unit}</td>
-                              <td className="px-8 py-4">
-                                 <input 
-                                   type="number"
-                                   className="w-32 mx-auto bg-bg-main border border-border-dim rounded px-3 py-2 text-center text-sm font-mono focus:border-brand-500 outline-none text-brand-500 font-bold"
-                                   value={dailyInputs[item.id] || ''}
-                                   onChange={(e) => setDailyInputs({
-                                     ...dailyInputs,
-                                     [item.id]: parseFloat(e.target.value) || 0
-                                   })}
-                                   placeholder="0.00"
-                                 />
-                              </td>
-                           </tr>
-                         ))}
-                      </tbody>
-                   </table>
-                </div>
-
-                <div className="p-8 bg-bg-accent border-t border-border-dim">
-                   <button 
-                     onClick={handleSaveDailyLog}
-                     disabled={loading || Object.keys(dailyInputs).length === 0}
-                     className="w-full bg-brand-500 text-black py-4 rounded font-black text-[12px] uppercase tracking-widest shadow-xl shadow-brand-500/20 flex items-center justify-center gap-3 active:scale-95 transition-all"
-                   >
-                     {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                     CONFIRMAR Y GUARDAR PRODUCCIÓN DEL DÍA
-                   </button>
-                </div>
-             </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      </div>
     </motion.div>
   );
 }
