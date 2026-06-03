@@ -21,7 +21,8 @@ import {
   Loader2,
   CheckCircle2,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Search
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -232,6 +233,11 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
   const [salaryScale, setSalaryScale] = useState<any[]>([]);
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: '', position: 'mozos', rate: 2200 });
+
+  // Traer personal de otra sucursal
+  const [showCrossBranch, setShowCrossBranch] = useState(false);
+  const [crossBranchStaff, setCrossBranchStaff] = useState<Array<{ id: string; name: string; position: string; hourly_rate: number; branchId: string; branchName: string }>>([]);
+  const [crossSearch, setCrossSearch] = useState('');
 
   // Table Data
   const [records, setRecords] = useState<HourRecord[]>([]);
@@ -506,6 +512,82 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
       shift: 'Mañana'
     };
     setRecords([...records, newRecord]);
+  };
+
+  // Cargar el personal de TODAS las sucursales (para traer prestados de otra sucursal)
+  const loadCrossBranchStaff = async () => {
+    try {
+      const { data } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('is_active', true)
+        .order('name');
+      const currentBranch = localBranchId || activeBranches[0]?.id || '';
+      const branchName = (id: string) => activeBranches.find(b => b.id === id)?.name || 'Otra sucursal';
+      const list = (data || [])
+        .filter((e: any) => e.branch_id !== currentBranch) // solo de OTRAS sucursales
+        .map((e: any) => ({
+          id: e.id,
+          name: e.name,
+          position: e.position,
+          hourly_rate: e.hourly_rate || 0,
+          branchId: e.branch_id,
+          branchName: branchName(e.branch_id)
+        }));
+      setCrossBranchStaff(list);
+    } catch (e) {
+      console.error('Error cargando personal de otras sucursales:', e);
+      setCrossBranchStaff([]);
+    }
+  };
+
+  const handleOpenCrossBranch = () => {
+    setCrossSearch('');
+    setShowCrossBranch(true);
+    loadCrossBranchStaff();
+  };
+
+  // Traer una persona de otra sucursal: se agrega al pool y se crea una fila.
+  // Las horas se imputan a la sucursal ACTIVA (donde trabajó ese día).
+  const handleBringFromOtherBranch = (person: { id: string; name: string; position: string; hourly_rate: number; branchName: string }) => {
+    const mapPositionToRoleId = (pos: string): string => {
+      const p = (pos || '').toLowerCase().trim();
+      if (p.includes('encargado') || p.includes('gerente') || p.includes('sub-enc')) return 'encargado';
+      if (p.includes('lider de cocina') || p.includes('jefe')) return 'jefe_cocina';
+      if (p.includes('segundo')) return 'segundo_cocina';
+      if (p.includes('cocinero') || p.includes('cocina')) return 'cocinero';
+      if (p.includes('bachero') || p.includes('bacha') || p.includes('lava')) return 'bacha';
+      if (p.includes('barra') || p.includes('bartender')) return 'barra';
+      if (p.includes('runner')) return 'runners';
+      if (p.includes('cajero') || p.includes('caja')) return 'caja';
+      if (p.includes('mozo') || p.includes('salon') || p.includes('servicio')) return 'mozos';
+      return 'mozos';
+    };
+    const roleId = mapPositionToRoleId(person.position);
+
+    // Agregar al pool si no está, para que aparezca en el buscador de la fila
+    setStaffPool(prev => prev.some(e => e.name === person.name)
+      ? prev
+      : [...prev, { id: person.id, name: person.name, position: person.position, hourly_rate: person.hourly_rate }]);
+
+    const branchIdToUse = localBranchId || activeBranches[0]?.id || '';
+    const newRecord: HourRecord = {
+      id: `temp-${Math.random().toString(36).substr(2, 9)}`,
+      branchId: branchIdToUse,
+      employeeName: person.name,
+      date: selectedDate,
+      dayName,
+      monthName,
+      monthKey,
+      weekNum,
+      roleId,
+      rate: getPositionRateFromMaestro(roleId, person.position, salaryScale),
+      hours: 0,
+      confirmed: false,
+      shift: 'Mañana'
+    };
+    setRecords(prev => [...prev, newRecord]);
+    setShowCrossBranch(false);
   };
 
   const handleDuplicateRowWithRole = (record: HourRecord) => {
@@ -915,12 +997,22 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
             <h3 className="text-[10px] font-black uppercase tracking-widest text-[#8B949E] flex items-center gap-2">
               <Users size={12} className="text-brand-500" /> Registro Diario de Jornadas
             </h3>
-            <button 
-              onClick={handleAddRow}
-              className="text-[10px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/10 px-3 py-1 bg-brand-500/[0.02] rounded"
-            >
-              <Plus size={13} /> Agregar Integrante Extra
-            </button>
+            <div className="flex items-center gap-2">
+              {!isReadOnly && (
+                <button
+                  onClick={handleOpenCrossBranch}
+                  className="text-[10px] font-black uppercase text-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5 border border-blue-500/20 px-3 py-1 bg-blue-500/[0.04] rounded"
+                >
+                  <Users size={13} /> Traer de Otra Sucursal
+                </button>
+              )}
+              <button 
+                onClick={handleAddRow}
+                className="text-[10px] font-black uppercase text-brand-500 hover:text-brand-600 transition-all flex items-center gap-1.5 border border-brand-500/10 px-3 py-1 bg-brand-500/[0.02] rounded"
+              >
+                <Plus size={13} /> Agregar Integrante Extra
+              </button>
+            </div>
           </div>
           
           <div className="overflow-x-auto">
@@ -1279,6 +1371,64 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: Traer personal de otra sucursal */}
+      {showCrossBranch && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={() => setShowCrossBranch(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim">
+              <h3 className="text-sm font-black text-text-main uppercase tracking-widest flex items-center gap-2">
+                <Users size={16} className="text-blue-500" /> Traer Personal de Otra Sucursal
+              </h3>
+              <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider mt-1">Las horas se cargarán en esta sucursal (donde trabaja ese día)</p>
+              <div className="relative flex items-center mt-3">
+                <Search size={14} className="absolute left-3 text-text-dim pointer-events-none" />
+                <input
+                  type="text"
+                  value={crossSearch}
+                  onChange={(e) => setCrossSearch(e.target.value)}
+                  placeholder="Buscar por nombre, puesto o sucursal…"
+                  autoFocus
+                  className="w-full bg-bg-accent border border-border-dim rounded pl-9 pr-3 py-2.5 text-[11px] text-text-main outline-none focus:border-blue-500/50"
+                />
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 p-3">
+              {crossBranchStaff.length === 0 ? (
+                <div className="py-10 text-center text-text-dim text-[10px] font-bold uppercase">Cargando personal…</div>
+              ) : (
+                (() => {
+                  const q = crossSearch.toLowerCase().trim();
+                  const filtered = crossBranchStaff.filter(p =>
+                    !q || p.name.toLowerCase().includes(q) || (p.position || '').toLowerCase().includes(q) || p.branchName.toLowerCase().includes(q)
+                  );
+                  if (filtered.length === 0) return <div className="py-10 text-center text-text-dim text-[10px] font-bold uppercase">Sin resultados</div>;
+                  return (
+                    <div className="space-y-1.5">
+                      {filtered.map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => handleBringFromOtherBranch(p)}
+                          className="w-full flex items-center justify-between gap-3 bg-bg-accent/40 hover:bg-blue-500/10 border border-border-dim/50 hover:border-blue-500/40 rounded-lg px-3 py-2.5 transition-all text-left"
+                        >
+                          <div className="min-w-0">
+                            <span className="block text-[11px] font-black text-text-main uppercase truncate">{p.name}</span>
+                            <span className="text-[9px] text-text-dim font-bold uppercase">{p.position}</span>
+                          </div>
+                          <span className="text-[8px] font-black uppercase text-blue-400 bg-blue-500/10 px-2 py-1 rounded shrink-0">{p.branchName}</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()
+              )}
+            </div>
+            <div className="p-4 border-t border-border-dim">
+              <button onClick={() => setShowCrossBranch(false)} className="w-full py-3 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
