@@ -6,11 +6,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
+import MonthlyRankingTop from './MonthlyRankingTop';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -30,6 +31,7 @@ interface BranchSales {
   googleVotes: number;
   pyResto: number | null;
   pyCafe: number | null;
+  cmv: number | null;
 }
 
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -87,10 +89,12 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         return all;
       };
 
-      const [currTickets, prevTickets, pyRows] = await Promise.all([
+      const [currTickets, prevTickets, pyRows, cmvSummary, cmvDetails] = await Promise.all([
         fetchTickets(monthStart, monthEnd),
         fetchTickets(pStart, pEnd),
-        supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth)
+        supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth),
+        supabase.from('cmv_monthly').select('*').eq('month', selectedMonth),
+        supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth)
       ]);
 
       const agg: Record<string, BranchSales> = {};
@@ -103,7 +107,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           projection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
-          pyResto: null, pyCafe: null
+          pyResto: null, pyCafe: null, cmv: null
         };
       });
 
@@ -147,6 +151,26 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         });
       }
 
+      // CMV por sucursal: existencia inicial + compras + movimientos - existencia final
+      const cmvByBranch: Record<string, { initial: number; final: number; purchases: number; movements: number; has: boolean }> = {};
+      (cmvSummary.data || []).forEach((row: any) => {
+        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false };
+        cmvByBranch[row.branch_id].initial = Number(row.initial_existence) || 0;
+        cmvByBranch[row.branch_id].final = Number(row.final_existence) || 0;
+        cmvByBranch[row.branch_id].has = true;
+      });
+      (cmvDetails.data || []).forEach((row: any) => {
+        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false };
+        if (row.type === 'purchase') cmvByBranch[row.branch_id].purchases += Number(row.amount) || 0;
+        if (row.type === 'movement') cmvByBranch[row.branch_id].movements += Number(row.amount) || 0;
+        cmvByBranch[row.branch_id].has = true;
+      });
+      Object.keys(cmvByBranch).forEach(bid => {
+        if (!agg[bid]) return;
+        const c = cmvByBranch[bid];
+        agg[bid].cmv = c.has ? (c.initial + c.purchases + c.movements - c.final) : null;
+      });
+
       setData(Object.values(agg));
       setLoading(false);
     };
@@ -166,8 +190,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       netPrev: acc.netPrev + d.netPrev,
       grossPrev: acc.grossPrev + d.grossPrev,
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
-      projection: acc.projection + d.projection
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0 });
+      projection: acc.projection + d.projection,
+      cmv: acc.cmv + (d.cmv || 0)
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, cmv: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
@@ -368,6 +393,51 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               </div>
               <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Promedio de las semanas cargadas en el modulo Pedidos Ya</p>
             </div>
+          </div>
+
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 mb-4">
+              <Calculator size={16} className="text-brand-500" />
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">CMV Mensual por Sucursal · {selectedMonth}</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                    <th className="px-3 py-2">Sucursal</th>
+                    <th className="px-3 py-2 text-right">CMV</th>
+                    <th className="px-3 py-2 text-right">Ventas Netas</th>
+                    <th className="px-3 py-2 text-right">CMV %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim">
+                  {shown.map(d => {
+                    const cmvPct = (d.cmv !== null && d.netCurrent > 0) ? (d.cmv / d.netCurrent) * 100 : null;
+                    return (
+                      <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.cmv !== null ? fmt(d.cmv) : <span className="text-text-dim">— sin carga</span>}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-dim">{fmt(d.netCurrent)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-bold">
+                          {cmvPct !== null
+                            ? <span className={cmvPct > 35 ? 'text-red-500' : cmvPct > 30 ? 'text-amber-500' : 'text-emerald-500'}>{cmvPct.toFixed(1)}%</span>
+                            : <span className="text-text-dim">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Datos del modulo CMV Mensual Sucursal (Administracion)</p>
+          </div>
+
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <ListOrdered size={16} className="text-brand-500" />
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Ranking de Articulos</h3>
+            </div>
+            <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranch !== 'all' ? selectedBranch : undefined} />
           </div>
 
           <div className="bg-bg-sidebar border border-dashed border-border-dim rounded-xl p-6 text-center">
