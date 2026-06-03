@@ -747,23 +747,22 @@ export default function EncargadoDashboardView({
       });
 
       const rawPrizesTotal = variablesStatus.reduce((sum, v) => sum + v.prize, 0);
-      const isSalesGoalMet = liveNetSales >= salesGoal;
       const totalPenaltyVal = liveRedFlags * redFlagPenalty;
-      let finalCalculatedPrize = isSalesGoalMet ? Math.max(0, rawPrizesTotal - totalPenaltyVal) : 0;
+      // El premio se gana según cada variable y su escala (incluida Ventas Netas como variable).
+      // No hay bloqueo por una "meta de ventas" general.
+      let finalCalculatedPrize = Math.max(0, rawPrizesTotal - totalPenaltyVal);
 
       if (role === 'segundo_cocina') {
-        // Segundo de cocina gets exactly 80% of Chef de cocina prize!
+        // Segundo de cocina obtiene 80% del Jefe de Cocina
         const chefRawTotal = result['jefe_cocina']?.rawPrizesTotal || 0;
         const chefPenalty = result['jefe_cocina']?.totalPenaltyVal || 0;
-        const chefSalesMet = result['jefe_cocina']?.isSalesGoalMet || false;
-        const chefFinal = chefSalesMet ? Math.max(0, chefRawTotal - chefPenalty) : 0;
+        const chefFinal = Math.max(0, chefRawTotal - chefPenalty);
         finalCalculatedPrize = Math.round(chefFinal * 0.8);
       }
 
       result[role] = {
         roleLabel: role === 'encargado' ? 'Premio Encargado' : role === 'jefe_cocina' ? 'Premio Jefe de Cocina' : 'Premio Segundo de Cocina (80%)',
         salesGoal,
-        isSalesGoalMet,
         redFlagPenalty,
         totalPenaltyVal,
         rawPrizesTotal,
@@ -1201,8 +1200,6 @@ export default function EncargadoDashboardView({
                 const breakdown = calculatedPrizesBreakdown[role];
                 if (!breakdown) return null;
 
-                const hasBlocker = liveNetSales < breakdown.salesGoal;
-
                 return (
                   <div key={role} className="space-y-2 pb-4 border-b border-border-dim/40 last:border-none last:pb-0">
                     <div className="flex justify-between items-baseline">
@@ -1213,25 +1210,11 @@ export default function EncargadoDashboardView({
                         )}
                       </div>
                       <div className="text-right font-mono">
-                        <span className={cn(
-                          "text-xl font-black",
-                          hasBlocker ? "text-text-dim/60 line-through" : "text-text-main"
-                        )}>
+                        <span className="text-xl font-black text-text-main">
                           ${breakdown.finalCalculatedPrize.toLocaleString()}
                         </span>
                       </div>
                     </div>
-
-                    {/* Sales Trigger Notification */}
-                    {hasBlocker ? (
-                      <div className="bg-red-500/15 border border-red-500/30 p-2 rounded text-[8px] text-red-400 font-extrabold uppercase flex items-center gap-1.5">
-                        <XCircle size={10} /> BLOQUEADO (Metas Ventas no alcanzó ${breakdown.salesGoal.toLocaleString()})
-                      </div>
-                    ) : (
-                      <div className="bg-emerald-500/10 p-2 rounded text-[8px] text-emerald-400 font-extrabold uppercase flex items-center gap-1.5 border border-emerald-500/20">
-                        <CheckCircle2 size={10} /> Meta mínima ventas superada
-                      </div>
-                    )}
 
                     {/* Show breakdown of target items (only for primary configurations) */}
                     {role !== 'segundo_cocina' && breakdown.variablesStatus && breakdown.variablesStatus.length > 0 && (
