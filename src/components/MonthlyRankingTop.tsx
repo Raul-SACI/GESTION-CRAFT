@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { TrendingUp, TrendingDown, Loader2, Trophy, ChevronDown, Check } from 'lucide-react';
+import { TrendingUp, TrendingDown, Loader2, Trophy, ChevronDown, Check, Search, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
@@ -37,6 +37,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedBranch, setSelectedBranch] = useState(fixedBranchId || 'all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [productSearch, setProductSearch] = useState('');
 
   useEffect(() => {
     if (fixedBranchId) setSelectedBranch(fixedBranchId);
@@ -107,7 +108,8 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     const filtered = rows.filter(r =>
       r.month === selectedMonth &&
       (selectedBranch === 'all' || r.branch_id === selectedBranch) &&
-      (selectedCategories.length === 0 || selectedCategories.includes((r.category || '').trim()))
+      (selectedCategories.length === 0 || selectedCategories.includes((r.category || '').trim())) &&
+      (productSearch.trim() === '' || (r.product_name || '').toLowerCase().includes(productSearch.trim().toLowerCase()))
     );
     const map: Record<string, AggregatedProduct> = {};
     filtered.forEach(r => {
@@ -123,7 +125,7 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
       map[key].total += Number(r.quantity) || 0;
     });
     return Object.values(map);
-  }, [rows, selectedMonth, selectedBranch, selectedCategories]);
+  }, [rows, selectedMonth, selectedBranch, selectedCategories, productSearch]);
 
   const top10 = useMemo(
     () => [...aggregated].sort((a, b) => b.total - a.total).slice(0, 10),
@@ -189,6 +191,21 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
           </h3>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex items-center">
+            <Search size={13} className="absolute left-2.5 text-text-dim pointer-events-none" />
+            <input
+              type="text"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="Buscar producto…"
+              className="bg-bg-card border border-border-dim rounded pl-8 pr-7 py-1.5 text-[10px] font-bold text-text-main w-44 outline-none focus:border-brand-500/50"
+            />
+            {productSearch && (
+              <button onClick={() => setProductSearch('')} className="absolute right-2 text-text-dim hover:text-brand-500">
+                <X size={12} />
+              </button>
+            )}
+          </div>
           {!fixedBranchId && (
             <select
               value={selectedBranch}
