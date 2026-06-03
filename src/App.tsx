@@ -495,7 +495,8 @@ function AppContent() {
   const VIEW_ONLY_TABS = [
     'dashboard', 'socios_dashboard', 'performance_admin',
     'papeles_sucursal', 'novedades',
-    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas'
+    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas',
+    'gestion_sueldos', 'consumo', 'pedidos_ya'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -1366,7 +1367,7 @@ function AppContent() {
                 <PerformanceAdminView branches={branches} selectedBranchId={selectedBranchId} />
               )}
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} />}
+              {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} />}
               {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
@@ -1402,7 +1403,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} currentUserRole={currentUser.role} />}
-              {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} />}
+              {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} />}
@@ -1418,7 +1419,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'precios' && <PriceListView key="precios" />}
-              {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} />}
+              {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" isReadOnly={isCurrentTabReadOnly} />}

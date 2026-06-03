@@ -27,11 +27,13 @@ import { supabase } from '../lib/supabase';
 export default function ConsumoView({ 
   selectedBranchId, 
   branches, 
-  onBranchChange 
+  onBranchChange,
+  isReadOnly = false
 }: { 
   selectedBranchId: string, 
   branches: Branch[], 
-  onBranchChange?: (id: string) => void 
+  onBranchChange?: (id: string) => void,
+  isReadOnly?: boolean
 }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
   
@@ -142,6 +144,7 @@ export default function ConsumoView({
   const totalCMV = initialExistence + totalPurchases + totalMovements - finalExistence;
 
   const addPurchase = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newPurchase.amount || !newPurchase.periodStart || !newPurchase.periodEnd) return;
     const { data, error } = await supabase.from('cmv_details').insert([{
       branch_id: branchKey,
@@ -167,6 +170,7 @@ export default function ConsumoView({
   };
 
   const addMovement = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newMovement.amount || !newMovement.periodStart || !newMovement.periodEnd) return;
     const { data, error } = await supabase.from('cmv_details').insert([{
       branch_id: branchKey,
@@ -192,16 +196,19 @@ export default function ConsumoView({
   };
 
   const removePurchase = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     await supabase.from('cmv_details').delete().eq('id', id);
     setPurchases(purchases.filter(x => x.id !== id));
   };
 
   const removeMovement = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     await supabase.from('cmv_details').delete().eq('id', id);
     setMovements(movements.filter(x => x.id !== id));
   };
 
   const handleSaveCMV = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSaving(true);
     try {
       // Calcular ventas netas del mes desde la tabla sales

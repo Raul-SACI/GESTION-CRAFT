@@ -60,7 +60,7 @@ interface SalaryPosition {
   history?: SalaryHistory[];
 }
 
-export default function SalaryManagementView({ branches = [] }: { branches?: Branch[] }) {
+export default function SalaryManagementView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
   // Cargar puestos desde Supabase
   const [positions, setPositions] = useState<SalaryPosition[]>(() => {
     // Fallback vacío, se carga async
@@ -241,6 +241,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   }, []);
 
   const handleSaveEmployee = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!employeeForm.name.trim() || !employeeForm.branchId || !employeeForm.position) {
       alert('Por favor ingrese todos los datos obligatorios.');
       return;
@@ -328,6 +329,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   };
 
   const handleDeleteEmployee = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const isConfirmed = window.confirm('¿Está seguro de que desea eliminar a este empleado del Maestro?');
     if (!isConfirmed) return;
 
@@ -390,6 +392,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   }, []);
 
   const handleAddPosition = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newPos.title || newPos.baseValue <= 0) return;
     
     const pos: SalaryPosition = {
@@ -420,6 +423,7 @@ export default function SalaryManagementView({ branches = [] }: { branches?: Bra
   };
 
   const handleRemovePosition = (id: string, e?: React.MouseEvent) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (e) {
       e.stopPropagation();
     }

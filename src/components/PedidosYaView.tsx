@@ -30,6 +30,7 @@ import {
 
 interface PedidosYaViewProps {
   branches: Branch[];
+  isReadOnly?: boolean;
 }
 
 interface TwoChannelRating {
@@ -45,7 +46,7 @@ interface TwoChannelRating {
   cafe_week_4: number | null;
 }
 
-export default function PedidosYaView({ branches }: PedidosYaViewProps) {
+export default function PedidosYaView({ branches, isReadOnly = false }: PedidosYaViewProps) {
   const activeBranches = useMemo(() => {
     return branches.filter(b => b.id !== 'all' && b.id !== 'virtual' && b.isActive);
   }, [branches]);
@@ -132,6 +133,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
 
   // Handle rating typing
   const handleRatingInputChange = (branchId: string, channel: 'resto' | 'cafe', week: 'week_1' | 'week_2' | 'week_3' | 'week_4', typedValue: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const rawKey = `${branchId}_${channel}_${week}`;
     
     // Only allow typing digits, commas and dots
@@ -215,6 +217,7 @@ export default function PedidosYaView({ branches }: PedidosYaViewProps) {
 
   // Save changes - uses real schema: one row per branch/week/channel
   const handleSaveAll = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setSaving(true);
     try {
       const payloads: any[] = [];
