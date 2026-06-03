@@ -113,7 +113,7 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false });
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
 
       // Detectar encabezados
       const header = rows[0].map((h: any) => String(h || '').toLowerCase());
@@ -135,17 +135,33 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
       for (let i = 1; i < rows.length; i++) {
         const r = rows[i];
         if (!r || r[colCode] === undefined || r[colCode] === null || r[colCode] === '') continue;
-        // Fecha
+        // Fecha: puede venir como Date, número serial de Excel, o string
         let dateStr = '';
         const rawDate = r[colFecha];
-        if (rawDate instanceof Date) {
+        if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
           dateStr = `${rawDate.getFullYear()}-${String(rawDate.getMonth() + 1).padStart(2, '0')}-${String(rawDate.getDate()).padStart(2, '0')}`;
-        } else if (typeof rawDate === 'string') {
-          // dd/mm/yyyy o yyyy-mm-dd
-          const parts = rawDate.split(/[\/\-]/);
+        } else if (typeof rawDate === 'number') {
+          // Serial de Excel: días desde 1899-12-30
+          const d = new Date(Math.round((rawDate - 25569) * 86400 * 1000));
+          if (!isNaN(d.getTime())) {
+            dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+          }
+        } else if (typeof rawDate === 'string' && rawDate.trim()) {
+          const parts = rawDate.trim().split(/[\/\-\.]/).map(p => p.trim());
           if (parts.length === 3) {
-            if (parts[0].length === 4) dateStr = `${parts[0]}-${parts[1].padStart(2,'0')}-${parts[2].padStart(2,'0')}`;
-            else dateStr = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+            let y: number, mo: number, da: number;
+            if (parts[0].length === 4) {
+              // yyyy-mm-dd
+              y = +parts[0]; mo = +parts[1]; da = +parts[2];
+            } else {
+              // dd/mm/yyyy o dd/mm/yy
+              da = +parts[0]; mo = +parts[1]; y = +parts[2];
+              if (y < 100) y += 2000; // yy -> 20yy
+            }
+            // Validar rangos
+            if (y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 && da >= 1 && da <= 31) {
+              dateStr = `${y}-${String(mo).padStart(2, '0')}-${String(da).padStart(2, '0')}`;
+            }
           }
         }
         if (!dateStr) continue;
