@@ -15,6 +15,7 @@ import {
   TrendingUp, 
   ListOrdered
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 
@@ -187,42 +188,76 @@ export default function ReadOnlyPlantaView({
   useEffect(() => {
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
-    const savedV2 = localStorage.getItem(storageKeyV2);
-    
+
     // Global holiday loading
     const globalHolidaysKey = `hour_budget_holidays_${selectedMonth}`;
     const savedGlobalHolidays = localStorage.getItem(globalHolidaysKey);
     let resolvedHolidays: string[] = [];
-    
     if (savedGlobalHolidays) {
-      try {
-        resolvedHolidays = JSON.parse(savedGlobalHolidays);
-      } catch (e) {
-        console.error('Error parsing global holidays:', e);
-      }
+      try { resolvedHolidays = JSON.parse(savedGlobalHolidays); } catch (e) { console.error('Error parsing global holidays:', e); }
     }
 
-    if (savedV2) {
+    const loadFromLocal = () => {
+      const savedV2 = localStorage.getItem(storageKeyV2);
+      if (savedV2) {
+        try {
+          const parsed = JSON.parse(savedV2);
+          setRows(parsed.rows || []);
+          if (!savedGlobalHolidays && parsed.holidaysList && Array.isArray(parsed.holidaysList)) {
+            resolvedHolidays = parsed.holidaysList;
+          }
+        } catch (e) { console.error('Error parsing budget V2:', e); setRows([]); }
+      } else {
+        setRows([]);
+      }
+      setHolidaysList(resolvedHolidays);
+    };
+
+    const loadFromSupabase = async () => {
       try {
-        const parsed = JSON.parse(savedV2);
-        if (parsed.rows) {
-          setRows(parsed.rows);
+        const { data, error } = await supabase
+          .from('hour_budgets')
+          .select('*')
+          .eq('branch_id', branchIdKey)
+          .eq('month', selectedMonth);
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const mappedRows = data.map((r: any) => {
+            let staffByDate: Record<string, number> = {};
+            if (r.staff_by_date) {
+              try { staffByDate = JSON.parse(r.staff_by_date); } catch (e) { staffByDate = {}; }
+            }
+            return {
+              id: r.id,
+              branchId: r.branch_id,
+              roleId: r.position_id?.replace(/_(?:ma[nñ]ana|tarde|manana)$/, '') || r.position_id,
+              roleLabel: r.position_name || r.position_id,
+              shift: (r.shift === 'Mañana' ? 'Mañana' : 'Tarde') as 'Mañana' | 'Tarde',
+              countGroupA: 1,
+              countGroupB: 1,
+              hoursPerDay: r.hours_per_day || 8,
+              hourlyRate: r.hourly_rate || 0,
+              staffByDate
+            };
+          });
+          setRows(mappedRows);
+          // Feriados desde Supabase si están en el registro
+          const holidaysFromDb = data[0]?.holidays_json;
+          if (!savedGlobalHolidays && holidaysFromDb) {
+            try { resolvedHolidays = JSON.parse(holidaysFromDb); } catch (e) {}
+          }
+          setHolidaysList(resolvedHolidays);
         } else {
-          setRows([]);
-        }
-        
-        // If there were holidays in this specific branch but none globally, fallback/sync
-        if (!savedGlobalHolidays && parsed.holidaysList && Array.isArray(parsed.holidaysList)) {
-          resolvedHolidays = parsed.holidaysList;
+          // Sin datos en Supabase: probar localStorage
+          loadFromLocal();
         }
       } catch (e) {
-        console.error('Error parsing budget V2:', e);
+        console.error('Error cargando presupuesto desde Supabase, usando local:', e);
+        loadFromLocal();
       }
-    } else {
-      setRows([]);
-    }
+    };
 
-    setHolidaysList(resolvedHolidays);
+    loadFromSupabase();
   }, [localBranchId, selectedMonth]);
 
   const activeMonthDays = useMemo(() => {
