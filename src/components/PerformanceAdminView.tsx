@@ -38,7 +38,7 @@ export default function PerformanceAdminView({
 }) {
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
-  const [activeRole, setActiveRole] = useState<'encargado' | 'jefe_cocina'>('encargado');
+  const [activeRole, setActiveRole] = useState<'encargado' | 'jefe_cocina' | 'segundo_cocina'>('encargado');
   const [activeTab, setActiveTab] = useState<'config' | 'results'>('config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -54,7 +54,7 @@ export default function PerformanceAdminView({
     setLocalBranchId(selectedBranchId);
   }, [selectedBranchId]);
 
-  const [configs, setConfigs] = useState<Record<'encargado' | 'jefe_cocina', PerformanceRoleConfig>>({
+  const [configs, setConfigs] = useState<Record<'encargado' | 'jefe_cocina' | 'segundo_cocina', PerformanceRoleConfig>>({
     encargado: {
       id: '',
       branchId: localBranchId,
@@ -72,12 +72,22 @@ export default function PerformanceAdminView({
       variables: [],
       salesGoal: 0,
       redFlagPenalty: 15000
+    },
+    segundo_cocina: {
+      id: '',
+      branchId: localBranchId,
+      month: selectedMonth,
+      role: 'segundo_cocina',
+      variables: [],
+      salesGoal: 0,
+      redFlagPenalty: 15000
     }
   });
 
-  const [reports, setReports] = useState<Record<'encargado' | 'jefe_cocina', PerformanceReport>>({
+  const [reports, setReports] = useState<Record<'encargado' | 'jefe_cocina' | 'segundo_cocina', PerformanceReport>>({
     encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-    jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
+    jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
+    segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
   });
 
   const [allConfigs, setAllConfigs] = useState<any[]>([]);
@@ -147,12 +157,22 @@ export default function PerformanceAdminView({
           variables: [],
           salesGoal: 0,
           redFlagPenalty: 15000
+        },
+        segundo_cocina: {
+          id: '',
+          branchId: localBranchId,
+          month: selectedMonth,
+          role: 'segundo_cocina',
+          variables: [],
+          salesGoal: 0,
+          redFlagPenalty: 15000
         }
       };
 
       const initializedReports = fallbackReports || {
         encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-        jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
+        jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
+        segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
       };
 
       // Force proper branchId and month keys on restore
@@ -160,11 +180,19 @@ export default function PerformanceAdminView({
       initializedConfigs.encargado.month = selectedMonth;
       initializedConfigs.jefe_cocina.branchId = localBranchId;
       initializedConfigs.jefe_cocina.month = selectedMonth;
+      if (initializedConfigs.segundo_cocina) {
+        initializedConfigs.segundo_cocina.branchId = localBranchId;
+        initializedConfigs.segundo_cocina.month = selectedMonth;
+      }
 
       initializedReports.encargado.branchId = localBranchId;
       initializedReports.encargado.month = selectedMonth;
       initializedReports.jefe_cocina.branchId = localBranchId;
       initializedReports.jefe_cocina.month = selectedMonth;
+      if (initializedReports.segundo_cocina) {
+        initializedReports.segundo_cocina.branchId = localBranchId;
+        initializedReports.segundo_cocina.month = selectedMonth;
+      }
 
       // 1. Fetch Configs from Supabase
       const newConfigs = { ...initializedConfigs };
@@ -176,7 +204,7 @@ export default function PerformanceAdminView({
 
         if (configData && configData.length > 0) {
           configData.forEach(item => {
-            newConfigs[item.role as 'encargado' | 'jefe_cocina'] = {
+            newConfigs[item.role as 'encargado' | 'jefe_cocina' | 'segundo_cocina'] = {
               id: item.id,
               branchId: item.branch_id,
               month: item.month,
@@ -202,7 +230,7 @@ export default function PerformanceAdminView({
 
         if (reportData && reportData.length > 0) {
           reportData.forEach(item => {
-            newReports[item.role as 'encargado' | 'jefe_cocina'] = {
+            newReports[item.role as 'encargado' | 'jefe_cocina' | 'segundo_cocina'] = {
               id: item.id,
               branchId: item.branch_id,
               month: item.month,
@@ -242,7 +270,7 @@ export default function PerformanceAdminView({
     try {
       const reportsArray = Object.values(reports) as PerformanceReport[];
       const payloads = reportsArray.map(rep => {
-        const config = configs[rep.role as 'encargado' | 'jefe_cocina'];
+        const config = configs[rep.role as 'encargado' | 'jefe_cocina' | 'segundo_cocina'];
         const resultsWithPrizes = rep.results.map(r => {
           const variable = config.variables.find(v => v.id === r.variableId);
           return {
@@ -418,6 +446,66 @@ export default function PerformanceAdminView({
         })
       }
     });
+  };
+
+  // Genera las configuraciones de Jefe de Cocina (50%) y Segundo de Cocina (40%)
+  // a partir de las variables y premios cargados en Encargado.
+  const handleGenerateKitchenRoles = async () => {
+    const base = configs.encargado;
+    if (!base || !base.variables || base.variables.length === 0) {
+      alert('Primero cargá las variables y premios del Encargado. Después generá los roles de cocina.');
+      return;
+    }
+    if (!window.confirm('Se generarán las configuraciones de JEFE DE COCINA (50% de los premios del Encargado) y SEGUNDO DE COCINA (80% del Jefe = 40% del Encargado), usando las mismas variables.\n\nLas configuraciones existentes de esos roles para este mes y sucursal serán reemplazadas. ¿Continuar?')) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Clona variables aplicando un factor a los premios de cada escala
+      const scaleVariables = (factor: number) => base.variables.map(v => ({
+        ...v,
+        id: uuidv4(),
+        tiers: v.tiers.map(t => ({ ...t, id: uuidv4(), prize: Math.round((Number(t.prize) || 0) * factor) }))
+      }));
+
+      const jefeVars = scaleVariables(0.5);     // 50% del encargado
+      const segundoVars = scaleVariables(0.4);  // 40% del encargado (= 80% del jefe)
+
+      const jefeConfig = { ...configs.jefe_cocina, branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina' as const, variables: jefeVars, redFlagPenalty: base.redFlagPenalty, salesGoal: base.salesGoal };
+      const segundoConfig = { ...configs.segundo_cocina, branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina' as const, variables: segundoVars, redFlagPenalty: base.redFlagPenalty, salesGoal: base.salesGoal };
+
+      const payloads = [
+        { branch_id: localBranchId, month: selectedMonth, role: 'jefe_cocina', variables: jefeVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty },
+        { branch_id: localBranchId, month: selectedMonth, role: 'segundo_cocina', variables: segundoVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty }
+      ];
+
+      const { error } = await supabase
+        .from('performance_role_configs')
+        .upsert(payloads, { onConflict: 'branch_id,month,role' });
+
+      if (error) {
+        console.error('Error al generar roles de cocina en Supabase:', error);
+        alert('ATENCIÓN: No se pudieron guardar los roles de cocina en la base de datos.\n\nDetalle: ' + (error.message || 'error') + '\n\nReintentá.');
+        return;
+      }
+
+      // Actualizar estado local
+      setConfigs(prev => ({ ...prev, jefe_cocina: jefeConfig, segundo_cocina: segundoConfig }));
+      try {
+        const storageKeyConfig = `craft_performance_config_${localBranchId}_${selectedMonth}`;
+        const merged = { ...configs, jefe_cocina: jefeConfig, segundo_cocina: segundoConfig };
+        localStorage.setItem(storageKeyConfig, JSON.stringify(merged));
+      } catch (e) { console.error(e); }
+
+      alert('¡Listo! Se generaron Jefe de Cocina (50%) y Segundo de Cocina (40%) desde el Encargado.');
+      fetchData();
+    } catch (err: any) {
+      console.error('Error generando roles de cocina:', err);
+      alert('ATENCIÓN: Ocurrió un error. ' + (err?.message || '') + '\n\nReintentá.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -725,18 +813,18 @@ export default function PerformanceAdminView({
 
         {/* Role Toggle Selector */}
         <div className="flex p-1 bg-bg-sidebar rounded-lg border border-border-dim w-fit shadow-sm">
-          {(['encargado', 'jefe_cocina'] as const).map((role) => (
+          {(['encargado', 'jefe_cocina', 'segundo_cocina'] as const).map((role) => (
             <button
               key={role}
               onClick={() => setActiveRole(role)}
               className={cn(
-                "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[140px]",
+                "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[120px]",
                 activeRole === role 
                   ? "bg-blue-600 text-white shadow-md" 
                   : "text-text-dim hover:text-text-main"
               )}
             >
-              {role === 'encargado' ? '👥 Encargado' : '👨‍🍳 Jefe de Cocina'}
+              {role === 'encargado' ? '👥 Encargado' : role === 'jefe_cocina' ? '👨‍🍳 Jefe de Cocina' : '🍳 Segundo de Cocina'}
             </button>
           ))}
         </div>
@@ -964,7 +1052,7 @@ export default function PerformanceAdminView({
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
-                "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[140px]",
+                "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[120px]",
                 activeTab === tab 
                   ? "bg-blue-600 text-white shadow-md" 
                   : "text-text-dim hover:text-text-main"
@@ -976,7 +1064,7 @@ export default function PerformanceAdminView({
         </div>
 
         <div className="flex p-1 bg-bg-sidebar rounded-lg border border-border-dim w-fit shadow-sm">
-          {(['encargado', 'jefe_cocina'] as const).map((role) => (
+          {(['encargado', 'jefe_cocina', 'segundo_cocina'] as const).map((role) => (
             <button
               key={role}
               onClick={() => setActiveRole(role)}
@@ -1003,13 +1091,13 @@ export default function PerformanceAdminView({
                   Variables de Desempeño: {activeRole.replace('_', ' ')}
                 </h3>
                 <div className="flex items-center gap-2">
-                  {activeRole === 'jefe_cocina' && (
+                  {activeRole === 'encargado' && (
                     <button 
-                      onClick={handleCopyFromEncargado}
+                      onClick={handleGenerateKitchenRoles}
                       className="flex items-center gap-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all"
-                      title="Copiar las variables del Encargado y guardarlas para Jefe de Cocina al 50% de valor del premio"
+                      title="Genera Jefe de Cocina (50%) y Segundo de Cocina (40%) usando las variables y premios del Encargado"
                     >
-                      <span>⚡ Copiar de Encargado (Premios al 50%)</span>
+                      <span>⚡ Generar Jefe y Segundo (desde Encargado)</span>
                     </button>
                   )}
                   <button 
