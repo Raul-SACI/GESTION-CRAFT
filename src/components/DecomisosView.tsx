@@ -439,6 +439,7 @@ export default function DecomisosView({
                   <option value="Rotura" className="bg-bg-sidebar">Rotura</option>
                   <option value="Error Mozo/Caja" className="bg-bg-sidebar">Error Mozo/Caja</option>
                   <option value="Error Cocina" className="bg-bg-sidebar">Error Cocina</option>
+                  <option value="Por Producción" className="bg-bg-sidebar">Por Producción</option>
                   <option value="Otros" className="bg-bg-sidebar">Otros (Especificar)</option>
                 </select>
               </div>
