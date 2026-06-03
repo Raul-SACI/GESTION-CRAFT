@@ -36,7 +36,7 @@ const MENU_TYPES = [
   { id: 'pedidosya', label: 'Pedidos Ya', icon: FileText }
 ];
 
-export default function PriceListView() {
+export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [activeMenu, setActiveMenu] = useState('salon');
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -86,6 +86,7 @@ export default function PriceListView() {
   }, []);
 
   const handleAddItem = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newItem.name || newItem.price <= 0) return;
     
     const { data, error } = await supabase.from('menu_items').insert([{
@@ -113,6 +114,7 @@ export default function PriceListView() {
   };
 
   const handleUpdatePrice = async (id: string, newPrice: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const today = new Date().toISOString().split('T')[0];
     const { error } = await supabase
       .from('menu_items')
@@ -131,6 +133,7 @@ export default function PriceListView() {
   };
 
   const handleDeleteItem = async (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!confirm('¿Eliminar este plato?')) return;
     const { error } = await supabase.from('menu_items').delete().eq('id', id);
     if (!error) {

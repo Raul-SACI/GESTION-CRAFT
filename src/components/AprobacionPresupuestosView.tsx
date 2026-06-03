@@ -91,7 +91,7 @@ function getDaysOfWeekCounts(yearMonth: string) {
   return { totalDays, dayCounts };
 }
 
-export default function AprobacionPresupuestosView({ branches }: { branches: Branch[] }) {
+export default function AprobacionPresupuestosView({ branches, isReadOnly = false }: { branches: Branch[]; isReadOnly?: boolean }) {
   const [selectedMonth, setSelectedMonth] = useState('2026-06');
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [budgetsState, setBudgetsState] = useState<Record<string, any>>({});
@@ -138,6 +138,7 @@ export default function AprobacionPresupuestosView({ branches }: { branches: Bra
   }, [selectedMonth, branches.length]);
 
   const handleToggleApprove = async (branchId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const current = budgetsState[branchId] || {
       positions: DEFAULT_POSITIONS,
       daysInMonth: 30,

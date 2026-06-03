@@ -89,7 +89,7 @@ function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: a
   return defaultRates[roleId] || 2000;
 }
 
-export default function HrHourControlView({ branches }: { branches: Branch[] }) {
+export default function HrHourControlView({ branches, isReadOnly = false }: { branches: Branch[]; isReadOnly?: boolean }) {
   const [selectedBranch, setSelectedBranch] = useState(branches[0]?.id || '1');
   const [selectedMonth, setSelectedMonth] = useState('2026-05'); // Default back to May 2026
   const [selectedWeek, setSelectedWeek] = useState<number>(1); // 1, 2, 3, or 4
@@ -386,16 +386,19 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
 
   // Handle single record hours change
   const handleUpdateHours = (id: string, hours: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRecords(prev => prev.map(r => r.id === id ? { ...r, definitiveHours: hours } : r));
   };
 
   // Handle single record notes change
   const handleUpdateNotes = (id: string, noteStr: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRecords(prev => prev.map(r => r.id === id ? { ...r, notes: noteStr } : r));
   };
 
   // Check off / verify single position
   const handleToggleVerify = (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRecords(prev => prev.map(r => {
       if (r.id === id) {
         return { 
@@ -409,11 +412,13 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
 
   // Check off all positions
   const handleVerifyAll = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRecords(prev => prev.map(r => ({ ...r, status: 'verified' })));
   };
 
   // Save changes to Supabase + localStorage backup
   const handleSaveChanges = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     try {
       // Guardar en Supabase
       const upsertData = records.map((r: any) => ({
@@ -469,6 +474,7 @@ export default function HrHourControlView({ branches }: { branches: Branch[] }) 
 
   // Pre-fill / Synchronize with ideal planned hours to reset or speed up entry
   const handlePreloadPlanned = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const confirmed = window.confirm('¿Desea restablecer todas las horas definitivas a los valores planificados de referencia?');
     if (!confirmed) return;
 

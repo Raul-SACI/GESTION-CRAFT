@@ -498,7 +498,8 @@ function AppContent() {
     'stock', 'vajilla', 'horas', 'decomisos', 'cuentas',
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities',
-    'finanzas_mensual', 'p&l', 'cronograma_pagos'
+    'finanzas_mensual', 'p&l', 'cronograma_pagos',
+    'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -1370,7 +1371,7 @@ function AppContent() {
               )}
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} />}
+              {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
                 <StockView 
@@ -1420,7 +1421,7 @@ function AppContent() {
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'precios' && <PriceListView key="precios" />}
+              {activeTab === 'precios' && <PriceListView key="precios" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
@@ -1464,8 +1465,8 @@ function AppContent() {
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
-              {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} />}
-              {activeTab === 'aprobacion_presupuestos' && <AprobacionPresupuestosView key="aprobacion_presupuestos" branches={branches} />}
+              {activeTab === 'control_horas' && <HrHourControlView key="control_horas" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'aprobacion_presupuestos' && <AprobacionPresupuestosView key="aprobacion_presupuestos" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'sucursales' && (
                 <BranchManagementView 
                   branches={branches} 

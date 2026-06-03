@@ -201,7 +201,7 @@ const getRoomForRole = (roleId?: string, roleLabel?: string): string => {
   return ROLE_TO_ROOM_DEFAULTS[normId] || '';
 };
 
-export default function HourBudgetView({ selectedBranchId, branches }: { selectedBranchId: string, branches: Branch[] }) {
+export default function HourBudgetView({ selectedBranchId, branches, isReadOnly = false }: { selectedBranchId: string, branches: Branch[], isReadOnly?: boolean }) {
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId === 'all' ? (branches[0]?.id || '') : selectedBranchId);
   const activeBranch = branches.find(b => b.id === localBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
@@ -486,6 +486,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   }, [localBranchId, selectedMonth, sucursalRolesList]);
 
   const handleSaveBudget = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const branchIdKey = localBranchId === 'all' ? branches[0]?.id || localBranchId : localBranchId;
     
     // Guardar cada fila en Supabase
@@ -552,6 +553,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
   // Toggle a day in pending selection (checkbox, not saved yet)
   const handleToggleHoliday = (dateStr: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setPendingHolidays(prev =>
       prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]
     );
@@ -559,6 +561,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
 
   // Confirm and save all holidays at once - single Supabase call
   const handleConfirmHolidays = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const updated = [...pendingHolidays].sort();
     setHolidaysList(updated);
     localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
@@ -573,6 +576,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleLoadDefaultTemplate = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const computedWeeks = getWeeksForMonth(selectedMonth);
     const defWithBranch = DEFAULT_INITIAL_ROWS.map((r, index) => {
@@ -606,6 +610,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleAddRow = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
     const defaultRole = sucursalRolesList[3] || sucursalRolesList[0];
     const initialStaffByDate: Record<string, number> = {};
@@ -634,10 +639,12 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleRemoveRow = (id: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRows(rows.filter(r => r.id !== id));
   };
 
   const handleRowChange = (id: string, field: keyof BudgetRow, value: any) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRows(rows.map(row => {
       if (row.id === id) {
         const updated = { ...row, [field]: value };
@@ -655,6 +662,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleStaffChange = (rowId: string, dateStr: string, val: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setRows(rows.map(row => {
       if (row.id === rowId) {
         const staffMap = { ...(row.staffByDate || {}) };
@@ -669,6 +677,7 @@ export default function HourBudgetView({ selectedBranchId, branches }: { selecte
   };
 
   const handleCopyWeekToMonth = (currentWeekIdx: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const currentWeekObj = weeks.find(w => w.weekIndex === currentWeekIdx);
     if (!currentWeekObj) return;
 
