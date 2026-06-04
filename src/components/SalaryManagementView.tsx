@@ -731,11 +731,11 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
   // Math calculated metrics
   const hourlyWages = positions.filter(p => p.type === 'hourly');
   const avgHourlyWage = hourlyWages.length > 0 
-    ? Math.round(hourlyWages.reduce((sum, p) => sum + p.baseValue, 0) / hourlyWages.length)
+    ? Math.round(hourlyWages.reduce((sum, p) => sum + (p.baseValue || 0), 0) / hourlyWages.length)
     : 0;
 
   const monthlySalaries = positions.filter(p => p.type === 'monthly');
-  const totalMonthlySalaries = monthlySalaries.reduce((sum, p) => sum + p.baseValue, 0);
+  const totalMonthlySalaries = monthlySalaries.reduce((sum, p) => sum + (p.baseValue || 0), 0);
 
   return (
     <motion.div 
@@ -1005,12 +1005,12 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                 <tbody className="divide-y divide-border-dim/50">
                   {filteredPositions.map(pos => {
                     const isEditing = editingRowId === pos.id;
-                    const increase = pos.prevBaseValue > 0 ? ((pos.baseValue - pos.prevBaseValue) / pos.prevBaseValue) * 100 : 0;
+                    const increase = (pos.prevBaseValue || 0) > 0 ? (((pos.baseValue || 0) - (pos.prevBaseValue || 0)) / (pos.prevBaseValue || 1)) * 100 : 0;
                     const isSelected = selectedPositionId === pos.id;
                     
                     if (isEditing && editRowDraft) {
-                      const computedIncrease = editRowDraft.prevBaseValue > 0 
-                        ? ((editRowDraft.baseValue - editRowDraft.prevBaseValue) / editRowDraft.prevBaseValue) * 100 
+                      const computedIncrease = (editRowDraft.prevBaseValue || 0) > 0 
+                        ? (((editRowDraft.baseValue || 0) - (editRowDraft.prevBaseValue || 0)) / (editRowDraft.prevBaseValue || 1)) * 100 
                         : 0;
 
                       return (
@@ -1165,7 +1165,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                         </td>
                         <td className="px-5 py-4 text-right">
                           <div className="flex flex-col items-end">
-                            <span className="font-mono text-text-dim opacity-70">${pos.prevBaseValue.toLocaleString('es-AR')}</span>
+                            <span className="font-mono text-text-dim opacity-70">${(pos.prevBaseValue || 0).toLocaleString('es-AR')}</span>
                             {pos.prevBaseMonth && (
                               <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.prevBaseMonth}</span>
                             )}
@@ -1173,7 +1173,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                         </td>
                         <td className="px-5 py-4 text-right">
                           <div className="flex flex-col items-end">
-                            <span className="font-mono font-bold text-text-main">${pos.baseValue.toLocaleString('es-AR')}</span>
+                            <span className="font-mono font-bold text-text-main">${(pos.baseValue || 0).toLocaleString('es-AR')}</span>
                             {pos.baseMonth && (
                               <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.baseMonth}</span>
                             )}
@@ -1306,9 +1306,9 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                   </thead>
                   <tbody className="divide-y divide-border-dim/50">
                     {filteredPositions.map(pos => {
-                      const firstValue = pos.prevBaseValue > 0 ? pos.prevBaseValue : (pos.history && pos.history.length > 0 ? pos.history[0].value : pos.baseValue);
-                      const currentValue = pos.baseValue;
-                      const accumIncrease = firstValue > 0 ? ((currentValue - firstValue) / firstValue) * 100 : 0;
+                      const firstValue = (pos.prevBaseValue || 0) > 0 ? pos.prevBaseValue : (pos.history && pos.history.length > 0 ? (pos.history[0].value || 0) : (pos.baseValue || 0));
+                      const currentValue = pos.baseValue || 0;
+                      const accumIncrease = (firstValue || 0) > 0 ? ((currentValue - firstValue) / firstValue) * 100 : 0;
                       
                       return (
                         <tr key={pos.id} className="hover:bg-bg-accent/55 transition-colors">
@@ -1680,7 +1680,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                                   <span className="text-[9px] text-text-dim uppercase font-semibold">{pos.area} / {pos.sector}</span>
                                 </td>
                                 <td className="px-4 py-3 text-right font-mono text-text-dim">
-                                  ${pos.baseValue.toLocaleString()}{pos.type === 'hourly' ? '/h' : ''}
+                                  ${(pos.baseValue || 0).toLocaleString()}{pos.type === 'hourly' ? '/h' : ''}
                                 </td>
                                 <td className="px-4 py-3 text-right">
                                   <div className="relative flex justify-end">
