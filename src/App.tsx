@@ -79,6 +79,7 @@ import { supabase, realSupabaseClient, isMissingCredentials } from './lib/supaba
 // Lazy load views for better performance
 const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'));
 const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
+const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
@@ -504,7 +505,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
-    'ventas', 'caja_central'
+    'ventas', 'caja_central', 'recordatorios_pago'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -561,6 +562,7 @@ function AppContent() {
     ],
     'Tesorería': [
       { id: 'caja_central', label: 'Caja Central', icon: Landmark },
+      { id: 'recordatorios_pago', label: 'Recordatorios de Pago', icon: Bell },
     ],
     'Administración': [
       { id: 'ventas', label: 'Ventas', icon: TrendingUp },
@@ -594,6 +596,7 @@ function AppContent() {
         const iconMap: Record<string, any> = {
           socios_dashboard: Landmark,
           caja_central: Landmark,
+          recordatorios_pago: Bell,
           dashboard: LayoutDashboard,
           stock: Package,
           vajilla: Utensils,
@@ -1367,6 +1370,9 @@ function AppContent() {
               )}
               {activeTab === 'caja_central' && (
                 <CajaCentralView branches={branches} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'recordatorios_pago' && (
+                <PaymentRemindersView isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'dashboard' && (
                 <EncargadoDashboardView 
