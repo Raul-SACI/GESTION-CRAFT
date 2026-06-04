@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import {
   Landmark, Loader2, Calendar, Plus, Trash2, ArrowDownToLine,
-  Calculator, DollarSign, Save, Building2
+  Calculator, DollarSign, Save, Building2, Paperclip, FileText, ImageIcon, X, Eye
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -135,6 +135,9 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
   const [usdCount, setUsdCount] = useState<Record<number, number>>({});
   const [arqueoNotes, setArqueoNotes] = useState('');
   const [accountingBalance, setAccountingBalance] = useState<string>('');
+  const [attachmentPath, setAttachmentPath] = useState<string | null>(null);
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const [loadingA, setLoadingA] = useState(false);
   const [savingA, setSavingA] = useState(false);
 
@@ -151,11 +154,20 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         setUsdCount(data.usd_denominations || {});
         setArqueoNotes(data.notes || '');
         setAccountingBalance(data.accounting_balance != null ? String(data.accounting_balance) : '');
+        setAttachmentPath(data.attachment_path || null);
+        if (data.attachment_path) {
+          const { data: urlData } = await supabase.storage.from('documents').createSignedUrl(data.attachment_path, 3600);
+          setAttachmentUrl(urlData?.signedUrl || null);
+        } else {
+          setAttachmentUrl(null);
+        }
       } else {
         setPesosCount({});
         setUsdCount({});
         setArqueoNotes('');
         setAccountingBalance('');
+        setAttachmentPath(null);
+        setAttachmentUrl(null);
       }
     } catch (e) { console.error('Error cargando arqueo:', e); }
     setLoadingA(false);
@@ -186,6 +198,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         total_pesos: totalPesos,
         total_usd: totalUsd,
         accounting_balance: accBalanceNum,
+        attachment_path: attachmentPath,
         notes: arqueoNotes || null,
         updated_at: new Date().toISOString()
       }, { onConflict: 'date' });
@@ -195,6 +208,65 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
       alert('Error al guardar el arqueo: ' + (err?.message || 'error desconocido'));
     }
     setSavingA(false);
+  };
+
+  // Subir comprobante (foto/PDF) del arqueo del día
+  const handleUploadAttachment = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Validar tipo: solo imágenes o PDF
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+      alert('Solo se permiten imágenes (foto) o archivos PDF.');
+      return;
+    }
+    // Validar tamaño (máx 10 MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('El archivo es muy grande (máximo 10 MB).');
+      return;
+    }
+    setUploadingFile(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `arqueos/${arqueoDate}_${Date.now()}_${safeName}`;
+      const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
+      if (upErr) throw upErr;
+      // Guardar el path en el arqueo del día (upsert para no perder lo ya cargado)
+      const { error: dbErr } = await supabase.from('treasury_cash_count').upsert({
+        date: arqueoDate,
+        pesos_denominations: pesosCount,
+        usd_denominations: usdCount,
+        total_pesos: totalPesos,
+        total_usd: totalUsd,
+        accounting_balance: accBalanceNum,
+        attachment_path: path,
+        notes: arqueoNotes || null,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'date' });
+      if (dbErr) throw dbErr;
+      setAttachmentPath(path);
+      const { data: urlData } = await supabase.storage.from('documents').createSignedUrl(path, 3600);
+      setAttachmentUrl(urlData?.signedUrl || null);
+      alert('Comprobante subido correctamente.');
+    } catch (err: any) {
+      alert('Error al subir el comprobante: ' + (err?.message || 'error desconocido'));
+    }
+    setUploadingFile(false);
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!attachmentPath) return;
+    if (!window.confirm('¿Quitar el comprobante adjunto de este arqueo?')) return;
+    try {
+      await supabase.storage.from('documents').remove([attachmentPath]);
+      await supabase.from('treasury_cash_count').update({ attachment_path: null }).eq('date', arqueoDate);
+      setAttachmentPath(null);
+      setAttachmentUrl(null);
+    } catch (err: any) {
+      alert('Error al quitar el comprobante: ' + (err?.message || ''));
+    }
   };
 
   return (
@@ -449,6 +521,40 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                   {hasDifference && <p className="text-[8px] text-red-500 font-bold uppercase mt-1">{difference! > 0 ? 'Sobrante en arqueo' : 'Faltante en arqueo'}</p>}
                   {difference !== null && !hasDifference && <p className="text-[8px] text-emerald-500 font-bold uppercase mt-1">Sin diferencias</p>}
                 </div>
+              </div>
+
+              {/* Comprobante del día (foto / PDF) */}
+              <div className="mt-5 pt-5 border-t border-border-dim">
+                <div className="flex items-center gap-2 mb-3">
+                  <Paperclip size={14} className="text-brand-500" />
+                  <h4 className="text-[10px] font-black uppercase text-text-main tracking-widest">Comprobante del Día (foto o PDF)</h4>
+                </div>
+                {attachmentPath ? (
+                  <div className="flex items-center gap-3 bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3">
+                    {attachmentPath.toLowerCase().endsWith('.pdf')
+                      ? <FileText size={20} className="text-red-500 shrink-0" />
+                      : <ImageIcon size={20} className="text-blue-500 shrink-0" />}
+                    <span className="text-[10px] font-bold text-text-main truncate flex-1">{attachmentPath.split('/').pop()}</span>
+                    {attachmentUrl && (
+                      <a href={attachmentUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600 flex items-center gap-1 px-2 py-1 border border-brand-500/20 rounded">
+                        <Eye size={12} /> Ver
+                      </a>
+                    )}
+                    {!isReadOnly && (
+                      <button onClick={handleRemoveAttachment} className="text-text-dim hover:text-red-500 p-1"><X size={14} /></button>
+                    )}
+                  </div>
+                ) : !isReadOnly ? (
+                  <label className={cn("flex items-center justify-center gap-2 border border-dashed border-border-dim rounded-lg py-4 cursor-pointer hover:border-brand-500/50 hover:bg-bg-accent/20 transition-all",
+                    uploadingFile && "opacity-60 pointer-events-none")}>
+                    {uploadingFile ? <Loader2 size={16} className="animate-spin text-brand-500" /> : <Paperclip size={16} className="text-text-dim" />}
+                    <span className="text-[10px] font-black uppercase text-text-dim tracking-widest">{uploadingFile ? 'Subiendo…' : 'Adjuntar foto o PDF del detalle de caja'}</span>
+                    <input type="file" accept="image/*,application/pdf" onChange={handleUploadAttachment} className="hidden" disabled={uploadingFile} />
+                  </label>
+                ) : (
+                  <p className="text-[10px] text-text-dim uppercase font-bold opacity-50">Sin comprobante adjunto</p>
+                )}
               </div>
             </div>
           )}
