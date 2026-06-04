@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -32,6 +32,8 @@ interface BranchSales {
   pyResto: number | null;
   pyCafe: number | null;
   cmv: number | null;
+  budgetHours: number;
+  workedHours: number;
 }
 
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -89,12 +91,14 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         return all;
       };
 
-      const [currTickets, prevTickets, pyRows, cmvSummary, cmvDetails] = await Promise.all([
+      const [currTickets, prevTickets, pyRows, cmvSummary, cmvDetails, budgetRows, hourLogRows] = await Promise.all([
         fetchTickets(monthStart, monthEnd),
         fetchTickets(pStart, pEnd),
         supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth),
         supabase.from('cmv_monthly').select('*').eq('month', selectedMonth),
-        supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth)
+        supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth),
+        supabase.from('hour_budgets').select('branch_id, total_hours, status').eq('month', selectedMonth).eq('status', 'approved'),
+        supabase.from('hour_logs').select('branch_id, hours_actual').eq('month', selectedMonth)
       ]);
 
       const agg: Record<string, BranchSales> = {};
@@ -107,7 +111,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           projection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
-          pyResto: null, pyCafe: null, cmv: null
+          pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0
         };
       });
 
@@ -171,6 +175,14 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         agg[bid].cmv = c.has ? (c.initial + c.purchases + c.movements - c.final) : null;
       });
 
+      // Presupuesto de horas (solo aprobados) y horas reales cargadas, por sucursal
+      (budgetRows.data || []).forEach((r: any) => {
+        if (agg[r.branch_id]) agg[r.branch_id].budgetHours += Number(r.total_hours) || 0;
+      });
+      (hourLogRows.data || []).forEach((r: any) => {
+        if (agg[r.branch_id]) agg[r.branch_id].workedHours += Number(r.hours_actual) || 0;
+      });
+
       setData(Object.values(agg));
       setLoading(false);
     };
@@ -191,8 +203,10 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       grossPrev: acc.grossPrev + d.grossPrev,
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
       projection: acc.projection + d.projection,
-      cmv: acc.cmv + (d.cmv || 0)
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, cmv: 0 });
+      cmv: acc.cmv + (d.cmv || 0),
+      budgetHours: acc.budgetHours + d.budgetHours,
+      workedHours: acc.workedHours + d.workedHours
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
@@ -430,6 +444,71 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               </table>
             </div>
             <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Datos del modulo CMV Mensual Sucursal (Administracion)</p>
+          </div>
+
+          {/* Presupuesto de Horas y % de consumo */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock size={16} className="text-brand-500" />
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Presupuesto de Horas · {selectedMonth}</h3>
+            </div>
+            {/* KPI consolidado */}
+            {(() => {
+              const consumoPct = totals.budgetHours > 0 ? (totals.workedHours / totals.budgetHours) * 100 : null;
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                  <div className="bg-bg-main/30 border border-border-dim/50 rounded-lg p-3">
+                    <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Presupuesto Total</p>
+                    <p className="text-lg font-mono font-black text-text-main mt-1">{Math.round(totals.budgetHours).toLocaleString('es-AR')} hs</p>
+                  </div>
+                  <div className="bg-bg-main/30 border border-border-dim/50 rounded-lg p-3">
+                    <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Consumido a la Fecha</p>
+                    <p className="text-lg font-mono font-black text-text-main mt-1">{Math.round(totals.workedHours).toLocaleString('es-AR')} hs</p>
+                  </div>
+                  <div className={cn("border rounded-lg p-3",
+                    consumoPct === null ? "bg-bg-main/30 border-border-dim/50" :
+                    consumoPct > 100 ? "bg-red-500/10 border-red-500/30" :
+                    consumoPct > 85 ? "bg-amber-500/10 border-amber-500/30" : "bg-emerald-500/10 border-emerald-500/30")}>
+                    <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">% Consumo</p>
+                    <p className={cn("text-lg font-mono font-black mt-1",
+                      consumoPct === null ? "text-text-dim" :
+                      consumoPct > 100 ? "text-red-500" : consumoPct > 85 ? "text-amber-500" : "text-emerald-500")}>
+                      {consumoPct === null ? '—' : consumoPct.toFixed(1) + '%'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+            {/* Tabla por sucursal */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                    <th className="px-3 py-2">Sucursal</th>
+                    <th className="px-3 py-2 text-right">Presupuesto</th>
+                    <th className="px-3 py-2 text-right">Consumido</th>
+                    <th className="px-3 py-2 text-right">% Consumo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim">
+                  {shown.map(d => {
+                    const pct = d.budgetHours > 0 ? (d.workedHours / d.budgetHours) * 100 : null;
+                    return (
+                      <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.budgetHours > 0 ? Math.round(d.budgetHours).toLocaleString('es-AR') + ' hs' : <span className="text-text-dim">— sin aprobar</span>}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-dim">{Math.round(d.workedHours).toLocaleString('es-AR')} hs</td>
+                        <td className="px-3 py-2.5 text-right font-mono font-bold">
+                          {pct === null ? <span className="text-text-dim">—</span> :
+                            <span className={pct > 100 ? 'text-red-500' : pct > 85 ? 'text-amber-500' : 'text-emerald-500'}>{pct.toFixed(1)}%</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Presupuesto aprobado (Presupuestador) vs horas cargadas (Control de Horas)</p>
           </div>
 
           <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
