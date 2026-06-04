@@ -268,10 +268,28 @@ export default function StockView({
       return;
     }
 
-    // Determine the next day to update its EI
-    const nextDay = new Date(targetDate + 'T12:00:00');
-    nextDay.setDate(nextDay.getDate() + 1);
-    const nextDayStr = nextDay.toISOString().split('T')[0];
+    // Determine the next period start to carry over EF -> EI
+    let nextDayStr: string;
+    if (viewMode === 'semana') {
+      // El inicio de la próxima semana (8, 15, 22, o primer día del mes siguiente)
+      const d = new Date(targetDate + 'T12:00:00');
+      const dom = d.getDate();
+      const monthStr = targetDate.substring(0, 7);
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      if (dom === 1) nextDayStr = `${monthStr}-08`;
+      else if (dom === 8) nextDayStr = `${monthStr}-15`;
+      else if (dom === 15) nextDayStr = `${monthStr}-22`;
+      else {
+        // Última semana: la EF pasa al primer día del mes siguiente
+        const nm = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        nextDayStr = `${nm.getFullYear()}-${String(nm.getMonth() + 1).padStart(2, '0')}-01`;
+      }
+      void lastDay;
+    } else {
+      const nextDay = new Date(targetDate + 'T12:00:00');
+      nextDay.setDate(nextDay.getDate() + 1);
+      nextDayStr = nextDay.toISOString().split('T')[0];
+    }
 
     // Optimistic update
     setDailyData(prev => {
@@ -371,6 +389,13 @@ export default function StockView({
     if (viewMode === 'dia') {
       const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
       return data.ei + data.compras + data.prestamosRecibidos - data.prestamosEnviados - data.decomisos - data.consumoPersonal - data.ef;
+    } else if (viewMode === 'semana') {
+      // Modelo semanal: todo el registro vive en el primer día de la semana
+      const dates = getDatesInRange('semana', selectedDate);
+      const wk = dailyData[dates[0]]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+      // Decomisos del período (vienen de otros módulos, repartidos por día)
+      const totals = getPeriodTotals(itemId, dates);
+      return wk.ei + wk.compras + wk.prestamosRecibidos - wk.prestamosEnviados - totals.decomisos - wk.consumoPersonal - wk.ef;
     } else {
       const dates = getDatesInRange(viewMode, selectedDate);
       const totals = dates.reduce((acc, d) => {
@@ -386,9 +411,14 @@ export default function StockView({
         return acc;
       }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
 
-      // For Semana/Mes: EI is first day, EF is last day
-      const ei = dailyData[dates[0]]?.[itemId]?.ei || 0;
-      const ef = dailyData[dates[dates.length - 1]]?.[itemId]?.ef || 0;
+      const monthStr = selectedDate.substring(0, 7);
+      const ei = dailyData[`${monthStr}-01`]?.[itemId]?.ei || 0;
+      const weekStarts = ['01', '08', '15', '22'];
+      let ef = 0;
+      for (let i = weekStarts.length - 1; i >= 0; i--) {
+        const v = dailyData[`${monthStr}-${weekStarts[i]}`]?.[itemId]?.ef;
+        if (v) { ef = v; break; }
+      }
       return ei + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - ef;
     }
   };
@@ -545,16 +575,31 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
             <tbody className="divide-y divide-border-dim">
               {controlledItems.map((item) => {
                 let data;
+                let weekTargetDate = selectedDate;
                 if (viewMode === 'dia') {
                   data = dailyData[selectedDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
-                } else {
-                  const dates = getDatesInRange(viewMode, selectedDate);
+                } else if (viewMode === 'semana') {
+                  // Modelo semanal: toda la carga de la semana vive en el primer día de la semana
+                  const dates = getDatesInRange('semana', selectedDate);
+                  weekTargetDate = dates[0];
+                  const wk = dailyData[weekTargetDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+                  // Decomisos y ventas teóricas se acumulan de todo el período (vienen de otros módulos)
                   const totals = getPeriodTotals(item.id, dates);
-                  data = {
-                    ei: dailyData[dates[0]]?.[item.id]?.ei || 0,
-                    ef: dailyData[dates[dates.length - 1]]?.[item.id]?.ef || 0,
-                    ...totals
-                  };
+                  data = { ...wk, decomisos: totals.decomisos, ventasTeorico: totals.ventasTeorico };
+                } else {
+                  // Vista mes: resumen (solo lectura), suma del período
+                  const dates = getDatesInRange('mes', selectedDate);
+                  const totals = getPeriodTotals(item.id, dates);
+                  // En el mes, EI = primer día con datos, EF = último día con datos
+                  const weekStarts = ['01', '08', '15', '22'];
+                  const monthStr = selectedDate.substring(0, 7);
+                  const eiVal = dailyData[`${monthStr}-01`]?.[item.id]?.ei || 0;
+                  let efVal = 0;
+                  for (let i = weekStarts.length - 1; i >= 0; i--) {
+                    const v = dailyData[`${monthStr}-${weekStarts[i]}`]?.[item.id]?.ef;
+                    if (v) { efVal = v; break; }
+                  }
+                  data = { ei: eiVal, ef: efVal, ...totals };
                 }
                 
                 const cmvReal = calculateCMVReal(item.id);
@@ -574,7 +619,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     {/* EI (Editable with default) */}
                     <StockInputCell 
                       value={data.ei} 
-                      onChange={val => updateItemData(item.id, 'ei', val)}
+                      onChange={val => updateItemData(item.id, 'ei', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked} 
                       className="bg-brand-500/5 font-bold"
                     />
@@ -582,7 +627,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     {/* Compras (Editable for all if in daily view) */}
                     <StockInputCell 
                       value={data.compras} 
-                      onChange={val => updateItemData(item.id, 'compras', val)}
+                      onChange={val => updateItemData(item.id, 'compras', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked} 
                       className="bg-emerald-500/5"
                     />
@@ -590,7 +635,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     {/* Préstamos Recibidos */}
                     <StockInputCell 
                       value={data.prestamosRecibidos} 
-                      onChange={val => updateItemData(item.id, 'prestamosRecibidos', val)}
+                      onChange={val => updateItemData(item.id, 'prestamosRecibidos', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked}
                       className="bg-brand-500/5"
                     />
@@ -598,7 +643,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     {/* Préstamos Enviados */}
                     <StockInputCell 
                       value={data.prestamosEnviados} 
-                      onChange={val => updateItemData(item.id, 'prestamosEnviados', val)}
+                      onChange={val => updateItemData(item.id, 'prestamosEnviados', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked}
                       className="bg-brand-500/5"
                     />
@@ -606,14 +651,14 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     {/* Consumo Pers. (Encargado) */}
                     <StockInputCell 
                       value={data.consumoPersonal} 
-                      onChange={val => updateItemData(item.id, 'consumoPersonal', val)}
+                      onChange={val => updateItemData(item.id, 'consumoPersonal', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked}
                     />
 
                     {/* EF (Encargado) */}
                     <StockInputCell 
                       value={data.ef} 
-                      onChange={val => updateItemData(item.id, 'ef', val)}
+                      onChange={val => updateItemData(item.id, 'ef', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked}
                     />
 
