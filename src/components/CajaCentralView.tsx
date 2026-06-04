@@ -118,11 +118,23 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
   const totalWithdrawals = useMemo(() => withdrawals.reduce((s, w) => s + w.amount, 0), [withdrawals]);
   const totalPending = useMemo(() => withdrawals.filter(w => !w.arrivalDate).reduce((s, w) => s + w.amount, 0), [withdrawals]);
 
+  // Pendiente de ingreso agrupado por sucursal
+  const pendingByBranch = useMemo(() => {
+    const map: Record<string, number> = {};
+    withdrawals.filter(w => !w.arrivalDate).forEach(w => {
+      map[w.branchId] = (map[w.branchId] || 0) + w.amount;
+    });
+    return Object.entries(map)
+      .map(([branchId, amount]) => ({ branchId, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [withdrawals]);
+
   // ===== ARQUEO =====
   const [arqueoDate, setArqueoDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [pesosCount, setPesosCount] = useState<Record<number, number>>({});
   const [usdCount, setUsdCount] = useState<Record<number, number>>({});
   const [arqueoNotes, setArqueoNotes] = useState('');
+  const [accountingBalance, setAccountingBalance] = useState<string>('');
   const [loadingA, setLoadingA] = useState(false);
   const [savingA, setSavingA] = useState(false);
 
@@ -138,10 +150,12 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         setPesosCount(data.pesos_denominations || {});
         setUsdCount(data.usd_denominations || {});
         setArqueoNotes(data.notes || '');
+        setAccountingBalance(data.accounting_balance != null ? String(data.accounting_balance) : '');
       } else {
         setPesosCount({});
         setUsdCount({});
         setArqueoNotes('');
+        setAccountingBalance('');
       }
     } catch (e) { console.error('Error cargando arqueo:', e); }
     setLoadingA(false);
@@ -151,9 +165,18 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
 
   const totalPesos = useMemo(() => PESOS_DENOMS.reduce((s, d) => s + d * (pesosCount[d] || 0), 0), [pesosCount]);
   const totalUsd = useMemo(() => USD_DENOMS.reduce((s, d) => s + d * (usdCount[d] || 0), 0), [usdCount]);
+  // Diferencia entre arqueo real (pesos) y saldo según contabilidad
+  const accBalanceNum = useMemo(() => accountingBalance === '' ? null : Number(accountingBalance), [accountingBalance]);
+  const difference = useMemo(() => accBalanceNum === null ? null : totalPesos - accBalanceNum, [totalPesos, accBalanceNum]);
+  const hasDifference = difference !== null && Math.abs(difference) > 0.001;
 
   const handleSaveArqueo = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    // Si hay diferencia con el saldo contable, la observación es obligatoria
+    if (hasDifference && !arqueoNotes.trim()) {
+      alert('Hay una diferencia entre el arqueo y el saldo según contabilidad. Es obligatorio cargar una observación/justificación para guardar.');
+      return;
+    }
     setSavingA(true);
     try {
       const { error } = await supabase.from('treasury_cash_count').upsert({
@@ -162,6 +185,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         usd_denominations: usdCount,
         total_pesos: totalPesos,
         total_usd: totalUsd,
+        accounting_balance: accBalanceNum,
         notes: arqueoNotes || null,
         updated_at: new Date().toISOString()
       }, { onConflict: 'date' });
@@ -218,6 +242,21 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
               <p className="text-2xl font-mono font-black text-brand-500 mt-1">{withdrawals.length}</p>
             </div>
           </div>
+
+          {/* Pendiente de ingreso por sucursal */}
+          {pendingByBranch.length > 0 && (
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+              <h3 className="text-xs font-black uppercase text-amber-500 tracking-wider mb-4 flex items-center gap-2"><Building2 size={14} /> Pendiente de Ingreso por Sucursal</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {pendingByBranch.map(p => (
+                  <div key={p.branchId} className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4">
+                    <p className="text-[9px] font-black uppercase text-text-main truncate">{branchName(p.branchId)}</p>
+                    <p className="text-lg font-mono font-black text-amber-500 mt-1">{fmtPesos(p.amount)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Form alta retiro */}
           {!isReadOnly && (
@@ -375,9 +414,40 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                   ))}
                 </div>
                 <div className="mt-4 pt-4 border-t border-border-dim">
-                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Observaciones</label>
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Observaciones {hasDifference && <span className="text-red-500">* (obligatoria por diferencia)</span>}</label>
                   <textarea value={arqueoNotes} disabled={isReadOnly} onChange={(e) => setArqueoNotes(e.target.value)} rows={2}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] text-text-main outline-none mt-1 resize-none" />
+                    className={cn("w-full bg-bg-accent border rounded px-2 py-2 text-[11px] text-text-main outline-none mt-1 resize-none",
+                      hasDifference && !arqueoNotes.trim() ? "border-red-500/60" : "border-border-dim")} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Saldo según contabilidad y diferencia */}
+          {!loadingA && (
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider mb-4 flex items-center gap-2"><Calculator size={15} className="text-brand-500" /> Conciliación de Pesos</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-4">
+                  <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Arqueo Real (Pesos)</p>
+                  <p className="text-xl font-mono font-black text-emerald-500 mt-1">{fmtPesos(totalPesos)}</p>
+                </div>
+                <div className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-4">
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Saldo según Contabilidad</label>
+                  <input type="number" value={accountingBalance} disabled={isReadOnly}
+                    onChange={(e) => setAccountingBalance(e.target.value)} placeholder="0"
+                    className="w-full bg-transparent border-none text-xl font-mono font-black text-text-main outline-none mt-1 p-0" />
+                </div>
+                <div className={cn("border rounded-lg p-4",
+                  difference === null ? "bg-bg-accent/30 border-border-dim/50" :
+                  hasDifference ? "bg-red-500/10 border-red-500/30" : "bg-emerald-500/10 border-emerald-500/30")}>
+                  <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Diferencia</p>
+                  <p className={cn("text-xl font-mono font-black mt-1",
+                    difference === null ? "text-text-dim" : hasDifference ? "text-red-500" : "text-emerald-500")}>
+                    {difference === null ? '—' : (difference > 0 ? '+' : '') + fmtPesos(difference)}
+                  </p>
+                  {hasDifference && <p className="text-[8px] text-red-500 font-bold uppercase mt-1">{difference! > 0 ? 'Sobrante en arqueo' : 'Faltante en arqueo'}</p>}
+                  {difference !== null && !hasDifference && <p className="text-[8px] text-emerald-500 font-bold uppercase mt-1">Sin diferencias</p>}
                 </div>
               </div>
             </div>
