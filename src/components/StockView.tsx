@@ -606,6 +606,8 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 const desvio = cmvReal - data.ventasTeorico;
                 const isSummary = viewMode === 'mes';
                 const isItemLocked = isCurrentWeekClosed(item.id);
+                // La EI solo es editable en la Semana 1 (o vista día). En semanas 2/3/4 viene del EF anterior.
+                const eiEditable = viewMode === 'dia' || (viewMode === 'semana' && getWeekNumber(selectedDate) === 1);
 
                 return (
                   <tr key={item.id} className="hover:bg-bg-accent/50 transition-colors group text-[11px]">
@@ -616,11 +618,11 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       </div>
                     </td>
                     
-                    {/* EI (Editable with default) */}
+                    {/* EI: editable solo en Semana 1; en 2/3/4 viene del EF anterior */}
                     <StockInputCell 
                       value={data.ei} 
                       onChange={val => updateItemData(item.id, 'ei', val, weekTargetDate)}
-                      disabled={isSummary || isItemLocked} 
+                      disabled={isSummary || isItemLocked || !eiEditable} 
                       className="bg-brand-500/5 font-bold"
                     />
 
