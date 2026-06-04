@@ -133,6 +133,8 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
   const [selectedMonth, setSelectedMonth] = useState('2026-05'); // Default back to May 2026
   const [selectedWeek, setSelectedWeek] = useState<number>(1); // 1, 2, 3, or 4
   const [records, setRecords] = useState<HrHourRecord[]>([]);
+  // Presupuesto de la semana por puesto (roleId -> horas), para el total sin duplicar por empleado
+  const [budgetByRole, setBudgetByRole] = useState<Record<string, number>>({});
   const [salaryScale, setSalaryScale] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem('craft_salary_positions') || '[]'); } catch { return []; }
   });
@@ -321,18 +323,22 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           // El presupuesto usa position_id con códigos+turno, pero el nombre (position_name)
           // sí identifica el puesto. Agrupamos por roleId (derivado del nombre), sumando turnos.
           const budgetMap: Record<string, number> = {};
+          const byRole: Record<string, number> = {};
           budgets.forEach((b: any) => {
             const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4'|'week5';
             const planned = Number(b[weekKey] || b.planned_hours || 0);
             const roleId = budgetNameToRoleId(b.position_name);
             if (roleId) {
               budgetMap[roleId] = (budgetMap[roleId] || 0) + planned;
+              byRole[roleId] = (byRole[roleId] || 0) + planned;
             }
             // También guardamos por position_id por compatibilidad
             if (b.position_id) budgetMap[b.position_id] = (budgetMap[b.position_id] || 0) + planned;
           });
+          setBudgetByRole(byRole);
           return budgetMap;
         }
+        setBudgetByRole({});
       } catch(e) { console.error('Error loading budget:', e); }
       return {};
     };
@@ -354,13 +360,16 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           logs.forEach((log: any) => {
             const key = `${log.employee_name}|${log.position_id || log.position}`;
             const posId = log.position_id || log.position || '';
+            // Resolver horas planificadas: probar por posId directo, luego por roleId derivado del nombre/id
+            const roleFromName = budgetNameToRoleId(log.position || '') || budgetNameToRoleId(log.position_id || '');
+            const planned = budgetMap[posId] ?? (roleFromName ? budgetMap[roleFromName] : 0) ?? 0;
             if (!empMap[key]) {
               empMap[key] = {
                 id: key,
                 roleId: posId,
                 roleLabel: log.position || log.position_id,
                 employeeName: log.employee_name,
-                referenceHours: budgetMap[posId] || 0,
+                referenceHours: planned || 0,
                 horasSucursal: 0,
                 definitiveHours: 0,
                 valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale, selectedBranch),
@@ -533,7 +542,8 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
   const currentBranchName = branches.find(b => b.id === selectedBranch)?.name || 'Sucursal';
 
   // Metrics
-  const totalRefHours = records.reduce((sum, r) => sum + r.referenceHours, 0);
+  let totalRefHours = 0;
+  for (const k in budgetByRole) { totalRefHours += budgetByRole[k] || 0; }
   const totalDefHours = records.reduce((sum, r) => sum + r.definitiveHours, 0);
   const [showZeroHours, setShowZeroHours] = useState(false);
   const visibleRecords = showZeroHours ? records : records.filter(r => r.definitiveHours > 0 || r.horasSucursal > 0);
