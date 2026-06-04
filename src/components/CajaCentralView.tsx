@@ -23,6 +23,7 @@ interface Withdrawal {
   amount: number;
   withdrawalDate: string;
   arrivalDate: string | null;
+  shift: string;
   notes: string;
 }
 
@@ -40,7 +41,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loadingW, setLoadingW] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
-  const [newW, setNewW] = useState({ branchId: '', amount: '', withdrawalDate: new Date().toISOString().split('T')[0], arrivalDate: '', notes: '' });
+  const [newW, setNewW] = useState({ branchId: '', amount: '', withdrawalDate: new Date().toISOString().split('T')[0], arrivalDate: '', shift: 'Mañana', notes: '' });
   const [savingW, setSavingW] = useState(false);
 
   const fetchWithdrawals = async () => {
@@ -56,7 +57,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         .order('withdrawal_date', { ascending: false });
       setWithdrawals((data || []).map((r: any) => ({
         id: r.id, branchId: r.branch_id, amount: Number(r.amount) || 0,
-        withdrawalDate: r.withdrawal_date, arrivalDate: r.arrival_date, notes: r.notes || ''
+        withdrawalDate: r.withdrawal_date, arrivalDate: r.arrival_date, shift: r.shift || '', notes: r.notes || ''
       })));
     } catch (e) { console.error('Error cargando retiros:', e); }
     setLoadingW(false);
@@ -76,14 +77,15 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         amount: Number(newW.amount),
         withdrawal_date: newW.withdrawalDate,
         arrival_date: newW.arrivalDate || null,
+        shift: newW.shift || null,
         notes: newW.notes || null
       }).select().single();
       if (error) throw error;
       setWithdrawals(prev => [{
         id: data.id, branchId: data.branch_id, amount: Number(data.amount),
-        withdrawalDate: data.withdrawal_date, arrivalDate: data.arrival_date, notes: data.notes || ''
+        withdrawalDate: data.withdrawal_date, arrivalDate: data.arrival_date, shift: data.shift || '', notes: data.notes || ''
       }, ...prev]);
-      setNewW({ branchId: '', amount: '', withdrawalDate: new Date().toISOString().split('T')[0], arrivalDate: '', notes: '' });
+      setNewW({ branchId: '', amount: '', withdrawalDate: new Date().toISOString().split('T')[0], arrivalDate: '', shift: 'Mañana', notes: '' });
     } catch (err: any) {
       alert('Error al guardar el retiro: ' + (err?.message || 'error desconocido'));
     }
@@ -334,13 +336,21 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
           {!isReadOnly && (
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
               <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-4 flex items-center gap-2"><Plus size={14} /> Cargar Retiro de Sucursal</h3>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                 <div>
                   <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Sucursal</label>
                   <select value={newW.branchId} onChange={(e) => setNewW({ ...newW, branchId: e.target.value })}
                     className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1">
                     <option value="">— Elegir —</option>
                     {operativeBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Turno</label>
+                  <select value={newW.shift} onChange={(e) => setNewW({ ...newW, shift: e.target.value })}
+                    className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1">
+                    <option value="Mañana">Mañana</option>
+                    <option value="Tarde">Tarde</option>
                   </select>
                 </div>
                 <div>
@@ -386,6 +396,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                   <thead>
                     <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim bg-bg-accent/10">
                       <th className="px-4 py-3">Sucursal</th>
+                      <th className="px-4 py-3">Turno</th>
                       <th className="px-4 py-3 text-right">Monto</th>
                       <th className="px-4 py-3">Fecha Retiro</th>
                       <th className="px-4 py-3">Ingreso a Caja</th>
@@ -397,6 +408,11 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                     {withdrawals.map(w => (
                       <tr key={w.id} className="text-[11px] font-medium hover:bg-bg-accent/20 group">
                         <td className="px-4 py-2.5 font-black uppercase text-text-main flex items-center gap-1.5"><Building2 size={12} className="text-text-dim" />{branchName(w.branchId)}</td>
+                        <td className="px-4 py-2.5">
+                          {w.shift
+                            ? <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded", w.shift === 'Mañana' ? "text-amber-500 bg-amber-500/10" : "text-indigo-500 bg-indigo-500/10")}>{w.shift}</span>
+                            : <span className="text-text-dim text-[9px]">—</span>}
+                        </td>
                         <td className="px-4 py-2.5 text-right font-mono font-black text-text-main">{fmtPesos(w.amount)}</td>
                         <td className="px-4 py-2.5 font-mono text-text-dim">{w.withdrawalDate.split('-').reverse().join('/')}</td>
                         <td className="px-4 py-2.5">
