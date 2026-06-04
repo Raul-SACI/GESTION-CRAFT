@@ -56,23 +56,47 @@ const POSITIONS = [
   { id: 'bacha', label: 'Bacha', refHours: 40 },
 ];
 
-function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[]): number {
+// Mapea cada rol genérico operativo al título exacto del Maestro de Personal.
+// El encargado depende de la sucursal: Barrio Norte (bn) = Nivel A, resto = Nivel B.
+function getMaestroTitleForRole(roleId: string, branchId?: string): string | null {
+  if (roleId === 'encargado') {
+    return branchId === 'bn' ? 'ENCARGADO LOCAL NIVEL A' : 'ENCARGADO LOCAL NIVEL B';
+  }
+  const map: Record<string, string> = {
+    jefe_cocina: 'JEFE DE COCINA',
+    segundo_cocina: 'SEGUNDO COCINA',
+    cocinero: 'COCINERO',
+    caja: 'CAJERO',
+    barra: 'BARRA',
+    mozos: 'MOZOS',
+    runners: 'RUNNER',
+    bacha: 'BACHERO'
+  };
+  return map[roleId] || null;
+}
+
+function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string): number {
   let positions: any[] = scale && scale.length > 0 ? scale : [];
   if (positions.length === 0) {
     const saved = localStorage.getItem('craft_salary_positions');
     if (saved) { try { positions = JSON.parse(saved); } catch (e) { positions = []; } }
   }
+
+  const rateFromPosition = (p: any): number => {
+    if (p.type === 'monthly') return (p.baseValue || 0) / 240;
+    return p.baseValue || 0;
+  };
+
   if (positions.length > 0) {
-    const exactTitle = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-    if (exactTitle) {
-      if (exactTitle.type === 'monthly') return exactTitle.baseValue / 240;
-      return exactTitle.baseValue;
+    // 1) Mapeo explícito rol -> título del Maestro (la forma correcta y robusta)
+    const mappedTitle = getMaestroTitleForRole(roleId, branchId);
+    if (mappedTitle) {
+      const byMap = positions.find((p: any) => (p.title || '').toUpperCase().trim() === mappedTitle.toUpperCase().trim());
+      if (byMap) return rateFromPosition(byMap);
     }
-    const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-    if (approx) {
-      if (approx.type === 'monthly') return approx.baseValue / 240;
-      return approx.baseValue;
-    }
+    // 2) Match exacto por label (por si el integrante tiene el título textual)
+    const exactTitle = positions.find((p: any) => (p.title || '').toLowerCase().trim() === (roleLabel || '').toLowerCase().trim());
+    if (exactTitle) return rateFromPosition(exactTitle);
   }
 
   const defaultRates: Record<string, number> = {
@@ -164,9 +188,9 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
     if (salaryScale.length === 0) return;
     setRecords(prev => prev.map(r => ({
       ...r,
-      valorHora: getPositionRateFromMaestro(r.roleId, r.roleLabel, salaryScale)
+      valorHora: getPositionRateFromMaestro(r.roleId, r.roleLabel, salaryScale, selectedBranch)
     })));
-  }, [salaryScale]);
+  }, [salaryScale, selectedBranch]);
 
   useEffect(() => {
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
@@ -250,7 +274,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
         // Use saved definitive hours if exist, otherwise 0 (don't invent data)
         const definitiveHours = existing ? existing.definitiveHours : 0;
 
-        const rate = getPositionRateFromMaestro(p.id, p.label, salaryScale);
+        const rate = getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch);
 
         return {
           id: p.id,
@@ -319,7 +343,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
                 referenceHours: budgetMap[posId] || 0,
                 horasSucursal: 0,
                 definitiveHours: 0,
-                valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale),
+                valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale, selectedBranch),
                 status: 'pending',
                 notes: ''
               };
@@ -370,7 +394,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
             referenceHours: plannedFromBudget || p.refHours,
             horasSucursal: dailySum,
             definitiveHours: existing ? existing.definitiveHours : 0,
-            valorHora: getPositionRateFromMaestro(p.id, p.label, salaryScale),
+            valorHora: getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch),
             status: existing ? existing.status : 'pending',
             notes: existing ? existing.notes : ''
           };
