@@ -539,9 +539,16 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
           <div className="flex items-center gap-2 bg-bg-sidebar border border-border-dim rounded px-3 py-1.5 shadow-inner">
             <CalendarDays size={14} className="text-brand-500" />
             <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
+              type="month" 
+              value={selectedDate.substring(0, 7)}
+              onChange={(e) => {
+                const newMonth = e.target.value; // YYYY-MM
+                if (!newMonth) return;
+                // Mantener la semana activa: usar el día de inicio de la semana actual en el nuevo mes
+                const currentDay = selectedDate.substring(8, 10);
+                const weekDay = ['01', '08', '15', '22'].includes(currentDay) ? currentDay : '01';
+                setSelectedDate(`${newMonth}-${weekDay}`);
+              }}
               className="bg-transparent text-[10px] font-black text-text-main outline-none uppercase font-mono"
             />
           </div>
