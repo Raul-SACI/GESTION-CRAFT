@@ -78,6 +78,7 @@ import { supabase, realSupabaseClient, isMissingCredentials } from './lib/supaba
 
 // Lazy load views for better performance
 const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'));
+const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
@@ -503,7 +504,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
-    'ventas'
+    'ventas', 'caja_central'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -558,6 +559,9 @@ function AppContent() {
       { id: 'cronograma_pagos', label: 'Cronograma de Pagos', icon: Calendar },
       { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', icon: BarChart3 },
     ],
+    'Tesorería': [
+      { id: 'caja_central', label: 'Caja Central', icon: Landmark },
+    ],
     'Administración': [
       { id: 'ventas', label: 'Ventas', icon: TrendingUp },
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
@@ -589,6 +593,7 @@ function AppContent() {
         // Map icons back because they are not serializable
         const iconMap: Record<string, any> = {
           socios_dashboard: Landmark,
+          caja_central: Landmark,
           dashboard: LayoutDashboard,
           stock: Package,
           vajilla: Utensils,
@@ -1359,6 +1364,9 @@ function AppContent() {
             <AnimatePresence mode="wait">
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
+              )}
+              {activeTab === 'caja_central' && (
+                <CajaCentralView branches={branches} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'dashboard' && (
                 <EncargadoDashboardView 
