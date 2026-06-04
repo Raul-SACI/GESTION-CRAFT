@@ -51,6 +51,8 @@ const SYSTEM_MODULES = [
   { id: 'tax_liabilities', label: 'Pasivos Fiscales', category: 'Finanzas' },
   { id: 'cronograma_pagos', label: 'Cronograma de Pagos', category: 'Finanzas' },
   { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', category: 'Finanzas' },
+  { id: 'caja_central', label: 'Caja Central', category: 'Tesorería' },
+  { id: 'recordatorios_pago', label: 'Recordatorios de Pago', category: 'Tesorería' },
   { id: 'ventas', label: 'Ventas Diarias', category: 'Administración' },
   { id: 'consumo', label: 'CMV Mensual Sucursal', category: 'Administración' },
   { id: 'control_desvios', label: 'Control de Desvíos', category: 'Administración' },
