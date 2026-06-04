@@ -75,6 +75,21 @@ function getMaestroTitleForRole(roleId: string, branchId?: string): string | nul
   return map[roleId] || null;
 }
 
+// Normaliza el nombre de puesto del presupuesto (position_name) a un roleId genérico.
+function budgetNameToRoleId(name: string): string | null {
+  const n = (name || '').toLowerCase().trim();
+  if (n.includes('encargado')) return 'encargado';
+  if (n.includes('lider de cocina') || n.includes('líder de cocina') || n.includes('jefe de cocina') || n.includes('jefe cocina')) return 'jefe_cocina';
+  if (n.includes('segundo')) return 'segundo_cocina';
+  if (n.includes('cocinero') || n === 'cocina') return 'cocinero';
+  if (n.includes('cajero') || n.includes('caja')) return 'caja';
+  if (n.includes('barra') || n.includes('bartender')) return 'barra';
+  if (n.includes('runner')) return 'runners';
+  if (n.includes('bachero') || n.includes('bacha')) return 'bacha';
+  if (n.includes('mozo')) return 'mozos';
+  return null;
+}
+
 function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string): number {
   let positions: any[] = scale && scale.length > 0 ? scale : [];
   if (positions.length === 0) {
@@ -303,13 +318,18 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           .eq('status', 'approved'); // Only use approved budgets
 
         if (budgets && budgets.length > 0) {
-          // Build budget map by position_id
+          // El presupuesto usa position_id con códigos+turno, pero el nombre (position_name)
+          // sí identifica el puesto. Agrupamos por roleId (derivado del nombre), sumando turnos.
           const budgetMap: Record<string, number> = {};
           budgets.forEach((b: any) => {
             const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4'|'week5';
-            const planned = b[weekKey] || b.planned_hours || 0;
-            const posId = b.position_id;
-            budgetMap[posId] = (budgetMap[posId] || 0) + Number(planned);
+            const planned = Number(b[weekKey] || b.planned_hours || 0);
+            const roleId = budgetNameToRoleId(b.position_name);
+            if (roleId) {
+              budgetMap[roleId] = (budgetMap[roleId] || 0) + planned;
+            }
+            // También guardamos por position_id por compatibilidad
+            if (b.position_id) budgetMap[b.position_id] = (budgetMap[b.position_id] || 0) + planned;
           });
           return budgetMap;
         }
