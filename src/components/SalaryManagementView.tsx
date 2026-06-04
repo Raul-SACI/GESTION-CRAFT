@@ -357,7 +357,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
 
   const filteredEmployees = employees.filter(emp => {
     const matchesSearch = empSearch === '' || 
-      emp.name.toUpperCase().includes(empSearch.toUpperCase());
+      (emp.name || '').toUpperCase().includes(empSearch.toUpperCase());
     const matchesBranch = empBranchFilter === 'all' || emp.branchId === empBranchFilter;
     return matchesSearch && matchesBranch;
   });
@@ -523,8 +523,8 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
       // Check if item matches scope filters
       const matchesType = batchScopeType === 'all' || pos.type === batchScopeType;
       
-      const uniqueAreas = Array.from(new Set(prev.map(p => p.area.toUpperCase())));
-      const matchesArea = batchScopeArea === 'all' || pos.area.toUpperCase() === batchScopeArea.toUpperCase();
+      const uniqueAreas = Array.from(new Set(prev.map(p => (p.area || '').toUpperCase())));
+      const matchesArea = batchScopeArea === 'all' || (pos.area || '').toUpperCase() === batchScopeArea.toUpperCase();
       
       if (!matchesType || !matchesArea) return pos;
       
@@ -710,15 +710,15 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
   };
 
   // Derived autocomplete suggestion values
-  const uniqueAreas: string[] = Array.from(new Set<string>(positions.map(p => p.area.trim().toUpperCase()))).filter(Boolean);
-  const uniqueSectors: string[] = Array.from(new Set<string>(positions.map(p => p.sector.trim().toUpperCase()))).filter(Boolean);
-  const uniqueTitles: string[] = Array.from(new Set<string>(positions.map(p => p.title.trim().toUpperCase()))).filter(Boolean);
+  const uniqueAreas: string[] = Array.from(new Set<string>(positions.map(p => (p.area || '').trim().toUpperCase()))).filter(Boolean);
+  const uniqueSectors: string[] = Array.from(new Set<string>(positions.map(p => (p.sector || '').trim().toUpperCase()))).filter(Boolean);
+  const uniqueTitles: string[] = Array.from(new Set<string>(positions.map(p => (p.title || '').trim().toUpperCase()))).filter(Boolean);
 
   const filteredPositions = positions.filter(p => {
     return (
-      (filters.area === '' || p.area.toUpperCase().includes(filters.area.toUpperCase())) &&
-      (filters.sector === '' || p.sector.toUpperCase().includes(filters.sector.toUpperCase())) &&
-      (filters.title === '' || p.title.toUpperCase().includes(filters.title.toUpperCase()))
+      (filters.area === '' || (p.area || '').toUpperCase().includes(filters.area.toUpperCase())) &&
+      (filters.sector === '' || (p.sector || '').toUpperCase().includes(filters.sector.toUpperCase())) &&
+      (filters.title === '' || (p.title || '').toUpperCase().includes(filters.title.toUpperCase()))
     );
   });
 
@@ -726,7 +726,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
   const chartDataSummary = selectedPosition?.history || [];
 
   // Areas available for filtering inside batch action
-  const uniqueAreasList = Array.from(new Set(positions.map(p => p.area.toUpperCase())));
+  const uniqueAreasList = Array.from(new Set(positions.map(p => (p.area || '').toUpperCase())));
 
   // Math calculated metrics
   const hourlyWages = positions.filter(p => p.type === 'hourly');
@@ -1670,7 +1670,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                           {positions
                             .filter(pos => {
                               const matchesType = batchScopeType === 'all' || pos.type === batchScopeType;
-                              const matchesArea = batchScopeArea === 'all' || pos.area.toUpperCase() === batchScopeArea.toUpperCase();
+                              const matchesArea = batchScopeArea === 'all' || (pos.area || '').toUpperCase() === batchScopeArea.toUpperCase();
                               return matchesType && matchesArea;
                             })
                             .map(pos => (
