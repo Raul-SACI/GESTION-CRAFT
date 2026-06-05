@@ -1141,13 +1141,6 @@ export default function EncargadoDashboardView({
             </div>
           </div>
 
-          {/* Planta de Personal en Planta (Sólo Lectura) */}
-          <ReadOnlyPlantaView 
-            selectedBranchId={selectedBranchId}
-            branches={branches}
-            selectedMonth={selectedMonth}
-          />
-
           {/* Social Reputación & Canales Delivery */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg shadow-xl p-6">
             <h3 className="text-xs font-black uppercase text-text-main tracking-wider border-b border-border-dim pb-4 mb-4 flex items-center gap-2">
@@ -1302,6 +1295,13 @@ export default function EncargadoDashboardView({
         </div>
 
       </div>
+
+      {/* Distribución de Planta (Sólo Lectura) - ancho completo */}
+      <ReadOnlyPlantaView 
+        selectedBranchId={selectedBranchId}
+        branches={branches}
+        selectedMonth={selectedMonth}
+      />
 
       <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
 
