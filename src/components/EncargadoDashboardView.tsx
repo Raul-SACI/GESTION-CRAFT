@@ -541,6 +541,30 @@ export default function EncargadoDashboardView({
     });
   }, [hourBudgetRows, weeklyHoursLogs, selectedMonth]);
 
+  // Agrupar por puesto (unifica turnos mañana/tarde en una sola fila) y redondear
+  const positionHoursGrouped = useMemo(() => {
+    const map: Record<string, { positionName: string; budgeted: number; worked: number }> = {};
+    positionHoursBreakdown.forEach(item => {
+      const role = normalizeRole(item.positionName || item.positionId || '');
+      if (!map[role]) {
+        map[role] = { positionName: item.positionName, budgeted: 0, worked: 0 };
+      }
+      map[role].budgeted += item.budgeted;
+      map[role].worked += item.worked; // worked ya viene sin duplicar (solo 1 fila del rol lo trae)
+    });
+    return Object.values(map).map(r => {
+      const budgeted = Math.round(r.budgeted * 10) / 10;
+      const worked = Math.round(r.worked * 10) / 10;
+      return {
+        positionName: r.positionName,
+        budgeted,
+        worked,
+        remaining: Math.round((budgeted - worked) * 10) / 10,
+        percent: budgeted > 0 ? (worked / budgeted) * 100 : 0
+      };
+    }).sort((a, b) => a.positionName.localeCompare(b.positionName));
+  }, [positionHoursBreakdown]);
+
   const totalHourBudget = useMemo(() => {
     return positionHoursBreakdown.reduce((sum, item) => sum + item.budgeted, 0);
   }, [positionHoursBreakdown]);
@@ -1074,10 +1098,10 @@ export default function EncargadoDashboardView({
             </div>
 
             <div className="space-y-4">
-              {positionHoursBreakdown.map((item) => {
+              {positionHoursGrouped.map((item, idx) => {
                 const isOver = item.worked > item.budgeted;
                 return (
-                  <div key={item.positionId} className="space-y-1 bg-bg-accent/20 p-3 rounded border border-border-dim/40 hover:border-brand-500/20 transition-all">
+                  <div key={item.positionName + idx} className="space-y-1 bg-bg-accent/20 p-3 rounded border border-border-dim/40 hover:border-brand-500/20 transition-all">
                     <div className="flex justify-between items-baseline">
                       <span className="text-[10px] font-black text-text-main uppercase tracking-tight">{item.positionName}</span>
                       <div className="text-right font-mono text-[9px] font-bold">
