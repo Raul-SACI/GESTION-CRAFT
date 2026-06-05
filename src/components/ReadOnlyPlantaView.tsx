@@ -425,10 +425,10 @@ export default function ReadOnlyPlantaView({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
             {/* Floor Map Layout */}
-            <div className="xl:col-span-2 bg-[#0c0c0c] border border-border-dim/80 rounded-xl p-4 flex items-center justify-center relative overflow-hidden shadow-2xl h-[360px]">
-              <svg className="w-full h-full" viewBox="0 0 600 350" fill="none">
+            <div className="xl:col-span-3 bg-[#0c0c0c] border border-border-dim/80 rounded-xl p-4 flex items-center justify-center relative overflow-hidden shadow-2xl h-[520px]">
+              <svg className="w-full h-full" viewBox="0 0 600 350" fill="none" preserveAspectRatio="xMidYMid meet">
                 <defs>
                   <pattern id="dotGridMapReadOnly" width="20" height="20" patternUnits="userSpaceOnUse">
                     <circle cx="2" cy="2" r="1" fill="#1f1f1f" />
@@ -710,7 +710,7 @@ export default function ReadOnlyPlantaView({
 
             {/* Sidebar with Selected Room breakdown */}
             <div className="space-y-4">
-              <div className="bg-bg-main border border-border-dim p-4 rounded-xl shadow-xl space-y-4 h-[360px] flex flex-col justify-between overflow-hidden">
+              <div className="bg-bg-main border border-border-dim p-4 rounded-xl shadow-xl space-y-4 h-[520px] flex flex-col justify-between overflow-hidden">
                 <div className="space-y-3 flex-1 overflow-y-auto pr-1">
                   <div className="flex items-center justify-between border-b border-border-dimpb-2 pb-2">
                     <h4 className="text-[10px] font-black uppercase text-text-main tracking-widest flex items-center gap-1.5 select-none">
