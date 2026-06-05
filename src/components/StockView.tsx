@@ -50,6 +50,8 @@ export default function StockView({
   isReadOnly?: boolean
 }) {
   const activeBranch = branches.find(b => b.id === selectedBranchId);
+  // El Centro de Producción / Almacén no vende: no aplica "Ventas Teóricas" y todos los campos son editables
+  const isAlmacen = selectedBranchId === 'n4ncoary3' || /almac/i.test(activeBranch?.name || '');
   const isAdmin = userRole === 'dueño' || userRole === 'administrativo';
   const isEncargado = !isAdmin;
 
@@ -572,7 +574,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">P. Enviados</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-orange-500/5">Consumo Pers.</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
-                <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>
+                {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>
                 <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest border-l border-border-dim/20">DESVÍO</th>
@@ -614,7 +616,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 const isSummary = viewMode === 'mes';
                 const isItemLocked = isCurrentWeekClosed(item.id);
                 // La EI solo es editable en la Semana 1 (o vista día). En semanas 2/3/4 viene del EF anterior.
-                const eiEditable = viewMode === 'dia' || (viewMode === 'semana' && getWeekNumber(selectedDate) === 1);
+                const eiEditable = isAlmacen || viewMode === 'dia' || (viewMode === 'semana' && getWeekNumber(selectedDate) === 1);
 
                 return (
                   <tr key={item.id} className="hover:bg-bg-accent/50 transition-colors group text-[11px]">
@@ -671,12 +673,14 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       disabled={isSummary || isItemLocked}
                     />
 
-                    {/* Ventas Teo (Read-only in this view) */}
-                    <StockInputCell 
-                      value={data.ventasTeorico} 
-                      onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
-                      disabled={true}
-                    />
+                    {/* Ventas Teo (Read-only in this view) - no aplica al almacén */}
+                    {!isAlmacen && (
+                      <StockInputCell 
+                        value={data.ventasTeorico} 
+                        onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
+                        disabled={true}
+                      />
+                    )}
 
                     {/* Decomisos (Read-only in this view) */}
                     <StockInputCell 
