@@ -80,6 +80,7 @@ import { supabase, realSupabaseClient, isMissingCredentials } from './lib/supaba
 const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'));
 const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
 const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
+const TasksView = lazy(() => import('./components/TasksView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
@@ -505,7 +506,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
-    'ventas', 'caja_central', 'recordatorios_pago'
+    'ventas', 'caja_central', 'recordatorios_pago', 'tareas'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -530,6 +531,7 @@ function AppContent() {
       { id: 'socios_dashboard', label: 'Dashboard de Socios', icon: Landmark }
     ],
     'Gestión Sucursal': [
+      { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck },
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'stock', label: 'Control Stock', icon: Package },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
@@ -598,6 +600,7 @@ function AppContent() {
           caja_central: Landmark,
           recordatorios_pago: Bell,
           dashboard: LayoutDashboard,
+          tareas: ClipboardCheck,
           stock: Package,
           vajilla: Utensils,
           horas: Clock,
@@ -1357,6 +1360,14 @@ function AppContent() {
             <AnimatePresence mode="wait">
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
+              )}
+              {activeTab === 'tareas' && (
+                <TasksView
+                  branches={branches}
+                  currentUser={{ ...currentUser, branchId: currentUserBranchId }}
+                  isReadOnly={isCurrentTabReadOnly}
+                  canCreate={currentUser.role === 'administrador' || currentUser.role === 'dueño' || (currentUser.modulePermissions as any)?.tareas === 'edit'}
+                />
               )}
               {activeTab === 'caja_central' && (
                 <CajaCentralView branches={branches} isReadOnly={isCurrentTabReadOnly} />

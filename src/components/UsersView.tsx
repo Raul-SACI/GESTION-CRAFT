@@ -50,6 +50,7 @@ const SYSTEM_MODULES = [
   { id: 'bank_liabilities', label: 'Pasivos Bancarios', category: 'Finanzas' },
   { id: 'tax_liabilities', label: 'Pasivos Fiscales', category: 'Finanzas' },
   { id: 'cronograma_pagos', label: 'Cronograma de Pagos', category: 'Finanzas' },
+  { id: 'tareas', label: 'Tareas Pendientes', category: 'Gestión Sucursal' },
   { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', category: 'Finanzas' },
   { id: 'caja_central', label: 'Caja Central', category: 'Tesorería' },
   { id: 'recordatorios_pago', label: 'Recordatorios de Pago', category: 'Tesorería' },
