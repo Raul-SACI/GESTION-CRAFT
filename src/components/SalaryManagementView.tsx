@@ -92,7 +92,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
       history: p.history || []
     }));
     supabase.from('salary_positions').upsert(rows).then(({ error }) => {
-      if (error) console.error('Error guardando salary_positions:', error.message);
+      if (error) { console.error('Error guardando salary_positions:', error.message); alert('Error al guardar la escala salarial: ' + error.message); }
     });
   }, [positions]);
 
@@ -641,8 +641,23 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
         };
       });
 
-      setPositions([...positions, ...importedPositions]);
-      alert('Se importaron los puestos correctamente desde Excel.');
+      // Merge por título: actualiza el puesto existente (incl. valor anterior) o agrega si es nuevo
+      setPositions(prev => {
+        const byTitle: Record<string, SalaryPosition> = {};
+        prev.forEach(p => { byTitle[(p.title || '').toUpperCase().trim()] = p; });
+        importedPositions.forEach(imp => {
+          const key = (imp.title || '').toUpperCase().trim();
+          const existing = byTitle[key];
+          if (existing) {
+            // Conservar el id existente, actualizar valores (incluido prev_base_value)
+            byTitle[key] = { ...existing, ...imp, id: existing.id };
+          } else {
+            byTitle[key] = imp;
+          }
+        });
+        return Object.values(byTitle);
+      });
+      alert('Se importaron los puestos correctamente desde Excel (incluido el valor anterior).');
     };
     reader.readAsBinaryString(file);
   };
