@@ -46,6 +46,22 @@ interface EncargadoDashboardProps {
   onNavigateToTab?: (tabId: string) => void;
 }
 
+// Normaliza un nombre/rol de puesto a un identificador genérico, para cruzar
+// el presupuesto (nombres como "MOZOS") con las horas reales (roles como "mozos").
+function normalizeRole(value: string): string {
+  const n = (value || '').toLowerCase().trim();
+  if (n.includes('encargado')) return 'encargado';
+  if (n.includes('lider de cocina') || n.includes('líder de cocina') || n.includes('jefe de cocina') || n.includes('jefe cocina') || n.includes('jefe_cocina')) return 'jefe_cocina';
+  if (n.includes('segundo')) return 'segundo_cocina';
+  if (n.includes('cocinero') || n === 'cocina') return 'cocinero';
+  if (n.includes('cajero') || n.includes('caja')) return 'caja';
+  if (n.includes('barra') || n.includes('bartender')) return 'barra';
+  if (n.includes('runner')) return 'runners';
+  if (n.includes('bachero') || n.includes('bacha')) return 'bacha';
+  if (n.includes('mozo')) return 'mozos';
+  return n;
+}
+
 export default function EncargadoDashboardView({ 
   selectedBranchId, 
   branches, 
@@ -257,9 +273,9 @@ export default function EncargadoDashboardView({
         setHourBudgetRows([]);
       }
 
-      // Cargar horas reales RRHH desde Supabase
+      // Cargar horas reales RRHH desde Supabase (hour_logs = horas cargadas por el encargado)
       const { data: hoursData } = await supabase
-        .from('hr_hour_logs')
+        .from('hour_logs')
         .select('*')
         .eq('branch_id', branchKey)
         .eq('month', month);
@@ -457,6 +473,7 @@ export default function EncargadoDashboardView({
 
   // 2. HR Hours calculations
   const positionHoursBreakdown = useMemo(() => {
+    const countedRoles = new Set<string>(); // para no duplicar el consumo entre filas del mismo rol (mañana/tarde)
     return hourBudgetRows.map(row => {
       const positionId = row.roleId || row.positionId;
       const positionName = row.roleLabel || row.positionName;
@@ -490,19 +507,21 @@ export default function EncargadoDashboardView({
         }
       }
 
-      // calculate actually worked hours from w1-w4
+      // calculate actually worked hours from w1-w4 (hour_logs: hours_actual)
+      const targetRole = normalizeRole(positionName || positionId || '');
       let actualHours = 0;
-      for (let w = 1; w <= 4; w++) {
-        const weekEntries = weeklyHoursLogs[`w${w}`] || [];
-        // find matching records for this job id or name template
-        const match = weekEntries.find((ent: any) => 
-          (positionId && ent.positionId === positionId) || 
-          (positionName && ent.positionName === positionName) || 
-          (positionName && ent.name === positionName)
-        );
-        if (match) {
-          actualHours += (match.definitiveHours !== undefined ? Number(match.definitiveHours) : (match.referenceHours || 0));
+      // El consumo es por rol; si ya lo contamos en una fila previa (otro turno del mismo puesto), no duplicar
+      if (!countedRoles.has(targetRole)) {
+        for (let w = 1; w <= 4; w++) {
+          const weekEntries = weeklyHoursLogs[`w${w}`] || [];
+          weekEntries.forEach((ent: any) => {
+            const entRole = normalizeRole(ent.position || ent.position_id || ent.positionName || ent.positionId || '');
+            if (entRole === targetRole) {
+              actualHours += Number(ent.hours_actual ?? ent.definitiveHours ?? ent.hours ?? 0);
+            }
+          });
         }
+        countedRoles.add(targetRole);
       }
 
       // No mock data - show real 0 if no hours loaded
@@ -567,7 +586,7 @@ export default function EncargadoDashboardView({
       Object.values(weeklyHoursLogs).forEach((weekLogs: any) => {
         if (Array.isArray(weekLogs)) {
           weekLogs.forEach((log: any) => {
-            totalActual += Number(log.hours_rrhh || log.hoursRrhh || log.hoursActual || 0);
+            totalActual += Number(log.hours_actual ?? log.hours_rrhh ?? log.hoursRrhh ?? log.hoursActual ?? 0);
           });
         }
       });
