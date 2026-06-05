@@ -1328,16 +1328,6 @@ function AppContent() {
               {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
               <span className="text-[10px] font-bold uppercase hidden sm:inline">{isDarkMode ? 'Claro' : 'Oscuro'}</span>
             </button>
-
-            <div className="bg-red-500/10 text-red-500 px-3 py-1 rounded border border-red-500/20 hidden lg:flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-              <span className="text-[11px] font-bold uppercase">2 Alertas Críticas</span>
-            </div>
-            {!['finanzas_estimado', 'cronograma_pagos', 'finanzas_mensual'].includes(activeTab) && (
-              <button className="bg-brand-500 text-black font-bold text-xs px-4 py-2 rounded hover:bg-brand-600 transition-colors">
-                CARGA RÁPIDA
-              </button>
-            )}
           </div>
         </header>
 
