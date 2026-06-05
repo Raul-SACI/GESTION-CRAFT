@@ -63,6 +63,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [completions, setCompletions] = useState<Record<string, Set<string>>>({}); // taskId -> set de fechas completadas
+  const [autoTasks, setAutoTasks] = useState<Array<{ id: string; description: string; detail: string; branchId: string; severity: 'overdue' | 'today' }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'today' | 'pending' | 'done' | 'all'>('today');
@@ -97,6 +98,91 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   };
 
   useEffect(() => { fetchTasks(); }, []);
+
+  // === Tareas automáticas (calculadas de otros módulos) ===
+  const fetchAutoTasks = async () => {
+    try {
+      const today = todayStr();
+      const month = today.slice(0, 7);
+      const [y, m] = month.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      const auto: Array<{ id: string; description: string; detail: string; branchId: string; severity: 'overdue' | 'today' }> = [];
+
+      // Sucursales a chequear (según alcance del usuario)
+      const branchesToCheck = isAdmin || currentUser.accessScope === 'all_branches'
+        ? operativeBranches
+        : operativeBranches.filter(b => b.id === currentUser.branchId);
+
+      // 1. Días sin carga de horas (del mes, hasta hoy) por sucursal
+      const { data: hourRows } = await supabase
+        .from('hour_logs').select('branch_id, date')
+        .gte('date', `${month}-01`).lte('date', `${month}-${String(lastDay).padStart(2, '0')}`);
+      const loggedByBranch: Record<string, Set<string>> = {};
+      (hourRows || []).forEach((r: any) => {
+        if (!loggedByBranch[r.branch_id]) loggedByBranch[r.branch_id] = new Set();
+        loggedByBranch[r.branch_id].add(r.date);
+      });
+      const limitDay = new Date().getDate();
+      branchesToCheck.forEach(b => {
+        const logged = loggedByBranch[b.id] || new Set();
+        const missing: string[] = [];
+        for (let d = 1; d <= limitDay; d++) {
+          const ds = `${month}-${String(d).padStart(2, '0')}`;
+          if (!logged.has(ds)) missing.push(String(d));
+        }
+        if (missing.length > 0) {
+          auto.push({
+            id: `auto-horas-${b.id}`,
+            description: `Cargar horas (${b.name})`,
+            detail: `Faltan ${missing.length} día(s): ${missing.join(', ')}`,
+            branchId: b.id,
+            severity: 'overdue'
+          });
+        }
+      });
+
+      // 2. Arqueo de caja central de hoy sin cargar (solo admin/tesorería - lo mostramos a quienes ven todas)
+      if (isAdmin || currentUser.accessScope === 'all_branches') {
+        const { data: arqueo } = await supabase.from('treasury_cash_count').select('date').eq('date', today).maybeSingle();
+        if (!arqueo) {
+          auto.push({ id: 'auto-arqueo', description: 'Cargar arqueo de Caja Central', detail: 'No se registró el arqueo de hoy', branchId: 'all', severity: 'today' });
+        }
+      }
+
+      // 3. Supervisiones vencidas/pendientes por sucursal
+      const { data: scheds } = await supabase.from('supervision_schedules').select('checklist_id, branch_id, frequency, start_date');
+      const { data: resps } = await supabase.from('supervision_responses').select('branch_id, date, checklist_id');
+      const freqDays: Record<string, number> = { semanal: 7, quincenal: 15, mensual: 30 };
+      (scheds || []).forEach((sch: any) => {
+        if (!branchesToCheck.find(b => b.id === sch.branch_id)) return;
+        const days = freqDays[sch.frequency] || 7;
+        const matching = (resps || [])
+          .filter((r: any) => r.branch_id === sch.branch_id && r.checklist_id === sch.checklist_id)
+          .sort((a: any, b: any) => (b.date || '').localeCompare(a.date || ''));
+        const last = matching[0];
+        const branchNm = branches.find(b => b.id === sch.branch_id)?.name || sch.branch_id;
+        const todayD = new Date(today + 'T12:00:00');
+        if (!last) {
+          if (sch.start_date) {
+            const due = new Date(sch.start_date + 'T12:00:00'); due.setDate(due.getDate() + days);
+            if (todayD.getTime() >= due.getTime()) {
+              auto.push({ id: `auto-sup-${sch.checklist_id}-${sch.branch_id}`, description: `Supervisión pendiente (${branchNm})`, detail: 'Vencida / nunca realizada', branchId: sch.branch_id, severity: 'overdue' });
+            }
+          }
+        } else {
+          const lastD = new Date(last.date + 'T12:00:00');
+          const diff = Math.floor((todayD.getTime() - lastD.getTime()) / (1000 * 60 * 60 * 24));
+          if (diff > days) {
+            auto.push({ id: `auto-sup-${sch.checklist_id}-${sch.branch_id}`, description: `Supervisión vencida (${branchNm})`, detail: `Hace ${diff} días`, branchId: sch.branch_id, severity: 'overdue' });
+          }
+        }
+      });
+
+      setAutoTasks(auto);
+    } catch (e) { console.error('Error calculando tareas automáticas:', e); }
+  };
+
+  useEffect(() => { fetchAutoTasks(); }, [currentUser, branches]);
 
   const isAdmin = currentUser.role === 'administrador' || currentUser.role === 'dueño';
 
@@ -331,7 +417,37 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
         ))}
       </div>
 
-      {/* Lista de tareas */}
+      {/* Tareas automáticas del sistema */}
+      {autoTasks.length > 0 && filter !== 'done' && (
+        <div className="bg-bg-sidebar border border-amber-500/30 rounded-xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-2">
+            <Bot size={14} className="text-amber-500" />
+            <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">Tareas del Sistema ({autoTasks.length})</span>
+            <span className="text-[8px] font-bold uppercase text-text-dim ml-auto">Se completan al hacer la acción</span>
+          </div>
+          <div className="divide-y divide-border-dim/40">
+            {autoTasks.map(a => (
+              <div key={a.id} className="flex items-center gap-4 px-4 py-3">
+                <div className={cn("shrink-0 w-6 h-6 rounded-full flex items-center justify-center", a.severity === 'overdue' ? "bg-red-500/10" : "bg-amber-500/10")}>
+                  {a.severity === 'overdue' ? <AlertCircle size={14} className="text-red-500" /> : <Clock size={14} className="text-amber-500" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Bot size={11} className="text-amber-500 shrink-0" />
+                    <p className="text-[12px] font-black uppercase text-text-main truncate">{a.description}</p>
+                  </div>
+                  <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{a.detail}</p>
+                </div>
+                <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded shrink-0", a.severity === 'overdue' ? "text-red-500 bg-red-500/10" : "text-amber-500 bg-amber-500/10")}>
+                  {a.severity === 'overdue' ? 'Pendiente' : 'Hoy'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lista de tareas manuales */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
         {loading ? (
           <div className="py-16 flex items-center justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>

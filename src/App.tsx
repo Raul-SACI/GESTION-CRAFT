@@ -527,11 +527,13 @@ function AppContent() {
   // Sidebar Customization State
   const [isReorderingMode, setIsReorderingMode] = useState(false);
   const [menuConfig, setMenuConfig] = useState<Record<string, MenuItem[]>>({
+    'Agenda Personal': [
+      { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck }
+    ],
     'Socios': [
       { id: 'socios_dashboard', label: 'Dashboard de Socios', icon: Landmark }
     ],
     'Gestión Sucursal': [
-      { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck },
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'stock', label: 'Control Stock', icon: Package },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
@@ -673,6 +675,16 @@ function AppContent() {
             merged[section] = menuConfig[section];
           }
         });
+
+        // 'tareas' debe vivir solo en 'Agenda Personal' (quitarlo de secciones viejas guardadas)
+        Object.keys(merged).forEach(section => {
+          if (section !== 'Agenda Personal') {
+            merged[section] = merged[section].filter(it => it.id !== 'tareas');
+          }
+        });
+        if (!merged['Agenda Personal']) {
+          merged['Agenda Personal'] = [{ id: 'tareas', label: 'Tareas Pendientes', icon: iconMap['tareas'] || ListOrdered }];
+        }
 
         setMenuConfig(merged);
       } catch (e) {
