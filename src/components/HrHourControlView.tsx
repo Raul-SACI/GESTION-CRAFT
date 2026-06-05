@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -312,12 +312,14 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
     // Load APPROVED budget from Supabase hour_budgets for planned hours
     const loadBudgetFromSupabase = async () => {
       try {
-        const { data: budgets } = await supabase
+        const { data: budgets, error: budgetErr } = await supabase
           .from('hour_budgets')
-          .select('position_id, position_name, week1, week2, week3, week4, week5, shift, hours_per_day, planned_hours, status')
+          .select('*')
           .eq('branch_id', selectedBranch)
           .eq('month', selectedMonth)
           .eq('status', 'approved'); // Only use approved budgets
+
+        if (budgetErr) { console.error('Error cargando presupuesto:', budgetErr.message); }
 
         if (budgets && budgets.length > 0) {
           // El presupuesto usa position_id con códigos+turno, pero el nombre (position_name)
@@ -552,6 +554,31 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
   const verifiedCount = records.filter(r => r.status === 'verified').length;
   const isFullyVerified = records.length > 0 && verifiedCount === records.length;
 
+  // Desviación por puesto: presupuesto (budgetByRole) vs horas reales sumadas por rol
+  const deviationByRole = useMemo(() => {
+    const roleLabels: Record<string, string> = {
+      encargado: 'Encargado', jefe_cocina: 'Jefe de Cocina', segundo_cocina: 'Segundo de Cocina',
+      cocinero: 'Cocinero', caja: 'Caja', barra: 'Barra', mozos: 'Mozos', runners: 'Runners', bacha: 'Bacha'
+    };
+    // Sumar horas reales por rol (normalizando el roleId del registro)
+    const realByRole: Record<string, number> = {};
+    const rateByRole: Record<string, number> = {};
+    records.forEach(r => {
+      const role = budgetNameToRoleId(r.roleLabel || '') || budgetNameToRoleId(r.roleId || '') || r.roleId;
+      realByRole[role] = (realByRole[role] || 0) + (r.definitiveHours || 0);
+      if (!rateByRole[role]) rateByRole[role] = r.valorHora || 0;
+    });
+    // Unir todos los roles presentes en presupuesto o en reales
+    const allRoles = new Set<string>([...Object.keys(budgetByRole), ...Object.keys(realByRole)]);
+    return Array.from(allRoles).map(role => {
+      const planned = budgetByRole[role] || 0;
+      const real = realByRole[role] || 0;
+      const rate = rateByRole[role] || 0;
+      const devH = real - planned;
+      return { role, label: roleLabels[role] || role, planned, real, devH, devPesos: devH * rate };
+    }).sort((a, b) => a.label.localeCompare(b.label));
+  }, [records, budgetByRole]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -775,6 +802,59 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
         </motion.div>
       )}
 
+      {/* Panel: Desviación por Puesto (presupuesto vs real) */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-xl">
+        <div className="px-4 py-3 border-b border-border-dim bg-bg-accent/30 flex items-center justify-between">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Desviación por Puesto · Semana {selectedWeek}</h3>
+          <span className="text-[8px] font-bold uppercase text-text-dim tracking-wider">Presupuesto vs Horas Reales</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                <th className="px-4 py-2.5">Puesto</th>
+                <th className="px-4 py-2.5 text-center">Planificadas</th>
+                <th className="px-4 py-2.5 text-center">Reales RRHH</th>
+                <th className="px-4 py-2.5 text-center">Desvío Horas</th>
+                <th className="px-4 py-2.5 text-right">Desvío Pesos</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-dim/40">
+              {deviationByRole.length === 0 ? (
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-[10px] text-text-dim uppercase font-bold opacity-50">Sin datos de presupuesto ni horas para esta semana</td></tr>
+              ) : deviationByRole.map(d => (
+                <tr key={d.role} className="text-[11px] font-medium hover:bg-bg-accent/20">
+                  <td className="px-4 py-2.5 font-black uppercase text-text-main">{d.label}</td>
+                  <td className="px-4 py-2.5 text-center font-mono text-text-dim">{d.planned.toFixed(1)}h</td>
+                  <td className="px-4 py-2.5 text-center font-mono text-text-main">{d.real.toFixed(1)}h</td>
+                  <td className={cn("px-4 py-2.5 text-center font-mono font-bold", Math.abs(d.devH) < 0.05 ? "text-text-dim" : d.devH > 0 ? "text-red-400" : "text-emerald-400")}>
+                    {d.devH > 0 ? '+' : ''}{d.devH.toFixed(1)}h
+                  </td>
+                  <td className={cn("px-4 py-2.5 text-right font-mono font-bold", Math.abs(d.devPesos) < 1 ? "text-text-dim" : d.devPesos > 0 ? "text-red-400" : "text-emerald-400")}>
+                    {d.devPesos === 0 ? '$0' : `${d.devPesos > 0 ? '+' : '-'}$${Math.abs(Math.round(d.devPesos)).toLocaleString('es-AR')}`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {deviationByRole.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-border-dim bg-bg-accent/20 text-[11px] font-black">
+                  <td className="px-4 py-3 uppercase text-text-main">Total</td>
+                  <td className="px-4 py-3 text-center font-mono text-text-main">{totalRefHours.toFixed(1)}h</td>
+                  <td className="px-4 py-3 text-center font-mono text-text-main">{totalDefHours.toFixed(1)}h</td>
+                  <td className={cn("px-4 py-3 text-center font-mono", Math.abs(totalDeviation) < 0.05 ? "text-text-dim" : totalDeviation > 0 ? "text-red-400" : "text-emerald-400")}>
+                    {totalDeviation > 0 ? '+' : ''}{totalDeviation.toFixed(1)}h
+                  </td>
+                  <td className={cn("px-4 py-3 text-right font-mono", deviationByRole.reduce((s, d) => s + d.devPesos, 0) > 0 ? "text-red-400" : "text-emerald-400")}>
+                    {(() => { const t = deviationByRole.reduce((s, d) => s + d.devPesos, 0); return t === 0 ? '$0' : `${t > 0 ? '+' : '-'}$${Math.abs(Math.round(t)).toLocaleString('es-AR')}`; })()}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
       {/* Main Table Content */}
       <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
         <div className="overflow-x-auto overflow-y-hidden">
@@ -784,7 +864,6 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Empleado</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest">Puesto</th>
-                <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Planificadas</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Cargadas en Sucursal</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Horas Reales RRHH</th>
                 <th className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest text-center">Valor Hora</th>
@@ -823,10 +902,6 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
                       {record.roleLabel}
                     </td>
                     
-                    <td className="px-4 py-4 text-center font-mono font-bold text-text-dim">
-                      {record.referenceHours.toFixed(1)}h
-                    </td>
-
                     <td className="px-4 py-4 text-center font-mono font-bold text-text-dim">
                       {record.horasSucursal.toFixed(1)}h
                     </td>
