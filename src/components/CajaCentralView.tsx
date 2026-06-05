@@ -24,6 +24,8 @@ interface Withdrawal {
   withdrawalDate: string;
   arrivalDate: string | null;
   shift: string;
+  status: string; // 'pending' | 'arrived' | 'reentered'
+  reentryReason: string;
   notes: string;
 }
 
@@ -57,7 +59,10 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         .order('withdrawal_date', { ascending: false });
       setWithdrawals((data || []).map((r: any) => ({
         id: r.id, branchId: r.branch_id, amount: Number(r.amount) || 0,
-        withdrawalDate: r.withdrawal_date, arrivalDate: r.arrival_date, shift: r.shift || '', notes: r.notes || ''
+        withdrawalDate: r.withdrawal_date, arrivalDate: r.arrival_date, shift: r.shift || '',
+        status: r.status || (r.arrival_date ? 'arrived' : 'pending'),
+        reentryReason: r.reentry_reason || '',
+        notes: r.notes || ''
       })));
     } catch (e) { console.error('Error cargando retiros:', e); }
     setLoadingW(false);
@@ -78,12 +83,15 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
         withdrawal_date: newW.withdrawalDate,
         arrival_date: newW.arrivalDate || null,
         shift: newW.shift || null,
+        status: newW.arrivalDate ? 'arrived' : 'pending',
         notes: newW.notes || null
       }).select().single();
       if (error) throw error;
       setWithdrawals(prev => [{
         id: data.id, branchId: data.branch_id, amount: Number(data.amount),
-        withdrawalDate: data.withdrawal_date, arrivalDate: data.arrival_date, shift: data.shift || '', notes: data.notes || ''
+        withdrawalDate: data.withdrawal_date, arrivalDate: data.arrival_date, shift: data.shift || '',
+        status: data.status || (data.arrival_date ? 'arrived' : 'pending'), reentryReason: data.reentry_reason || '',
+        notes: data.notes || ''
       }, ...prev]);
       setNewW({ branchId: '', amount: '', withdrawalDate: new Date().toISOString().split('T')[0], arrivalDate: '', shift: 'Mañana', notes: '' });
     } catch (err: any) {
@@ -107,29 +115,79 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
   const markArrived = async (id: string, date: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     try {
-      const { error } = await supabase.from('treasury_withdrawals').update({ arrival_date: date || null }).eq('id', id);
+      const newStatus = date ? 'arrived' : 'pending';
+      const { error } = await supabase.from('treasury_withdrawals').update({ arrival_date: date || null, status: newStatus }).eq('id', id);
       if (error) throw error;
-      setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, arrivalDate: date || null } : w));
+      setWithdrawals(prev => prev.map(w => w.id === id ? { ...w, arrivalDate: date || null, status: newStatus } : w));
     } catch (err: any) {
       alert('Error al actualizar: ' + (err?.message || ''));
+    }
+  };
+
+  // Cambiar el estado del retiro: pending / arrived / reentered (reingresado en sucursal)
+  const changeStatus = async (id: string, newStatus: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    let reentryReason = '';
+    if (newStatus === 'reentered') {
+      const reason = window.prompt('¿Para qué se reingresó el dinero en la sucursal? (ej. pago a proveedor X)');
+      if (reason === null) return; // canceló
+      reentryReason = reason.trim();
+    }
+    try {
+      const updates: any = { status: newStatus };
+      if (newStatus === 'reentered') updates.reentry_reason = reentryReason;
+      if (newStatus === 'arrived' && !withdrawals.find(w => w.id === id)?.arrivalDate) {
+        updates.arrival_date = new Date().toISOString().split('T')[0];
+      }
+      if (newStatus === 'pending') { updates.arrival_date = null; updates.reentry_reason = null; }
+      const { error } = await supabase.from('treasury_withdrawals').update(updates).eq('id', id);
+      if (error) throw error;
+      setWithdrawals(prev => prev.map(w => w.id === id ? {
+        ...w, status: newStatus,
+        reentryReason: newStatus === 'reentered' ? reentryReason : (newStatus === 'pending' ? '' : w.reentryReason),
+        arrivalDate: updates.arrival_date !== undefined ? updates.arrival_date : w.arrivalDate
+      } : w));
+    } catch (err: any) {
+      alert('Error al cambiar el estado: ' + (err?.message || ''));
     }
   };
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
   const totalWithdrawals = useMemo(() => withdrawals.reduce((s, w) => s + w.amount, 0), [withdrawals]);
-  const totalPending = useMemo(() => withdrawals.filter(w => !w.arrivalDate).reduce((s, w) => s + w.amount, 0), [withdrawals]);
+  const totalPending = useMemo(() => withdrawals.filter(w => w.status === 'pending').reduce((s, w) => s + w.amount, 0), [withdrawals]);
 
   // Pendiente de ingreso agrupado por sucursal
   const pendingByBranch = useMemo(() => {
     const map: Record<string, number> = {};
-    withdrawals.filter(w => !w.arrivalDate).forEach(w => {
+    withdrawals.filter(w => w.status === 'pending').forEach(w => {
       map[w.branchId] = (map[w.branchId] || 0) + w.amount;
     });
     return Object.entries(map)
       .map(([branchId, amount]) => ({ branchId, amount }))
       .sort((a, b) => b.amount - a.amount);
   }, [withdrawals]);
+
+  // Ingresados a caja central (status 'arrived'): por sucursal, por día
+  const arrivedWithdrawals = useMemo(() => withdrawals.filter(w => w.status === 'arrived'), [withdrawals]);
+  const totalArrived = useMemo(() => arrivedWithdrawals.reduce((s, w) => s + w.amount, 0), [arrivedWithdrawals]);
+  const totalReentered = useMemo(() => withdrawals.filter(w => w.status === 'reentered').reduce((s, w) => s + w.amount, 0), [withdrawals]);
+
+  const arrivedByBranch = useMemo(() => {
+    const map: Record<string, number> = {};
+    arrivedWithdrawals.forEach(w => { map[w.branchId] = (map[w.branchId] || 0) + w.amount; });
+    return Object.entries(map).map(([branchId, amount]) => ({ branchId, amount })).sort((a, b) => b.amount - a.amount);
+  }, [arrivedWithdrawals]);
+
+  // Ingresados por día (según fecha de ingreso a caja)
+  const arrivedByDay = useMemo(() => {
+    const map: Record<string, number> = {};
+    arrivedWithdrawals.forEach(w => {
+      const d = w.arrivalDate || w.withdrawalDate;
+      if (d) map[d] = (map[d] || 0) + w.amount;
+    });
+    return Object.entries(map).map(([date, amount]) => ({ date, amount })).sort((a, b) => b.date.localeCompare(a.date));
+  }, [arrivedWithdrawals]);
 
   // ===== ARQUEO =====
   const [arqueoDate, setArqueoDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -332,6 +390,46 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
             </div>
           )}
 
+          {/* Ingresados a Caja Central: por sucursal y por día */}
+          {(arrivedByBranch.length > 0 || arrivedByDay.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+                <h3 className="text-xs font-black uppercase text-emerald-500 tracking-wider mb-4 flex items-center gap-2"><Building2 size={14} /> Ingresado por Sucursal · {selectedMonth.split('-').reverse().join('/')}</h3>
+                {arrivedByBranch.length === 0 ? (
+                  <p className="text-[10px] text-text-dim uppercase font-bold opacity-50">Sin ingresos este mes</p>
+                ) : (
+                  <div className="space-y-2">
+                    {arrivedByBranch.map(p => (
+                      <div key={p.branchId} className="flex items-center justify-between bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-4 py-2.5">
+                        <span className="text-[10px] font-black uppercase text-text-main truncate">{branchName(p.branchId)}</span>
+                        <span className="text-sm font-mono font-black text-emerald-500">{fmtPesos(p.amount)}</span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between px-4 py-2 border-t border-border-dim mt-2 pt-3">
+                      <span className="text-[10px] font-black uppercase text-text-dim">Total ingresado</span>
+                      <span className="text-sm font-mono font-black text-text-main">{fmtPesos(totalArrived)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+                <h3 className="text-xs font-black uppercase text-emerald-500 tracking-wider mb-4 flex items-center gap-2"><Calendar size={14} /> Ingresado por Día</h3>
+                {arrivedByDay.length === 0 ? (
+                  <p className="text-[10px] text-text-dim uppercase font-bold opacity-50">Sin ingresos este mes</p>
+                ) : (
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto">
+                    {arrivedByDay.map(d => (
+                      <div key={d.date} className="flex items-center justify-between bg-bg-accent/30 border border-border-dim/40 rounded-lg px-4 py-2">
+                        <span className="text-[10px] font-mono font-bold text-text-main">{d.date.split('-').reverse().join('/')}</span>
+                        <span className="text-[12px] font-mono font-black text-emerald-500">{fmtPesos(d.amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Form alta retiro */}
           {!isReadOnly && (
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
@@ -421,9 +519,25 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                             className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none" />
                         </td>
                         <td className="px-4 py-2.5">
-                          {w.arrivalDate
-                            ? <span className="text-[8px] font-black uppercase text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded">Ingresado</span>
-                            : <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-500/10 px-2 py-1 rounded">Pendiente</span>}
+                          {isReadOnly ? (
+                            <span className={cn("text-[8px] font-black uppercase px-2 py-1 rounded",
+                              w.status === 'arrived' ? "text-emerald-500 bg-emerald-500/10" :
+                              w.status === 'reentered' ? "text-blue-500 bg-blue-500/10" : "text-amber-500 bg-amber-500/10")}>
+                              {w.status === 'arrived' ? 'Ingresado' : w.status === 'reentered' ? 'Reingresado' : 'Pendiente'}
+                            </span>
+                          ) : (
+                            <select value={w.status} onChange={(e) => changeStatus(w.id, e.target.value)}
+                              className={cn("border rounded px-2 py-1 text-[9px] font-black uppercase outline-none",
+                                w.status === 'arrived' ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/30" :
+                                w.status === 'reentered' ? "text-blue-500 bg-blue-500/10 border-blue-500/30" : "text-amber-500 bg-amber-500/10 border-amber-500/30")}>
+                              <option value="pending">Pendiente</option>
+                              <option value="arrived">Ingresado</option>
+                              <option value="reentered">Reingresado en Sucursal</option>
+                            </select>
+                          )}
+                          {w.status === 'reentered' && w.reentryReason && (
+                            <p className="text-[8px] text-blue-400 font-bold mt-1 max-w-[160px] truncate" title={w.reentryReason}>↳ {w.reentryReason}</p>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           {!isReadOnly && (
