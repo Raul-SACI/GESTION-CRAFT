@@ -239,6 +239,11 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
   const totalUsd = useMemo(() => USD_DENOMS.reduce((s, d) => s + d * (usdCount[d] || 0), 0), [usdCount]);
   // Diferencia entre arqueo real (pesos) y saldo según contabilidad
   const accBalanceNum = useMemo(() => accountingBalance === '' ? null : Number(accountingBalance), [accountingBalance]);
+  // Caja central no opera sábados ni domingos → no hay arqueo esos días
+  const isWeekend = useMemo(() => {
+    const d = new Date(arqueoDate + 'T12:00:00').getDay();
+    return d === 0 || d === 6;
+  }, [arqueoDate]);
   const difference = useMemo(() => accBalanceNum === null ? null : totalPesos - accBalanceNum, [totalPesos, accBalanceNum]);
   const hasDifference = difference !== null && Math.abs(difference) > 0.001;
 
@@ -563,7 +568,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
               <input type="date" value={arqueoDate} onChange={(e) => setArqueoDate(e.target.value)}
                 className="bg-transparent border-none text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer" />
             </div>
-            {!isReadOnly && (
+            {!isReadOnly && !isWeekend && (
               <button onClick={handleSaveArqueo} disabled={savingA}
                 className="bg-brand-500 text-black px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60 flex items-center gap-2">
                 {savingA ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar Arqueo
@@ -571,7 +576,13 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
             )}
           </div>
 
-          {loadingA ? (
+          {isWeekend ? (
+            <div className="bg-amber-500/8 border border-amber-500/30 rounded-xl p-8 flex flex-col items-center justify-center text-center gap-2">
+              <Calendar size={28} className="text-amber-500" />
+              <p className="text-sm font-black uppercase text-amber-500 tracking-wider">No hay arqueo este día</p>
+              <p className="text-[11px] text-text-dim font-bold uppercase">La Caja Central no opera sábados ni domingos. Elegí un día hábil para cargar el arqueo.</p>
+            </div>
+          ) : loadingA ? (
             <div className="py-16 flex items-center justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -636,9 +647,18 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                 </div>
                 <div className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-4">
                   <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Saldo según Contabilidad</label>
-                  <input type="number" value={accountingBalance} disabled={isReadOnly}
-                    onChange={(e) => setAccountingBalance(e.target.value)} placeholder="0"
-                    className="w-full bg-transparent border-none text-xl font-mono font-black text-text-main outline-none mt-1 p-0" />
+                  {isReadOnly ? (
+                    <p className="text-xl font-mono font-black text-text-main mt-1">{accBalanceNum === null ? '—' : fmtPesos(accBalanceNum)}</p>
+                  ) : (
+                    <>
+                      <input type="number" value={accountingBalance} disabled={isReadOnly}
+                        onChange={(e) => setAccountingBalance(e.target.value)} placeholder="0"
+                        className="w-full bg-transparent border-none text-xl font-mono font-black text-text-main outline-none mt-1 p-0" />
+                      {accBalanceNum !== null && accBalanceNum > 0 && (
+                        <p className="text-[10px] font-mono font-bold text-text-dim mt-0.5">{fmtPesos(accBalanceNum)}</p>
+                      )}
+                    </>
+                  )}
                 </div>
                 <div className={cn("border rounded-lg p-4",
                   difference === null ? "bg-bg-accent/30 border-border-dim/50" :
