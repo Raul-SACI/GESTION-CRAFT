@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import PaymentCalendar from './PaymentCalendar';
 import { 
   DollarSign, 
   Wallet, 
@@ -3946,6 +3947,20 @@ export default function FinanceView({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Calendario de vencimientos (solo pasivos bancarios y fiscales) */}
+      {(mode === 'bank' || mode === 'tax') && (
+        <PaymentCalendar
+          title={mode === 'bank' ? 'Calendario de Pasivos Bancarios' : 'Calendario de Pasivos Fiscales'}
+          items={filteredPayments.filter((p: any) => p.dueDate).map((p: any) => ({
+            id: p.id,
+            label: p.description || 'Pago',
+            amount: Number(p.amount) || 0,
+            date: p.dueDate,
+            status: p.status === 'paid' ? 'paid' : 'pending'
+          }))}
+        />
+      )}
 
     </motion.div>
   );

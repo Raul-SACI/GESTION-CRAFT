@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
+import PaymentCalendar from './PaymentCalendar';
 
 interface PaymentRemindersViewProps {
   isReadOnly?: boolean;
@@ -245,6 +246,18 @@ export default function PaymentRemindersView({ isReadOnly = false }: PaymentRemi
           </div>
         )}
       </div>
+
+      {/* Calendario de vencimientos */}
+      <PaymentCalendar
+        title="Calendario de Recordatorios"
+        items={reminders.filter(r => r.dueDate).map(r => ({
+          id: r.id,
+          label: r.payee || r.description,
+          amount: r.amount,
+          date: r.dueDate as string,
+          status: r.status === 'paid' ? 'paid' : 'pending'
+        }))}
+      />
     </motion.div>
   );
 }
