@@ -64,6 +64,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   const [tasks, setTasks] = useState<Task[]>([]);
   const [completions, setCompletions] = useState<Record<string, Set<string>>>({}); // taskId -> set de fechas completadas
   const [autoTasks, setAutoTasks] = useState<Array<{ id: string; description: string; detail: string; branchId: string; severity: 'overdue' | 'today' }>>([]);
+  const [systemUsers, setSystemUsers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<'today' | 'pending' | 'done' | 'all'>('today');
@@ -98,6 +99,17 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   };
 
   useEffect(() => { fetchTasks(); }, []);
+
+  // Cargar usuarios del sistema para el selector de destinatario
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const { data } = await supabase.from('profiles').select('id, name').order('name');
+        setSystemUsers((data || []).filter((u: any) => u && u.id && u.name).map((u: any) => ({ id: u.id, name: u.name })));
+      } catch (e) { console.error('Error cargando usuarios:', e); }
+    };
+    loadUsers();
+  }, []);
 
   // === Tareas automáticas (calculadas de otros módulos) ===
   const fetchAutoTasks = async () => {
@@ -355,6 +367,14 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
               </select>
             </div>
             <div>
+              <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Usuario puntual (opcional)</label>
+              <select value={newTask.targetUser} onChange={(e) => setNewTask({ ...newTask, targetUser: e.target.value })}
+                className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1">
+                <option value="">— Sin usuario específico —</option>
+                {systemUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </div>
+            <div>
               <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Recurrencia</label>
               <select value={newTask.recurrence} onChange={(e) => setNewTask({ ...newTask, recurrence: e.target.value })}
                 className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1">
@@ -474,7 +494,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
                     {t.recurrence !== 'none' && <Repeat size={11} className="text-blue-400 shrink-0" />}
                   </div>
                   <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">
-                    {branchName(t.branchId)} · {roleName(t.targetRole)} · {dueLabel(t)}
+                    {branchName(t.branchId)} · {roleName(t.targetRole)}{t.targetUser ? ` · 👤 ${systemUsers.find(u => u.id === t.targetUser)?.name || 'Usuario'}` : ''} · {dueLabel(t)}
                   </p>
                   {t.notes && <p className="text-[9px] text-text-dim mt-0.5">{t.notes}</p>}
                 </div>
