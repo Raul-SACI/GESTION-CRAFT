@@ -558,7 +558,7 @@ export default function ReadOnlyPlantaView({
               </svg>
 
               {/* Cocina Overlay */}
-              <div className="absolute top-[55px] left-[40px] w-[145px] flex flex-col gap-1.5 pointer-events-none">
+              <div className="absolute flex flex-col gap-1.5 pointer-events-none" style={{ top: '16%', left: '6%', width: '24%' }}>
                 <div className="flex flex-wrap gap-1">
                   {rows
                     .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'cocina')
@@ -588,7 +588,7 @@ export default function ReadOnlyPlantaView({
               </div>
 
               {/* Bacha Overlay */}
-              <div className="absolute top-[230px] left-[30px] w-[95px] flex flex-col gap-1.5 pointer-events-none">
+              <div className="absolute flex flex-col gap-1.5 pointer-events-none" style={{ top: '66%', left: '5%', width: '16%' }}>
                 <div className="flex flex-wrap gap-1">
                   {rows
                     .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'bacha')
@@ -618,7 +618,7 @@ export default function ReadOnlyPlantaView({
               </div>
 
               {/* Barra Overlay */}
-              <div className="absolute top-[55px] left-[225px] w-[65px] flex flex-col gap-1.5 pointer-events-none">
+              <div className="absolute flex flex-col gap-1.5 pointer-events-none" style={{ top: '16%', left: '37.5%', width: '11%' }}>
                 <div className="flex flex-wrap gap-1">
                   {rows
                     .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'barra')
@@ -648,7 +648,7 @@ export default function ReadOnlyPlantaView({
               </div>
 
               {/* Caja Overlay */}
-              <div className="absolute top-[230px] left-[155px] w-[130px] flex flex-col gap-1.5 pointer-events-none">
+              <div className="absolute flex flex-col gap-1.5 pointer-events-none" style={{ top: '66%', left: '26%', width: '22%' }}>
                 <div className="flex flex-wrap gap-1">
                   {rows
                     .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'caja')
@@ -678,7 +678,7 @@ export default function ReadOnlyPlantaView({
               </div>
 
               {/* Salon Overlay */}
-              <div className="absolute top-[55px] left-[320px] w-[250px] flex flex-col gap-1.5 pointer-events-none">
+              <div className="absolute flex flex-col gap-1.5 pointer-events-none" style={{ top: '16%', left: '53%', width: '42%' }}>
                 <div className="flex flex-wrap gap-1.5 justify-start">
                   {rows
                     .filter(r => r.shift === mapShift && getRoomForRole(r.roleId, r.roleLabel) === 'salon')
