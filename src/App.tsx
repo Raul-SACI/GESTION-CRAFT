@@ -43,6 +43,7 @@ import {
   Calculator,
   Factory,
   ClipboardCheck,
+  StickyNote,
   Trash2,
   ListOrdered,
   Settings,
@@ -81,6 +82,7 @@ const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'
 const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
 const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
 const TasksView = lazy(() => import('./components/TasksView'));
+const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
@@ -506,7 +508,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
-    'ventas', 'caja_central', 'recordatorios_pago', 'tareas'
+    'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -528,7 +530,8 @@ function AppContent() {
   const [isReorderingMode, setIsReorderingMode] = useState(false);
   const [menuConfig, setMenuConfig] = useState<Record<string, MenuItem[]>>({
     'Agenda Personal': [
-      { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck }
+      { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck },
+      { id: 'notas_personales', label: 'Notas Personales', icon: StickyNote }
     ],
     'Socios': [
       { id: 'socios_dashboard', label: 'Dashboard de Socios', icon: Landmark }
@@ -603,6 +606,7 @@ function AppContent() {
           recordatorios_pago: Bell,
           dashboard: LayoutDashboard,
           tareas: ClipboardCheck,
+          notas_personales: StickyNote,
           stock: Package,
           vajilla: Utensils,
           horas: Clock,
@@ -676,14 +680,19 @@ function AppContent() {
           }
         });
 
-        // 'tareas' debe vivir solo en 'Agenda Personal' (quitarlo de secciones viejas guardadas)
+        // 'tareas' y 'notas_personales' viven solo en 'Agenda Personal' (quitarlos de secciones viejas guardadas)
         Object.keys(merged).forEach(section => {
           if (section !== 'Agenda Personal') {
-            merged[section] = merged[section].filter(it => it.id !== 'tareas');
+            merged[section] = merged[section].filter(it => it.id !== 'tareas' && it.id !== 'notas_personales');
           }
         });
-        if (!merged['Agenda Personal']) {
-          merged['Agenda Personal'] = [{ id: 'tareas', label: 'Tareas Pendientes', icon: iconMap['tareas'] || ListOrdered }];
+        if (!merged['Agenda Personal']) merged['Agenda Personal'] = [];
+        // Asegurar que existan ambos items en Agenda Personal
+        if (!merged['Agenda Personal'].find(it => it.id === 'tareas')) {
+          merged['Agenda Personal'].push({ id: 'tareas', label: 'Tareas Pendientes', icon: iconMap['tareas'] || ListOrdered });
+        }
+        if (!merged['Agenda Personal'].find(it => it.id === 'notas_personales')) {
+          merged['Agenda Personal'].push({ id: 'notas_personales', label: 'Notas Personales', icon: iconMap['notas_personales'] || StickyNote });
         }
 
         setMenuConfig(merged);
@@ -1379,6 +1388,12 @@ function AppContent() {
                   currentUser={{ ...currentUser, branchId: currentUserBranchId }}
                   isReadOnly={isCurrentTabReadOnly}
                   canCreate={currentUser.role === 'administrador' || currentUser.role === 'dueño' || (currentUser.modulePermissions as any)?.tareas === 'edit'}
+                />
+              )}
+              {activeTab === 'notas_personales' && (
+                <PersonalNotesView
+                  currentUser={{ id: currentUser.id || currentUser.name, name: currentUser.name }}
+                  isReadOnly={isCurrentTabReadOnly}
                 />
               )}
               {activeTab === 'caja_central' && (

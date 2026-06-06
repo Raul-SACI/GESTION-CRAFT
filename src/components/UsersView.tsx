@@ -55,6 +55,7 @@ const SYSTEM_MODULES = [
   { id: 'caja_central', label: 'Caja Central', category: 'Tesorería' },
   { id: 'recordatorios_pago', label: 'Recordatorios de Pago', category: 'Tesorería' },
   { id: 'tareas', label: 'Tareas Pendientes', category: 'Agenda Personal' },
+  { id: 'notas_personales', label: 'Notas Personales', category: 'Agenda Personal' },
   { id: 'ventas', label: 'Ventas Diarias', category: 'Administración' },
   { id: 'consumo', label: 'CMV Mensual Sucursal', category: 'Administración' },
   { id: 'control_desvios', label: 'Control de Desvíos', category: 'Administración' },
