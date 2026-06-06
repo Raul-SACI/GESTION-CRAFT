@@ -1394,6 +1394,7 @@ function AppContent() {
                   onBranchChange={currentUser.accessScope === 'single_branch' ? undefined : setSelectedBranchId}
                   onNavigateToTab={setActiveTab}
                   isReadOnly={isCurrentTabReadOnly}
+                  currentUser={{ ...currentUser, branchId: currentUserBranchId }}
                 />
               )}
 

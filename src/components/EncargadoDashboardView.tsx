@@ -38,12 +38,15 @@ import { Branch } from '../types';
 import MonthlyRankingTop from './MonthlyRankingTop';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import ReadOnlyPlantaView from './ReadOnlyPlantaView';
+import TasksSummaryWidget from './TasksSummaryWidget';
 
 interface EncargadoDashboardProps {
   selectedBranchId: string;
   branches: Branch[];
   onBranchChange?: (id: string) => void;
   onNavigateToTab?: (tabId: string) => void;
+  currentUser?: any;
+  isReadOnly?: boolean;
 }
 
 // Normaliza un nombre/rol de puesto a un identificador genérico, para cruzar
@@ -66,7 +69,8 @@ export default function EncargadoDashboardView({
   selectedBranchId, 
   branches, 
   onBranchChange,
-  onNavigateToTab 
+  onNavigateToTab,
+  currentUser
 }: EncargadoDashboardProps) {
   const placesLib = useMapsLibrary('places');
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -892,6 +896,15 @@ export default function EncargadoDashboardView({
           </button>
         </div>
       </div>
+
+      {/* Widget resumen de Tareas del día */}
+      {currentUser && (
+        <TasksSummaryWidget
+          branches={branches}
+          currentUser={{ ...currentUser, branchId: selectedBranchId !== 'all' ? selectedBranchId : currentUser.branchId }}
+          onOpenTasks={onNavigateToTab ? () => onNavigateToTab('tareas') : undefined}
+        />
+      )}
 
       {/* SIMULATOR AND OVERRIDE MODE FOR USER EXPERIENCE PREVIEW */}
       <div className="bg-brand-500/5 border border-brand-500/20 p-4 rounded bg-gradient-to-r from-bg-sidebar/90 to-brand-500/5">
