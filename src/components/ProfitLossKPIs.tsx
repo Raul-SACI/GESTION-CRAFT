@@ -37,6 +37,8 @@ const KEY_EXPENSES: { key: string; label: string; components?: string[] }[] = [
 
 export default function ProfitLossKPIs({ scope = 'consolidated', compact = false }: Props) {
   const [allMonths, setAllMonths] = useState<MonthData[]>([]);
+  const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // month -> % mensual
+  const [editingInflation, setEditingInflation] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -74,6 +76,11 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
           };
         }).filter(md => md.ventas !== 0 || md.ganancia !== 0);
         setAllMonths(parsed);
+        // Cargar inflación mensual
+        const { data: infl } = await supabase.from('monthly_inflation').select('*');
+        const im: Record<string, number> = {};
+        (infl || []).forEach((r: any) => { im[r.month] = Number(r.inflation_pct) || 0; });
+        setInflationMap(im);
       } catch (e) { console.error('Error KPIs:', e); }
       setLoading(false);
     };
@@ -90,14 +97,57 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   }, [allMonths, current]);
 
   const variation = (cur: number, base: number) => base !== 0 ? ((cur - base) / Math.abs(base)) * 100 : 0;
+
+  // Factor de inflación acumulada ENTRE dos meses (exclusivo del mes base, inclusivo hasta el mes nuevo).
+  // Ej: de abr-2025 a abr-2026 acumula la inflación de may-2025..abr-2026.
+  const inflationFactor = (fromMonth: string, toMonth: string): number => {
+    if (fromMonth >= toMonth) return 1;
+    let factor = 1;
+    // iterar meses desde el siguiente a fromMonth hasta toMonth inclusive
+    let [y, m] = fromMonth.split('-').map(Number);
+    const advance = () => { m++; if (m > 12) { m = 1; y++; } };
+    advance();
+    while (true) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      const infl = inflationMap[key] || 0;
+      factor *= (1 + infl / 100);
+      if (key === toMonth) break;
+      advance();
+      if (y > 3000) break; // seguridad
+    }
+    return factor;
+  };
+
+  // Variación REAL: deflacta el valor nuevo al poder adquisitivo del mes base
+  const realVariation = (curVal: number, curMonth: string, baseVal: number, baseMonth: string) => {
+    if (baseVal === 0) return null;
+    const f = inflationFactor(baseMonth, curMonth);
+    const deflated = f > 0 ? curVal / f : curVal;
+    return ((deflated - baseVal) / Math.abs(baseVal)) * 100;
+  };
+
+  const saveInflation = async (month: string, value: string) => {
+    const pct = Number(value) || 0;
+    setInflationMap(prev => ({ ...prev, [month]: pct }));
+    try {
+      await supabase.from('monthly_inflation').upsert({ month, inflation_pct: pct, updated_at: new Date().toISOString() }, { onConflict: 'month' });
+    } catch (e) { console.error('Error guardando inflación:', e); }
+  };
   const margin = (md: MonthData) => md.ventas !== 0 ? (md.ganancia / md.ventas) * 100 : 0;
 
   if (loading) return <div className="py-12 flex justify-center"><Loader2 size={24} className="animate-spin text-brand-500" /></div>;
   if (!current) return <div className="py-12 text-center text-text-dim text-[10px] font-black uppercase tracking-widest opacity-50">Sin datos cargados todavía. Importá estados de resultados para ver KPIs.</div>;
 
-  const VarBadge = ({ cur, base, invert = false }: { cur: number; base?: number; invert?: boolean }) => {
+  const VarBadge = ({ cur, base, curMonth, baseMonth, invert = false }: { cur: number; base?: number; curMonth?: string; baseMonth?: string; invert?: boolean }) => {
     if (base === undefined || base === 0) return <span className="text-[9px] text-text-dim">—</span>;
-    const v = variation(cur, base);
+    // Si hay meses, usar variación REAL (ajustada por inflación); sino, nominal
+    let v: number | null;
+    if (curMonth && baseMonth) {
+      v = realVariation(cur, curMonth, base, baseMonth);
+    } else {
+      v = variation(cur, base);
+    }
+    if (v === null) return <span className="text-[9px] text-text-dim">—</span>;
     const good = invert ? v < 0 : v > 0;
     const Icon = Math.abs(v) < 0.1 ? Minus : v > 0 ? TrendingUp : TrendingDown;
     return (
@@ -116,8 +166,8 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
             <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Ventas Netas · {monthLabel(current.month)}</p>
             <p className="text-lg font-mono font-black text-text-main mt-1">{fmt(current.ventas)}</p>
             <div className="flex gap-3 mt-1">
-              <span className="text-[8px] text-text-dim uppercase">vs mes ant: <VarBadge cur={current.ventas} base={prevMonth?.ventas} /></span>
-              <span className="text-[8px] text-text-dim uppercase">vs año ant: <VarBadge cur={current.ventas} base={sameMonthLastYear?.ventas} /></span>
+              <span className="text-[8px] text-text-dim uppercase">vs mes ant: <VarBadge cur={current.ventas} base={prevMonth?.ventas} curMonth={current.month} baseMonth={prevMonth?.month} /></span>
+              <span className="text-[8px] text-text-dim uppercase">vs año ant: <VarBadge cur={current.ventas} base={sameMonthLastYear?.ventas} curMonth={current.month} baseMonth={sameMonthLastYear?.month} /></span>
             </div>
           </div>
           <div className="bg-bg-accent/30 border border-border-dim rounded-lg p-4">
@@ -125,7 +175,7 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
             <p className={cn("text-lg font-mono font-black mt-1", current.ganancia >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(current.ganancia)}</p>
             <div className="flex gap-3 mt-1">
               <span className="text-[8px] text-text-dim uppercase">margen: {margin(current).toFixed(1)}%</span>
-              <span className="text-[8px] text-text-dim uppercase">vs año ant: <VarBadge cur={current.ganancia} base={sameMonthLastYear?.ganancia} /></span>
+              <span className="text-[8px] text-text-dim uppercase">vs año ant: <VarBadge cur={current.ganancia} base={sameMonthLastYear?.ganancia} curMonth={current.month} baseMonth={sameMonthLastYear?.month} /></span>
             </div>
           </div>
         </div>
@@ -138,14 +188,43 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
 
   return (
     <div className="space-y-6">
+      {/* Aviso y carga de inflación */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <p className="text-[11px] font-black uppercase text-text-main tracking-wider">Comparaciones ajustadas por inflación</p>
+            <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Las variaciones se muestran en términos REALES (deflactadas). Cargá la inflación mensual para que el cálculo sea preciso.</p>
+          </div>
+          <button onClick={() => setEditingInflation(!editingInflation)}
+            className="bg-bg-accent border border-border-dim text-text-main px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
+            {editingInflation ? 'Cerrar' : 'Cargar Inflación Mensual'}
+          </button>
+        </div>
+        {editingInflation && (
+          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+            {allMonths.map(m => (
+              <div key={m.month}>
+                <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block">{monthLabel(m.month)}</label>
+                <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2 mt-0.5">
+                  <input type="number" step="0.1" defaultValue={inflationMap[m.month] ?? ''} placeholder="0"
+                    onBlur={(e) => saveInflation(m.month, e.target.value)}
+                    className="w-full bg-transparent border-none py-1.5 text-[11px] font-mono font-bold text-text-main outline-none" />
+                  <span className="text-[9px] text-text-dim font-bold">%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Tarjetas principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
           <p className="text-[9px] font-black uppercase text-text-dim tracking-widest">Ventas Netas · {monthLabel(current.month)}</p>
           <p className="text-2xl font-mono font-black text-text-main mt-1">{fmt(current.ventas)}</p>
           <div className="flex gap-5 mt-2">
-            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs mes anterior</span><VarBadge cur={current.ventas} base={prevMonth?.ventas} /></div>
-            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs mismo mes {sameMonthLastYear ? sameMonthLastYear.month.slice(0, 4) : 'año ant.'}</span><VarBadge cur={current.ventas} base={sameMonthLastYear?.ventas} /></div>
+            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs mes ant. (real)</span><VarBadge cur={current.ventas} base={prevMonth?.ventas} curMonth={current.month} baseMonth={prevMonth?.month} /></div>
+            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs {sameMonthLastYear ? sameMonthLastYear.month.slice(0, 4) : 'año ant.'}</span><VarBadge cur={current.ventas} base={sameMonthLastYear?.ventas} curMonth={current.month} baseMonth={sameMonthLastYear?.month} /></div>
           </div>
         </div>
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
@@ -153,8 +232,8 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
           <p className={cn("text-2xl font-mono font-black mt-1", current.ganancia >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(current.ganancia)}</p>
           <div className="flex gap-5 mt-2">
             <div><span className="text-[8px] text-text-dim uppercase font-bold block">margen s/ventas</span><span className="text-[9px] font-black text-text-main">{margin(current).toFixed(1)}%</span></div>
-            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs mes anterior</span><VarBadge cur={current.ganancia} base={prevMonth?.ganancia} /></div>
-            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs año anterior</span><VarBadge cur={current.ganancia} base={sameMonthLastYear?.ganancia} /></div>
+            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs mes ant. (real)</span><VarBadge cur={current.ganancia} base={prevMonth?.ganancia} curMonth={current.month} baseMonth={prevMonth?.month} /></div>
+            <div><span className="text-[8px] text-text-dim uppercase font-bold block">vs año ant. (real)</span><VarBadge cur={current.ganancia} base={sameMonthLastYear?.ganancia} curMonth={current.month} baseMonth={sameMonthLastYear?.month} /></div>
           </div>
         </div>
       </div>
