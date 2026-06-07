@@ -47,7 +47,13 @@ export default function TasksSummaryWidget({ branches, currentUser, onOpenTasks 
         const { data: tasksData } = await supabase.from('tasks').select('*').eq('status', 'pending');
         const { data: comps } = await supabase.from('task_completions').select('task_id').eq('date', today);
         const completedIds = new Set((comps || []).map((c: any) => c.task_id));
+        const hasSpecificBranchSel = !!currentUser.branchId && currentUser.branchId !== 'all';
         const manual = (tasksData || []).filter((t: any) => {
+          // Si hay una sucursal específica seleccionada, mostrar solo tareas de esa sucursal (o 'all')
+          if (hasSpecificBranchSel) {
+            const branchOk = (t.branch_id === 'all' || t.branch_id === currentUser.branchId);
+            if (!branchOk) return false;
+          }
           if (!isAdmin) {
             const branchOk = (t.branch_id === 'all' || t.branch_id === currentUser.branchId || currentUser.accessScope === 'all_branches');
             const roleOk = (t.target_role === 'all' || t.target_role === currentUser.role);
@@ -66,7 +72,11 @@ export default function TasksSummaryWidget({ branches, currentUser, onOpenTasks 
         }).map((t: any) => ({ id: t.id, description: t.description, priority: t.priority || 'normal' }));
         setManualToday(manual);
 
-        const branchesToCheck = isAdmin || currentUser.accessScope === 'all_branches'
+        // Si hay una sucursal específica seleccionada, mostrar solo esa (aunque sea admin).
+        // Solo mostrar todas las sucursales si no hay una puntual (admin viendo "todas").
+        const hasSpecificBranch = !!currentUser.branchId && currentUser.branchId !== 'all';
+        const seeAllBranches = !hasSpecificBranch && (isAdmin || currentUser.accessScope === 'all_branches');
+        const branchesToCheck = seeAllBranches
           ? operativeBranches : operativeBranches.filter(b => b.id === currentUser.branchId);
         const sample: string[] = [];
         let count = 0;
@@ -82,7 +92,8 @@ export default function TasksSummaryWidget({ branches, currentUser, onOpenTasks 
           if (missing > 0) { count++; if (sample.length < 3) sample.push(`Cargar horas (${b.name})`); }
         });
 
-        if (isAdmin || currentUser.accessScope === 'all_branches') {
+        // El arqueo de Caja Central solo aplica a nivel global (no a una sucursal puntual)
+        if (seeAllBranches) {
           const { data: arqueo } = await supabase.from('treasury_cash_count').select('date').eq('date', today).maybeSingle();
           if (!arqueo) { count++; if (sample.length < 3) sample.push('Cargar arqueo de Caja Central'); }
         }
