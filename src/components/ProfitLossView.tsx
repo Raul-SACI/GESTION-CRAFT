@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
+import ProfitLossProjector from './ProfitLossProjector';
 import {
   PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS,
   OPERATIVA_COMPONENTS, OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS,
@@ -41,6 +42,7 @@ export default function ProfitLossView({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [tab, setTab] = useState<'statement' | 'project'>('statement');
 
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
 
@@ -235,6 +237,25 @@ export default function ProfitLossView({
         </div>
       </div>
 
+      {/* Pestañas */}
+      <div className="flex gap-2">
+        <button onClick={() => setTab('statement')}
+          className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+            tab === 'statement' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+          Estado de Resultados
+        </button>
+        {scope === 'consolidated' && (
+          <button onClick={() => setTab('project')}
+            className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+              tab === 'project' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+            Proyectar
+          </button>
+        )}
+      </div>
+
+      {tab === 'project' && scope === 'consolidated' ? (
+        <ProfitLossProjector scope={scope} targetMonth={selectedMonth} isReadOnly={isReadOnly} onProjectionGenerated={fetchData} />
+      ) : (
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
         {loading ? (
           <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
@@ -297,9 +318,12 @@ export default function ProfitLossView({
           </div>
         )}
       </div>
+      )}
+      {tab === 'statement' && (
       <p className="text-[9px] text-text-dim font-bold uppercase text-center opacity-60">
         Los subtotales y resultados se calculan automáticamente. Importá el Excel y guardá para persistir en el sistema.
       </p>
+      )}
     </motion.div>
   );
 }
