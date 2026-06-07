@@ -94,10 +94,30 @@ export default function ProfitLossView({
         const newLines: LinesMap = {};
         const parseNum = (v: any): number => {
           if (v === null || v === undefined || v === '') return 0;
-          if (typeof v === 'number') return v;
-          const cleaned = String(v).replace(/[$\s]/g, '').replace(/\./g, '').replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
-          const n = parseFloat(cleaned);
-          return isNaN(n) ? 0 : n;
+          // Si Excel ya lo entrega como número, usarlo tal cual (no tocar decimales)
+          if (typeof v === 'number') return isNaN(v) ? 0 : v;
+          let str = String(v).trim().replace(/US\$|\$|\s/g, '');
+          const neg = str.includes('-') || /^\(.*\)$/.test(str);
+          str = str.replace(/[()]/g, '');
+          // Detectar formato: si hay coma, asumimos formato argentino (punto=miles, coma=decimal)
+          if (str.includes(',')) {
+            str = str.replace(/\./g, '').replace(',', '.');
+          }
+          // Si solo hay puntos, puede ser separador de miles o decimal:
+          // si hay más de un punto, o el último grupo no tiene 1-2 dígitos, son miles
+          else if (str.includes('.')) {
+            const parts = str.split('.');
+            const lastLen = parts[parts.length - 1].length;
+            if (parts.length > 2 || lastLen === 3) {
+              str = str.replace(/\./g, ''); // puntos = miles
+            }
+            // si no, el punto es decimal y se deja
+          }
+          str = str.replace(/[^0-9.]/g, '');
+          let n = parseFloat(str);
+          if (isNaN(n)) return 0;
+          if (neg) n = -Math.abs(n);
+          return n;
         };
         rows.forEach(row => {
           if (!row || !row[0]) return;
