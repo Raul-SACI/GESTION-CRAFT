@@ -27,6 +27,7 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
   const [scope, setScope] = useState<string>('consolidated');
   const [orders, setOrders] = useState<Record<string, number>>({}); // 'YYYY-MM' -> órdenes
   const [sales, setSales] = useState<Record<string, number>>({});   // 'YYYY-MM' -> ventas netas
+  const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // 'YYYY-MM' -> % mensual
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -59,6 +60,11 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
         sm[r.month] = ventas;
       });
       setSales(sm);
+      // Inflación mensual (compartida con el Estado de Resultados)
+      const { data: infl } = await supabase.from('monthly_inflation').select('*');
+      const im: Record<string, number> = {};
+      (infl || []).forEach((r: any) => { im[r.month] = Number(r.inflation_pct) || 0; });
+      setInflationMap(im);
     } catch (e) { console.error('Error cargando órdenes:', e); }
     setLoading(false);
   };
@@ -71,6 +77,37 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
     Object.keys(orders).forEach(k => ys.add(k.slice(0, 4)));
     return Array.from(ys).sort();
   }, [orders]);
+
+  // Año más reciente: a ese poder adquisitivo ajustamos los años anteriores
+  const refYear = years.length > 0 ? years[years.length - 1] : null;
+
+  // Factor de inflación acumulada entre dos meses (igual que en KPIs)
+  const inflationFactor = (fromMonth: string, toMonth: string): number => {
+    if (fromMonth >= toMonth) return 1;
+    let factor = 1;
+    let [y, m] = fromMonth.split('-').map(Number);
+    const advance = () => { m++; if (m > 12) { m = 1; y++; } };
+    advance();
+    while (true) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      factor *= (1 + (inflationMap[key] || 0) / 100);
+      if (key === toMonth) break;
+      advance();
+      if (y > 3000) break;
+    }
+    return factor;
+  };
+
+  // Ticket promedio de un mes/año, ajustado por inflación al año de referencia
+  const adjustedTicket = (year: string, mm: string): number | null => {
+    const month = `${year}-${mm}`;
+    const o = orders[month]; const s = sales[month];
+    if (!o || !s) return null;
+    const ticket = s / o;
+    if (!refYear || year === refYear) return ticket;
+    // inflar el ticket del año viejo a pesos del año de referencia (mismo mes)
+    return ticket * inflationFactor(`${year}-${mm}`, `${refYear}-${mm}`);
+  };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
@@ -226,24 +263,20 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
           {/* Ticket promedio (ventas / órdenes) */}
           <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
             <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30">
-              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Ticket Promedio · ventas ÷ órdenes</h3>
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Ticket Promedio · ventas ÷ órdenes <span className="text-text-dim normal-case font-bold">(años anteriores ajustados por inflación a pesos de {refYear || '—'})</span></h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[600px]">
                 <thead>
                   <tr className="bg-bg-accent/20 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
                     <th className="px-4 py-2">Mes</th>
-                    {years.map(y => <th key={y} className="px-4 py-2 text-right">{y}</th>)}
+                    {years.map(y => <th key={y} className="px-4 py-2 text-right">{y}{refYear && y !== refYear ? ' (ajust.)' : ''}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {MONTHS_ES.map((mname, idx) => {
                     const mm = String(idx + 1).padStart(2, '0');
-                    const cells = years.map(y => {
-                      const month = `${y}-${mm}`;
-                      const o = orders[month]; const s = sales[month];
-                      return (o && s) ? s / o : null;
-                    });
+                    const cells = years.map(y => adjustedTicket(y, mm));
                     if (cells.every(c => c === null)) return null;
                     return (
                       <tr key={mm} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
@@ -258,7 +291,7 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
               </table>
             </div>
             <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">
-              El ticket promedio nominal sube por inflación. Para comparar volumen real entre años, mirá la cantidad de órdenes (tabla de arriba).
+              Los años anteriores a {refYear || '—'} están ajustados por inflación a pesos de hoy, para que el ticket promedio sea comparable en términos reales. Necesita la inflación mensual cargada en el Estado de Resultados.
             </p>
           </div>
         </>
