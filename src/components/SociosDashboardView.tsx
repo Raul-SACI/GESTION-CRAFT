@@ -6,12 +6,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import MonthlyRankingTop from './MonthlyRankingTop';
+import ProfitLossKPIs from './ProfitLossKPIs';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -444,6 +445,15 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               </table>
             </div>
             <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Datos del modulo CMV Mensual Sucursal (Administracion)</p>
+          </div>
+
+          {/* KPIs financieros (Estado de Resultados consolidado) */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 size={16} className="text-brand-500" />
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Resultados · Ventas y Ganancia</h3>
+            </div>
+            <ProfitLossKPIs scope="consolidated" compact />
           </div>
 
           {/* Presupuesto de Horas y % de consumo */}

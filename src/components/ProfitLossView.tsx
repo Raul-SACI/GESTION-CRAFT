@@ -10,6 +10,7 @@ import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import ProfitLossProjector from './ProfitLossProjector';
+import ProfitLossKPIs from './ProfitLossKPIs';
 import {
   PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS,
   OPERATIVA_COMPONENTS, OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS,
@@ -42,7 +43,7 @@ export default function ProfitLossView({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [tab, setTab] = useState<'statement' | 'project'>('statement');
+  const [tab, setTab] = useState<'statement' | 'project' | 'kpis'>('statement');
 
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
 
@@ -261,9 +262,16 @@ export default function ProfitLossView({
             Proyectar
           </button>
         )}
+        <button onClick={() => setTab('kpis')}
+          className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+            tab === 'kpis' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+          KPIs
+        </button>
       </div>
 
-      {tab === 'project' && scope === 'consolidated' ? (
+      {tab === 'kpis' ? (
+        <ProfitLossKPIs scope={scope} />
+      ) : tab === 'project' && scope === 'consolidated' ? (
         <ProfitLossProjector scope={scope} targetMonth={selectedMonth} isReadOnly={isReadOnly} onProjectionGenerated={fetchData} />
       ) : (
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
