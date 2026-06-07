@@ -30,6 +30,7 @@ import {
   CheckCircle2,
   XCircle,
   BarChart4,
+  Ticket,
   Lock
 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -39,6 +40,7 @@ import MonthlyRankingTop from './MonthlyRankingTop';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import ReadOnlyPlantaView from './ReadOnlyPlantaView';
 import TasksSummaryWidget from './TasksSummaryWidget';
+import OrdersSummary from './OrdersSummary';
 
 interface EncargadoDashboardProps {
   selectedBranchId: string;
@@ -1315,6 +1317,15 @@ export default function EncargadoDashboardView({
         branches={branches}
         selectedMonth={selectedMonth}
       />
+
+      {/* Tickets / Órdenes de la sucursal */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Ticket size={16} className="text-brand-500" />
+          <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Tickets / Órdenes</h3>
+        </div>
+        <OrdersSummary scope={selectedBranchId === 'all' ? 'consolidated' : selectedBranchId} />
+      </div>
 
       <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
 
