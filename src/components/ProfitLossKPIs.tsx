@@ -9,7 +9,7 @@ import { Loader2, TrendingUp, TrendingDown, Minus, Save } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import {
-  SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS, OPERATIVA_COMPONENTS,
+  PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS, OPERATIVA_COMPONENTS,
   OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS
 } from './plStructure';
 
@@ -19,27 +19,27 @@ interface Props {
 }
 
 type LinesMap = Record<string, number>; // key -> realPesos
-interface MonthData { month: string; ventas: number; ganancia: number; cmv: number; sueldos: number; alquileres: number; legales: number; energia: number; indumentaria: number; }
+interface MonthData { month: string; ventas: number; ganancia: number; lines: Record<string, number>; }
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const fmt = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-AR');
 const monthLabel = (m: string) => { const [y, mm] = m.split('-'); return `${MONTHS_ES[parseInt(mm) - 1]} ${y.slice(2)}`; };
 
 // Gastos clave a vigilar
-const KEY_EXPENSES: { key: string; label: string; components?: string[] }[] = [
-  { key: 'cmv', label: 'CMV' },
-  { key: 'sueldos_rel', label: 'Sueldos y Rel.', components: SUBTOTAL_COMPONENTS.sueldos_rel },
-  { key: 'alquileres_expensas', label: 'Alquileres' },
-  { key: 'gastos_legales', label: 'Gastos Legales' },
-  { key: 'consumo_energia', label: 'Consumo Energía' },
-  { key: 'gastos_indumentaria', label: 'Indumentaria' },
-];
+// Gastos seleccionados por defecto
+const DEFAULT_EXPENSE_KEYS = ['cmv', 'sueldos_rel', 'alquileres_expensas', 'gastos_legales', 'consumo_energia', 'gastos_indumentaria'];
+
+// Todos los conceptos analizables (líneas input + subtotales), con su label
+const ANALYZABLE = PL_STRUCTURE.filter(d => d.type === 'input' || d.type === 'subtotal').map(d => ({ key: d.key, label: d.label }));
+const labelOf = (key: string) => ANALYZABLE.find(a => a.key === key)?.label || key;
 
 export default function ProfitLossKPIs({ scope = 'consolidated', compact = false }: Props) {
   const [allMonths, setAllMonths] = useState<MonthData[]>([]);
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // month -> % mensual
   const [editingInflation, setEditingInflation] = useState(false);
   const [savingInflation, setSavingInflation] = useState(false);
+  const [selectedExpenses, setSelectedExpenses] = useState<string[]>(DEFAULT_EXPENSE_KEYS);
+  const [showExpensePicker, setShowExpensePicker] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -66,15 +66,15 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
             + subtotal(SUBTOTAL_COMPONENTS.otros_ingresos);
           const operativaNeta = operativa + (m['comisiones_socios'] || 0);
           const ganancia = operativaNeta + (m['honorarios_socios'] || 0);
-          return {
-            month: r.month, ventas, ganancia,
-            cmv: m['cmv'] || 0,
-            sueldos: subtotal(SUBTOTAL_COMPONENTS.sueldos_rel),
-            alquileres: m['alquileres_expensas'] || 0,
-            legales: m['gastos_legales'] || 0,
-            energia: m['consumo_energia'] || 0,
-            indumentaria: m['gastos_indumentaria'] || 0,
-          };
+          // Mapa completo: todas las líneas input + subtotales calculados
+          const fullLines: Record<string, number> = { ...m };
+          Object.entries(SUBTOTAL_COMPONENTS).forEach(([key, comps]) => { fullLines[key] = sum(comps); });
+          fullLines['ventas_netas'] = ventas;
+          fullLines['ganancia_bruta'] = bruta;
+          fullLines['ganancia_operativa'] = operativa;
+          fullLines['ganancia_operativa_neta'] = operativaNeta;
+          fullLines['ganancia_final'] = ganancia;
+          return { month: r.month, ventas, ganancia, lines: fullLines };
         }).filter(md => md.ventas !== 0 || md.ganancia !== 0);
         setAllMonths(parsed);
         // Cargar inflación mensual
@@ -352,36 +352,55 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
 
       {/* Gastos clave · año contra año ajustado por inflación */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30">
+        <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30 flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-xs font-black uppercase text-text-main tracking-wider">
-            Gastos Clave · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(acumulado del año, ajustado por inflación · monto y % s/ventas)</span>
+            Gastos a Analizar · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(acumulado del año, ajustado por inflación · monto y % s/ventas)</span>
           </h3>
+          <button onClick={() => setShowExpensePicker(!showExpensePicker)}
+            className="bg-bg-accent border border-border-dim text-text-main px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
+            {showExpensePicker ? 'Cerrar' : 'Elegir Gastos'}
+          </button>
         </div>
+        {showExpensePicker && (
+          <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/10">
+            <p className="text-[9px] font-black uppercase text-text-dim mb-2">Tildá los conceptos que querés analizar:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-1.5 max-h-64 overflow-y-auto">
+              {ANALYZABLE.map(a => (
+                <label key={a.key} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={selectedExpenses.includes(a.key)}
+                    onChange={(e) => setSelectedExpenses(prev => e.target.checked ? [...prev, a.key] : prev.filter(k => k !== a.key))}
+                    className="w-3.5 h-3.5 accent-brand-500 shrink-0" />
+                  <span className="text-[10px] font-bold text-text-main truncate">{a.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[700px]">
             <thead>
               <tr className="bg-bg-accent/20 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
-                <th className="px-4 py-2">Gasto</th>
+                <th className="px-4 py-2">Concepto</th>
                 <th className="px-4 py-2 text-right">{yearOld || 'Año ant.'} (ajustado)</th>
                 <th className="px-4 py-2 text-right">{yearNew}</th>
                 <th className="px-4 py-2 text-right">Variación % (real)</th>
               </tr>
             </thead>
             <tbody>
-              {KEY_EXPENSES.map(exp => {
-                const field = exp.key === 'sueldos_rel' ? 'sueldos' : exp.key === 'alquileres_expensas' ? 'alquileres' : exp.key === 'gastos_legales' ? 'legales' : exp.key === 'consumo_energia' ? 'energia' : exp.key === 'gastos_indumentaria' ? 'indumentaria' : 'cmv';
-                // Acumular año viejo (ajustado mes a mes) y año nuevo
+              {selectedExpenses.length === 0 ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-[10px] font-black uppercase text-text-dim opacity-50">Elegí al menos un concepto con "Elegir Gastos".</td></tr>
+              ) : selectedExpenses.map(key => {
                 let oldSum = 0, oldVentas = 0, newSum = 0, newVentas = 0;
                 yoyRows.forEach(r => {
-                  if (r.oldMd) { oldSum += adjustOld(Math.abs((r.oldMd as any)[field] || 0), r.mm); oldVentas += adjustOld(r.oldMd.ventas, r.mm); }
-                  if (r.newMd) { newSum += Math.abs((r.newMd as any)[field] || 0); newVentas += r.newMd.ventas; }
+                  if (r.oldMd) { oldSum += adjustOld(Math.abs(r.oldMd.lines[key] || 0), r.mm); oldVentas += adjustOld(r.oldMd.ventas, r.mm); }
+                  if (r.newMd) { newSum += Math.abs(r.newMd.lines[key] || 0); newVentas += r.newMd.ventas; }
                 });
                 const oldPct = oldVentas !== 0 ? (oldSum / oldVentas) * 100 : 0;
                 const newPct = newVentas !== 0 ? (newSum / newVentas) * 100 : 0;
                 const varV = oldSum !== 0 ? ((newSum - oldSum) / Math.abs(oldSum)) * 100 : null;
                 return (
-                  <tr key={exp.key} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
-                    <td className="px-4 py-2 font-black uppercase text-text-main">{exp.label}</td>
+                  <tr key={key} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
+                    <td className="px-4 py-2 font-black uppercase text-text-main">{labelOf(key)}</td>
                     <td className="px-4 py-2 text-right font-mono text-text-dim">
                       {oldSum ? fmt(oldSum) : '—'}{oldSum ? <span className="text-[8px] block">{oldPct.toFixed(1)}%</span> : null}
                     </td>
