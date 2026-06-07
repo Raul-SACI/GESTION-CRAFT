@@ -98,20 +98,29 @@ export default function ProfitLossView({
           if (typeof v === 'number') return isNaN(v) ? 0 : v;
           let str = String(v).trim().replace(/US\$|\$|\s/g, '');
           const neg = str.includes('-') || /^\(.*\)$/.test(str);
-          str = str.replace(/[()]/g, '');
-          // Detectar formato: si hay coma, asumimos formato argentino (punto=miles, coma=decimal)
-          if (str.includes(',')) {
-            str = str.replace(/\./g, '').replace(',', '.');
-          }
-          // Si solo hay puntos, puede ser separador de miles o decimal:
-          // si hay más de un punto, o el último grupo no tiene 1-2 dígitos, son miles
-          else if (str.includes('.')) {
+          str = str.replace(/[()%]/g, '');
+          const hasComma = str.includes(',');
+          const hasDot = str.includes('.');
+          if (hasComma && hasDot) {
+            // el separador que aparece más a la derecha es el decimal
+            if (str.lastIndexOf(',') > str.lastIndexOf('.')) {
+              str = str.replace(/\./g, '').replace(',', '.'); // argentino 1.234,56
+            } else {
+              str = str.replace(/,/g, ''); // US 1,234.56
+            }
+          } else if (hasComma) {
+            const parts = str.split(',');
+            if (parts.length > 1 && parts[parts.length - 1].length === 3) {
+              str = str.replace(/,/g, ''); // miles
+            } else {
+              str = str.replace(',', '.'); // decimal
+            }
+          } else if (hasDot) {
             const parts = str.split('.');
             const lastLen = parts[parts.length - 1].length;
             if (parts.length > 2 || lastLen === 3) {
-              str = str.replace(/\./g, ''); // puntos = miles
+              str = str.replace(/\./g, ''); // miles
             }
-            // si no, el punto es decimal y se deja
           }
           str = str.replace(/[^0-9.]/g, '');
           let n = parseFloat(str);
@@ -137,7 +146,9 @@ export default function ProfitLossView({
           alert('No se reconoció ninguna línea del Excel. Verificá que la primera columna tenga los nombres de los conceptos.');
         } else {
           setLines(newLines);
-          alert(`Se importaron ${Object.keys(newLines).length} líneas. Revisá y guardá para persistir.`);
+          // Guardar automáticamente lo importado para que no se pierda al refrescar
+          persistLines(newLines);
+          alert(`Se importaron ${Object.keys(newLines).length} líneas y se guardaron en el sistema.`);
         }
       } catch (err: any) {
         alert('Error al leer el Excel: ' + (err?.message || ''));
@@ -148,23 +159,30 @@ export default function ProfitLossView({
     e.target.value = '';
   };
 
-  const handleSave = async () => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
-    setSaving(true);
+  // Persiste un set de líneas en Supabase (usado por guardar manual e import automático)
+  const persistLines = async (linesToSave: LinesMap, silent = false): Promise<boolean> => {
     try {
       const arr = PL_STRUCTURE.filter(d => d.type === 'input').map(d => ({
         key: d.key,
-        projPesos: lines[d.key]?.projPesos || 0, projUsd: lines[d.key]?.projUsd || 0,
-        realPesos: lines[d.key]?.realPesos || 0, realUsd: lines[d.key]?.realUsd || 0
+        projPesos: linesToSave[d.key]?.projPesos || 0, projUsd: linesToSave[d.key]?.projUsd || 0,
+        realPesos: linesToSave[d.key]?.realPesos || 0, realUsd: linesToSave[d.key]?.realUsd || 0
       }));
       const { error } = await supabase.from('income_statements').upsert({
         month: selectedMonth, scope, lines: arr, updated_at: new Date().toISOString()
       }, { onConflict: 'month,scope' });
       if (error) throw error;
-      alert('Estado de Resultados guardado correctamente.');
+      return true;
     } catch (err: any) {
       alert('Error al guardar: ' + (err?.message || ''));
+      return false;
     }
+  };
+
+  const handleSave = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    setSaving(true);
+    const ok = await persistLines(lines);
+    if (ok) alert('Estado de Resultados guardado correctamente.');
     setSaving(false);
   };
 
