@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, Minus, Save } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import {
@@ -39,6 +39,7 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   const [allMonths, setAllMonths] = useState<MonthData[]>([]);
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // month -> % mensual
   const [editingInflation, setEditingInflation] = useState(false);
+  const [savingInflation, setSavingInflation] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -126,12 +127,22 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
     return ((deflated - baseVal) / Math.abs(baseVal)) * 100;
   };
 
-  const saveInflation = async (month: string, value: string) => {
-    const pct = Number(value) || 0;
-    setInflationMap(prev => ({ ...prev, [month]: pct }));
+  // Edita solo el estado local (se persiste al tocar Guardar)
+  const setInflationLocal = (month: string, value: string) => {
+    const pct = value === '' ? 0 : Number(value);
+    setInflationMap(prev => ({ ...prev, [month]: isNaN(pct) ? 0 : pct }));
+  };
+  const saveAllInflation = async () => {
+    setSavingInflation(true);
     try {
-      await supabase.from('monthly_inflation').upsert({ month, inflation_pct: pct, updated_at: new Date().toISOString() }, { onConflict: 'month' });
-    } catch (e) { console.error('Error guardando inflación:', e); }
+      const rows = Object.entries(inflationMap).map(([month, pct]) => ({ month, inflation_pct: pct, updated_at: new Date().toISOString() }));
+      if (rows.length > 0) {
+        const { error } = await supabase.from('monthly_inflation').upsert(rows, { onConflict: 'month' });
+        if (error) throw error;
+      }
+      alert('Inflación mensual guardada correctamente.');
+    } catch (e: any) { alert('Error al guardar inflación: ' + (e?.message || '')); }
+    setSavingInflation(false);
   };
   const margin = (md: MonthData) => md.ventas !== 0 ? (md.ganancia / md.ventas) * 100 : 0;
 
@@ -184,7 +195,24 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   }
 
   // ===== Versión completa (pestaña KPIs) =====
-  const maxVentas = Math.max(...allMonths.map(m => m.ventas), 1);
+  // Detectar los dos años a comparar (el más reciente vs el anterior)
+  const years = Array.from(new Set(allMonths.map(m => m.month.slice(0, 4)))).sort();
+  const yearNew = years[years.length - 1];
+  const yearOld = years.length > 1 ? years[years.length - 2] : null;
+  const byMonthKey: Record<string, MonthData> = {};
+  allMonths.forEach(m => { byMonthKey[m.month] = m; });
+  // Filas: meses 01..12, con dato old (ajustado) y new
+  const yoyRows = Array.from({ length: 12 }, (_, i) => {
+    const mm = String(i + 1).padStart(2, '0');
+    const oldMd = yearOld ? byMonthKey[`${yearOld}-${mm}`] : undefined;
+    const newMd = byMonthKey[`${yearNew}-${mm}`];
+    return { mm, oldMd, newMd };
+  }).filter(r => r.oldMd || r.newMd);
+  // Ajusta un valor del año viejo a pesos del año nuevo (mismo mes)
+  const adjustOld = (val: number, mm: string) => {
+    if (!yearOld) return val;
+    return val * inflationFactor(`${yearOld}-${mm}`, `${yearNew}-${mm}`);
+  };
 
   return (
     <div className="space-y-6">
@@ -201,19 +229,27 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
           </button>
         </div>
         {editingInflation && (
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-            {allMonths.map(m => (
-              <div key={m.month}>
-                <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block">{monthLabel(m.month)}</label>
-                <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2 mt-0.5">
-                  <input type="number" step="0.1" defaultValue={inflationMap[m.month] ?? ''} placeholder="0"
-                    onBlur={(e) => saveInflation(m.month, e.target.value)}
-                    className="w-full bg-transparent border-none py-1.5 text-[11px] font-mono font-bold text-text-main outline-none" />
-                  <span className="text-[9px] text-text-dim font-bold">%</span>
+          <>
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+              {allMonths.map(m => (
+                <div key={m.month}>
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block">{monthLabel(m.month)}</label>
+                  <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2 mt-0.5">
+                    <input type="number" step="0.1" value={inflationMap[m.month] ?? ''} placeholder="0"
+                      onChange={(e) => setInflationLocal(m.month, e.target.value)}
+                      className="w-full bg-transparent border-none py-1.5 text-[11px] font-mono font-bold text-text-main outline-none" />
+                    <span className="text-[9px] text-text-dim font-bold">%</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={saveAllInflation} disabled={savingInflation}
+                className="bg-brand-500 text-black px-5 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60 flex items-center gap-2">
+                {savingInflation ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar Inflación
+              </button>
+            </div>
+          </>
         )}
       </div>
 
@@ -238,59 +274,130 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
         </div>
       </div>
 
-      {/* Evolución mes a mes */}
-      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-        <h3 className="text-xs font-black uppercase text-text-main tracking-wider mb-4">Evolución Mensual</h3>
-        <div className="space-y-2">
-          {allMonths.map(m => (
-            <div key={m.month} className="flex items-center gap-3">
-              <span className="text-[9px] font-black uppercase text-text-dim w-16 shrink-0">{monthLabel(m.month)}</span>
-              <div className="flex-1 bg-bg-accent/30 rounded-full h-5 relative overflow-hidden">
-                <div className="absolute inset-y-0 left-0 bg-brand-500/30 rounded-full" style={{ width: `${(m.ventas / maxVentas) * 100}%` }} />
-                <span className="absolute inset-y-0 left-2 flex items-center text-[9px] font-mono font-bold text-text-main">{fmt(m.ventas)}</span>
-              </div>
-              <span className={cn("text-[10px] font-mono font-black w-28 text-right shrink-0", m.ganancia >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(m.ganancia)}</span>
-              <span className="text-[8px] font-bold text-text-dim w-12 text-right shrink-0">{margin(m).toFixed(0)}%</span>
-            </div>
-          ))}
-          <div className="flex items-center gap-3 text-[8px] font-black uppercase text-text-dim pt-1 border-t border-border-dim/40">
-            <span className="w-16 shrink-0">Mes</span><span className="flex-1">Ventas Netas</span><span className="w-28 text-right shrink-0">Ganancia Final</span><span className="w-12 text-right shrink-0">Margen</span>
-          </div>
+      {/* Comparativo año contra año (ajustado por inflación) */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30">
+          <h3 className="text-xs font-black uppercase text-text-main tracking-wider">
+            Ventas Netas · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">({yearOld} ajustado por inflación a pesos de {yearNew})</span>
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[600px]">
+            <thead>
+              <tr className="bg-bg-accent/20 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
+                <th className="px-4 py-2">Mes</th>
+                <th className="px-4 py-2 text-right">{yearOld || 'Año ant.'} (real, ajustado)</th>
+                <th className="px-4 py-2 text-right">{yearNew}</th>
+                <th className="px-4 py-2 text-right">Variación % (real)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yoyRows.map(r => {
+                const oldAdj = r.oldMd ? adjustOld(r.oldMd.ventas, r.mm) : null;
+                const newV = r.newMd ? r.newMd.ventas : null;
+                const varV = (oldAdj && newV) ? ((newV - oldAdj) / Math.abs(oldAdj)) * 100 : null;
+                return (
+                  <tr key={r.mm} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
+                    <td className="px-4 py-2 font-black uppercase text-text-main">{MONTHS_ES[parseInt(r.mm) - 1]}</td>
+                    <td className="px-4 py-2 text-right font-mono text-text-dim">{oldAdj !== null ? fmt(oldAdj) : '—'}</td>
+                    <td className="px-4 py-2 text-right font-mono text-text-main">{newV !== null ? fmt(newV) : '—'}</td>
+                    <td className={cn("px-4 py-2 text-right font-mono font-black", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : "text-red-500")}>
+                      {varV !== null ? (varV > 0 ? '+' : '') + varV.toFixed(1) + '%' : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
 
-      {/* Gastos clave */}
+      {/* Comparativo Ganancia Final año contra año */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30">
-          <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Gastos Clave · monto y % sobre ventas</h3>
+          <h3 className="text-xs font-black uppercase text-text-main tracking-wider">
+            Ganancia/Pérdida Final · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(ajustado por inflación)</span>
+          </h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[600px]">
+            <thead>
+              <tr className="bg-bg-accent/20 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
+                <th className="px-4 py-2">Mes</th>
+                <th className="px-4 py-2 text-right">{yearOld || 'Año ant.'} (real, ajustado)</th>
+                <th className="px-4 py-2 text-right">{yearNew}</th>
+                <th className="px-4 py-2 text-right">Variación % (real)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {yoyRows.map(r => {
+                const oldAdj = r.oldMd ? adjustOld(r.oldMd.ganancia, r.mm) : null;
+                const newV = r.newMd ? r.newMd.ganancia : null;
+                const varV = (oldAdj && newV && oldAdj !== 0) ? ((newV - oldAdj) / Math.abs(oldAdj)) * 100 : null;
+                return (
+                  <tr key={r.mm} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
+                    <td className="px-4 py-2 font-black uppercase text-text-main">{MONTHS_ES[parseInt(r.mm) - 1]}</td>
+                    <td className={cn("px-4 py-2 text-right font-mono", oldAdj !== null && oldAdj < 0 ? "text-red-400" : "text-text-dim")}>{oldAdj !== null ? fmt(oldAdj) : '—'}</td>
+                    <td className={cn("px-4 py-2 text-right font-mono", newV !== null && newV < 0 ? "text-red-400" : "text-text-main")}>{newV !== null ? fmt(newV) : '—'}</td>
+                    <td className={cn("px-4 py-2 text-right font-mono font-black", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : "text-red-500")}>
+                      {varV !== null ? (varV > 0 ? '+' : '') + varV.toFixed(1) + '%' : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Gastos clave · año contra año ajustado por inflación */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30">
+          <h3 className="text-xs font-black uppercase text-text-main tracking-wider">
+            Gastos Clave · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(acumulado del año, ajustado por inflación · monto y % s/ventas)</span>
+          </h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[700px]">
             <thead>
               <tr className="bg-bg-accent/20 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
                 <th className="px-4 py-2">Gasto</th>
-                {allMonths.slice(-6).map(m => <th key={m.month} className="px-3 py-2 text-right">{monthLabel(m.month)}</th>)}
+                <th className="px-4 py-2 text-right">{yearOld || 'Año ant.'} (ajustado)</th>
+                <th className="px-4 py-2 text-right">{yearNew}</th>
+                <th className="px-4 py-2 text-right">Variación % (real)</th>
               </tr>
             </thead>
             <tbody>
-              {KEY_EXPENSES.map(exp => (
-                <tr key={exp.key} className="border-b border-border-dim/30 text-[10px] hover:bg-bg-accent/10">
-                  <td className="px-4 py-2 font-black uppercase text-text-main">{exp.label}</td>
-                  {allMonths.slice(-6).map(m => {
-                    const val = Math.abs((m as any)[exp.key === 'sueldos_rel' ? 'sueldos' : exp.key === 'alquileres_expensas' ? 'alquileres' : exp.key === 'gastos_legales' ? 'legales' : exp.key === 'consumo_energia' ? 'energia' : exp.key === 'gastos_indumentaria' ? 'indumentaria' : 'cmv'] || 0);
-                    const pctV = m.ventas !== 0 ? (val / m.ventas) * 100 : 0;
-                    return (
-                      <td key={m.month} className="px-3 py-2 text-right font-mono">
-                        <div className="text-text-main">{fmt(val)}</div>
-                        <div className="text-[8px] text-text-dim">{pctV.toFixed(1)}%</div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {KEY_EXPENSES.map(exp => {
+                const field = exp.key === 'sueldos_rel' ? 'sueldos' : exp.key === 'alquileres_expensas' ? 'alquileres' : exp.key === 'gastos_legales' ? 'legales' : exp.key === 'consumo_energia' ? 'energia' : exp.key === 'gastos_indumentaria' ? 'indumentaria' : 'cmv';
+                // Acumular año viejo (ajustado mes a mes) y año nuevo
+                let oldSum = 0, oldVentas = 0, newSum = 0, newVentas = 0;
+                yoyRows.forEach(r => {
+                  if (r.oldMd) { oldSum += adjustOld(Math.abs((r.oldMd as any)[field] || 0), r.mm); oldVentas += adjustOld(r.oldMd.ventas, r.mm); }
+                  if (r.newMd) { newSum += Math.abs((r.newMd as any)[field] || 0); newVentas += r.newMd.ventas; }
+                });
+                const oldPct = oldVentas !== 0 ? (oldSum / oldVentas) * 100 : 0;
+                const newPct = newVentas !== 0 ? (newSum / newVentas) * 100 : 0;
+                const varV = oldSum !== 0 ? ((newSum - oldSum) / Math.abs(oldSum)) * 100 : null;
+                return (
+                  <tr key={exp.key} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
+                    <td className="px-4 py-2 font-black uppercase text-text-main">{exp.label}</td>
+                    <td className="px-4 py-2 text-right font-mono text-text-dim">
+                      {oldSum ? fmt(oldSum) : '—'}{oldSum ? <span className="text-[8px] block">{oldPct.toFixed(1)}%</span> : null}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-text-main">
+                      {newSum ? fmt(newSum) : '—'}{newSum ? <span className="text-[8px] block text-text-dim">{newPct.toFixed(1)}%</span> : null}
+                    </td>
+                    <td className={cn("px-4 py-2 text-right font-mono font-black", varV === null ? "text-text-dim" : varV > 0 ? "text-red-500" : "text-emerald-500")}>
+                      {varV !== null ? (varV > 0 ? '+' : '') + varV.toFixed(1) + '%' : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
+        <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">En gastos, una variación en rojo (subió en términos reales) es lo que conviene vigilar.</p>
       </div>
     </div>
   );
