@@ -2,292 +2,255 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { 
-  BarChart3, 
-  TrendingUp, 
-  TrendingDown, 
-  Calendar, 
-  FileText,
-  AlertCircle,
-  FileUp,
-  Download
-} from 'lucide-react';
+import { BarChart3, Calendar, FileUp, Loader2, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
-import { Branch, PLRecord } from '../types';
+import { Branch } from '../types';
+import { supabase } from '../lib/supabase';
+import {
+  PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS,
+  OPERATIVA_COMPONENTS, OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS,
+  normalizeLabel, LABEL_TO_KEY
+} from './plStructure';
 
-export default function ProfitLossView({ 
-  branches, 
-  selectedBranchId, 
-  onBranchChange,
-  isReadOnly = false
-}: { 
-  branches: Branch[], 
-  selectedBranchId: string, 
-  onBranchChange?: (id: string) => void,
-  isReadOnly?: boolean
+interface LineValues {
+  projPesos: number; projUsd: number;
+  realPesos: number; realUsd: number;
+}
+type LinesMap = Record<string, LineValues>;
+
+const emptyLine = (): LineValues => ({ projPesos: 0, projUsd: 0, realPesos: 0, realUsd: 0 });
+
+const fmtMoney = (n: number, usd = false) => {
+  if (!n) return '-';
+  const abs = Math.abs(n);
+  const s = (usd ? 'US$' : '$') + abs.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+  return n < 0 ? `-${s}` : s;
+};
+
+export default function ProfitLossView({
+  branches, selectedBranchId, onBranchChange, isReadOnly = false
+}: {
+  branches: Branch[]; selectedBranchId: string; onBranchChange?: (id: string) => void; isReadOnly?: boolean;
 }) {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [records, setRecords] = useState<PLRecord[]>([]);
+  const [scope, setScope] = useState<string>('consolidated');
+  const [lines, setLines] = useState<LinesMap>({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
-  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+  const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase.from('income_statements').select('*')
+        .eq('month', selectedMonth).eq('scope', scope).maybeSingle();
+      const map: LinesMap = {};
+      if (data && data.lines) {
+        const arr = typeof data.lines === 'string' ? JSON.parse(data.lines) : data.lines;
+        (arr || []).forEach((l: any) => { map[l.key] = { projPesos: l.projPesos || 0, projUsd: l.projUsd || 0, realPesos: l.realPesos || 0, realUsd: l.realUsd || 0 }; });
+      }
+      setLines(map);
+    } catch (e) { console.error('Error cargando P&L:', e); setLines({}); }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchData(); }, [selectedMonth, scope]);
+
+  const computed = useMemo(() => {
+    const get = (k: string): LineValues => lines[k] || emptyLine();
+    const result: LinesMap = {};
+    PL_STRUCTURE.forEach(def => { if (def.type === 'input') result[def.key] = get(def.key); });
+    const sumKeys = (keys: string[], field: keyof LineValues) => keys.reduce((s, k) => s + (result[k]?.[field] || 0), 0);
+    Object.entries(SUBTOTAL_COMPONENTS).forEach(([key, comps]) => {
+      result[key] = { projPesos: sumKeys(comps, 'projPesos'), projUsd: sumKeys(comps, 'projUsd'), realPesos: sumKeys(comps, 'realPesos'), realUsd: sumKeys(comps, 'realUsd') };
+    });
+    result['ganancia_bruta'] = { projPesos: sumKeys(GANANCIA_BRUTA_COMPONENTS, 'projPesos'), projUsd: sumKeys(GANANCIA_BRUTA_COMPONENTS, 'projUsd'), realPesos: sumKeys(GANANCIA_BRUTA_COMPONENTS, 'realPesos'), realUsd: sumKeys(GANANCIA_BRUTA_COMPONENTS, 'realUsd') };
+    result['ganancia_operativa'] = { projPesos: sumKeys(OPERATIVA_COMPONENTS, 'projPesos'), projUsd: sumKeys(OPERATIVA_COMPONENTS, 'projUsd'), realPesos: sumKeys(OPERATIVA_COMPONENTS, 'realPesos'), realUsd: sumKeys(OPERATIVA_COMPONENTS, 'realUsd') };
+    result['ganancia_operativa_neta'] = { projPesos: sumKeys(OPERATIVA_NETA_COMPONENTS, 'projPesos'), projUsd: sumKeys(OPERATIVA_NETA_COMPONENTS, 'projUsd'), realPesos: sumKeys(OPERATIVA_NETA_COMPONENTS, 'realPesos'), realUsd: sumKeys(OPERATIVA_NETA_COMPONENTS, 'realUsd') };
+    result['ganancia_final'] = { projPesos: sumKeys(FINAL_COMPONENTS, 'projPesos'), projUsd: sumKeys(FINAL_COMPONENTS, 'projUsd'), realPesos: sumKeys(FINAL_COMPONENTS, 'realPesos'), realUsd: sumKeys(FINAL_COMPONENTS, 'realUsd') };
+    return result;
+  }, [lines]);
+
+  const ventasNetasProj = computed['ventas_netas']?.projPesos || 0;
+  const ventasNetasReal = computed['ventas_netas']?.realPesos || 0;
+  const pct = (val: number, base: number) => base !== 0 ? (val / base) * 100 : 0;
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
-
+    setImporting(true);
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws) as any[];
-
-      const newRecords: PLRecord[] = data.map(row => ({
-        category: row.Concepto || row.Category || '',
-        group: row.Grupo || '',
-        projectedPesos: Number(row['Proyectado $'] || 0),
-        projectedUsd: Number(row['Proyectado USD'] || 0),
-        projectedPercent: Number(row['% Proyectado'] || 0),
-        realPesos: Number(row['Real $'] || 0),
-        realUsd: Number(row['Real USD'] || 0),
-        realPercent: Number(row['% Real'] || 0),
-        isHeader: row.isHeader === true || row.isHeader === 'true',
-        isTotal: row.isTotal === true || row.isTotal === 'true'
-      }));
-
-      setRecords(newRecords);
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+        const newLines: LinesMap = {};
+        const parseNum = (v: any): number => {
+          if (v === null || v === undefined || v === '') return 0;
+          if (typeof v === 'number') return v;
+          const cleaned = String(v).replace(/[$\s]/g, '').replace(/\./g, '').replace(/,/g, '.').replace(/[^0-9.\-]/g, '');
+          const n = parseFloat(cleaned);
+          return isNaN(n) ? 0 : n;
+        };
+        rows.forEach(row => {
+          if (!row || !row[0]) return;
+          const key = LABEL_TO_KEY[normalizeLabel(String(row[0]))];
+          if (!key) return;
+          const projPesos = parseNum(row[1]);
+          const projUsd = parseNum(row[2]);
+          const realPesos = parseNum(row[4]);
+          const realUsd = parseNum(row[5]);
+          if (!newLines[key]) newLines[key] = emptyLine();
+          newLines[key].projPesos += projPesos;
+          newLines[key].projUsd += projUsd;
+          newLines[key].realPesos += realPesos;
+          newLines[key].realUsd += realUsd;
+        });
+        if (Object.keys(newLines).length === 0) {
+          alert('No se reconoció ninguna línea del Excel. Verificá que la primera columna tenga los nombres de los conceptos.');
+        } else {
+          setLines(newLines);
+          alert(`Se importaron ${Object.keys(newLines).length} líneas. Revisá y guardá para persistir.`);
+        }
+      } catch (err: any) {
+        alert('Error al leer el Excel: ' + (err?.message || ''));
+      }
+      setImporting(false);
     };
     reader.readAsBinaryString(file);
+    e.target.value = '';
   };
 
-  const handleExportTemplate = () => {
-    const templateData = [
-      { Concepto: 'Ingresos Ordinarios', Grupo: 'INGRESOS', isHeader: true },
-      { Concepto: 'Ventas 1', 'Proyectado $': 270264257, 'Proyectado USD': 190999, '% Proyectado': 60.15, 'Real $': 264171123, 'Real USD': 186693, '% Real': 61.47 },
-      { Concepto: 'Ventas 2', 'Proyectado $': 179030169, 'Proyectado USD': 126523, '% Proyectado': 39.85, 'Real $': 165562304, 'Real USD': 117005, '% Real': 38.53 },
-      { Concepto: 'Ventas Totales Netas', 'Proyectado $': 449294426, 'Proyectado USD': 317522, '% Proyectado': 100, 'Real $': 429733427, 'Real USD': 303698, '% Real': 100, isTotal: true },
-      
-      { Concepto: 'Costo de Mercadería Vendida', 'Proyectado $': -150284532, 'Proyectado USD': -106208, '% Proyectado': -33.45, 'Real $': -133415090, 'Real USD': -94286, '% Real': -31.05 },
-      { Concepto: 'Ganancia/Pérdida Bruta', 'Proyectado $': 299009893, 'Proyectado USD': 211314, '% Proyectado': 66.55, 'Real $': 296318336, 'Real USD': 209412, '% Real': 68.95, isTotal: true },
-      
-      { Concepto: 'Sueldos y Relacionados', Grupo: 'GASTOS ESTRUCTURA', isHeader: true },
-      { Concepto: 'Sueldos', 'Proyectado $': -98565369, 'Proyectado USD': -69657, '% Proyectado': -21.94, 'Real $': -103853888, 'Real USD': -73394, '% Real': -24.17 },
-      { Concepto: 'Cargas Sociales', 'Proyectado $': -6509053, 'Proyectado USD': -4600, '% Proyectado': -1.45, 'Real $': -6756212, 'Real USD': -4774, '% Real': -1.57 },
-      { Concepto: 'Liquidación Final', 'Proyectado $': 0, 'Proyectado USD': 0, '% Proyectado': 0, 'Real $': -331500, 'Real USD': -234, '% Real': -0.08 },
-      { Concepto: 'SAC', 'Proyectado $': 0, 'Proyectado USD': 0, '% Proyectado': 0, 'Real $': 0, 'Real USD': 0, '% Real': 0 },
-      { Concepto: 'Salud Pública', 'Proyectado $': -299030, 'Proyectado USD': -211, '% Proyectado': -0.07, 'Real $': -311924, 'Real USD': -220, '% Real': -0.07 },
-      { Concepto: 'Sindicato', 'Proyectado $': 0, 'Proyectado USD': 0, '% Proyectado': 0, 'Real $': 0, 'Real USD': 0, '% Real': 0 },
-      { Concepto: 'Variables/Premios', 'Proyectado $': -3939900, 'Proyectado USD': -2784, '% Proyectado': -0.88, 'Real $': -4399200, 'Real USD': -3108, '% Real': -1.02 },
-      { Concepto: 'Vacaciones', 'Proyectado $': 0, 'Proyectado USD': 0, '% Proyectado': 0, 'Real $': -448000, 'Real USD': -316, '% Real': -0.10 },
-      { Concepto: 'Servicios Eventuales (Pruebas)', 'Proyectado $': -2000000, 'Proyectado USD': -1413, '% Proyectado': -0.45, 'Real $': -2066250, 'Real USD': -1460, '% Real': -0.48 },
-      
-      { Concepto: 'Alquileres y Relacionados', Grupo: 'ALQUILERES', isHeader: true },
-      { Concepto: 'Alquileres y Expensas', 'Proyectado $': -17796062, 'Proyectado USD': -12444, '% Proyectado': -4.36, 'Real $': -18727328, 'Real USD': -13096, '% Real': -4.58 },
-
-      { Concepto: 'Servicios y Contrataciones', Grupo: 'SERVICIOS', isHeader: true },
-      { Concepto: 'Software (Maxirest)', 'Proyectado $': -836921, 'Proyectado USD': -591, '% Proyectado': -0.19, 'Real $': -944355, 'Real USD': -667, '% Real': -0.22 },
-      { Concepto: 'Consumo Energía', 'Proyectado $': -7070931, 'Proyectado USD': -4997, '% Proyectado': -1.57, 'Real $': -12190585, 'Real USD': -8615, '% Real': -2.84 },
-      { Concepto: 'Consumo Gas', 'Proyectado $': -2248071, 'Real $': -2384383 },
-      { Concepto: 'Honorarios', 'Proyectado $': -4644000, 'Real $': -4502700 },
-    ];
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Modelo P&L");
-    XLSX.writeFile(wb, "Modelo_P&L_Import.xlsx");
+  const handleSave = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    setSaving(true);
+    try {
+      const arr = PL_STRUCTURE.filter(d => d.type === 'input').map(d => ({
+        key: d.key,
+        projPesos: lines[d.key]?.projPesos || 0, projUsd: lines[d.key]?.projUsd || 0,
+        realPesos: lines[d.key]?.realPesos || 0, realUsd: lines[d.key]?.realUsd || 0
+      }));
+      const { error } = await supabase.from('income_statements').upsert({
+        month: selectedMonth, scope, lines: arr, updated_at: new Date().toISOString()
+      }, { onConflict: 'month,scope' });
+      if (error) throw error;
+      alert('Estado de Resultados guardado correctamente.');
+    } catch (err: any) {
+      alert('Error al guardar: ' + (err?.message || ''));
+    }
+    setSaving(false);
   };
 
-  const activeBranch = branches.find(b => b.id === selectedBranchId);
+  const scopeName = scope === 'consolidated' ? 'Consolidado (Todas)' : (branches.find(b => b.id === scope)?.name || scope);
 
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="space-y-6 pb-20"
-    >
-       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div>
-          <h2 className="text-xl font-bold text-text-main uppercase tracking-tight italic flex items-center gap-2">
-            <BarChart3 className="text-brand-500" size={24} />
-            Estado de Resultado {activeBranch ? `• ${activeBranch.name}` : '(CONSOLIDADO)'}
-          </h2>
-          <div className="flex items-center gap-2 mt-1">
-            <Calendar size={12} className="text-brand-500" />
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest">{selectedMonth}</p>
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pb-20">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-bg-sidebar p-5 rounded-xl border border-border-dim shadow-xl">
+        <div className="flex items-center gap-4">
+          <div className="bg-brand-500/15 p-3 text-brand-500 border border-brand-500/25 rounded-xl"><BarChart3 size={24} /></div>
+          <div>
+            <h2 className="text-lg font-black text-text-main uppercase tracking-tight">Estado de Resultados</h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest">Proyectado vs Real · {scopeName}</p>
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="bg-bg-sidebar border border-border-dim rounded p-2 px-4 flex items-center gap-3 h-[42px]">
-            <input 
-              type="month" 
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-transparent border-none text-[11px] font-mono text-text-main outline-none uppercase"
-            />
+        <div className="flex items-center gap-2 flex-wrap">
+          <select value={scope} onChange={(e) => setScope(e.target.value)}
+            className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-black uppercase text-text-main outline-none">
+            <option value="consolidated">Consolidado (Todas)</option>
+            {operativeBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+          <div className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 flex items-center gap-2">
+            <Calendar size={14} className="text-brand-500" />
+            <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-transparent border-none text-[11px] font-black uppercase text-text-main outline-none" />
           </div>
-          <button 
-            onClick={handleExportTemplate}
-            className="bg-bg-sidebar hover:bg-bg-card border border-border-dim text-text-dim px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center h-[42px] gap-2"
-          >
-            <Download size={16} /> MODELO
-          </button>
-          <label className="bg-brand-500 hover:bg-brand-600 text-black px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center h-[42px] gap-2 shadow-xl shadow-brand-500/10">
-            <FileUp size={16} /> IMPORTAR EXCEL
-            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
-          </label>
+          {!isReadOnly && (
+            <>
+              <label className={cn("bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main cursor-pointer hover:border-brand-500/50 transition-all flex items-center gap-2", importing && "opacity-60 pointer-events-none")}>
+                {importing ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />} Importar Excel
+                <input type="file" accept=".xlsx,.xls" onChange={handleImport} className="hidden" disabled={importing} />
+              </label>
+              <button onClick={handleSave} disabled={saving}
+                className="bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60 flex items-center gap-2">
+                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {onBranchChange && (
-        <div className="flex flex-wrap items-center gap-2 bg-bg-sidebar/50 p-4 rounded border border-border-dim/60">
-          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-2">Filtrar Sucursal:</span>
-          <button
-            onClick={() => onBranchChange('all')}
-            className={cn(
-              "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
-              selectedBranchId === 'all'
-                ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
-                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
-            )}
-          >
-            Consolidado (Todas)
-          </button>
-          {branches.map(b => (
-            <button
-              key={b.id}
-              onClick={() => onBranchChange(b.id)}
-              className={cn(
-                "px-3 py-1.5 rounded text-[10px] font-bold uppercase tracking-wider border transition-all cursor-pointer",
-                selectedBranchId === b.id
-                  ? "bg-brand-500 text-black border-brand-500 font-extrabold shadow-md"
-                  : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main hover:bg-bg-accent/80"
-              )}
-            >
-              {b.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[1200px]">
-            <thead>
-              <tr className="bg-black/60 border-b border-border-dim">
-                <th rowSpan={2} className="px-6 py-8 text-[11px] font-black uppercase text-text-main tracking-widest w-[350px]">Ingresos / Egresos Ordinarios</th>
-                <th colSpan={3} className="px-4 py-3 text-center text-[10px] font-black uppercase text-brand-500 tracking-widest border-l border-border-dim/50 bg-brand-500/10">
-                   PROYECTADO
-                </th>
-                <th colSpan={3} className="px-4 py-3 text-center text-[10px] font-black uppercase text-emerald-400 tracking-widest border-l border-border-dim/50 bg-emerald-500/10">
-                   REAL
-                </th>
-              </tr>
-              <tr className="bg-black/60 border-b-2 border-border-dim">
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase border-l border-border-dim/30">Importes $</th>
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase">Importes USD</th>
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase">%</th>
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase border-l border-border-dim/30">Importes $</th>
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase">Importes USD</th>
-                <th className="px-4 py-2 text-center text-[9px] font-bold text-text-dim uppercase">%</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-dim/50 font-mono">
-              {records.length > 0 ? (
-                records.map((row, idx) => {
-                  const isHeader = row.isHeader;
-                  const isTotal = row.isTotal;
-                  
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[900px]">
+              <thead>
+                <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] font-black uppercase text-text-dim tracking-wider">
+                  <th className="px-4 py-3" rowSpan={2}>Concepto</th>
+                  <th className="px-4 py-2 text-center border-l border-border-dim" colSpan={3}>Proyectado</th>
+                  <th className="px-4 py-2 text-center border-l border-border-dim" colSpan={3}>Real</th>
+                  <th className="px-4 py-3 text-center border-l border-border-dim" rowSpan={2}>Var. %</th>
+                </tr>
+                <tr className="bg-bg-accent/40 border-b border-border-dim text-[8px] font-black uppercase text-text-dim tracking-wider">
+                  <th className="px-3 py-1.5 text-right border-l border-border-dim">$</th>
+                  <th className="px-3 py-1.5 text-right">USD</th>
+                  <th className="px-3 py-1.5 text-right">%</th>
+                  <th className="px-3 py-1.5 text-right border-l border-border-dim">$</th>
+                  <th className="px-3 py-1.5 text-right">USD</th>
+                  <th className="px-3 py-1.5 text-right">%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PL_STRUCTURE.map(def => {
+                  if (def.type === 'header') {
+                    return (
+                      <tr key={def.key} className="bg-bg-accent/20 border-b border-border-dim/40">
+                        <td colSpan={8} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
+                      </tr>
+                    );
+                  }
+                  const v = computed[def.key] || emptyLine();
+                  const projP = v.projPesos, realP = v.realPesos;
+                  const projPctV = pct(projP, ventasNetasProj);
+                  const realPctV = pct(realP, ventasNetasReal);
+                  const varPct = projP !== 0 ? ((realP - projP) / Math.abs(projP)) * 100 : 0;
+                  const isSub = def.type === 'subtotal';
                   return (
-                    <tr key={idx} className={cn(
-                      "hover:bg-bg-accent/30 transition-colors group",
-                      isHeader && "bg-bg-accent font-black",
-                      isTotal && "bg-brand-500/5 font-black"
-                    )}>
-                      <td className="px-6 py-3">
-                         <div className="flex items-center gap-3">
-                           {isHeader && <div className="w-1.5 h-1.5 rounded-full bg-brand-500" />}
-                           <span className={cn(
-                             "text-[10px] uppercase tracking-tighter",
-                             isHeader ? "text-text-main" : "text-text-dim pl-4",
-                             isTotal && "text-brand-500"
-                           )}>
-                             {row.category}
-                           </span>
-                         </div>
+                    <tr key={def.key} className={cn("border-b border-border-dim/30 text-[11px]",
+                      isSub ? "bg-bg-accent/15 font-black" : "font-medium hover:bg-bg-accent/10",
+                      def.bold && "bg-brand-500/5")}>
+                      <td className={cn("px-4 py-2 text-text-main", def.indent && "pl-8", def.bold ? "font-black uppercase" : isSub ? "font-black uppercase text-[10px]" : "")}>
+                        {def.label}
                       </td>
-                      <td className={cn(
-                        "px-4 py-3 text-center text-[10px] border-l border-border-dim/30",
-                        row.projectedPesos < 0 ? "text-red-400" : "text-text-main",
-                        isTotal && "font-black"
-                      )}>
-                        {row.projectedPesos !== 0 ? (row.projectedPesos < 0 ? `-$${Math.abs(row.projectedPesos).toLocaleString()}` : `$${row.projectedPesos.toLocaleString()}`) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center text-[10px] text-text-dim opacity-70">
-                         {row.projectedUsd !== 0 ? (row.projectedUsd < 0 ? `-$${Math.abs(row.projectedUsd).toLocaleString()}` : `$${row.projectedUsd.toLocaleString()}`) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center text-[10px] text-text-dim font-bold">
-                        {row.projectedPercent !== 0 ? `${row.projectedPercent.toFixed(2)}%` : '-'}
-                      </td>
-                      <td className={cn(
-                        "px-4 py-3 text-center text-[10px] border-l border-border-dim/30",
-                        row.realPesos < 0 ? "text-red-400" : "text-text-main",
-                        isTotal && "font-black"
-                      )}>
-                        {row.realPesos !== 0 ? (row.realPesos < 0 ? `-$${Math.abs(row.realPesos).toLocaleString()}` : `$${row.realPesos.toLocaleString()}`) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center text-[10px] text-text-dim opacity-70">
-                        {row.realUsd !== 0 ? (row.realUsd < 0 ? `-$${Math.abs(row.realUsd).toLocaleString()}` : `$${row.realUsd.toLocaleString()}`) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-center text-[10px] text-text-dim font-bold">
-                        {row.realPercent !== 0 ? `${row.realPercent.toFixed(2)}%` : '-'}
+                      <td className={cn("px-3 py-2 text-right font-mono", projP < 0 ? "text-red-400" : "text-text-main")}>{fmtMoney(projP)}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono text-text-dim")}>{fmtMoney(v.projUsd, true)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-text-dim">{projPctV ? projPctV.toFixed(1) + '%' : '-'}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono border-l border-border-dim/30", realP < 0 ? "text-red-400" : "text-text-main")}>{fmtMoney(realP)}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono text-text-dim")}>{fmtMoney(v.realUsd, true)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-text-dim">{realPctV ? realPctV.toFixed(1) + '%' : '-'}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono border-l border-border-dim/30 font-bold",
+                        Math.abs(varPct) < 0.05 ? "text-text-dim" : varPct > 0 ? "text-emerald-400" : "text-red-400")}>
+                        {projP !== 0 && realP !== 0 ? (varPct > 0 ? '+' : '') + varPct.toFixed(1) + '%' : '-'}
                       </td>
                     </tr>
                   );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={7} className="px-6 py-32 text-center bg-bg-sidebar">
-                    <div className="flex flex-col items-center gap-4">
-                       <div className="p-6 bg-bg-accent rounded-full border border-border-dim animate-pulse">
-                         <BarChart3 size={48} className="text-text-dim opacity-20" />
-                       </div>
-                       <div>
-                         <p className="text-[12px] font-black uppercase tracking-widest text-text-main">Sin datos cargados</p>
-                         <p className="text-[10px] mt-1 text-text-dim italic">Por favor, importe la planilla Excel correspondiente al mes de {selectedMonth}</p>
-                       </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="p-6 bg-brand-500/5 border border-brand-500/20 rounded-lg flex items-start gap-4 lg:col-span-2">
-          <div className="p-2 bg-brand-500/10 rounded-full text-brand-500 mt-1">
-            <AlertCircle size={20} />
+                })}
+              </tbody>
+            </table>
           </div>
-          <div>
-            <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest mb-1">Análisis de Estructura de Costos</h4>
-            <p className="text-[11px] text-text-dim leading-relaxed">
-              Este informe presenta la rentabilidad operativa del negocio. El "Importe USD" es una referencia calculada para el análisis de los socios, 
-              mientras que los "%" reflejan la incidencia de cada rubro sobre la venta neta (100%).
-            </p>
-          </div>
-        </div>
-        <div className="p-6 bg-bg-sidebar border border-border-dim rounded-lg flex flex-col justify-center text-center">
-            <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Desvío de Ganancia Bruta</span>
-            <div className="flex items-center justify-center gap-3">
-              <TrendingUp className="text-emerald-500" size={24} />
-              <span className="text-3xl font-mono font-black text-emerald-400 italic tracking-tighter">+2.4%</span>
-            </div>
-        </div>
+        )}
       </div>
+      <p className="text-[9px] text-text-dim font-bold uppercase text-center opacity-60">
+        Los subtotales y resultados se calculan automáticamente. Importá el Excel y guardá para persistir en el sistema.
+      </p>
     </motion.div>
   );
 }
