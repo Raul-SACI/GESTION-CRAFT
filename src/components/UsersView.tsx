@@ -66,6 +66,7 @@ const SYSTEM_MODULES = [
   { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', category: 'Gerencia General' },
   { id: 'precios', label: 'Lista de Precios', category: 'Gerencia General' },
   { id: 'p&l', label: 'Estado de Resultado (P&L)', category: 'Gerencia General' },
+  { id: 'ordenes', label: 'Tickets / Órdenes', category: 'Gerencia General' },
   { id: 'performance_admin', label: 'Configuración de Premios', category: 'Gerencia General' },
   { id: 'sucursales', label: 'Gestión Sucursales', category: 'Configuración' },
   { id: 'usuarios', label: 'Usuarios/Roles', category: 'Configuración' },

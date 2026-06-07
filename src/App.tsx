@@ -43,6 +43,7 @@ import {
   Calculator,
   Factory,
   ClipboardCheck,
+  Ticket,
   StickyNote,
   Trash2,
   ListOrdered,
@@ -93,6 +94,7 @@ const UsersView = lazy(() => import('./components/UsersView'));
 const BranchManagementView = lazy(() => import('./components/BranchManagementView'));
 const FinanceView = lazy(() => import('./components/FinanceView'));
 const ProfitLossView = lazy(() => import('./components/ProfitLossView'));
+const OrdersView = lazy(() => import('./components/OrdersView'));
 const SupervisorAgendaView = lazy(() => import('./components/SupervisorAgendaView'));
 const PriceListView = lazy(() => import('./components/PriceListView'));
 const SalaryManagementView = lazy(() => import('./components/SalaryManagementView'));
@@ -503,7 +505,7 @@ function AppContent() {
     'stock', 'vajilla', 'horas', 'decomisos', 'cuentas',
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities',
-    'finanzas_mensual', 'p&l', 'cronograma_pagos',
+    'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
     'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios',
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
@@ -585,6 +587,7 @@ function AppContent() {
       { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
       { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
+      { id: 'ordenes', label: 'Tickets / Órdenes', icon: Ticket },
       { id: 'performance_admin', label: 'Configuración de Premios', icon: Trophy }
     ],
     'Configuración': [
@@ -630,6 +633,7 @@ function AppContent() {
           finanzas_mensual: BarChart3,
           ventas: TrendingUp,
           'p&l': BarChart3,
+          ordenes: Ticket,
           consumo: Calculator,
           control_desvios: ShieldCheck,
           supervision_banderas: Flag,
@@ -1433,6 +1437,7 @@ function AppContent() {
               )}
               {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'ordenes' && <OrdersView key="ordenes" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'bank_liabilities' && <FinanceView key="bank_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="bank" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'tax_liabilities' && <FinanceView key="tax_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="tax" isReadOnly={isCurrentTabReadOnly} />}
