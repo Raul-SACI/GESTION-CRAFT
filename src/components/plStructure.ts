@@ -78,8 +78,8 @@ export const PL_STRUCTURE: PLLineDef[] = [
   { key: 'intereses_actualizaciones', label: 'Intereses y actualizaciones', type: 'input', indent: 1 },
   { key: 'gastos_legales', label: 'Gastos Legales', type: 'input', indent: 1 },
   { key: 'devolucion_clientes', label: 'Devolución a Clientes', type: 'input', indent: 1 },
-  { key: 'consumo_personal', label: 'Consumo de Personal', type: 'input', indent: 1 },
-  { key: 'compras_sucursal', label: 'Compras Sucursal', type: 'input', indent: 1 },
+  { key: 'consumo_personal', label: 'Consumo de Personal (EG 9 + FAC CEN)', type: 'input', indent: 1 },
+  { key: 'compras_sucursal', label: 'Desperdicios (EG 8)', type: 'input', indent: 1 },
 
   { key: 'otros_ingresos', label: 'Otros Ingresos', type: 'subtotal' },
   { key: 'bonificaciones', label: 'Bonificaciones', type: 'input', indent: 1 },

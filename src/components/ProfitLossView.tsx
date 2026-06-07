@@ -128,10 +128,21 @@ export default function ProfitLossView({
           if (neg) n = -Math.abs(n);
           return n;
         };
+        // Keys que son subtotales (se recalculan, no se importan directo)
+        const subtotalKeys = new Set(PL_STRUCTURE.filter(d => d.type === 'subtotal').map(d => d.key));
+        let otrosIngresosHeaderSeen = false;
         rows.forEach(row => {
           if (!row || !row[0]) return;
-          const key = LABEL_TO_KEY[normalizeLabel(String(row[0]))];
+          const norm = normalizeLabel(String(row[0]));
+          let key = LABEL_TO_KEY[norm];
+          // "Otros Ingresos" aparece 2 veces: 1ra = subtotal (header), 2da = línea interna
+          if (norm === 'otros ingresos') {
+            if (!otrosIngresosHeaderSeen) { otrosIngresosHeaderSeen = true; return; } // 1ra: subtotal, ignorar
+            key = 'otros_ingresos_2'; // 2da: línea interna
+          }
           if (!key) return;
+          // No importar subtotales: se recalculan a partir de las líneas input
+          if (subtotalKeys.has(key)) return;
           const projPesos = parseNum(row[1]);
           const projUsd = parseNum(row[2]);
           const realPesos = parseNum(row[4]);
