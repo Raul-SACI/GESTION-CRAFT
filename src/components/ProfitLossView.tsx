@@ -191,6 +191,16 @@ export default function ProfitLossView({
     }
   };
 
+  // Editar manualmente una línea input (proyectado o real)
+  const updateLine = (key: string, field: 'projPesos' | 'projUsd' | 'realPesos' | 'realUsd', value: string) => {
+    if (isReadOnly) return;
+    const num = value === '' || value === '-' ? 0 : Number(value);
+    setLines(prev => {
+      const cur = prev[key] || { projPesos: 0, projUsd: 0, realPesos: 0, realUsd: 0 };
+      return { ...prev, [key]: { ...cur, [field]: isNaN(num) ? 0 : num } };
+    });
+  };
+
   const handleSave = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     setSaving(true);
@@ -300,10 +310,20 @@ export default function ProfitLossView({
                       <td className={cn("px-4 py-2 text-text-main", def.indent && "pl-8", def.bold ? "font-black uppercase" : isSub ? "font-black uppercase text-[10px]" : "")}>
                         {def.label}
                       </td>
-                      <td className={cn("px-3 py-2 text-right font-mono", projP < 0 ? "text-red-400" : "text-text-main")}>{fmtMoney(projP)}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono", projP < 0 ? "text-red-400" : "text-text-main")}>
+                        {def.type === 'input' && !isReadOnly ? (
+                          <input type="number" value={lines[def.key]?.projPesos || ''} onChange={(e) => updateLine(def.key, 'projPesos', e.target.value)}
+                            placeholder="0" className="w-28 bg-transparent border border-transparent hover:border-border-dim focus:border-brand-500 rounded px-1 py-0.5 text-right font-mono text-[11px] text-text-main outline-none" />
+                        ) : fmtMoney(projP)}
+                      </td>
                       <td className={cn("px-3 py-2 text-right font-mono text-text-dim")}>{fmtMoney(v.projUsd, true)}</td>
                       <td className="px-3 py-2 text-right font-mono text-text-dim">{projPctV ? projPctV.toFixed(1) + '%' : '-'}</td>
-                      <td className={cn("px-3 py-2 text-right font-mono border-l border-border-dim/30", realP < 0 ? "text-red-400" : "text-text-main")}>{fmtMoney(realP)}</td>
+                      <td className={cn("px-3 py-2 text-right font-mono border-l border-border-dim/30", realP < 0 ? "text-red-400" : "text-text-main")}>
+                        {def.type === 'input' && !isReadOnly ? (
+                          <input type="number" value={lines[def.key]?.realPesos || ''} onChange={(e) => updateLine(def.key, 'realPesos', e.target.value)}
+                            placeholder="0" className="w-28 bg-transparent border border-transparent hover:border-border-dim focus:border-brand-500 rounded px-1 py-0.5 text-right font-mono text-[11px] text-text-main outline-none" />
+                        ) : fmtMoney(realP)}
+                      </td>
                       <td className={cn("px-3 py-2 text-right font-mono text-text-dim")}>{fmtMoney(v.realUsd, true)}</td>
                       <td className="px-3 py-2 text-right font-mono text-text-dim">{realPctV ? realPctV.toFixed(1) + '%' : '-'}</td>
                       <td className={cn("px-3 py-2 text-right font-mono border-l border-border-dim/30 font-bold",
@@ -321,7 +341,7 @@ export default function ProfitLossView({
       )}
       {tab === 'statement' && (
       <p className="text-[9px] text-text-dim font-bold uppercase text-center opacity-60">
-        Los subtotales y resultados se calculan automáticamente. Importá el Excel y guardá para persistir en el sistema.
+        Podés editar manualmente cualquier renglón (proyectado o real). Los subtotales se recalculan solos. Acordate de tocar GUARDAR para persistir los cambios.
       </p>
       )}
     </motion.div>
