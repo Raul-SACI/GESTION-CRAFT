@@ -12,6 +12,8 @@ import {
   FileArchive,
   Download,
   Loader2,
+  Eye,
+  X,
   FolderPlus,
   MoreVertical,
   Search,
@@ -51,6 +53,9 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     fetchDocuments();
@@ -237,6 +242,35 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
     }
   };
 
+  // Detectar si un archivo es previsualizable (PDF o imagen) por su extensión
+  const getExt = (name: string) => (name.split('.').pop() || '').toLowerCase();
+  const isPreviewable = (name: string) => {
+    const e = getExt(name);
+    return ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(e);
+  };
+  const isImageExt = (name: string) => ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(getExt(name));
+
+  const handlePreview = async (doc: Document) => {
+    if (!doc.storage_path) return;
+    setPreviewDoc(doc);
+    setPreviewLoading(true);
+    setPreviewUrl(null);
+    try {
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(doc.storage_path, 3600);
+      if (error) throw error;
+      setPreviewUrl(data?.signedUrl || null);
+    } catch (err) {
+      console.error('Error preview:', err);
+      alert('No se pudo previsualizar el archivo. Probá descargarlo.');
+      setPreviewDoc(null);
+    }
+    setPreviewLoading(false);
+  };
+
+  const closePreview = () => { setPreviewDoc(null); setPreviewUrl(null); };
+
   const filteredDocuments = documents.filter(doc => 
     doc.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -359,7 +393,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
                   "group relative glass-card p-4 flex flex-col items-center text-center cursor-pointer hover:border-brand-500/50 transition-all",
                   doc.type === 'folder' ? "bg-brand-500/5" : "bg-bg-card"
                 )}
-                onDoubleClick={() => doc.type === 'folder' ? handleNavigateInto(doc) : handleDownload(doc)}
+                onDoubleClick={() => doc.type === 'folder' ? handleNavigateInto(doc) : (isPreviewable(doc.name) ? handlePreview(doc) : handleDownload(doc))}
               >
                 <div className="mb-3 transform group-hover:scale-110 transition-transform">
                   {getFileIcon(doc)}
@@ -375,6 +409,15 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
 
                 {/* Hover Actions */}
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                   {doc.type === 'file' && isPreviewable(doc.name) && (
+                     <button 
+                       onClick={(e) => { e.stopPropagation(); handlePreview(doc); }}
+                       className="p-1.5 bg-bg-accent rounded-md text-text-dim hover:text-brand-500 hover:bg-brand-500/10 transition-all"
+                       title="Visualizar"
+                     >
+                       <Eye size={12} />
+                     </button>
+                   )}
                    {doc.type === 'file' && (
                      <button 
                        onClick={(e) => { e.stopPropagation(); handleDownload(doc); }}
@@ -449,6 +492,34 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal de previsualización */}
+      {previewDoc && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={closePreview}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border-dim shrink-0">
+              <p className="text-[11px] font-black uppercase text-text-main truncate">{previewDoc.name}</p>
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleDownload(previewDoc)} title="Descargar"
+                  className="p-2 rounded text-text-dim hover:text-brand-500 hover:bg-bg-accent transition-all"><Download size={16} /></button>
+                <button onClick={closePreview} title="Cerrar"
+                  className="p-2 rounded text-text-dim hover:text-red-500 hover:bg-bg-accent transition-all"><X size={16} /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-bg-accent/20 flex items-center justify-center">
+              {previewLoading ? (
+                <Loader2 size={28} className="animate-spin text-brand-500" />
+              ) : !previewUrl ? (
+                <p className="text-[11px] text-text-dim font-bold uppercase">No se pudo cargar la vista previa.</p>
+              ) : isImageExt(previewDoc.name) ? (
+                <img src={previewUrl} alt={previewDoc.name} className="max-w-full max-h-full object-contain" />
+              ) : (
+                <iframe src={previewUrl} title={previewDoc.name} className="w-full h-full border-none" />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
