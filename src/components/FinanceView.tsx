@@ -324,6 +324,58 @@ export default function FinanceView({
     XLSX.writeFile(wb, fileName);
   };
 
+  // Procesa un array de filas (matriz) y mapea las columnas automáticamente
+  const processImportRows = (parsed: string[][]) => {
+    if (parsed.length === 0) return;
+    const headers = parsed[0].map(h => String(h || '').toLowerCase().trim());
+    const idxMap: Record<string, number> = {};
+    const mapField = (field: string, synonyms: string[]) => {
+      const index = headers.findIndex(h => synonyms.some(syn => h.includes(syn)));
+      if (index !== -1) idxMap[field] = index;
+    };
+    if (mode === 'bank') {
+      mapField('bank', ['banco', 'entidad', 'prestamo']);
+      mapField('requestDate', ['solicitud', 'fecha sol']);
+      mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
+      mapField('destination', ['destino', 'uso']);
+      mapField('rate', ['tasa', 'tna', 'tem', 'porcent']);
+      mapField('installmentNumber', ['cuota', 'nro cuota']);
+      mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'importe', 'monto']);
+      mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
+    } else {
+      mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
+      mapField('taxType', ['impuesto', 'tributo', 'concepto']);
+      mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
+      mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
+      mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
+      mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'cuota total', 'importe', 'monto']);
+      mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
+    }
+    setColumnMapping(idxMap);
+    setParsedData(parsed);
+  };
+
+  // Leer archivo Excel y convertirlo a matriz de filas
+  const handleImportExcelFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        const parsed = rows.map(r => (r || []).map((c: any) => String(c == null ? '' : c).trim())).filter(r => r.join('').trim() !== '');
+        if (parsed.length <= 1) { alert('El archivo no tiene datos suficientes (encabezado + al menos una fila).'); return; }
+        processImportRows(parsed);
+      } catch (err: any) {
+        alert('Error al leer el Excel: ' + (err?.message || ''));
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -3746,7 +3798,17 @@ export default function FinanceView({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">ZONA DE PEGO (TEXTO EN FORMATO DE TABULACIÓN)</label>
+                  <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">OPCIÓN 1 · SUBIR ARCHIVO EXCEL DIRECTAMENTE</label>
+                  <label className="flex items-center justify-center gap-2 bg-brand-500/10 border-2 border-dashed border-brand-500/40 rounded p-4 cursor-pointer hover:bg-brand-500/15 transition-all">
+                    <Upload size={16} className="text-brand-500" />
+                    <span className="text-[11px] font-black uppercase tracking-widest text-brand-500">Seleccionar archivo .xlsx</span>
+                    <input type="file" accept=".xlsx,.xls" onChange={handleImportExcelFile} className="hidden" />
+                  </label>
+                  <p className="text-[8px] text-text-dim font-bold uppercase opacity-60">Se lee la primera hoja del Excel. Las columnas se reconocen por su nombre.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-text-dim">OPCIÓN 2 · ZONA DE PEGO (TEXTO EN FORMATO DE TABULACIÓN)</label>
                   <textarea 
                     value={importRawText}
                     onChange={(e) => setImportRawText(e.target.value)}
