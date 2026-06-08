@@ -1094,10 +1094,20 @@ export default function FinanceView({
     const grouped: Record<string, {
       bank: string;
       loanNumber: string;
+      requestedAmount: number;
+      destination: string;
+      rate: string;
+      totalInstallments: number;
       pendingInstallmentsCount: number;
       installmentAmounts: number[];
       totalPendingAmount: number;
     }> = {};
+
+    // Parsea "11 de 12" -> total 12
+    const totalFromInst = (raw: string): number => {
+      const nums = String(raw || '').match(/\d+/g);
+      return (nums && nums.length >= 2) ? parseInt(nums[1]) : 0;
+    };
 
     loanPayments.forEach(p => {
       const bankName = (p.bank || 'OTROS').trim().toUpperCase();
@@ -1107,11 +1117,22 @@ export default function FinanceView({
         grouped[key] = {
           bank: bankName,
           loanNumber: loanNum,
+          requestedAmount: (p as any).requestedAmount || 0,
+          destination: (p as any).destination || 'S/D',
+          rate: (p as any).rate || 'S/D',
+          totalInstallments: totalFromInst((p as any).installmentNumber),
           pendingInstallmentsCount: 0,
           installmentAmounts: [],
           totalPendingAmount: 0
         };
       }
+      // Tomar el mayor total de cuotas visto (por si alguna fila lo trae)
+      const t = totalFromInst((p as any).installmentNumber);
+      if (t > grouped[key].totalInstallments) grouped[key].totalInstallments = t;
+      // Completar datos informativos si faltaban
+      if ((!grouped[key].requestedAmount || grouped[key].requestedAmount === 0) && (p as any).requestedAmount) grouped[key].requestedAmount = (p as any).requestedAmount;
+      if ((grouped[key].destination === 'S/D') && (p as any).destination) grouped[key].destination = (p as any).destination;
+      if ((grouped[key].rate === 'S/D') && (p as any).rate) grouped[key].rate = (p as any).rate;
 
       if (p.status !== 'paid') {
         grouped[key].pendingInstallmentsCount += 1;
@@ -2085,7 +2106,7 @@ export default function FinanceView({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {bankEntityStats.map(stat => (
-                      <div key={`${stat.bank}#${stat.loanNumber}`} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[120px]">
+                      <div key={`${stat.bank}#${stat.loanNumber}`} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[180px]">
                         <div>
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider">
@@ -2113,6 +2134,26 @@ export default function FinanceView({
                                stat.installmentAmounts.map(amt => `$${amt.toLocaleString('es-AR')}`).join(' / ')
                               }
                             </p>
+                          </div>
+
+                          {/* Datos del préstamo */}
+                          <div className="mt-2.5 pt-2.5 border-t border-border-dim/40 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Monto solicitado</span>
+                              <p className="text-[10px] font-mono font-bold text-text-main truncate">{stat.requestedAmount ? `$${stat.requestedAmount.toLocaleString('es-AR')}` : 'S/D'}</p>
+                            </div>
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Tasa</span>
+                              <p className="text-[10px] font-mono font-bold text-text-main truncate">{stat.rate || 'S/D'}</p>
+                            </div>
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Destino</span>
+                              <p className="text-[10px] font-bold text-text-main truncate" title={stat.destination}>{stat.destination || 'S/D'}</p>
+                            </div>
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Cuotas (pend. / total)</span>
+                              <p className="text-[10px] font-mono font-bold text-text-main">{stat.pendingInstallmentsCount} / {stat.totalInstallments || '?'}</p>
+                            </div>
                           </div>
                         </div>
 
