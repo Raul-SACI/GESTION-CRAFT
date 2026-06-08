@@ -571,6 +571,34 @@ export default function EncargadoDashboardView({
     }).sort((a, b) => a.positionName.localeCompare(b.positionName));
   }, [positionHoursBreakdown]);
 
+  // Factor de proyección lineal a fin de mes: díasDelMes / díasTranscurridos
+  // Si el mes seleccionado ya pasó (o es futuro), no proyecta (factor 1 = usa lo real).
+  const projectionFactor = useMemo(() => {
+    const [yStr, mStr] = selectedMonth.split('-');
+    const y = parseInt(yStr), m = parseInt(mStr);
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const today = new Date();
+    const isCurrentMonth = today.getFullYear() === y && (today.getMonth() + 1) === m;
+    if (!isCurrentMonth) return 1; // mes cerrado o futuro: no proyectar
+    const dayOfMonth = today.getDate();
+    if (dayOfMonth <= 0) return 1;
+    return daysInMonth / dayOfMonth;
+  }, [selectedMonth]);
+
+  const isProjecting = projectionFactor > 1.0001;
+
+  const positionHoursProjected = useMemo(() => {
+    return positionHoursGrouped.map(item => {
+      const projected = Math.round(item.worked * projectionFactor);
+      return {
+        ...item,
+        projected,
+        projectedOver: projected > item.budgeted,
+        projectedRemaining: Math.round((item.budgeted - projected) * 10) / 10
+      };
+    });
+  }, [positionHoursGrouped, projectionFactor]);
+
   const totalHourBudget = useMemo(() => {
     return positionHoursBreakdown.reduce((sum, item) => sum + item.budgeted, 0);
   }, [positionHoursBreakdown]);
@@ -1101,7 +1129,7 @@ export default function EncargadoDashboardView({
                 <Users size={16} className="text-blue-500" />
                 <div>
                   <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Presupuesto de Horas por Puesto</h3>
-                  <p className="text-[9px] text-text-dim uppercase font-bold mt-0.5">Disponibilidad y consumo de horas del mes actual</p>
+                  <p className="text-[9px] text-text-dim uppercase font-bold mt-0.5">Consumo del mes + proyección lineal a fin de mes</p>
                 </div>
               </div>
               <div className="text-right">
@@ -1113,7 +1141,7 @@ export default function EncargadoDashboardView({
             </div>
 
             <div className="space-y-4">
-              {positionHoursGrouped.map((item, idx) => {
+              {positionHoursProjected.map((item, idx) => {
                 const isOver = item.worked > item.budgeted;
                 return (
                   <div key={item.positionName + idx} className="space-y-1 bg-bg-accent/20 p-3 rounded border border-border-dim/40 hover:border-brand-500/20 transition-all">
@@ -1132,12 +1160,36 @@ export default function EncargadoDashboardView({
                       </div>
                     </div>
                     {/* Progress Bar Container */}
-                    <div className="w-full bg-bg-accent h-1.5 rounded-full overflow-hidden mt-1">
+                    <div className="w-full bg-bg-accent h-1.5 rounded-full overflow-hidden mt-1 relative">
                       <div 
                         className={cn("h-full transition-all duration-500", isOver ? "bg-red-500" : "bg-blue-500")}
                         style={{ width: `${Math.min(100, item.percent)}%` }}
                       />
+                      {/* Marca de proyección a fin de mes */}
+                      {isProjecting && item.budgeted > 0 && (
+                        <div className="absolute top-0 bottom-0 w-0.5 bg-amber-500"
+                          style={{ left: `${Math.min(100, (item.projected / item.budgeted) * 100)}%` }}
+                          title={`Proyección fin de mes: ${item.projected} hs`} />
+                      )}
                     </div>
+                    {/* Proyección a fin de mes */}
+                    {isProjecting && (
+                      <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-border-dim/30">
+                        <TrendingUp size={10} className={cn(item.projectedOver ? "text-red-500" : "text-amber-500")} />
+                        <span className="text-[8px] font-bold uppercase text-text-dim">Proyección fin de mes:</span>
+                        <span className={cn("text-[9px] font-mono font-black", item.projectedOver ? "text-red-500" : "text-emerald-500")}>
+                          {item.projected} hs
+                        </span>
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider",
+                          item.projectedOver ? "bg-red-500/10 text-red-500" : "bg-emerald-500/10 text-emerald-500"
+                        )}>
+                          {item.projectedOver
+                            ? `Se excedería en ${Math.abs(item.projectedRemaining)} hs`
+                            : `Dentro del presupuesto`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
