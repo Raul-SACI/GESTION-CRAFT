@@ -307,8 +307,9 @@ export default function FinanceView({
     if (mode === 'bank') {
       fileName = 'Modelo_Pasivos_Bancarios.xlsx';
       templateData = [
-        { 'BANCO': 'BBVA', 'FECHA SOLICITUD': '01-03-2026', 'MONTO SOLICITADO': 5400000, 'DESTINO': 'Capital de Trabajo', 'TASA': '85% TNA', 'CUOTA N°': '4 de 12', 'IMPORTE CUOTA': 450000, 'VENCIMIENTO': '20-05-2026' },
-        { 'BANCO': 'Santander', 'FECHA SOLICITUD': '15-01-2026', 'MONTO SOLICITADO': 2100000, 'DESTINO': 'Compra de Equipamiento', 'TASA': '90% TNA', 'CUOTA N°': '2 de 6', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '18-05-2026' }
+        { 'BANCO': 'BBVA', 'N° PRESTAMO': 1, 'FECHA SOLICITUD': '01-03-2026', 'MONTO SOLICITADO': 5400000, 'DESTINO': 'Capital de Trabajo', 'TASA': '85% TNA', 'CUOTA N°': '4 de 12', 'IMPORTE CUOTA': 450000, 'VENCIMIENTO': '20-05-2026' },
+        { 'BANCO': 'BBVA', 'N° PRESTAMO': 2, 'FECHA SOLICITUD': '10-04-2026', 'MONTO SOLICITADO': 3000000, 'DESTINO': 'Compra de Horno', 'TASA': '88% TNA', 'CUOTA N°': '2 de 10', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '10-06-2026' },
+        { 'BANCO': 'Santander', 'N° PRESTAMO': 1, 'FECHA SOLICITUD': '15-01-2026', 'MONTO SOLICITADO': 2100000, 'DESTINO': 'Compra de Equipamiento', 'TASA': '90% TNA', 'CUOTA N°': '2 de 6', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '18-05-2026' }
       ];
     } else {
       fileName = 'Modelo_Pasivos_Fiscales.xlsx';
@@ -335,6 +336,7 @@ export default function FinanceView({
     };
     if (mode === 'bank') {
       mapField('bank', ['banco', 'entidad', 'prestamo']);
+      mapField('loanNumber', ['n° prestamo', 'nro prestamo', 'n prestamo', 'numero prestamo', 'n° préstamo']);
       mapField('requestDate', ['solicitud', 'fecha sol']);
       mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
       mapField('destination', ['destino', 'uso']);
@@ -1091,6 +1093,7 @@ export default function FinanceView({
     const loanPayments = payments.filter(p => p.category === 'loan');
     const grouped: Record<string, {
       bank: string;
+      loanNumber: string;
       pendingInstallmentsCount: number;
       installmentAmounts: number[];
       totalPendingAmount: number;
@@ -1098,20 +1101,23 @@ export default function FinanceView({
 
     loanPayments.forEach(p => {
       const bankName = (p.bank || 'OTROS').trim().toUpperCase();
-      if (!grouped[bankName]) {
-        grouped[bankName] = {
+      const loanNum = String((p as any).loanNumber || '1').trim();
+      const key = `${bankName}#${loanNum}`;
+      if (!grouped[key]) {
+        grouped[key] = {
           bank: bankName,
+          loanNumber: loanNum,
           pendingInstallmentsCount: 0,
           installmentAmounts: [],
           totalPendingAmount: 0
         };
       }
-      
+
       if (p.status !== 'paid') {
-        grouped[bankName].pendingInstallmentsCount += 1;
-        grouped[bankName].totalPendingAmount += p.amount;
-        if (!grouped[bankName].installmentAmounts.includes(p.amount)) {
-          grouped[bankName].installmentAmounts.push(p.amount);
+        grouped[key].pendingInstallmentsCount += 1;
+        grouped[key].totalPendingAmount += p.amount;
+        if (!grouped[key].installmentAmounts.includes(p.amount)) {
+          grouped[key].installmentAmounts.push(p.amount);
         }
       }
     });
@@ -2079,11 +2085,11 @@ export default function FinanceView({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {bankEntityStats.map(stat => (
-                      <div key={stat.bank} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[120px]">
+                      <div key={`${stat.bank}#${stat.loanNumber}`} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[120px]">
                         <div>
                           <div className="flex justify-between items-center mb-2">
                             <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider">
-                              {stat.bank}
+                              {stat.bank}{stat.loanNumber ? ` · Préstamo ${stat.loanNumber}` : ''}
                             </span>
                             <span className={cn(
                               "text-[8px] font-mono font-black px-2 py-0.5 rounded border",
@@ -3850,6 +3856,7 @@ export default function FinanceView({
 
                       if (mode === 'bank') {
                         mapField('bank', ['banco', 'entidad', 'prestamo']);
+                        mapField('loanNumber', ['n° prestamo', 'nro prestamo', 'n prestamo', 'numero prestamo', 'n° préstamo']);
                         mapField('requestDate', ['solicitud', 'fecha sol']);
                         mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
                         mapField('destination', ['destino', 'uso']);
@@ -4008,6 +4015,30 @@ export default function FinanceView({
                     };
                     const todayISO = new Date().toISOString().split('T')[0];
 
+                    // Parsea importes en formato argentino ($ 2.000.000,00) o US (2,000,000.00) o número
+                    const parseMoney = (raw: any): number => {
+                      if (raw == null || raw === '') return 0;
+                      if (typeof raw === 'number') return isNaN(raw) ? 0 : raw;
+                      let s = String(raw).replace(/\$|\s/g, '');
+                      const neg = s.includes('-');
+                      s = s.replace(/[^0-9.,]/g, '');
+                      const hasComma = s.includes(','), hasDot = s.includes('.');
+                      if (hasComma && hasDot) {
+                        // el separador más a la derecha es el decimal
+                        if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+                        else s = s.replace(/,/g, '');
+                      } else if (hasComma) {
+                        const parts = s.split(',');
+                        if (parts.length > 1 && parts[parts.length - 1].length === 3) s = s.replace(/,/g, '');
+                        else s = s.replace(',', '.');
+                      } else if (hasDot) {
+                        const parts = s.split('.');
+                        if (parts.length > 2 || parts[parts.length - 1].length === 3) s = s.replace(/\./g, '');
+                      }
+                      const n = parseFloat(s);
+                      return isNaN(n) ? 0 : (neg ? -n : n);
+                    };
+
                     rows.forEach((row, rIdx) => {
                       if (row.length === 0 || row.join('').trim() === '') return;
                       const getValue = (field: string) => {
@@ -4015,7 +4046,7 @@ export default function FinanceView({
                         return index !== undefined ? row[index] : '';
                       };
 
-                      const parsedAmount = parseFloat((getValue('amount') || '').replace(/[^0-9.-]+/g, '')) || 0;
+                      const parsedAmount = parseMoney(getValue('amount'));
                       const firstDueISO = toISO(getValue('dueDate'));
                       const inst = parseInstallment(getValue('installmentNumber'));
                       // Generar una cuota por cada N desde la actual hasta la total, mensual desde firstDueISO
@@ -4031,8 +4062,9 @@ export default function FinanceView({
                           listToImport.push({
                             id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
                             bank: getValue('bank') || 'BANCO',
+                            loanNumber: String(getValue('loanNumber') || '1').trim(),
                             requestDate: toISO(getValue('requestDate')) || todayISO,
-                            requestedAmount: parseFloat((getValue('requestedAmount') || '').replace(/[^0-9.-]+/g, '')) || 0,
+                            requestedAmount: parseMoney(getValue('requestedAmount')),
                             destination: getValue('destination') || 'Financiamiento General',
                             rate: getValue('rate') || 'S/D',
                             installmentNumber: `${cuotaNum} de ${inst.total}`,
@@ -4048,7 +4080,7 @@ export default function FinanceView({
                             entity: getValue('entity') || 'ARCA (AFIP)',
                             taxType,
                             description: `${taxType} - Plan de Pagos`,
-                            totalAmount: parseFloat((getValue('totalAmount') || '').replace(/[^0-9.-]+/g, '')) || 0,
+                            totalAmount: parseMoney(getValue('totalAmount')),
                             paymentPlanNumber: getValue('paymentPlanNumber') || 'CORRIENTE',
                             installmentNumber: `${cuotaNum} de ${inst.total}`,
                             amount: parsedAmount,
