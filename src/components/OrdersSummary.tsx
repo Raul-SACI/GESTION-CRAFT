@@ -28,9 +28,25 @@ export default function OrdersSummary({ scope }: Props) {
     const load = async () => {
       setLoading(true);
       try {
+        // Órdenes manuales/importadas
+        const manual: Record<string, number> = {};
         const { data: ord } = await supabase.from('monthly_orders').select('*').eq('scope', scope);
-        const om: Record<string, number> = {};
-        (ord || []).forEach((r: any) => { om[r.month] = Number(r.orders) || 0; });
+        (ord || []).forEach((r: any) => { manual[r.month] = Number(r.orders) || 0; });
+        // Órdenes automáticas desde ventas (sales_tickets)
+        const auto: Record<string, number> = {};
+        let tkQuery = supabase.from('sales_tickets').select('date, orders');
+        if (scope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', scope);
+        let page = 0; let allTk: any[] = [];
+        while (true) {
+          const { data: tk } = await tkQuery.range(page * 1000, page * 1000 + 999);
+          if (!tk || tk.length === 0) break;
+          allTk = [...allTk, ...tk];
+          if (tk.length < 1000) break;
+          page++; if (page > 50) break;
+        }
+        allTk.forEach((t: any) => { if (t.date) { const m = String(t.date).slice(0, 7); auto[m] = (auto[m] || 0) + Number(t.orders || 0); } });
+        const om: Record<string, number> = { ...manual };
+        Object.entries(auto).forEach(([m, o]) => { if (o > 0) om[m] = o; });
         setOrders(om);
         const { data: eerr } = await supabase.from('income_statements').select('month, lines').eq('scope', scope);
         const sm: Record<string, number> = {};

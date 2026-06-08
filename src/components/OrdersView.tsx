@@ -28,6 +28,7 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
   const [orders, setOrders] = useState<Record<string, number>>({}); // 'YYYY-MM' -> órdenes
   const [sales, setSales] = useState<Record<string, number>>({});   // 'YYYY-MM' -> ventas netas
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // 'YYYY-MM' -> % mensual
+  const [autoMonths, setAutoMonths] = useState<Set<string>>(new Set()); // meses calculados desde ventas
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -37,18 +38,43 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Órdenes
-      const om: Record<string, number> = {};
+      // 1. Órdenes históricas cargadas manualmente / importadas (monthly_orders)
+      const manualOrders: Record<string, number> = {};
       if (scope === 'consolidated') {
-        // Sumar órdenes de todas las sucursales operativas por mes
         const branchIds = operativeBranches.map(b => b.id);
         const { data: ord } = await supabase.from('monthly_orders').select('*').in('scope', branchIds);
-        (ord || []).forEach((r: any) => { om[r.month] = (om[r.month] || 0) + (Number(r.orders) || 0); });
+        (ord || []).forEach((r: any) => { manualOrders[r.month] = (manualOrders[r.month] || 0) + (Number(r.orders) || 0); });
       } else {
         const { data: ord } = await supabase.from('monthly_orders').select('*').eq('scope', scope);
-        (ord || []).forEach((r: any) => { om[r.month] = Number(r.orders) || 0; });
+        (ord || []).forEach((r: any) => { manualOrders[r.month] = Number(r.orders) || 0; });
       }
-      setOrders(om);
+
+      // 2. Órdenes automáticas desde las ventas cargadas (sales_tickets), sumadas por mes
+      const autoOrders: Record<string, number> = {};
+      let tkQuery = supabase.from('sales_tickets').select('branch_id, date, orders');
+      if (scope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', scope);
+      else tkQuery = tkQuery.in('branch_id', operativeBranches.map(b => b.id));
+      // paginar por si hay muchos tickets
+      let page = 0; let allTk: any[] = [];
+      while (true) {
+        const { data: tk } = await tkQuery.range(page * 1000, page * 1000 + 999);
+        if (!tk || tk.length === 0) break;
+        allTk = [...allTk, ...tk];
+        if (tk.length < 1000) break;
+        page++; if (page > 50) break;
+      }
+      allTk.forEach((t: any) => {
+        if (!t.date) return;
+        const m = String(t.date).slice(0, 7); // YYYY-MM
+        autoOrders[m] = (autoOrders[m] || 0) + Number(t.orders || 0);
+      });
+
+      // 3. Combinar: el dato automático (de ventas) tiene prioridad cuando existe y es > 0
+      const merged: Record<string, number> = { ...manualOrders };
+      Object.entries(autoOrders).forEach(([m, o]) => { if (o > 0) merged[m] = o; });
+      setOrders(merged);
+      setAutoMonths(new Set(Object.keys(autoOrders).filter(m => autoOrders[m] > 0)));
+
       // Ventas netas desde los EERR (mismo scope)
       const { data: eerr } = await supabase.from('income_statements').select('month, lines').eq('scope', scope);
       const sm: Record<string, number> = {};
@@ -236,10 +262,13 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
                         <td className="px-4 py-2 font-black uppercase text-text-main">{mname}</td>
                         {years.map(y => {
                           const month = `${y}-${mm}`;
+                          const isAuto = autoMonths.has(month);
                           return (
                             <td key={y} className="px-4 py-2 text-right font-mono">
-                              {!canEdit ? (
-                                <span className="text-text-main">{orders[month] !== undefined ? fmtNum(orders[month]) : '—'}</span>
+                              {!canEdit || isAuto ? (
+                                <span className={cn(isAuto ? "text-emerald-500" : "text-text-main")} title={isAuto ? 'Calculado automáticamente desde Ventas' : undefined}>
+                                  {orders[month] !== undefined ? fmtNum(orders[month]) : '—'}{isAuto ? ' •' : ''}
+                                </span>
                               ) : (
                                 <input type="number" value={orders[month] ?? ''} onChange={(e) => setOrderValue(month, e.target.value)}
                                   placeholder="—" className="w-20 bg-transparent border border-transparent hover:border-border-dim focus:border-brand-500 rounded px-1 py-0.5 text-right font-mono text-[11px] text-text-main outline-none" />
@@ -258,6 +287,9 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
                 </tbody>
               </table>
             </div>
+            <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">
+              Los meses marcados con • (en verde) se calculan automáticamente sumando las órdenes cargadas en el módulo Ventas. El resto son datos históricos importados (editables).
+            </p>
           </div>
 
           {/* Ticket promedio (ventas / órdenes) */}
