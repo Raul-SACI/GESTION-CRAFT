@@ -269,25 +269,22 @@ export default function FinanceView({
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
   const [currentDateStr, setCurrentDateStr] = useState('2026-05-24');
   
-  const [payments, setPayments] = useState<ScheduledPayment[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('craft_scheduled_payments');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Error loading payments from localStorage", e);
-        }
-      }
-    }
-    return INITIAL_PAYMENTS;
-  });
+  const [payments, setPayments] = useState<ScheduledPayment[]>([]);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   const savePayments = async (newPayments: ScheduledPayment[]) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setPayments(newPayments);
-    localStorage.setItem('craft_scheduled_payments', JSON.stringify(newPayments));
-    // Sincronizar con Supabase
+    // Guardar el listado COMPLETO (con todos los campos) en finance_liabilities
+    try {
+      await supabase.from('finance_liabilities').upsert([{
+        type: 'scheduled_payments',
+        entity_name: 'PAGOS',
+        amount: 0,
+        notes: JSON.stringify(newPayments)
+      }], { onConflict: 'type' });
+    } catch (e) { console.error('Error guardando pagos:', e); }
+    // Sincronizar también con payment_schedule (para otras vistas que lo usen)
     try {
       await supabase.from('payment_schedule').delete().neq('id', '00000000-0000-0000-0000-000000000000');
       const upsert = newPayments.map(p => ({
@@ -400,44 +397,20 @@ export default function FinanceView({
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const [taxEntities, setTaxEntities] = useState<Array<{ value: string; label: string }>>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('craft_tax_entities');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Error loading tax entities", e);
-        }
-      }
-    }
-    return DEFAULT_TAX_ENTITIES;
-  });
+  const [taxEntities, setTaxEntities] = useState<Array<{ value: string; label: string }>>(DEFAULT_TAX_ENTITIES);
 
-  const [taxTypes, setTaxTypes] = useState<Array<{ value: string; label: string }>>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('craft_tax_types');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Error loading tax types", e);
-        }
-      }
-    }
-    return DEFAULT_TAX_TYPES;
-  });
+  const [taxTypes, setTaxTypes] = useState<Array<{ value: string; label: string }>>(DEFAULT_TAX_TYPES);
 
   const saveTaxEntities = (newEntities: Array<{ value: string; label: string }>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setTaxEntities(newEntities);
-    localStorage.setItem('craft_tax_entities', JSON.stringify(newEntities));
+    supabase.from('finance_liabilities').upsert([{ type: 'tax_entities', entity_name: 'ENTIDADES', amount: 0, notes: JSON.stringify(newEntities) }], { onConflict: 'type' }).then(() => {}, () => {});
   };
 
   const saveTaxTypes = (newTypes: Array<{ value: string; label: string }>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setTaxTypes(newTypes);
-    localStorage.setItem('craft_tax_types', JSON.stringify(newTypes));
+    supabase.from('finance_liabilities').upsert([{ type: 'tax_types', entity_name: 'TIPOS', amount: 0, notes: JSON.stringify(newTypes) }], { onConflict: 'type' }).then(() => {}, () => {});
   };
 
   const [selectedEntity, setSelectedEntity] = useState(() => taxEntities[0]?.value || '');
@@ -459,47 +432,20 @@ export default function FinanceView({
 
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
   
-  const [entries, setEntries] = useState<FinanceEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('craft_finance_entries');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Error loading entries from localStorage", e);
-        }
-      }
-    }
-    return [];
-  });
+  const [entries, setEntries] = useState<FinanceEntry[]>([]);
 
-  const [weeklyClosings, setWeeklyClosings] = useState<Record<string, Record<string, number>>>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('craft_weekly_closings');
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("Error loading weekly closings from localStorage", e);
-        }
-      }
-    }
-    // Sin cierres precargados: arranca limpio
-    return {};
-  });
+  const [weeklyClosings, setWeeklyClosings] = useState<Record<string, Record<string, number>>>({});
 
   const saveWeeklyClosings = (newClosings: Record<string, Record<string, number>>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     setWeeklyClosings(newClosings);
-    localStorage.setItem('craft_weekly_closings', JSON.stringify(newClosings));
-    // Guardar en Supabase como finance_liabilities con type='weekly_closing'
     try {
       supabase.from('finance_liabilities').upsert([{
         type: 'weekly_closing',
         entity_name: 'CIERRE_SEMANAL',
         amount: 0,
         notes: JSON.stringify(newClosings)
-      }]).then(() => {});
+      }], { onConflict: 'type' }).then(() => {}, () => {});
     } catch(e) {}
   };
 
@@ -508,17 +454,41 @@ export default function FinanceView({
   const [closeWeekForm, setCloseWeekForm] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    localStorage.setItem('craft_finance_entries', JSON.stringify(entries));
-    // Guardar en Supabase
-    if (entries && entries.length > 0) {
-      supabase.from('finance_liabilities').upsert([{
-        type: 'finance_entries',
-        entity_name: 'ENTRIES',
-        amount: 0,
-        notes: JSON.stringify(entries)
-      }]).then(() => {}, () => {});
-    }
-  }, [entries]);
+    // Guardar entries en Supabase (solo después de la carga inicial, para no pisar con vacío)
+    if (!dataLoaded) return;
+    supabase.from('finance_liabilities').upsert([{
+      type: 'finance_entries',
+      entity_name: 'ENTRIES',
+      amount: 0,
+      notes: JSON.stringify(entries)
+    }], { onConflict: 'type' }).then(() => {}, () => {});
+  }, [entries, dataLoaded]);
+
+  // ===== Carga inicial desde Supabase (única fuente de verdad) =====
+  useEffect(() => {
+    let cancelled = false;
+    const loadAll = async () => {
+      try {
+        const { data } = await supabase.from('finance_liabilities').select('type, notes');
+        if (!cancelled && data) {
+          const byType: Record<string, any> = {};
+          data.forEach((r: any) => {
+            if (r.type && r.notes) {
+              try { byType[r.type] = JSON.parse(r.notes); } catch (e) { /* ignore */ }
+            }
+          });
+          if (byType['finance_entries']) setEntries(byType['finance_entries']);
+          if (byType['weekly_closing']) setWeeklyClosings(byType['weekly_closing']);
+          if (byType['scheduled_payments']) setPayments(byType['scheduled_payments']);
+          if (Array.isArray(byType['tax_entities']) && byType['tax_entities'].length > 0) setTaxEntities(byType['tax_entities']);
+          if (Array.isArray(byType['tax_types']) && byType['tax_types'].length > 0) setTaxTypes(byType['tax_types']);
+        }
+      } catch (e) { console.error('Error cargando datos financieros:', e); }
+      if (!cancelled) setDataLoaded(true);
+    };
+    loadAll();
+    return () => { cancelled = true; };
+  }, []);
 
   // Global initial balances are 0 now because we use the 'balance_start' entry row
   const initialBalances: Record<string, number> = useMemo(() => {
