@@ -3965,74 +3965,95 @@ export default function FinanceView({
 
                     const listToImport: any[] = [];
                     const rows = parsedData.slice(1);
-                    
+
+                    // Convierte fecha en dd/mm/yyyy, d/m/yyyy o yyyy-mm-dd a yyyy-mm-dd
+                    const toISO = (raw: string): string => {
+                      const s = String(raw || '').trim();
+                      if (!s) return '';
+                      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+                      if (s.includes('/')) {
+                        const p = s.split('/');
+                        if (p.length === 3) {
+                          const d = p[0].padStart(2, '0'), m = p[1].padStart(2, '0');
+                          let y = p[2]; if (y.length === 2) y = '20' + y;
+                          return `${y}-${m}-${d}`;
+                        }
+                      }
+                      return s;
+                    };
+                    // Suma meses a una fecha ISO, conservando el día (ajusta fin de mes)
+                    const addMonthsISO = (iso: string, months: number): string => {
+                      const [y, m, d] = iso.split('-').map(Number);
+                      const base = new Date(y, (m - 1) + months, 1);
+                      const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+                      const day = Math.min(d, lastDay);
+                      return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    };
+                    // Parsea "11 de 12" / "11/12" -> { current: 11, total: 12 }
+                    const parseInstallment = (raw: string): { current: number; total: number } => {
+                      const nums = String(raw || '').match(/\d+/g);
+                      if (nums && nums.length >= 2) return { current: parseInt(nums[0]), total: parseInt(nums[1]) };
+                      if (nums && nums.length === 1) return { current: parseInt(nums[0]), total: parseInt(nums[0]) };
+                      return { current: 1, total: 1 };
+                    };
+                    const todayISO = new Date().toISOString().split('T')[0];
+
                     rows.forEach((row, rIdx) => {
                       if (row.length === 0 || row.join('').trim() === '') return;
-                      
                       const getValue = (field: string) => {
                         const index = columnMapping[field];
                         return index !== undefined ? row[index] : '';
                       };
 
                       const parsedAmount = parseFloat((getValue('amount') || '').replace(/[^0-9.-]+/g, '')) || 0;
-                      // Try to fix due date format
-                      let parsedDue = getValue('dueDate') || '';
-                      if (parsedDue.includes('/')) {
-                        const parts = parsedDue.split('/');
-                        if (parts[2]?.length === 4) {
-                          // dd/mm/yyyy -> yyyy-mm-dd
-                          parsedDue = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                      const firstDueISO = toISO(getValue('dueDate'));
+                      const inst = parseInstallment(getValue('installmentNumber'));
+                      // Generar una cuota por cada N desde la actual hasta la total, mensual desde firstDueISO
+                      const cuotasAGenerar = Math.max(1, inst.total - inst.current + 1);
+
+                      for (let i = 0; i < cuotasAGenerar; i++) {
+                        const cuotaNum = inst.current + i;
+                        const cuotaDue = firstDueISO ? addMonthsISO(firstDueISO, i) : firstDueISO;
+                        // Pendiente solo si su fecha es posterior a hoy
+                        const cuotaStatus = (cuotaDue && cuotaDue > todayISO) ? 'pending' : 'paid';
+
+                        if (mode === 'bank') {
+                          listToImport.push({
+                            id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
+                            bank: getValue('bank') || 'BANCO',
+                            requestDate: toISO(getValue('requestDate')) || todayISO,
+                            requestedAmount: parseFloat((getValue('requestedAmount') || '').replace(/[^0-9.-]+/g, '')) || 0,
+                            destination: getValue('destination') || 'Financiamiento General',
+                            rate: getValue('rate') || 'S/D',
+                            installmentNumber: `${cuotaNum} de ${inst.total}`,
+                            amount: parsedAmount,
+                            dueDate: cuotaDue,
+                            status: cuotaStatus,
+                            category: 'loan'
+                          });
+                        } else {
+                          const taxType = getValue('taxType') || 'Otros Tributos';
+                          listToImport.push({
+                            id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
+                            entity: getValue('entity') || 'ARCA (AFIP)',
+                            taxType,
+                            description: `${taxType} - Plan de Pagos`,
+                            totalAmount: parseFloat((getValue('totalAmount') || '').replace(/[^0-9.-]+/g, '')) || 0,
+                            paymentPlanNumber: getValue('paymentPlanNumber') || 'CORRIENTE',
+                            installmentNumber: `${cuotaNum} de ${inst.total}`,
+                            amount: parsedAmount,
+                            dueDate: cuotaDue,
+                            status: cuotaStatus,
+                            category: 'tax'
+                          });
                         }
-                      }
-
-                      if (mode === 'bank') {
-                        const bank = getValue('bank') || 'MOCK BANCO';
-                        const reqDate = getValue('requestDate') || new Date().toISOString().split('T')[0];
-                        const reqAmount = parseFloat((getValue('requestedAmount') || '').replace(/[^0-9.-]+/g, '')) || 0;
-                        const destination = getValue('destination') || 'Financiamiento General';
-                        const rate = getValue('rate') || 'S/D';
-                        const instNum = getValue('installmentNumber') || '1 de 1';
-
-                        listToImport.push({
-                          id: `imported_${Date.now()}_${rIdx}_${Math.random()}`,
-                          bank,
-                          requestDate: reqDate,
-                          requestedAmount: reqAmount,
-                          destination,
-                          rate,
-                          installmentNumber: instNum,
-                          amount: parsedAmount,
-                          dueDate: parsedDue,
-                          status: 'pending',
-                          category: 'loan'
-                        });
-                      } else {
-                        const entity = getValue('entity') || 'ARCA (AFIP)';
-                        const taxType = getValue('taxType') || 'Otros Tributos';
-                        const totalAmount = parseFloat((getValue('totalAmount') || '').replace(/[^0-9.-]+/g, '')) || 0;
-                        const planNum = getValue('paymentPlanNumber') || 'CORRIENTE';
-                        const instNum = getValue('installmentNumber') || '1 de 1';
-
-                        listToImport.push({
-                          id: `imported_${Date.now()}_${rIdx}_${Math.random()}`,
-                          entity,
-                          taxType,
-                          description: `${taxType} - Plan de Pagos`,
-                          totalAmount,
-                          paymentPlanNumber: planNum,
-                          installmentNumber: instNum,
-                          amount: parsedAmount,
-                          dueDate: parsedDue,
-                          status: 'pending',
-                          category: 'tax'
-                        });
                       }
                     });
 
                     const updated = [...payments, ...listToImport];
                     savePayments(updated);
                     setShowImportModal(false);
-                    alert(`Éxito: Se importaron ${listToImport.length} vencimientos a su cronograma de obligaciones.`);
+                    alert(`Éxito: Se generaron ${listToImport.length} cuotas a partir de los préstamos/planes importados.`);
                   }}
                   className="bg-brand-500 hover:bg-brand-600 font-black text-black px-8 py-2.5 rounded text-[10px] uppercase tracking-widest transition-all"
                 >
