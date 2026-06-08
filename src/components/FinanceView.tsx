@@ -1155,13 +1155,14 @@ export default function FinanceView({
   }, [payments]);
 
   const taxStats = useMemo(() => {
-    const taxPayments = payments.filter(p => p.category === 'tax');
+    const cat = mode === 'legal' ? 'legal' : 'tax';
+    const taxPayments = payments.filter(p => p.category === cat);
     const totalPending = taxPayments.filter(p => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
     const totalPaid = taxPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
     const countPending = taxPayments.filter(p => p.status !== 'paid').length;
     const countPaid = taxPayments.filter(p => p.status === 'paid').length;
     return { totalPending, totalPaid, countPending, countPaid };
-  }, [payments]);
+  }, [payments, mode]);
 
   // Resumen consolidado fiscal/legal por Entidad + Plan de pago
   const entityPlanStats = useMemo(() => {
