@@ -600,15 +600,15 @@ export default function EncargadoDashboardView({
   }, [positionHoursGrouped, projectionFactor]);
 
   const totalHourBudget = useMemo(() => {
-    return positionHoursBreakdown.reduce((sum, item) => sum + item.budgeted, 0);
+    return Math.round(positionHoursBreakdown.reduce((sum, item) => sum + item.budgeted, 0) * 10) / 10;
   }, [positionHoursBreakdown]);
 
   const totalHourWorked = useMemo(() => {
-    return positionHoursBreakdown.reduce((sum, item) => sum + item.worked, 0);
+    return Math.round(positionHoursBreakdown.reduce((sum, item) => sum + item.worked, 0) * 10) / 10;
   }, [positionHoursBreakdown]);
 
   const totalHourRemaining = useMemo(() => {
-    return totalHourBudget - totalHourWorked;
+    return Math.round((totalHourBudget - totalHourWorked) * 10) / 10;
   }, [totalHourBudget, totalHourWorked]);
 
   const hourDeviationPercentage = useMemo(() => {
@@ -1085,7 +1085,7 @@ export default function EncargadoDashboardView({
           </div>
           <div className="flex items-baseline gap-1.5">
             <h2 className="text-2xl font-mono font-black text-text-main">
-              {Math.abs(totalHourWorked - totalHourBudget)} hs
+              {Math.round(Math.abs(totalHourWorked - totalHourBudget) * 10) / 10} hs
             </h2>
             <span className={cn(
               "text-xs font-mono font-bold px-1.5 py-0.5 rounded",
