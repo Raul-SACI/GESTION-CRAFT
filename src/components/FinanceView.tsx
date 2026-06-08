@@ -467,16 +467,42 @@ export default function FinanceView({
   // ===== Carga inicial desde Supabase (única fuente de verdad) =====
   useEffect(() => {
     let cancelled = false;
+    const safeParseLS = (key: string): any => {
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+    };
     const loadAll = async () => {
       try {
         const { data } = await supabase.from('finance_liabilities').select('type, notes');
-        if (!cancelled && data) {
-          const byType: Record<string, any> = {};
-          data.forEach((r: any) => {
-            if (r.type && r.notes) {
-              try { byType[r.type] = JSON.parse(r.notes); } catch (e) { /* ignore */ }
-            }
-          });
+        const byType: Record<string, any> = {};
+        (data || []).forEach((r: any) => {
+          if (r.type && r.notes) { try { byType[r.type] = JSON.parse(r.notes); } catch (e) { /* ignore */ } }
+        });
+
+        // RECUPERACIÓN: si Supabase no tiene pasivos pero el navegador sí (datos previos), migrarlos
+        if (!byType['scheduled_payments'] || (Array.isArray(byType['scheduled_payments']) && byType['scheduled_payments'].length === 0)) {
+          const lsPayments = safeParseLS('craft_scheduled_payments');
+          if (Array.isArray(lsPayments) && lsPayments.length > 0) {
+            byType['scheduled_payments'] = lsPayments;
+            try { await supabase.from('finance_liabilities').upsert([{ type: 'scheduled_payments', entity_name: 'PAGOS', amount: 0, notes: JSON.stringify(lsPayments) }], { onConflict: 'type' }); } catch (e) { /* ignore */ }
+          }
+        }
+        // Igual para entries y cierres semanales (por si también estaban solo en el navegador)
+        if (!byType['finance_entries']) {
+          const lsEntries = safeParseLS('craft_finance_entries');
+          if (Array.isArray(lsEntries) && lsEntries.length > 0) {
+            byType['finance_entries'] = lsEntries;
+            try { await supabase.from('finance_liabilities').upsert([{ type: 'finance_entries', entity_name: 'ENTRIES', amount: 0, notes: JSON.stringify(lsEntries) }], { onConflict: 'type' }); } catch (e) { /* ignore */ }
+          }
+        }
+        if (!byType['weekly_closing']) {
+          const lsClos = safeParseLS('craft_weekly_closings');
+          if (lsClos && Object.keys(lsClos).length > 0) {
+            byType['weekly_closing'] = lsClos;
+            try { await supabase.from('finance_liabilities').upsert([{ type: 'weekly_closing', entity_name: 'CIERRE_SEMANAL', amount: 0, notes: JSON.stringify(lsClos) }], { onConflict: 'type' }); } catch (e) { /* ignore */ }
+          }
+        }
+
+        if (!cancelled) {
           if (byType['finance_entries']) setEntries(byType['finance_entries']);
           if (byType['weekly_closing']) setWeeklyClosings(byType['weekly_closing']);
           if (byType['scheduled_payments']) setPayments(byType['scheduled_payments']);
