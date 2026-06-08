@@ -5,6 +5,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentCalendar from './PaymentCalendar';
+import * as XLSX from 'xlsx';
 import { 
   DollarSign, 
   Wallet, 
@@ -32,6 +33,7 @@ import {
   Calculator,
   Trash2,
   Upload,
+  Download,
   FileSpreadsheet,
   Search
 } from 'lucide-react';
@@ -296,6 +298,30 @@ export default function FinanceView({
       }));
       if (upsert.length > 0) await supabase.from('payment_schedule').insert(upsert);
     } catch(e) { console.error('Supabase sync error:', e); }
+  };
+
+  // Descargar planilla modelo de importación según el modo (bank / tax)
+  const handleDownloadModel = () => {
+    let templateData: any[] = [];
+    let fileName = 'Modelo_Pasivos.xlsx';
+    if (mode === 'bank') {
+      fileName = 'Modelo_Pasivos_Bancarios.xlsx';
+      templateData = [
+        { 'BANCO': 'BBVA', 'FECHA SOLICITUD': '01-03-2026', 'MONTO SOLICITADO': 5400000, 'DESTINO': 'Capital de Trabajo', 'TASA': '85% TNA', 'CUOTA N°': '4 de 12', 'IMPORTE CUOTA': 450000, 'VENCIMIENTO': '20-05-2026' },
+        { 'BANCO': 'Santander', 'FECHA SOLICITUD': '15-01-2026', 'MONTO SOLICITADO': 2100000, 'DESTINO': 'Compra de Equipamiento', 'TASA': '90% TNA', 'CUOTA N°': '2 de 6', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '18-05-2026' }
+      ];
+    } else {
+      fileName = 'Modelo_Pasivos_Fiscales.xlsx';
+      templateData = [
+        { 'ENTIDAD': 'ARCA (AFIP)', 'TIPO DE IMPUESTO': 'IVA', 'MONTO TOTAL': 2800000, 'PLAN DE PAGO N°': 'F931', 'CUOTA N°': '1 de 1', 'IMPORTE CUOTA': 2800000, 'VENCIMIENTO': '22-05-2026' },
+        { 'ENTIDAD': 'ARCA (AFIP)', 'TIPO DE IMPUESTO': 'Plan de Pago', 'MONTO TOTAL': 600000, 'PLAN DE PAGO N°': 'PLAN ARCA #10', 'CUOTA N°': '10 de 60', 'IMPORTE CUOTA': 120000, 'VENCIMIENTO': '25-05-2026' },
+        { 'ENTIDAD': 'Rentas Tucumán', 'TIPO DE IMPUESTO': 'Ingresos Brutos', 'MONTO TOTAL': 450000, 'PLAN DE PAGO N°': 'CORRIENTE', 'CUOTA N°': '1 de 1', 'IMPORTE CUOTA': 450000, 'VENCIMIENTO': '15-05-2026' }
+      ];
+    }
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, mode === 'bank' ? 'Pasivos Bancarios' : 'Pasivos Fiscales');
+    XLSX.writeFile(wb, fileName);
   };
 
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
@@ -1914,6 +1940,14 @@ export default function FinanceView({
                 <span className="text-[10px] text-text-dim uppercase font-black tracking-widest bg-bg-accent px-3 py-1.5 rounded border border-border-dim/60 font-mono">
                   {searchedPayments.length} Obligaciones
                 </span>
+                {(mode === 'bank' || mode === 'tax') && (
+                  <button 
+                    onClick={handleDownloadModel}
+                    className="bg-bg-accent border border-border-dim text-text-main hover:border-brand-500/50 px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
+                  >
+                    <Download size={13} /> Modelo
+                  </button>
+                )}
                 {(mode === 'bank' || mode === 'tax') && (
                   <button 
                     onClick={() => {
