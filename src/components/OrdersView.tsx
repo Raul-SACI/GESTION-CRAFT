@@ -49,9 +49,9 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
         (ord || []).forEach((r: any) => { manualOrders[r.month] = Number(r.orders) || 0; });
       }
 
-      // 2. Órdenes automáticas desde las ventas cargadas (sales_tickets), sumadas por mes
+      // 2. Órdenes automáticas desde las ventas cargadas (sales_tickets)
       const autoOrders: Record<string, number> = {};
-      let tkQuery = supabase.from('sales_tickets').select('branch_id, date, orders');
+      let tkQuery = supabase.from('sales_tickets').select('branch_id, date, orders, comprobante');
       if (scope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', scope);
       else tkQuery = tkQuery.in('branch_id', operativeBranches.map(b => b.id));
       // paginar por si hay muchos tickets
@@ -63,10 +63,25 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
         if (tk.length < 1000) break;
         page++; if (page > 50) break;
       }
+      // Contar comprobantes ÚNICOS por mes (clave sucursal+comprobante).
+      // Las filas con comprobante cuentan 1 por comprobante distinto (aunque tengan varios medios de pago).
+      // Las filas SIN comprobante (datos viejos) usan el campo 'orders' como respaldo.
+      const seenComprobantes: Record<string, Set<string>> = {}; // mes -> set de "branch|comprobante"
+      const fallbackOrders: Record<string, number> = {};
       allTk.forEach((t: any) => {
         if (!t.date) return;
-        const m = String(t.date).slice(0, 7); // YYYY-MM
-        autoOrders[m] = (autoOrders[m] || 0) + Number(t.orders || 0);
+        const m = String(t.date).slice(0, 7);
+        const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
+        if (comp) {
+          if (!seenComprobantes[m]) seenComprobantes[m] = new Set();
+          seenComprobantes[m].add(`${t.branch_id}|${comp}`);
+        } else {
+          fallbackOrders[m] = (fallbackOrders[m] || 0) + Number(t.orders || 0);
+        }
+      });
+      const allMonthsTk = new Set([...Object.keys(seenComprobantes), ...Object.keys(fallbackOrders)]);
+      allMonthsTk.forEach(m => {
+        autoOrders[m] = (seenComprobantes[m]?.size || 0) + (fallbackOrders[m] || 0);
       });
 
       // 3. Combinar: el dato automático (de ventas) tiene prioridad cuando existe y es > 0

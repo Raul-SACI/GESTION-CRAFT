@@ -32,9 +32,9 @@ export default function OrdersSummary({ scope }: Props) {
         const manual: Record<string, number> = {};
         const { data: ord } = await supabase.from('monthly_orders').select('*').eq('scope', scope);
         (ord || []).forEach((r: any) => { manual[r.month] = Number(r.orders) || 0; });
-        // Órdenes automáticas desde ventas (sales_tickets)
+        // Órdenes automáticas desde ventas (sales_tickets) - comprobantes únicos
         const auto: Record<string, number> = {};
-        let tkQuery = supabase.from('sales_tickets').select('date, orders');
+        let tkQuery = supabase.from('sales_tickets').select('branch_id, date, orders, comprobante');
         if (scope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', scope);
         let page = 0; let allTk: any[] = [];
         while (true) {
@@ -44,7 +44,16 @@ export default function OrdersSummary({ scope }: Props) {
           if (tk.length < 1000) break;
           page++; if (page > 50) break;
         }
-        allTk.forEach((t: any) => { if (t.date) { const m = String(t.date).slice(0, 7); auto[m] = (auto[m] || 0) + Number(t.orders || 0); } });
+        const seen: Record<string, Set<string>> = {};
+        const fb: Record<string, number> = {};
+        allTk.forEach((t: any) => {
+          if (!t.date) return;
+          const m = String(t.date).slice(0, 7);
+          const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
+          if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${comp}`); }
+          else { fb[m] = (fb[m] || 0) + Number(t.orders || 0); }
+        });
+        new Set([...Object.keys(seen), ...Object.keys(fb)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fb[m] || 0); });
         const om: Record<string, number> = { ...manual };
         Object.entries(auto).forEach(([m, o]) => { if (o > 0) om[m] = o; });
         setOrders(om);

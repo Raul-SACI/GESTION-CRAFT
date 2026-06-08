@@ -1195,6 +1195,8 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         const cubiertosKey = findCol('CUBIERTOS');
         const ordenesKey = findCol('ORDENES');
         const cobroKey = findCol('COBRO');
+        const comprobanteKey = findCol('COMPROBANTE');
+        const comprobanteVal = row[comprobanteKey] != null ? String(row[comprobanteKey]).trim() : '';
 
         tickets.push({
           id: `tk-${Date.now()}-${Math.random().toString(36).substr(2,8)}`,
@@ -1207,6 +1209,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
           hour: hourStr,
           covers: Math.round(Number(row[cubiertosKey] || 0)),
           orders: Math.round(Number(row[ordenesKey] || 0)),
+          comprobante: comprobanteVal || null,
           payment_method: normalizePayment(String(row[cobroKey] || '')),
           gross_sales: Math.round((Number(row[brutasKey]) || 0) * 100) / 100,
           net_sales: Math.round((Number(row[netasKey]) || 0) * 100) / 100,
