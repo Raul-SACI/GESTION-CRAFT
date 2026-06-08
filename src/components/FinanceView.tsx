@@ -362,10 +362,20 @@ export default function FinanceView({
     const reader = new FileReader();
     reader.onload = (evt) => {
       try {
-        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const wb = XLSX.read(evt.target?.result, { type: 'binary', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
-        const parsed = rows.map(r => (r || []).map((c: any) => String(c == null ? '' : c).trim())).filter(r => r.join('').trim() !== '');
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+        // Convertir cada celda a texto; si es una fecha real (Date), normalizarla a dd/mm/yyyy sin ambigüedad
+        const cellToStr = (c: any): string => {
+          if (c == null) return '';
+          if (c instanceof Date) {
+            const d = String(c.getDate()).padStart(2, '0');
+            const m = String(c.getMonth() + 1).padStart(2, '0');
+            return `${d}/${m}/${c.getFullYear()}`;
+          }
+          return String(c).trim();
+        };
+        const parsed = rows.map(r => (r || []).map(cellToStr)).filter(r => r.join('').trim() !== '');
         if (parsed.length <= 1) { alert('El archivo no tiene datos suficientes (encabezado + al menos una fila).'); return; }
         processImportRows(parsed);
       } catch (err: any) {
