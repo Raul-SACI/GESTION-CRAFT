@@ -1188,7 +1188,15 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
 
         // Find columns trimming spaces (Excel columns may have extra spaces)
         const allRowKeys = Object.keys(row);
-        const findCol = (name: string) => allRowKeys.find(k => k.trim().toLowerCase() === name.toLowerCase()) || name;
+        const findCol = (name: string) => {
+          const n = name.trim().toLowerCase();
+          // 1) coincidencia exacta
+          const exact = allRowKeys.find(k => k.trim().toLowerCase() === n);
+          if (exact) return exact;
+          // 2) que la columna contenga el nombre buscado (ej "MEDIO COBRO" contiene "cobro")
+          const contains = allRowKeys.find(k => k.trim().toLowerCase().includes(n));
+          return contains || name;
+        };
         const brutasKey = findCol('Ventas Brutas');
         const netasKey = findCol('Ventas Netas');
         const ivaKey = findCol('IVA');
@@ -1776,34 +1784,67 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
   };
 
   const handleExportTemplate = () => {
+    const branchName = branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte';
     const templateData = [
       {
-        SUCURSAL: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
+        SUCURSAL: branchName,
         FECHA: '01-04-2026',
         SEMANA: 'Semana 1',
         DIA: 'Mie',
         TURNO: 'Turno Mañana',
         HORA: '08:00',
-        ORDENES: 10,
-        CUBIERTOS: 100,
+        COMPROBANTE: '0001-00012345',
+        ORDENES: 1,
+        CUBIERTOS: 2,
         'MEDIO COBRO': 'Efectivo',
         'VENTAS BRUTAS': 2143397.87,
         'VENTAS NETAS': 1863684.75,
         IVA: 279713.12
       },
       {
-        SUCURSAL: branches.find(b => b.id === selectedBranchId)?.name || 'Barrio Norte',
+        SUCURSAL: branchName,
         FECHA: '01-04-2026',
         SEMANA: 'Semana 1',
         DIA: 'Mie',
         TURNO: 'Turno Mañana',
         HORA: '12:00',
-        ORDENES: 15,
-        CUBIERTOS: 150,
+        COMPROBANTE: '0001-00012346',
+        ORDENES: 1,
+        CUBIERTOS: 3,
         'MEDIO COBRO': 'Tarjeta',
         'VENTAS BRUTAS': 3215096.81,
         'VENTAS NETAS': 2795527.13,
         IVA: 419569.68
+      },
+      {
+        SUCURSAL: branchName,
+        FECHA: '01-04-2026',
+        SEMANA: 'Semana 1',
+        DIA: 'Mie',
+        TURNO: 'Turno Tarde',
+        HORA: '21:30',
+        COMPROBANTE: '0001-00012347',
+        ORDENES: 1,
+        CUBIERTOS: 4,
+        'MEDIO COBRO': 'Efectivo',
+        'VENTAS BRUTAS': 1000000,
+        'VENTAS NETAS': 869565.22,
+        IVA: 130434.78
+      },
+      {
+        SUCURSAL: branchName,
+        FECHA: '01-04-2026',
+        SEMANA: 'Semana 1',
+        DIA: 'Mie',
+        TURNO: 'Turno Tarde',
+        HORA: '21:30',
+        COMPROBANTE: '0001-00012347',
+        ORDENES: 0,
+        CUBIERTOS: 0,
+        'MEDIO COBRO': 'Tarjeta',
+        'VENTAS BRUTAS': 500000,
+        'VENTAS NETAS': 434782.61,
+        IVA: 65217.39
       }
     ];
 
