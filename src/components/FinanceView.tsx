@@ -2344,27 +2344,27 @@ export default function FinanceView({
                     <div className="absolute top-0 right-0 p-4 opacity-5">
                       <DollarSign size={54} className="text-brand-500" />
                     </div>
-                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Impuestos Pendientes</p>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">{mode === 'legal' ? 'Deuda Legal Pendiente' : 'Impuestos Pendientes'}</p>
                     <p className="text-2xl font-mono font-black text-brand-500 mt-1 italic">${taxStats.totalPending.toLocaleString('es-AR')}</p>
-                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Total a devengar en planes y vencimientos</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">{mode === 'legal' ? 'Total a pagar en cuotas de juicios vigentes' : 'Total a devengar en planes y vencimientos'}</p>
                   </div>
                   <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-4 opacity-5">
                       <CheckCircle2 size={54} className="text-emerald-500" />
                     </div>
-                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-bold">Impuestos Abonados</p>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-bold">{mode === 'legal' ? 'Cuotas Abonadas' : 'Impuestos Abonados'}</p>
                     <p className="text-2xl font-mono font-black text-emerald-400 mt-1 italic">${taxStats.totalPaid.toLocaleString('es-AR')}</p>
-                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Carga tributaria ingresada/pagada</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">{mode === 'legal' ? 'Cuotas de juicios ya pagadas' : 'Carga tributaria ingresada/pagada'}</p>
                   </div>
                   <div className="bg-bg-card border border-border-dim p-6 rounded-xl shadow-lg relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-4 opacity-5">
                       <Clock size={54} className="text-[#8B949E]" />
                     </div>
-                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-black">Cumplimiento Planes</p>
+                    <p className="text-[9px] text-text-dim uppercase font-black tracking-widest font-black">{mode === 'legal' ? 'Cumplimiento Cuotas' : 'Cumplimiento Planes'}</p>
                     <p className="text-2xl font-mono font-black text-text-main mt-1 italic">
                       {taxStats.countPaid} / {taxStats.countPending + taxStats.countPaid}
                     </p>
-                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Vencimientos liquidados con éxito</p>
+                    <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">{mode === 'legal' ? 'Cuotas de juicios liquidadas' : 'Vencimientos liquidados con éxito'}</p>
                   </div>
                 </div>
 
@@ -2373,8 +2373,8 @@ export default function FinanceView({
                   <div className="flex items-center gap-3 mb-4">
                     <Calculator size={18} className="text-brand-500" />
                     <div>
-                      <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Resumen Consolidado por Entidad y Plan</h3>
-                      <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Visión integrada de planes de pago y deudas activas</p>
+                      <h3 className="text-xs font-black uppercase text-text-main tracking-widest">{mode === 'legal' ? 'Resumen Consolidado por Juicio' : 'Resumen Consolidado por Entidad y Plan'}</h3>
+                      <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{mode === 'legal' ? 'Visión integrada de juicios y cuotas pendientes' : 'Visión integrada de planes de pago y deudas activas'}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2404,7 +2404,7 @@ export default function FinanceView({
                               <p className="text-[10px] font-mono font-bold text-text-main truncate">{stat.totalAmount ? `$${stat.totalAmount.toLocaleString('es-AR')}` : 'S/D'}</p>
                             </div>
                             <div>
-                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Impuesto / Concepto</span>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">{mode === 'legal' ? 'Juicio / Carátula' : 'Impuesto / Concepto'}</span>
                               <p className="text-[10px] font-bold text-text-main truncate" title={stat.taxType}>{stat.taxType || 'S/D'}</p>
                             </div>
                             <div className="col-span-2">
@@ -2448,7 +2448,7 @@ export default function FinanceView({
                       }}
                       className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center gap-1.5"
                     >
-                      <Plus size={14} strokeWidth={3} /> Cargar Plan en Lote
+                      <Plus size={14} strokeWidth={3} /> {mode === 'legal' ? 'Cargar Juicio en Lote' : 'Cargar Plan en Lote'}
                     </button>
                   </div>
 
@@ -2457,9 +2457,9 @@ export default function FinanceView({
                       <thead>
                         <tr className="bg-bg-accent/40 border-b border-border-dim text-[9px] font-black text-text-dim uppercase tracking-wider">
                           <th className="px-5 py-4">Entidad</th>
-                          <th className="px-5 py-4">Impuesto (Tasa)</th>
-                          <th className="px-5 py-4 text-right">Importe Total Plan</th>
-                          <th className="px-5 py-4 text-center">N° de Plan</th>
+                          <th className="px-5 py-4">{mode === 'legal' ? 'Juicio / Carátula' : 'Impuesto (Tasa)'}</th>
+                          <th className="px-5 py-4 text-right">{mode === 'legal' ? 'Monto Total Juicio' : 'Importe Total Plan'}</th>
+                          <th className="px-5 py-4 text-center">{mode === 'legal' ? 'Expediente' : 'N° de Plan'}</th>
                           <th className="px-5 py-4 text-center">N° de Cuota</th>
                           <th className="px-5 py-4 text-right">Importe de Cuota</th>
                           <th className="px-5 py-4 text-center">Vencimiento Pago</th>
@@ -2471,7 +2471,7 @@ export default function FinanceView({
                         {searchedPayments.length === 0 ? (
                           <tr>
                             <td colSpan={9} className="text-center py-12 text-text-dim uppercase font-black tracking-widest text-[10px]">
-                              No se encontraron pasivos fiscales registrados
+                              {mode === 'legal' ? 'No se encontraron pasivos legales registrados' : 'No se encontraron pasivos fiscales registrados'}
                             </td>
                           </tr>
                         ) : (
