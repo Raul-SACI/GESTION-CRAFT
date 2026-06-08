@@ -157,6 +157,7 @@ const FINANCE_CATEGORIES = [
       { id: 'loan_cuota', name: 'CUOTA FINANCIERA', subrubro: 'PRESTAMOS' },
       { id: 'echeq_deb', name: 'DEBITOS E-CHEQ EMITIDOS', subrubro: 'E-CHEQ EMITIDOS' },
       { id: 'maint', name: 'MANTENIMIENTO', subrubro: 'MANTENIMIENTO' },
+      { id: 'legal_cuota', name: 'CUOTA JUICIO LABORAL', subrubro: 'JUICIOS LEGALES' },
       { id: 'exp_other', name: 'OTROS', subrubro: 'OTROS' }
     ]
   },
@@ -469,11 +470,7 @@ export default function FinanceView({
         }
       }
     }
-    return [
-      { id: 'start', date: '2026-05-24', itemId: 'balance_start', amounts: { efectivo: 5258100, mp: 0, bbva: 850000, santander: 14515000 }, isExecuted: true },
-      { id: '1', date: '2026-05-24', itemId: 'ret_suc', amounts: { efectivo: 17400000, mp: 0, bbva: 0, santander: 0 }, isExecuted: true },
-      { id: '2', date: '2026-05-24', itemId: 'acr_tarj', amounts: { efectivo: 0, mp: 0, bbva: 0, santander: 11570000 }, isExecuted: true },
-    ];
+    return [];
   });
 
   const [weeklyClosings, setWeeklyClosings] = useState<Record<string, Record<string, number>>>(() => {
@@ -487,18 +484,8 @@ export default function FinanceView({
         }
       }
     }
-    // Default initial data for closing balances:
-    return {
-      '2026-05-17': {
-        efectivo: 5258100,
-        bbva: 850000,
-        santander: 14515000,
-        ciudad: 0,
-        nacion: 0,
-        macro: 0,
-        mp: 0
-      }
-    };
+    // Sin cierres precargados: arranca limpio
+    return {};
   });
 
   const saveWeeklyClosings = (newClosings: Record<string, Record<string, number>>) => {
@@ -709,9 +696,12 @@ export default function FinanceView({
       else if (bankId.includes('mp') || bankId.includes('mercado')) targetAccount = 'mp';
       else if (p.category === 'other') targetAccount = 'efectivo';
       else if (p.category === 'service') targetAccount = 'efectivo';
+      else if (p.category === 'legal') targetAccount = 'efectivo';
       
       const itemId = p.category === 'loan' 
         ? 'loan_cuota' 
+        : p.category === 'legal'
+          ? 'legal_cuota'
         : p.category === 'tax' 
           ? (p.taxType?.toUpperCase() === 'F931' ? 'tax_931' : p.taxType?.toUpperCase() === 'IVA' ? 'tax_iva' : p.taxType?.toUpperCase() === 'GANANCIAS' ? 'tax_gan' : 'tax_plans') 
           : p.category === 'service' 
