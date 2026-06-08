@@ -31,6 +31,7 @@ import {
   StickyNote,
   Building2,
   Calculator,
+  Scale,
   Trash2,
   Upload,
   Download,
@@ -253,7 +254,7 @@ export default function FinanceView({
 }: { 
   branches: Branch[], 
   selectedBranchId: string,
-  mode?: 'default' | 'bank' | 'tax',
+  mode?: 'default' | 'bank' | 'tax' | 'legal',
   isReadOnly?: boolean
 }) {
   const today = useMemo(() => new Date(), []);
@@ -311,6 +312,12 @@ export default function FinanceView({
         { 'BANCO': 'BBVA', 'N° PRESTAMO': 2, 'FECHA SOLICITUD': '10-04-2026', 'MONTO SOLICITADO': 3000000, 'DESTINO': 'Compra de Horno', 'TASA': '88% TNA', 'CUOTA N°': '2 de 10', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '10-06-2026' },
         { 'BANCO': 'Santander', 'N° PRESTAMO': 1, 'FECHA SOLICITUD': '15-01-2026', 'MONTO SOLICITADO': 2100000, 'DESTINO': 'Compra de Equipamiento', 'TASA': '90% TNA', 'CUOTA N°': '2 de 6', 'IMPORTE CUOTA': 350000, 'VENCIMIENTO': '18-05-2026' }
       ];
+    } else if (mode === 'legal') {
+      fileName = 'Modelo_Pasivos_Legales.xlsx';
+      templateData = [
+        { 'ENTIDAD': 'Juzgado Laboral N°1', 'TIPO DE JUICIO': 'Despido - Pérez c/ CRAFT', 'MONTO TOTAL': 8000000, 'EXPEDIENTE N°': 'EXP 1234/25', 'CUOTA N°': '1 de 10', 'IMPORTE CUOTA': 800000, 'VENCIMIENTO': '20-06-2026' },
+        { 'ENTIDAD': 'Juzgado Laboral N°3', 'TIPO DE JUICIO': 'Accidente - Gómez c/ CRAFT', 'MONTO TOTAL': 4500000, 'EXPEDIENTE N°': 'EXP 5678/25', 'CUOTA N°': '3 de 6', 'IMPORTE CUOTA': 750000, 'VENCIMIENTO': '15-06-2026' }
+      ];
     } else {
       fileName = 'Modelo_Pasivos_Fiscales.xlsx';
       templateData = [
@@ -321,7 +328,7 @@ export default function FinanceView({
     }
     const ws = XLSX.utils.json_to_sheet(templateData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, mode === 'bank' ? 'Pasivos Bancarios' : 'Pasivos Fiscales');
+    XLSX.utils.book_append_sheet(wb, ws, mode === 'bank' ? 'Pasivos Bancarios' : mode === 'legal' ? 'Pasivos Legales' : 'Pasivos Fiscales');
     XLSX.writeFile(wb, fileName);
   };
 
@@ -346,9 +353,9 @@ export default function FinanceView({
       mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
     } else {
       mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
-      mapField('taxType', ['impuesto', 'tributo', 'concepto']);
+      mapField('taxType', ['impuesto', 'tributo', 'concepto', 'juicio', 'caratula', 'carátula']);
       mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
-      mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
+      mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan', 'expediente', 'exp']);
       mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
       mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
       mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
@@ -535,6 +542,7 @@ export default function FinanceView({
   const filteredPayments = useMemo(() => {
     if (mode === 'bank') return payments.filter(p => p.category === 'loan');
     if (mode === 'tax') return payments.filter(p => p.category === 'tax');
+    if (mode === 'legal') return payments.filter(p => p.category === 'legal');
     return payments;
   }, [payments, mode]);
 
@@ -713,7 +721,7 @@ export default function FinanceView({
       let effectiveDate = p.dueDate;
       let descriptionSuffix = "";
 
-      const isLiab = p.category === 'loan' || p.category === 'tax';
+      const isLiab = p.category === 'loan' || p.category === 'tax' || p.category === 'legal';
       if (isLiab && p.status !== 'paid') {
         // If the liability's due date is helper than the current active week's Monday,
         // we automatically roll it over to this week to prevent forgetting to pay it.
@@ -1026,8 +1034,8 @@ export default function FinanceView({
     return !!weeklyClosings[activeWeekRange.sunday];
   }, [weeklyClosings, activeWeekRange.sunday]);
 
-  const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : 'Flujo de Caja Estimado';
-  const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : DollarSign;
+  const viewTitle = mode === 'bank' ? 'Pasivos Bancarios' : mode === 'tax' ? 'Pasivos Fiscales' : mode === 'legal' ? 'Pasivos Legales' : 'Flujo de Caja Estimado';
+  const ViewIcon = mode === 'bank' ? Building2 : mode === 'tax' ? Calculator : mode === 'legal' ? Scale : DollarSign;
 
   const toggleExecution = (entryId: string | undefined) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -1154,6 +1162,52 @@ export default function FinanceView({
     const countPaid = taxPayments.filter(p => p.status === 'paid').length;
     return { totalPending, totalPaid, countPending, countPaid };
   }, [payments]);
+
+  // Resumen consolidado fiscal/legal por Entidad + Plan de pago
+  const entityPlanStats = useMemo(() => {
+    const cat = mode === 'legal' ? 'legal' : 'tax';
+    const items = payments.filter(p => p.category === cat);
+    const grouped: Record<string, {
+      entity: string;
+      plan: string;
+      taxType: string;
+      totalAmount: number;
+      pendingCount: number;
+      totalInstallments: number;
+      installmentAmounts: number[];
+      totalPendingAmount: number;
+    }> = {};
+    const totalFromInst = (raw: string): number => {
+      const nums = String(raw || '').match(/\d+/g);
+      return (nums && nums.length >= 2) ? parseInt(nums[1]) : 0;
+    };
+    items.forEach(p => {
+      const entity = ((p as any).entity || 'OTROS').trim().toUpperCase();
+      const plan = String((p as any).paymentPlanNumber || 'CORRIENTE').trim();
+      const key = `${entity}#${plan}`;
+      if (!grouped[key]) {
+        grouped[key] = {
+          entity, plan,
+          taxType: (p as any).taxType || 'S/D',
+          totalAmount: (p as any).totalAmount || 0,
+          pendingCount: 0,
+          totalInstallments: totalFromInst((p as any).installmentNumber),
+          installmentAmounts: [],
+          totalPendingAmount: 0
+        };
+      }
+      const t = totalFromInst((p as any).installmentNumber);
+      if (t > grouped[key].totalInstallments) grouped[key].totalInstallments = t;
+      if ((!grouped[key].totalAmount || grouped[key].totalAmount === 0) && (p as any).totalAmount) grouped[key].totalAmount = (p as any).totalAmount;
+      if (grouped[key].taxType === 'S/D' && (p as any).taxType) grouped[key].taxType = (p as any).taxType;
+      if (p.status !== 'paid') {
+        grouped[key].pendingCount += 1;
+        grouped[key].totalPendingAmount += p.amount;
+        if (!grouped[key].installmentAmounts.includes(p.amount)) grouped[key].installmentAmounts.push(p.amount);
+      }
+    });
+    return Object.values(grouped).sort((a, b) => b.totalPendingAmount - a.totalPendingAmount);
+  }, [payments, mode]);
 
   const handleAddPayment = (payment: Partial<ScheduledPayment>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -2021,7 +2075,7 @@ export default function FinanceView({
                   type="text" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={mode === 'bank' ? "BUSCAR POR BANCO, DESTINO..." : mode === 'tax' ? "BUSCAR POR ENTIDAD, IMPUESTO..." : "BUSCAR OBLIGACIONES..."}
+                  placeholder={mode === 'bank' ? "BUSCAR POR BANCO, DESTINO..." : mode === 'tax' ? "BUSCAR POR ENTIDAD, IMPUESTO..." : mode === 'legal' ? "BUSCAR POR JUICIO, CARÁTULA..." : "BUSCAR OBLIGACIONES..."}
                   className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2.5 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-black"
                 />
               </div>
@@ -2029,7 +2083,7 @@ export default function FinanceView({
                 <span className="text-[10px] text-text-dim uppercase font-black tracking-widest bg-bg-accent px-3 py-1.5 rounded border border-border-dim/60 font-mono">
                   {searchedPayments.length} Obligaciones
                 </span>
-                {(mode === 'bank' || mode === 'tax') && (
+                {(mode === 'bank' || mode === 'tax' || mode === 'legal') && (
                   <button 
                     onClick={handleDownloadModel}
                     className="bg-bg-accent border border-border-dim text-text-main hover:border-brand-500/50 px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
@@ -2037,7 +2091,7 @@ export default function FinanceView({
                     <Download size={13} /> Modelo
                   </button>
                 )}
-                {(mode === 'bank' || mode === 'tax') && (
+                {(mode === 'bank' || mode === 'tax' || mode === 'legal') && (
                   <button 
                     onClick={() => {
                       setImportRawText('');
@@ -2279,7 +2333,7 @@ export default function FinanceView({
                   </div>
                 </div>
               </div>
-            ) : mode === 'tax' ? (
+            ) : (mode === 'tax' || mode === 'legal') ? (
               /* =========================================================================
                  PASIVOS FISCALES (MODE = TAX)
                  ========================================================================= */
@@ -2314,14 +2368,73 @@ export default function FinanceView({
                   </div>
                 </div>
 
+                {/* Resumen consolidado por Entidad y Plan */}
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-6 shadow-lg">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Calculator size={18} className="text-brand-500" />
+                    <div>
+                      <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Resumen Consolidado por Entidad y Plan</h3>
+                      <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Visión integrada de planes de pago y deudas activas</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {entityPlanStats.map(stat => (
+                      <div key={`${stat.entity}#${stat.plan}`} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[180px]">
+                        <div>
+                          <div className="flex justify-between items-start gap-2 mb-2">
+                            <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider leading-tight">
+                              {stat.entity}<br/><span className="text-[9px] text-text-dim">Plan: {stat.plan}</span>
+                            </span>
+                            <span className={cn(
+                              "text-[8px] font-mono font-black px-2 py-0.5 rounded border shrink-0",
+                              stat.pendingCount > 0 ? "bg-orange-500/10 border-orange-500/20 text-brand-500" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            )}>
+                              {stat.pendingCount} {stat.pendingCount === 1 ? 'CUOTA PEND.' : 'CUOTAS PEND.'}
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[8px] text-text-dim uppercase font-black tracking-widest block opacity-70">Monto de cada cuota</span>
+                            <p className="text-[11px] font-mono font-black text-text-main truncate">
+                              {stat.installmentAmounts.length === 0 ? '-' : stat.installmentAmounts.map(a => `$${a.toLocaleString('es-AR')}`).join(' / ')}
+                            </p>
+                          </div>
+                          <div className="mt-2.5 pt-2.5 border-t border-border-dim/40 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Importe total</span>
+                              <p className="text-[10px] font-mono font-bold text-text-main truncate">{stat.totalAmount ? `$${stat.totalAmount.toLocaleString('es-AR')}` : 'S/D'}</p>
+                            </div>
+                            <div>
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Impuesto / Concepto</span>
+                              <p className="text-[10px] font-bold text-text-main truncate" title={stat.taxType}>{stat.taxType || 'S/D'}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <span className="text-[7px] text-text-dim uppercase font-black tracking-widest block opacity-70">Cuotas (pend. / total)</span>
+                              <p className="text-[10px] font-mono font-bold text-text-main">{stat.pendingCount} / {stat.totalInstallments || '?'}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="mt-3 pt-2.5 border-t border-border-dim/40">
+                          <span className="text-[8px] text-text-dim uppercase font-black tracking-widest block opacity-70">Monto total pendiente</span>
+                          <p className="text-sm font-mono font-black text-emerald-400 italic">${stat.totalPendingAmount.toLocaleString('es-AR')}</p>
+                        </div>
+                      </div>
+                    ))}
+                    {entityPlanStats.length === 0 && (
+                      <div className="col-span-full py-6 text-center text-[10px] text-text-dim uppercase font-bold italic">
+                        No se encontraron registros por entidad y plan
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Main widescreen Table */}
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden shadow-2xl">
                   <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-accent/10">
                     <div className="flex items-center gap-3">
                       <Calculator size={22} className="text-brand-500 animate-pulse" />
                       <div>
-                        <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Planes Fiscales e Impuestos</h3>
-                        <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">Control fiscal integral nacional, provincial y municipal (ARCA, ARBA, etc.)</p>
+                        <h3 className="text-xs font-black uppercase text-text-main tracking-widest">{mode === 'legal' ? 'Juicios y Cuotas Legales' : 'Planes Fiscales e Impuestos'}</h3>
+                        <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{mode === 'legal' ? 'Control de juicios laborales vigentes y sus cuotas' : 'Control fiscal integral nacional, provincial y municipal (ARCA, ARBA, etc.)'}</p>
                       </div>
                     </div>
                     <button 
@@ -3655,7 +3768,7 @@ export default function FinanceView({
                           amount: instAmt,
                           dueDate: dateString,
                           status: 'pending',
-                          category: 'tax'
+                          category: (mode === 'legal' ? 'legal' : 'tax')
                         });
                         currentDate.setMonth(currentDate.getMonth() + 1);
                       }
@@ -3907,9 +4020,9 @@ export default function FinanceView({
                         mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
                       } else {
                         mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
-                        mapField('taxType', ['impuesto', 'tasa', 'tributo', 'concepto']);
+                        mapField('taxType', ['impuesto', 'tasa', 'tributo', 'concepto', 'juicio', 'caratula', 'carátula']);
                         mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
-                        mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
+                        mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan', 'expediente', 'exp']);
                         mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
                         mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
                         mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
@@ -4127,7 +4240,7 @@ export default function FinanceView({
                             amount: parsedAmount,
                             dueDate: cuotaDue,
                             status: cuotaStatus,
-                            category: 'tax'
+                            category: (mode === 'legal' ? 'legal' : 'tax')
                           });
                         }
                       }
@@ -4149,7 +4262,7 @@ export default function FinanceView({
       </AnimatePresence>
 
       {/* Calendario de vencimientos (solo pasivos bancarios y fiscales) */}
-      {(mode === 'bank' || mode === 'tax') && (
+      {(mode === 'bank' || mode === 'tax' || mode === 'legal') && (
         <PaymentCalendar
           title={mode === 'bank' ? 'Calendario de Pasivos Bancarios' : 'Calendario de Pasivos Fiscales'}
           items={filteredPayments.filter((p: any) => p.dueDate).map((p: any) => ({

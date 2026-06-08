@@ -49,6 +49,7 @@ const SYSTEM_MODULES = [
   { id: 'decomisos_deposito', label: 'Decomisos Depósito Central', category: 'Centro de Producción' },
   { id: 'bank_liabilities', label: 'Pasivos Bancarios', category: 'Finanzas' },
   { id: 'tax_liabilities', label: 'Pasivos Fiscales', category: 'Finanzas' },
+  { id: 'legal_liabilities', label: 'Pasivos Legales', category: 'Finanzas' },
   { id: 'cronograma_pagos', label: 'Cronograma de Pagos', category: 'Finanzas' },
   { id: 'tareas', label: 'Tareas Pendientes', category: 'Gestión Sucursal' },
   { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', category: 'Finanzas' },
