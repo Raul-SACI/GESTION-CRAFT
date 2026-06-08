@@ -338,11 +338,11 @@ export default function FinanceView({
       mapField('bank', ['banco', 'entidad', 'prestamo']);
       mapField('loanNumber', ['n° prestamo', 'nro prestamo', 'n prestamo', 'numero prestamo', 'n° préstamo']);
       mapField('requestDate', ['solicitud', 'fecha sol']);
-      mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
+      mapField('requestedAmount', ['monto solicitado', 'solicitado', 'importe sol', 'monto prestamo', 'monto otorgado', 'acreditado']);
       mapField('destination', ['destino', 'uso']);
       mapField('rate', ['tasa', 'tna', 'tem', 'porcent']);
       mapField('installmentNumber', ['cuota', 'nro cuota']);
-      mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'importe', 'monto']);
+      mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
       mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
     } else {
       mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
@@ -350,7 +350,7 @@ export default function FinanceView({
       mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
       mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
       mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
-      mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'cuota total', 'importe', 'monto']);
+      mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
       mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
     }
     setColumnMapping(idxMap);
@@ -3858,11 +3858,11 @@ export default function FinanceView({
                         mapField('bank', ['banco', 'entidad', 'prestamo']);
                         mapField('loanNumber', ['n° prestamo', 'nro prestamo', 'n prestamo', 'numero prestamo', 'n° préstamo']);
                         mapField('requestDate', ['solicitud', 'fecha sol']);
-                        mapField('requestedAmount', ['solicitado', 'importe sol', 'monto prestamo']);
+                        mapField('requestedAmount', ['monto solicitado', 'solicitado', 'importe sol', 'monto prestamo', 'monto otorgado', 'acreditado']);
                         mapField('destination', ['destino', 'uso']);
                         mapField('rate', ['tasa', 'tna', 'tem', 'porcent']);
                         mapField('installmentNumber', ['cuota', 'nro cuota']);
-                        mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'importe', 'monto']);
+                        mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
                         mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
                       } else {
                         mapField('entity', ['entidad', 'organismo', 'arca', 'afip', 'rentas']);
@@ -3870,7 +3870,7 @@ export default function FinanceView({
                         mapField('totalAmount', ['importe total', 'monto total', 'total plan']);
                         mapField('paymentPlanNumber', ['plan de pagos', 'plan de pago', 'nro plan', 'n° de plan']);
                         mapField('installmentNumber', ['cuota', 'nro cuota', 'cuota n']);
-                        mapField('amount', ['importe cuota', 'monto cuota', 'mensual', 'cuota total', 'importe', 'monto']);
+                        mapField('amount', ['importe cuota', 'monto cuota', 'valor cuota', 'mensual']);
                         mapField('dueDate', ['vencimiento', 'fecha vto', 'vto pago', 'fecha_vto']);
                       }
                       
