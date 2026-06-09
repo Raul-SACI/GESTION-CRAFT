@@ -50,7 +50,7 @@ export default function DeviationControlView({
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>,
   isReadOnly?: boolean
 }) {
-  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla'>('comparativo');
+  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla' | 'diagnostico'>('comparativo');
   
   // Persistence State
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -419,6 +419,52 @@ export default function DeviationControlView({
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [recipeSearch, setRecipeSearch] = useState('');
 
+  // Diagnóstico: productos del Ranking de Ventas que NO tienen receta (no harían match)
+  const [rankingNames, setRankingNames] = useState<string[]>([]);
+  const [diagLoading, setDiagLoading] = useState(false);
+
+  const loadRankingDiagnostic = async () => {
+    setDiagLoading(true);
+    try {
+      // Traer todos los nombres distintos del ranking (paginado)
+      const names = new Set<string>();
+      let page = 0; const size = 1000; let more = true;
+      while (more && page < 30) {
+        const { data } = await supabase
+          .from('product_rankings')
+          .select('product_name')
+          .range(page * size, (page + 1) * size - 1);
+        if (data && data.length > 0) {
+          data.forEach((r: any) => { if (r.product_name) names.add(String(r.product_name)); });
+          more = data.length === size;
+          page++;
+        } else { more = false; }
+      }
+      setRankingNames(Array.from(names).sort());
+    } catch (e) { console.error('Error cargando diagnóstico:', e); }
+    setDiagLoading(false);
+  };
+
+  useEffect(() => { if (activeTab === 'diagnostico') loadRankingDiagnostic(); }, [activeTab]);
+
+  // Calcular cuáles tienen receta y cuáles no (match por nombre normalizado)
+  const normName = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+  const diagnostic = React.useMemo(() => {
+    const productsWithRecipe = new Set(
+      Object.keys(recipes).map(prodId => {
+        const p = products.find(pr => pr.id === prodId);
+        return p ? normName(p.name) : '';
+      }).filter(Boolean)
+    );
+    const conReceta: string[] = [];
+    const sinReceta: string[] = [];
+    rankingNames.forEach(rn => {
+      if (productsWithRecipe.has(normName(rn))) conReceta.push(rn);
+      else sinReceta.push(rn);
+    });
+    return { conReceta, sinReceta, total: rankingNames.length };
+  }, [rankingNames, recipes, products]);
+
   // Fetch Controlled Items for Month/Branch
   useEffect(() => {
     const fetchMonthlyControls = async () => {
@@ -653,6 +699,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
           <TabButton active={activeTab === 'planilla'} onClick={() => setActiveTab('planilla')} icon={<Table2 size={14} />} label="Planilla Semanal" />
           <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector de Insumos" />
           <TabButton active={activeTab === 'recetas'} onClick={() => setActiveTab('recetas')} icon={<BookOpen size={14} />} label="Recetas" />
+          <TabButton active={activeTab === 'diagnostico'} onClick={() => setActiveTab('diagnostico')} icon={<AlertTriangle size={14} />} label="Diagnóstico Ventas" />
           <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
         </div>
       </div>
@@ -1407,6 +1454,72 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   )}
                 </div>
               </div>
+            )}
+          </motion.div>
+        )}
+
+        {activeTab === 'diagnostico' && (
+          <motion.div key="diagnostico" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+              <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-text-main tracking-wider">Diagnóstico de Ventas Teóricas</h3>
+                  <p className="text-[10px] text-text-dim font-bold uppercase mt-0.5">Productos del Ranking de Ventas y si tienen receta cargada para descomponer en insumos</p>
+                </div>
+                <button onClick={loadRankingDiagnostic} disabled={diagLoading}
+                  className="px-4 py-2 rounded bg-brand-500 hover:bg-brand-600 text-black text-[10px] font-black uppercase tracking-widest transition-all">
+                  {diagLoading ? 'Cargando...' : 'Actualizar'}
+                </button>
+              </div>
+              {rankingNames.length > 0 && (
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <div className="bg-bg-accent/30 border border-border-dim/40 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">Total productos en Ranking</span>
+                    <p className="text-lg font-mono font-black text-text-main mt-1">{diagnostic.total}</p>
+                  </div>
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">Con receta (hacen match)</span>
+                    <p className="text-lg font-mono font-black text-emerald-400 mt-1">{diagnostic.conReceta.length}</p>
+                  </div>
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">SIN receta (no se computan)</span>
+                    <p className="text-lg font-mono font-black text-red-400 mt-1">{diagnostic.sinReceta.length}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {diagnostic.sinReceta.length > 0 && (
+              <div className="bg-bg-sidebar border-2 border-red-500/30 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle size={16} className="text-red-500" />
+                  <h4 className="text-xs font-black uppercase text-red-500 tracking-widest">Productos del Ranking SIN receta ({diagnostic.sinReceta.length})</h4>
+                </div>
+                <p className="text-[10px] text-text-dim font-bold mb-3">Estos productos se venden pero no tienen receta con ese nombre exacto, así que NO suman a las ventas teóricas. Cargá su receta (en la pestaña Recetas) usando exactamente este nombre, o renombrá la receta para que coincida.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-[400px] overflow-y-auto">
+                  {diagnostic.sinReceta.map((name, i) => (
+                    <div key={i} className="bg-red-500/5 border border-red-500/20 rounded px-3 py-1.5 text-[10px] font-bold text-text-main uppercase">{name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {diagnostic.conReceta.length > 0 && (
+              <div className="bg-bg-sidebar border border-emerald-500/20 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <BookOpen size={16} className="text-emerald-400" />
+                  <h4 className="text-xs font-black uppercase text-emerald-400 tracking-widest">Productos con receta OK ({diagnostic.conReceta.length})</h4>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-[300px] overflow-y-auto">
+                  {diagnostic.conReceta.map((name, i) => (
+                    <div key={i} className="bg-emerald-500/5 border border-emerald-500/20 rounded px-3 py-1.5 text-[10px] font-bold text-text-main uppercase">{name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!diagLoading && rankingNames.length === 0 && (
+              <p className="text-center py-8 text-[11px] text-text-dim uppercase font-bold italic">No se encontraron productos en el Ranking de Ventas. Importá el ranking en el módulo Ventas primero.</p>
             )}
           </motion.div>
         )}

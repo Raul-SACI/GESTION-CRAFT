@@ -268,6 +268,78 @@ export default function StockView({
         }
       }
 
+      // ===== VENTAS TEÓRICAS: descomponer el Ranking de Artículos (productos vendidos) en insumos vía receta =====
+      try {
+        const weekNum = getWeekNumber(selectedDate);
+        // Traer el ranking de la sucursal para el mes/semana en curso
+        const { data: rankingData } = await supabase
+          .from('product_rankings')
+          .select('product_name, quantity, week_number, month')
+          .eq('branch_id', selectedBranchId)
+          .eq('month', currentMonth)
+          .eq('week_number', weekNum);
+
+        if (rankingData && rankingData.length > 0) {
+          // Traer productos (para mapear nombre -> id) y recetas
+          const { data: productsData } = await supabase.from('products').select('id, name');
+          const { data: recipesData2 } = await supabase.from('recipes').select('product_id, item_id, quantity');
+
+          const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+          const productIdByName: Record<string, string> = {};
+          (productsData || []).forEach((p: any) => { if (p.name) productIdByName[norm(p.name)] = p.id; });
+
+          const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+          (recipesData2 || []).forEach((r: any) => {
+            if (!r.product_id || !r.item_id) return;
+            if (!recipeByProd[r.product_id]) recipeByProd[r.product_id] = [];
+            recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
+          });
+
+          // Acumular ventas teóricas por insumo
+          const theoreticalByItem: Record<string, number> = {};
+          rankingData.forEach((rk: any) => {
+            const prodId = productIdByName[norm(rk.product_name)];
+            if (!prodId) return; // producto sin match con recetas
+            const recipe = recipeByProd[prodId];
+            if (!recipe) return;
+            const soldQty = Number(rk.quantity || 0);
+            recipe.forEach(ing => {
+              theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + (soldQty * ing.quantity);
+            });
+          });
+
+          // Asignar el total de la semana al PRIMER día de la semana en el Control de Stock
+          const weekDates = getDatesInRange('semana', selectedDate);
+          const firstDay = weekDates[0];
+          const vtUpserts: any[] = [];
+          setDailyData(prev => {
+            const merged = { ...prev };
+            if (!merged[firstDay]) merged[firstDay] = {};
+            Object.keys(theoreticalByItem).forEach(itemId => {
+              const vt = Math.round(theoreticalByItem[itemId] * 100) / 100;
+              const existing = merged[firstDay][itemId];
+              if (!existing) {
+                merged[firstDay][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: vt, decomisos: 0, compras: 0 };
+              } else if ((existing.ventasTeorico || 0) !== vt) {
+                merged[firstDay][itemId] = { ...existing, ventasTeorico: vt };
+              } else {
+                return;
+              }
+              if (!isReadOnly) {
+                vtUpserts.push(
+                  supabase.from('inventory_logs').upsert(
+                    { branch_id: selectedBranchId, item_id: itemId, date: firstDay, ventas_teorico: vt },
+                    { onConflict: 'branch_id,item_id,date' }
+                  )
+                );
+              }
+            });
+            return merged;
+          });
+          if (vtUpserts.length > 0) Promise.all(vtUpserts).catch(e => console.warn('Auto-sync ventas teóricas error:', e));
+        }
+      } catch (e) { console.warn('Error calculando ventas teóricas:', e); }
+
       // Fetch week closures
       const { data: closures } = await supabase
         .from('inventory_week_closures')
