@@ -190,11 +190,56 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
         }
       });
 
-      setAutoTasks(auto);
+      setAutoTasks(prev => {
+        const pays = prev.filter(t => t.id.startsWith('pay-'));
+        return [...auto, ...pays];
+      });
     } catch (e) { console.error('Error calculando tareas automáticas:', e); }
   };
 
+  // Pagos previstos del Flujo de Caja como tareas (solo admin/tesorería)
+  const fetchPaymentTasks = async () => {
+    try {
+      if (!(currentUser.role === 'administrador' || currentUser.role === 'dueño' || currentUser.accessScope === 'all_branches')) return;
+      const { data } = await supabase.from('finance_liabilities').select('type, notes').in('type', ['scheduled_payments', 'finance_entries']);
+      if (!data) return;
+      const today = todayStr();
+      // Ventana: pagos vencidos o que vencen en los próximos 7 días
+      const in7 = new Date(today + 'T12:00:00'); in7.setDate(in7.getDate() + 7);
+      const in7Str = `${in7.getFullYear()}-${String(in7.getMonth() + 1).padStart(2, '0')}-${String(in7.getDate()).padStart(2, '0')}`;
+      const pays: Array<{ id: string; description: string; detail: string; branchId: string; severity: 'overdue' | 'today' }> = [];
+
+      data.forEach((row: any) => {
+        let parsed: any = null;
+        try { parsed = JSON.parse(row.notes); } catch (e) { return; }
+        if (row.type === 'scheduled_payments' && Array.isArray(parsed)) {
+          parsed.forEach((p: any) => {
+            if (p.status === 'paid') return;
+            const due = p.dueDate;
+            if (!due || due > in7Str) return;
+            const monto = Number(p.amount) || 0;
+            const concepto = p.description || p.entity || p.bank || 'Pago';
+            pays.push({
+              id: `pay-${p.id}`,
+              description: `Pagar: ${concepto} ($${monto.toLocaleString('es-AR')})`,
+              detail: due < today ? `VENCIDO el ${due.split('-').reverse().join('/')}` : `Vence ${due.split('-').reverse().join('/')}`,
+              branchId: 'all',
+              severity: due < today ? 'overdue' : 'today'
+            });
+          });
+        }
+      });
+
+      setAutoTasks(prev => {
+        // Quitar pagos previos para no duplicar y agregar los nuevos
+        const withoutPays = prev.filter(t => !t.id.startsWith('pay-'));
+        return [...withoutPays, ...pays];
+      });
+    } catch (e) { console.error('Error calculando tareas de pagos:', e); }
+  };
+
   useEffect(() => { fetchAutoTasks(); }, [currentUser, branches]);
+  useEffect(() => { fetchPaymentTasks(); }, [currentUser]);
 
   const isAdmin = currentUser.role === 'administrador' || currentUser.role === 'dueño';
 

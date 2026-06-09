@@ -224,7 +224,7 @@ const LoadingState = () => (
 );
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState('socios_dashboard');
+  const [activeTab, setActiveTab] = useState('tareas');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -917,6 +917,7 @@ function AppContent() {
                 sessionStorage.setItem(`unlocked_profile_${profileToUnlock.id}`, 'true');
                 sessionStorage.setItem('active_profile_id', profileToUnlock.id);
                 setCurrentUserProfile(profileToUnlock);
+                setActiveTab('tareas'); // Al iniciar sesión, mostrar primero Tareas Pendientes
                 setTypedUnlockPassword('');
                 setUnlockError('');
                 setRefreshUnlockTrigger(prev => prev + 1);
