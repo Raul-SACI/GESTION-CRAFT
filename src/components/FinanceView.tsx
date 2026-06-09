@@ -1479,7 +1479,7 @@ export default function FinanceView({
               <ArrowUpRight size={14} /> PASE DE FONDOS
             </button>
             <button 
-              onClick={() => setShowEntryModal(true)}
+              onClick={() => { setNewEntry(prev => ({ ...prev, date: toLocalISO(new Date()) })); setShowEntryModal(true); }}
               className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2"
             >
               <Plus size={14} /> NUEVA LÍNEA
@@ -3621,7 +3621,8 @@ export default function FinanceView({
                     <input 
                       type="date"
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-mono"
-                      defaultValue={toLocalISO(new Date())}
+                      value={newEntry.date}
+                      onChange={(e) => setNewEntry({ ...newEntry, date: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -3699,7 +3700,7 @@ export default function FinanceView({
                     
                     const entry: FinanceEntry = {
                       id: `entry_${Date.now()}`,
-                      date: toLocalISO(new Date()),
+                      date: newEntry.date || toLocalISO(new Date()),
                       itemId: newEntry.itemId,
                       amounts: newEntry.amounts,
                       isExecuted: false,
@@ -3714,6 +3715,7 @@ export default function FinanceView({
                       categoryId: FINANCE_CATEGORIES[0].id,
                       itemId: FINANCE_CATEGORIES[0].items[0].id,
                       type: 'expense' as 'income' | 'expense',
+                      date: toLocalISO(new Date()),
                       amounts: ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {}) as Record<string, number>
                     });
                   }}
