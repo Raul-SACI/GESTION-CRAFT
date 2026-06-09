@@ -60,6 +60,22 @@ export default function DecomisosView({
   const [decomisos, setDecomisos] = useState<DailyWastage[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Recetas: producto -> insumos (para desglosar decomisos de productos)
+  const [recipeByProduct, setRecipeByProduct] = useState<Record<string, Array<{ itemId: string; quantity: number }>>>({});
+
+  useEffect(() => {
+    const loadRecipes = async () => {
+      const { data } = await supabase.from('recipes').select('product_id, item_id, quantity');
+      const grouped: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+      (data || []).forEach((r: any) => {
+        if (!r.product_id || !r.item_id) return;
+        if (!grouped[r.product_id]) grouped[r.product_id] = [];
+        grouped[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
+      });
+      setRecipeByProduct(grouped);
+    };
+    loadRecipes();
+  }, []);
 
   // Form State
   const [type, setType] = useState<'insumo' | 'producto'>('insumo');
@@ -524,7 +540,30 @@ export default function DecomisosView({
                             {d.type === 'insumo' ? (
                               <p className="text-[8px] text-text-dim font-bold uppercase">Unidad: {(item as StockItem)?.unit}</p>
                             ) : (
-                              <p className="text-[8px] text-text-dim font-bold uppercase">{(item as Product)?.category}</p>
+                              <>
+                                <p className="text-[8px] text-text-dim font-bold uppercase">{(item as Product)?.category}</p>
+                                {/* Desglose de insumos según receta */}
+                                {(() => {
+                                  const recipe = recipeByProduct[d.referenceId];
+                                  if (!recipe || recipe.length === 0) {
+                                    return <p className="text-[8px] text-amber-500 font-bold uppercase mt-1 italic">Sin receta cargada</p>;
+                                  }
+                                  return (
+                                    <div className="mt-1.5 pl-2 border-l-2 border-purple-500/30 space-y-0.5">
+                                      <p className="text-[7px] font-black uppercase text-purple-400 tracking-widest">Insumos consumidos:</p>
+                                      {recipe.map((ing, idx) => {
+                                        const ingItem = items.find(i => i.id === ing.itemId);
+                                        const totalQty = ing.quantity * d.quantity;
+                                        return (
+                                          <p key={idx} className="text-[8px] text-text-dim font-bold">
+                                            • {ingItem?.name || 'insumo'}: <span className="text-text-main font-mono">{Math.round(totalQty * 100) / 100} {ingItem?.unit || ''}</span>
+                                          </p>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
+                              </>
                             )}
                           </td>
                           <td className="p-4 text-center font-mono text-[11px] font-black text-brand-500">{d.quantity}</td>
