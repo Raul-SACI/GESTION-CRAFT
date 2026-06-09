@@ -111,7 +111,8 @@ const FINANCE_CATEGORIES = [
       { id: 'acr_py', name: 'ACREDITACIONES PEDIDOS YA', subrubro: 'INGRESO POR VENTAS' },
       { id: 'loan_inc', name: 'ACREDITACION DE PRÉSTAMOS', subrubro: 'PRESTAMOS' },
       { id: 'inc_others', name: 'OTROS', subrubro: 'OTROS' },
-      { id: 'aportes', name: 'APORTE DE SOCIOS', subrubro: 'APORTES' }
+      { id: 'aportes', name: 'APORTE DE SOCIOS', subrubro: 'APORTES' },
+      { id: 'pase_in', name: 'PASE DE FONDOS (ENTRADA)', subrubro: 'PASE DE FONDOS' }
     ]
   },
   { 
@@ -160,6 +161,7 @@ const FINANCE_CATEGORIES = [
       { id: 'echeq_deb', name: 'DEBITOS E-CHEQ EMITIDOS', subrubro: 'E-CHEQ EMITIDOS' },
       { id: 'maint', name: 'MANTENIMIENTO', subrubro: 'MANTENIMIENTO' },
       { id: 'legal_cuota', name: 'CUOTA JUICIO LABORAL', subrubro: 'JUICIOS LEGALES' },
+      { id: 'pase_out', name: 'PASE DE FONDOS (SALIDA)', subrubro: 'PASE DE FONDOS' },
       { id: 'exp_other', name: 'OTROS', subrubro: 'OTROS' }
     ]
   },
@@ -1155,6 +1157,39 @@ export default function FinanceView({
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferForm, setTransferForm] = useState({ from: 'santander', to: 'efectivo', amount: 0, date: '' });
+
+  const handleSaveTransfer = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const amt = Number(transferForm.amount) || 0;
+    if (amt <= 0) { alert('Ingresá un monto mayor a 0.'); return; }
+    if (transferForm.from === transferForm.to) { alert('El origen y el destino deben ser distintos.'); return; }
+    const date = transferForm.date || toLocalISO(new Date());
+    const fromName = ACCOUNTS.find(a => a.id === transferForm.from)?.name || transferForm.from;
+    const toName = ACCOUNTS.find(a => a.id === transferForm.to)?.name || transferForm.to;
+    const stamp = Date.now();
+    // Salida desde la cuenta origen (egreso) y entrada a la destino (ingreso)
+    const salida: FinanceEntry = {
+      id: `transfer_out_${stamp}`,
+      date,
+      itemId: 'pase_out',
+      amounts: { [transferForm.from]: amt } as Record<string, number>,
+      isExecuted: false,
+      description: `Pase de fondos: ${fromName} → ${toName}`
+    };
+    const entrada: FinanceEntry = {
+      id: `transfer_in_${stamp}`,
+      date,
+      itemId: 'pase_in',
+      amounts: { [transferForm.to]: amt } as Record<string, number>,
+      isExecuted: false,
+      description: `Pase de fondos: ${fromName} → ${toName}`
+    };
+    setEntries([...entries, salida, entrada]);
+    setShowTransferModal(false);
+    setTransferForm({ from: 'santander', to: 'efectivo', amount: 0, date: '' });
+  };
 
   const togglePaymentPaid = (id: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -1411,6 +1446,12 @@ export default function FinanceView({
               className="bg-bg-card hover:bg-bg-accent border border-border-dim text-text-dim px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
             >
               <Settings size={14} /> GESTIONAR RUBROS
+            </button>
+            <button 
+              onClick={() => { setTransferForm({ from: 'santander', to: 'efectivo', amount: 0, date: toLocalISO(new Date()) }); setShowTransferModal(true); }}
+              className="bg-bg-accent border border-border-dim hover:border-brand-500/50 text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+            >
+              <ArrowUpRight size={14} /> PASE DE FONDOS
             </button>
             <button 
               onClick={() => setShowEntryModal(true)}
@@ -3349,6 +3390,58 @@ export default function FinanceView({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal Pase de Fondos */}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowTransferModal(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1">
+              <ArrowUpRight size={18} className="text-brand-500" />
+              <h3 className="text-sm font-black uppercase text-text-main tracking-wider">Pase de Fondos</h3>
+            </div>
+            <p className="text-[9px] text-text-dim font-bold uppercase mb-5 opacity-70">Mover dinero entre cuentas propias (no afecta el total, solo lo reubica)</p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Desde (sale el dinero)</label>
+                <select value={transferForm.from} onChange={(e) => setTransferForm({ ...transferForm, from: e.target.value })}
+                  className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none">
+                  {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-center"><ArrowUpRight size={18} className="text-brand-500 rotate-90" /></div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Hacia (entra el dinero)</label>
+                <select value={transferForm.to} onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })}
+                  className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none">
+                  {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Monto</label>
+                <input type="number" value={transferForm.amount || ''} onChange={(e) => setTransferForm({ ...transferForm, amount: Number(e.target.value) })}
+                  placeholder="0" className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[12px] font-mono font-bold text-text-main outline-none" />
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha</label>
+                <input type="date" value={transferForm.date} onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })}
+                  className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none" />
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button onClick={handleSaveTransfer}
+                className="flex-1 bg-brand-500 hover:bg-brand-600 text-black py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all">
+                Registrar Pase
+              </button>
+              <button onClick={() => setShowTransferModal(false)}
+                className="px-6 py-2.5 rounded border border-border-dim text-text-dim text-[10px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Entry Modal */}
       <AnimatePresence>
