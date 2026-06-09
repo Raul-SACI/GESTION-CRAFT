@@ -121,6 +121,102 @@ export default function DeviationControlView({
     }
   }, [selectedBranchId, selectedMonth]);
 
+  // Autocompletar decomisos (descompuestos por receta) y ventas teóricas (ranking por receta) en la planilla
+  useEffect(() => {
+    const autoFillDeviations = async () => {
+      if (!selectedBranchId || !selectedMonth || isReadOnly) return;
+      try {
+        const [dy, dm] = selectedMonth.split('-').map(Number);
+        const lastDay = new Date(dy, dm, 0).getDate();
+        const startDate = `${selectedMonth}-01`;
+        const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
+        const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+
+        // Recetas: product_id -> insumos
+        const { data: recipesData } = await supabase.from('recipes').select('product_id, item_id, quantity');
+        const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+        (recipesData || []).forEach((r: any) => {
+          if (!r.product_id || !r.item_id) return;
+          if (!recipeByProd[r.product_id]) recipeByProd[r.product_id] = [];
+          recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
+        });
+        const { data: productsData } = await supabase.from('products').select('id, name');
+        const prodIdByName: Record<string, string> = {};
+        (productsData || []).forEach((p: any) => { if (p.name) prodIdByName[norm(p.name)] = p.id; });
+
+        const upserts: any[] = [];
+
+        // ===== DECOMISOS del mes (insumo directo + producto vía receta) =====
+        const { data: wastage } = await supabase
+          .from('daily_wastage')
+          .select('date, reference_id, quantity, type')
+          .eq('branch_id', selectedBranchId)
+          .gte('date', startDate).lte('date', endDate);
+        const decByDateItem: Record<string, Record<string, number>> = {};
+        (wastage || []).forEach((w: any) => {
+          if (!w.reference_id || !w.date) return;
+          if (!decByDateItem[w.date]) decByDateItem[w.date] = {};
+          const qty = Number(w.quantity || 0);
+          if (w.type === 'producto') {
+            const recipe = recipeByProd[w.reference_id];
+            if (recipe) recipe.forEach(ing => { decByDateItem[w.date][ing.itemId] = (decByDateItem[w.date][ing.itemId] || 0) + qty * ing.quantity; });
+          } else {
+            decByDateItem[w.date][w.reference_id] = (decByDateItem[w.date][w.reference_id] || 0) + qty;
+          }
+        });
+
+        // ===== VENTAS TEÓRICAS por semana (ranking por receta), asignadas al primer día de cada semana =====
+        const { data: ranking } = await supabase
+          .from('product_rankings')
+          .select('product_name, quantity, week_number, month')
+          .eq('branch_id', selectedBranchId)
+          .eq('month', selectedMonth);
+        const weekFirstDay: Record<number, string> = { 1: `${selectedMonth}-01`, 2: `${selectedMonth}-08`, 3: `${selectedMonth}-15`, 4: `${selectedMonth}-22` };
+        const vtByDateItem: Record<string, Record<string, number>> = {};
+        (ranking || []).forEach((rk: any) => {
+          const prodId = prodIdByName[norm(rk.product_name)];
+          if (!prodId) return;
+          const recipe = recipeByProd[prodId];
+          if (!recipe) return;
+          const wk = Number(rk.week_number) || 1;
+          const day = weekFirstDay[wk] || weekFirstDay[1];
+          if (!vtByDateItem[day]) vtByDateItem[day] = {};
+          const sold = Number(rk.quantity || 0);
+          recipe.forEach(ing => { vtByDateItem[day][ing.itemId] = (vtByDateItem[day][ing.itemId] || 0) + sold * ing.quantity; });
+        });
+
+        // Aplicar a estado y preparar upserts solo si cambia el valor
+        setDailyLogs(prev => {
+          const byKey: Record<string, any> = {};
+          prev.forEach(l => { byKey[`${l.date}-${l.item_id}`] = { ...l }; });
+
+          const applyVal = (date: string, itemId: string, field: 'waste' | 'theoretical_sales', col: string, val: number) => {
+            const rounded = Math.round(val * 100) / 100;
+            const key = `${date}-${itemId}`;
+            const existing = byKey[key];
+            if (existing) {
+              if ((existing[field] || 0) !== rounded) {
+                existing[field] = rounded;
+                upserts.push(supabase.from('inventory_logs').upsert({ branch_id: selectedBranchId, item_id: itemId, date, [col]: rounded }, { onConflict: 'branch_id,item_id,date' }));
+              }
+            } else {
+              byKey[key] = { date, item_id: itemId, itemId, ei: 0, purchases: 0, waste: field === 'waste' ? rounded : 0, theoretical_sales: field === 'theoretical_sales' ? rounded : 0, staff_consumption: 0, loansReceived: 0, loansSent: 0 };
+              upserts.push(supabase.from('inventory_logs').upsert({ branch_id: selectedBranchId, item_id: itemId, date, [col]: rounded }, { onConflict: 'branch_id,item_id,date' }));
+            }
+          };
+
+          Object.keys(decByDateItem).forEach(date => Object.keys(decByDateItem[date]).forEach(itemId => applyVal(date, itemId, 'waste', 'decomisos', decByDateItem[date][itemId])));
+          Object.keys(vtByDateItem).forEach(date => Object.keys(vtByDateItem[date]).forEach(itemId => applyVal(date, itemId, 'theoretical_sales', 'ventas_teorico', vtByDateItem[date][itemId])));
+
+          return Object.values(byKey);
+        });
+
+        if (upserts.length > 0) Promise.all(upserts).catch(e => console.warn('Auto-fill planilla desvíos error:', e));
+      } catch (e) { console.warn('Error autocompletando planilla de desvíos:', e); }
+    };
+    autoFillDeviations();
+  }, [selectedBranchId, selectedMonth, isReadOnly]);
+
   const updateDailyLog = async (date: string, itemId: string, field: string, value: number) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     // Map field to DB column
