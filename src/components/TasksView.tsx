@@ -18,6 +18,7 @@ interface CurrentUser {
   role: string;
   accessScope: 'all_branches' | 'single_branch';
   branchId?: string;
+  canSeePayments?: boolean;
 }
 
 interface TasksViewProps {
@@ -200,7 +201,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   // Pagos previstos del Flujo de Caja como tareas (solo admin/tesorería)
   const fetchPaymentTasks = async () => {
     try {
-      if (!(currentUser.role === 'administrador' || currentUser.role === 'dueño' || currentUser.accessScope === 'all_branches')) return;
+      if (!(currentUser.canSeePayments === true)) return;
       const { data } = await supabase.from('finance_liabilities').select('type, notes').in('type', ['scheduled_payments', 'finance_entries']);
       if (!data) return;
       const today = todayStr();

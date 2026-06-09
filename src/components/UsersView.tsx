@@ -91,6 +91,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
     role: '',
     branch: 'Todas las Sucursales',
     password: '',
+    canSeePayments: false,
   });
 
   // Form states for creating/editing Roles
@@ -184,7 +185,8 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           role: u.role,
           branch: u.branch_name,
           permissions: u.permissions || [],
-          password: u.password || ''
+          password: u.password || '',
+          canSeePayments: u.can_see_payments === true
         })));
       }
 
@@ -233,6 +235,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           name: userForm.name.toUpperCase(),
           role: userForm.role,
           branch_name: finalBranch,
+          can_see_payments: userForm.canSeePayments,
         };
         const { error } = await supabase.from('profiles').update(payload).eq('id', userForm.id);
         if (error) throw error;
@@ -276,7 +279,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       }
 
       setIsAddingUser(false);
-      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
       await fetchData();
       onUsersChanged?.();
     } catch (e: any) {
@@ -293,7 +296,8 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       name: user.name,
       role: user.role,
       branch: user.branch || 'Todas las Sucursales',
-      password: user.password || ''
+      password: user.password || '',
+      canSeePayments: user.canSeePayments === true
     });
     setIsAddingUser(true);
   };
@@ -477,7 +481,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                   </span>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
                       setIsAddingUser(true);
                     }}
                     className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
@@ -673,6 +677,33 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                     />
                   </div>
 
+                  {/* Permiso: ver pagos en Tareas Pendientes */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider block">Permisos especiales</label>
+                    <button
+                      type="button"
+                      onClick={() => setUserForm({ ...userForm, canSeePayments: !userForm.canSeePayments })}
+                      className={cn(
+                        "w-full px-4 py-3 rounded border text-left flex items-center justify-between transition-all",
+                        userForm.canSeePayments ? "bg-brand-500/10 border-brand-500/40" : "bg-bg-accent border-border-dim"
+                      )}
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-black uppercase text-text-main">Ver pagos en Tareas Pendientes</span>
+                        <span className="text-[9px] font-bold text-text-dim uppercase opacity-70">Mostrar los pagos previstos del Flujo de Caja a este usuario</span>
+                      </div>
+                      <div className={cn(
+                        "w-10 h-5 rounded-full relative transition-all shrink-0",
+                        userForm.canSeePayments ? "bg-brand-500" : "bg-border-dim"
+                      )}>
+                        <div className={cn(
+                          "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all",
+                          userForm.canSeePayments ? "left-[22px]" : "left-0.5"
+                        )} />
+                      </div>
+                    </button>
+                  </div>
+
                   {/* Information block based on active role */}
                   {selectedRoleConfig && (
                     <div className="bg-bg-accent border border-border-dim p-4 rounded-lg space-y-2 mt-4 text-[10px]">
@@ -700,7 +731,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                     <button 
                       onClick={() => {
                         setIsAddingUser(false);
-                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '' });
+                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
                       }}
                       className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                     >

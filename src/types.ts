@@ -23,6 +23,7 @@ export interface User {
   branch?: string;
   permissions?: string[];
   password?: string;
+  canSeePayments?: boolean;
 }
 
 export interface Branch {

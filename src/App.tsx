@@ -481,7 +481,8 @@ function AppContent() {
       permissions: allowed,
       modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
-      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch'
+      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch',
+      canSeePayments: currentUserProfile.can_see_payments === true
     };
   }, [currentUserProfile, rolesConfigList]);
 
