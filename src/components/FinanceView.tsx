@@ -32,6 +32,8 @@ import {
   Building2,
   Calculator,
   Scale,
+  ChevronDown,
+  ChevronRight,
   Trash2,
   Upload,
   Download,
@@ -1040,7 +1042,35 @@ export default function FinanceView({
     }
   };
 
+  // Suma días a una fecha ISO (yyyy-mm-dd)
+  const addDaysISO = (iso: string, days: number): string => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + days);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
+  // Mover un gasto/cuota a una fecha específica
+  const moveEntryToDate = (entryId: string, newDate: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!entryId || !newDate) return;
+    if (entryId.startsWith('payment-')) {
+      const paymentId = entryId.replace('payment-', '');
+      const updated = payments.map(p => p.id === paymentId ? { ...p, dueDate: newDate } : p);
+      savePayments(updated);
+    } else {
+      setEntries(prev => prev.map(e => e.id === entryId ? { ...e, date: newDate } : e));
+    }
+  };
+
+  // Mover un gasto/cuota +7 días (próxima semana)
+  const moveEntryNextWeek = (entryId: string, currentDate: string) => {
+    moveEntryToDate(entryId, addDaysISO(currentDate, 7));
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
 
   const togglePaymentPaid = (id: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -1539,7 +1569,8 @@ export default function FinanceView({
                                 const entriesCount = row.entriesInPeriod.length;
 
                                 return (
-                                  <tr key={item.id} className={cn(
+                                  <React.Fragment key={item.id}>
+                                  <tr className={cn(
                                     "hover:bg-bg-accent/15 transition-colors group text-[10px]",
                                     !isExecuted && "bg-orange-500/5"
                                   )}>
@@ -1553,15 +1584,20 @@ export default function FinanceView({
 
                                     <td className="px-4 py-3">
                                       <div className="flex flex-col">
-                                        <span className={cn(
-                                          "font-black uppercase tracking-tight text-[10px]",
-                                          isExecuted ? "text-text-main" : "text-orange-400"
-                                        )}>
+                                        <button
+                                          onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)}
+                                          className={cn(
+                                            "font-black uppercase tracking-tight text-[10px] text-left flex items-center gap-1 hover:text-brand-500 transition-colors",
+                                            isExecuted ? "text-text-main" : "text-orange-400"
+                                          )}
+                                          title="Ver detalle / mover gastos"
+                                        >
+                                          {entriesCount > 0 && (expandedItem === item.id ? <ChevronDown size={10} /> : <ChevronRight size={10} />)}
                                           {item.name}
-                                        </span>
+                                        </button>
                                         {entriesCount > 0 && (
                                           <span className="text-[8px] font-bold text-text-dim uppercase mt-0.5 opacity-70">
-                                            {entriesCount} reg. en período
+                                            {entriesCount} reg. en período · tocá para ver detalle
                                           </span>
                                         )}
                                       </div>
@@ -1635,6 +1671,70 @@ export default function FinanceView({
                                       {rowTotal !== 0 ? `$${rowTotal.toLocaleString('es-AR')}` : '-'}
                                     </td>
                                   </tr>
+
+                                  {/* Detalle expandible: entradas individuales con tildar y mover */}
+                                  {expandedItem === item.id && entriesCount > 0 && (
+                                    <tr className="bg-bg-card/40">
+                                      <td colSpan={periodType === 'weekly' ? 5 + 8 * ACCOUNTS.length : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length} className="px-4 py-3">
+                                        <div className="space-y-2">
+                                          {row.entriesInPeriod.map((en: any) => {
+                                            const enTotal = Object.values(en.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+                                            const parts = String(en.date).split('-');
+                                            const dateLabel = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : en.date;
+                                            return (
+                                              <div key={en.id} className="flex items-center gap-2 flex-wrap bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2">
+                                                {/* Tildar ejecutado */}
+                                                <button
+                                                  onClick={() => toggleExecution(en.id)}
+                                                  className={cn("p-1.5 rounded-full transition-all shrink-0",
+                                                    en.isExecuted ? "bg-emerald-500 text-black" : "bg-bg-accent border border-border-dim text-orange-400 hover:text-orange-500")}
+                                                  title={en.isExecuted ? "Ejecutado (tocá para desmarcar)" : "Marcar como ejecutado"}
+                                                >
+                                                  {en.isExecuted ? <Check size={11} strokeWidth={4} /> : <AlertCircle size={11} strokeWidth={3} />}
+                                                </button>
+                                                <span className={cn("text-[10px] font-bold flex-1 min-w-[140px]", en.isExecuted ? "text-text-main" : "text-orange-400")}>
+                                                  {en.description || item.name}
+                                                </span>
+                                                <span className="text-[9px] font-mono text-text-dim shrink-0">{dateLabel}</span>
+                                                <span className={cn("text-[10px] font-mono font-black shrink-0", cat.type === 'income' ? 'text-emerald-400' : 'text-red-400')}>
+                                                  ${enTotal.toLocaleString('es-AR')}
+                                                </span>
+                                                {/* Mover */}
+                                                {!isReadOnly && (
+                                                  <div className="flex items-center gap-1 shrink-0">
+                                                    {movingEntryId === en.id ? (
+                                                      <input
+                                                        type="date"
+                                                        defaultValue={en.date}
+                                                        autoFocus
+                                                        onChange={(e) => { if (e.target.value) { moveEntryToDate(en.id, e.target.value); setMovingEntryId(null); } }}
+                                                        onBlur={() => setMovingEntryId(null)}
+                                                        className="bg-bg-card border border-brand-500 rounded px-2 py-1 text-[9px] text-text-main outline-none"
+                                                      />
+                                                    ) : (
+                                                      <>
+                                                        <button onClick={() => setMovingEntryId(en.id)}
+                                                          className="px-2 py-1 rounded bg-bg-accent border border-border-dim text-[8px] font-black uppercase text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all flex items-center gap-1"
+                                                          title="Cambiar fecha">
+                                                          <Calendar size={9} /> Mover
+                                                        </button>
+                                                        <button onClick={() => moveEntryNextWeek(en.id, en.date)}
+                                                          className="px-2 py-1 rounded bg-bg-accent border border-border-dim text-[8px] font-black uppercase text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all"
+                                                          title="Pasar a la próxima semana (+7 días)">
+                                                          +1 sem
+                                                        </button>
+                                                      </>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                  </React.Fragment>
                                 );
                               })}
                             </React.Fragment>
