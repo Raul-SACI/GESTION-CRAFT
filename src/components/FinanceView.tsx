@@ -1179,6 +1179,7 @@ export default function FinanceView({
   };
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [flowSearch, setFlowSearch] = useState('');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -1753,6 +1754,21 @@ export default function FinanceView({
                   </div>
                 </div>
 
+                {/* Barra de búsqueda de movimientos */}
+                <div className="relative mb-4">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-dim" size={14} />
+                  <input
+                    type="text"
+                    value={flowSearch}
+                    onChange={(e) => setFlowSearch(e.target.value)}
+                    placeholder="BUSCAR MOVIMIENTO POR RUBRO, DESCRIPCIÓN O FECHA (EJ: SUELDOS, 08/06, SANTANDER...)"
+                    className="w-full bg-bg-card border border-border-dim rounded-lg pl-10 pr-10 py-2.5 text-[10px] font-bold uppercase text-text-main placeholder:text-text-dim/50 outline-none focus:border-brand-500/50 transition-all"
+                  />
+                  {flowSearch && (
+                    <button onClick={() => setFlowSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-brand-500 text-[10px] font-black">✕</button>
+                  )}
+                </div>
+
                 <div className="overflow-x-auto w-full">
                   <table className="w-full text-left border-collapse min-w-[1200px]">
                     {periodType === 'weekly' ? (
@@ -1820,10 +1836,22 @@ export default function FinanceView({
                       {(() => {
                         let totalRenderedItems = 0;
                         const renderedBlocks = categories.map((cat, catIdx) => {
+                          const q = flowSearch.trim().toLowerCase();
                           const activeItems = cat.items.filter(item => {
                             const row = groupedRows[item.id];
                             const rowTotal = row ? row.total : 0;
-                            return rowTotal !== 0;
+                            if (rowTotal === 0) return false;
+                            if (!q) return true;
+                            // Coincide por nombre de rubro, categoría o subrubro
+                            if (item.name.toLowerCase().includes(q) || cat.name.toLowerCase().includes(q) || String((item as any).subrubro || '').toLowerCase().includes(q)) return true;
+                            // Coincide por descripción o fecha de alguna de sus entradas
+                            const ents = (row?.entriesInPeriod || []) as any[];
+                            return ents.some(en => {
+                              const desc = String(en.description || '').toLowerCase();
+                              const parts = String(en.date).split('-');
+                              const dmy = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(en.date);
+                              return desc.includes(q) || String(en.date).includes(q) || dmy.includes(q);
+                            });
                           });
 
                           if (activeItems.length === 0) return null;
@@ -1942,11 +1970,20 @@ export default function FinanceView({
                                   </tr>
 
                                   {/* Detalle expandible: entradas individuales con tildar y mover */}
-                                  {expandedItem === item.id && entriesCount > 0 && (
+                                  {(expandedItem === item.id || flowSearch.trim() !== '') && entriesCount > 0 && (
                                     <tr className="bg-bg-card/40">
                                       <td colSpan={periodType === 'weekly' ? 5 + 5 * ACCOUNTS.length : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length} className="px-4 py-3">
                                         <div className="space-y-2">
-                                          {row.entriesInPeriod.map((en: any) => {
+                                          {row.entriesInPeriod.filter((en: any) => {
+                                            const q = flowSearch.trim().toLowerCase();
+                                            if (!q) return true;
+                                            // Si el rubro coincide por nombre, mostrar todas sus entradas
+                                            if (item.name.toLowerCase().includes(q) || cat.name.toLowerCase().includes(q) || String((item as any).subrubro || '').toLowerCase().includes(q)) return true;
+                                            const desc = String(en.description || '').toLowerCase();
+                                            const parts = String(en.date).split('-');
+                                            const dmy = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : String(en.date);
+                                            return desc.includes(q) || String(en.date).includes(q) || dmy.includes(q);
+                                          }).map((en: any) => {
                                             const enTotal = Object.values(en.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
                                             const parts = String(en.date).split('-');
                                             const dateLabel = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : en.date;
