@@ -1047,6 +1047,42 @@ export default function FinanceView({
 
   const totalWeeklyExpense = useMemo(() => weeklyExpenseByItem.reduce((s, r) => s + r.total, 0), [weeklyExpenseByItem]);
 
+  // Ingresos previstos de la semana por rubro
+  const weeklyIncomeByItem = useMemo(() => {
+    const result: Array<{ catName: string; itemName: string; total: number }> = [];
+    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    categories.forEach(cat => {
+      if (cat.type !== 'income') return;
+      cat.items.forEach(item => {
+        let total = 0;
+        allEntries.forEach(e => {
+          if (e.itemId === item.id && weekDates.has(e.date)) {
+            total += Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+          }
+        });
+        if (total > 0) result.push({ catName: cat.name, itemName: item.name, total });
+      });
+    });
+    return result.sort((a, b) => b.total - a.total);
+  }, [activeWeekRange.weekdays, allEntries, categories]);
+
+  // Ingresos previstos de la semana por medio de cobro (cuenta)
+  const weeklyIncomeByAccount = useMemo(() => {
+    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const byAcc: Record<string, number> = {};
+    ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
+    allEntries.forEach(e => {
+      if (!weekDates.has(e.date)) return;
+      const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+      if (cat?.type !== 'income') return;
+      ACCOUNTS.forEach(a => { byAcc[a.id] += (e.amounts[a.id] as number) || 0; });
+    });
+    return byAcc;
+  }, [activeWeekRange.weekdays, allEntries, categories]);
+
+  const totalWeeklyIncome = useMemo(() => weeklyIncomeByItem.reduce((s, r) => s + r.total, 0), [weeklyIncomeByItem]);
+  const totalStartBalance = useMemo(() => Object.values(weekStartBalances).reduce((a: number, b: number) => a + b, 0) as number, [weekStartBalances]);
+
   const toggleGroupExecution = (itemId: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const row = groupedRows[itemId];
@@ -1411,6 +1447,55 @@ export default function FinanceView({
                   ))}
                 </div>
                 <p className="text-[9px] text-text-dim font-bold uppercase mt-3 opacity-70">Estos medios de pago quedan en rojo ese día. Necesitás cubrir esos montos o reprogramar gastos.</p>
+              </div>
+            )}
+
+            {/* Ingresos previstos de la semana: por rubro, por medio de cobro y total + saldo inicial */}
+            {periodType === 'weekly' && (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Ingresos previstos esta semana</h3>
+                  <span className="text-sm font-mono font-black text-emerald-400">Total ingresos: ${totalWeeklyIncome.toLocaleString('es-AR')}</span>
+                </div>
+
+                {/* Por rubro */}
+                {weeklyIncomeByItem.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
+                    {weeklyIncomeByItem.map((r, i) => (
+                      <div key={i} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] font-black text-text-main uppercase truncate">{r.itemName}</span>
+                          <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{r.catName}</span>
+                        </div>
+                        <span className="text-[11px] font-mono font-black text-emerald-400 shrink-0">${r.total.toLocaleString('es-AR')}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-text-dim font-bold uppercase mb-4 opacity-60">No hay ingresos previstos cargados para esta semana.</p>
+                )}
+
+                {/* Por medio de cobro */}
+                <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Por medio de cobro</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {ACCOUNTS.filter(a => (weeklyIncomeByAccount[a.id] || 0) !== 0).map(acc => (
+                    <div key={acc.id} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-black text-text-main uppercase truncate flex items-center gap-1.5">
+                        <acc.icon size={12} className={acc.color} /> {acc.name}
+                      </span>
+                      <span className="text-[11px] font-mono font-black text-emerald-400 shrink-0">${(weeklyIncomeByAccount[acc.id] || 0).toLocaleString('es-AR')}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Total disponible = saldo inicio + ingresos */}
+                <div className="mt-4 pt-3 border-t border-border-dim flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
+                    <span className="text-[10px] font-bold uppercase text-text-dim">Saldo de inicio: <span className="font-mono font-black text-text-main">${totalStartBalance.toLocaleString('es-AR')}</span></span>
+                    <span className="text-[10px] font-bold uppercase text-text-dim">+ Ingresos previstos: <span className="font-mono font-black text-emerald-400">${totalWeeklyIncome.toLocaleString('es-AR')}</span></span>
+                  </div>
+                  <span className="text-[11px] font-black uppercase text-text-main">Disponible estimado: <span className="font-mono text-base text-brand-500">${(totalStartBalance + totalWeeklyIncome).toLocaleString('es-AR')}</span></span>
+                </div>
               </div>
             )}
 
