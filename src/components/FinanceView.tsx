@@ -1157,6 +1157,27 @@ export default function FinanceView({
     moveEntryToDate(entryId, addDaysISO(currentDate, 7));
   };
 
+  // Eliminar una fila del flujo (ingreso o egreso cargado manualmente)
+  const deleteEntry = (entryId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!entryId) return;
+    // Las cuotas de pasivos no se eliminan desde el flujo
+    if (entryId.startsWith('payment-')) {
+      alert('Esta línea es una cuota de un Pasivo (préstamo, impuesto o juicio). Para eliminarla, andá al módulo de Pasivos correspondiente.');
+      return;
+    }
+    const target = entries.find(e => e.id === entryId);
+    // Si es un pase de fondos, eliminar también su contraparte vinculada (mismo timestamp)
+    if (target && (target.itemId === 'pase_in' || target.itemId === 'pase_out')) {
+      const stamp = entryId.replace('transfer_in_', '').replace('transfer_out_', '');
+      if (!confirm('¿Eliminar este pase de fondos? Se borrarán tanto la salida como la entrada.')) return;
+      setEntries(prev => prev.filter(e => !e.id.includes(stamp)));
+      return;
+    }
+    if (!confirm('¿Eliminar esta línea? Esta acción no se puede deshacer.')) return;
+    setEntries(prev => prev.filter(e => e.id !== entryId));
+  };
+
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
@@ -1972,6 +1993,14 @@ export default function FinanceView({
                                                           +1 sem
                                                         </button>
                                                       </>
+                                                    )}
+                                                    {/* Eliminar (no para cuotas de pasivos) */}
+                                                    {!en.id.startsWith('payment-') && (
+                                                      <button onClick={() => deleteEntry(en.id)}
+                                                        className="px-2 py-1 rounded bg-red-500/10 border border-red-500/30 text-[8px] font-black uppercase text-red-400 hover:bg-red-500/20 transition-all flex items-center gap-1"
+                                                        title="Eliminar esta línea">
+                                                        <Trash2 size={9} />
+                                                      </button>
                                                     )}
                                                   </div>
                                                 )}
