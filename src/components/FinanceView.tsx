@@ -261,6 +261,10 @@ export default function FinanceView({
   isReadOnly?: boolean
 }) {
   const today = useMemo(() => new Date(), []);
+  // Convierte un Date a 'yyyy-mm-dd' usando componentes LOCALES (evita corrimiento de día por UTC)
+  const toLocalISO = (dt: Date): string => {
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
   const lastWeek = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
@@ -567,7 +571,7 @@ export default function FinanceView({
     for (let i = 0; i < 7; i++) {
       const cd = new Date(monday);
       cd.setDate(monday.getDate() + i);
-      const dateStr = cd.toISOString().split('T')[0];
+      const dateStr = toLocalISO(cd);
       daysOfWeek.push({
         dateStr,
         name: daysOfWeekNames[i],
@@ -590,7 +594,7 @@ export default function FinanceView({
   const weekStartBalances = useMemo(() => {
     const prevSundayObj = new Date(activeWeekRange.monday + 'T12:00:00');
     prevSundayObj.setDate(prevSundayObj.getDate() - 1);
-    const prevSundayStr = prevSundayObj.toISOString().split('T')[0];
+    const prevSundayStr = toLocalISO(prevSundayObj);
 
     // Priority 1: Direct previous Sunday
     if (weeklyClosings[prevSundayStr]) {
@@ -652,8 +656,8 @@ export default function FinanceView({
       const currentEnd = new Date(currentStart);
       currentEnd.setDate(currentStart.getDate() + 6);
       
-      const startStr = currentStart.toISOString().split('T')[0];
-      const endStr = currentEnd.toISOString().split('T')[0];
+      const startStr = toLocalISO(currentStart);
+      const endStr = toLocalISO(currentEnd);
       const label = `Semana ${weeks.length + 1} (${currentStart.getDate().toString().padStart(2, '0')}/${(currentStart.getMonth() + 1).toString().padStart(2, '0')} a ${currentEnd.getDate().toString().padStart(2, '0')}/${(currentEnd.getMonth() + 1).toString().padStart(2, '0')})`;
       
       weeks.push({
@@ -676,8 +680,8 @@ export default function FinanceView({
       month,
       monthLabel: `${monthNames[month]} de ${year}`,
       weeks,
-      firstDayStr: firstDay.toISOString().split('T')[0],
-      lastDayStr: lastDay.toISOString().split('T')[0],
+      firstDayStr: toLocalISO(firstDay),
+      lastDayStr: toLocalISO(lastDay),
     };
   }, [currentDateStr]);
 
@@ -1231,7 +1235,7 @@ export default function FinanceView({
     const newPay: ScheduledPayment = {
       id: `pay_${Date.now()}`,
       description: payment.description || 'Nuevo Pago',
-      dueDate: payment.dueDate || new Date().toISOString().split('T')[0],
+      dueDate: payment.dueDate || toLocalISO(new Date()),
       amount: payment.amount || 0,
       status: 'pending',
       category: payment.category || 'other'
@@ -1456,7 +1460,7 @@ export default function FinanceView({
                         } else {
                           d.setMonth(d.getMonth() - 1);
                         }
-                        setCurrentDateStr(d.toISOString().split('T')[0]);
+                        setCurrentDateStr(toLocalISO(d));
                       }}
                       className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
                     >
@@ -1475,7 +1479,7 @@ export default function FinanceView({
                         } else {
                           d.setMonth(d.getMonth() + 1);
                         }
-                        setCurrentDateStr(d.toISOString().split('T')[0]);
+                        setCurrentDateStr(toLocalISO(d));
                       }}
                       className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
                     >
@@ -3255,7 +3259,7 @@ export default function FinanceView({
                     <input 
                       type="date"
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 font-mono"
-                      defaultValue={new Date().toISOString().split('T')[0]}
+                      defaultValue={toLocalISO(new Date())}
                     />
                   </div>
                   <div className="space-y-2">
@@ -3333,7 +3337,7 @@ export default function FinanceView({
                     
                     const entry: FinanceEntry = {
                       id: `entry_${Date.now()}`,
-                      date: new Date().toISOString().split('T')[0],
+                      date: toLocalISO(new Date()),
                       itemId: newEntry.itemId,
                       amounts: newEntry.amounts,
                       isExecuted: false,
@@ -3419,7 +3423,7 @@ export default function FinanceView({
                     <input 
                       id="b-reqdate" 
                       type="date" 
-                      defaultValue={new Date().toISOString().split('T')[0]} 
+                      defaultValue={toLocalISO(new Date())} 
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs" 
                     />
                   </div>
@@ -3479,7 +3483,7 @@ export default function FinanceView({
                     <input 
                       id="b-firstdue" 
                       type="date" 
-                      defaultValue={new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().split('T')[0]} 
+                      defaultValue={toLocalISO(new Date(Date.now() + 30 * 24 * 3600 * 1000))} 
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs text-brand-400" 
                     />
                   </div>
@@ -3505,7 +3509,7 @@ export default function FinanceView({
                         const list: any[] = [];
                         let currentDate = new Date(firstDue + 'T12:00:00');
                         for (let i = 1; i <= count; i++) {
-                          const dateString = currentDate.toISOString().split('T')[0];
+                          const dateString = toLocalISO(currentDate);
                           list.push({
                             id: `temp_${Date.now()}_${i}`,
                             bank,
@@ -3817,7 +3821,7 @@ export default function FinanceView({
                     <input 
                       id="t-firstdue" 
                       type="date" 
-                      defaultValue={new Date().toISOString().split('T')[0]} 
+                      defaultValue={toLocalISO(new Date())} 
                       className="w-full bg-bg-accent border border-border-dim rounded px-4 py-2.5 outline-none focus:border-brand-500 font-mono text-xs text-brand-400" 
                     />
                   </div>
@@ -3843,7 +3847,7 @@ export default function FinanceView({
                       const list: any[] = [];
                       let currentDate = new Date(firstDue + 'T12:00:00');
                       for (let i = 1; i <= count; i++) {
-                        const dateString = currentDate.toISOString().split('T')[0];
+                        const dateString = toLocalISO(currentDate);
                         list.push({
                           id: `temp_tax_${Date.now()}_${i}`,
                           entity,
@@ -4254,7 +4258,7 @@ export default function FinanceView({
                       if (nums && nums.length === 1) return { current: parseInt(nums[0]), total: parseInt(nums[0]) };
                       return { current: 1, total: 1 };
                     };
-                    const todayISO = new Date().toISOString().split('T')[0];
+                    const todayISO = toLocalISO(new Date());
 
                     // Parsea importes en formato argentino ($ 2.000.000,00) o US (2,000,000.00) o número
                     const parseMoney = (raw: any): number => {
