@@ -186,26 +186,52 @@ export default function StockView({
         setDailyData(formatted);
       }
 
-      // Fetch daily_wastage and auto-fill decomisos per item/date
+      // Fetch daily_wastage (insumos Y productos) y recetas para descomponer productos en insumos
       const { data: wastageData } = await supabase
         .from('daily_wastage')
-        .select('date, reference_id, quantity')
+        .select('date, reference_id, quantity, type')
         .eq('branch_id', selectedBranchId)
-        .eq('type', 'insumo')
         .gte('date', startDate)
         .lte('date', endDate);
 
+      // Traer recetas (producto -> insumos con cantidad por unidad)
+      const { data: recipesData } = await supabase
+        .from('recipes')
+        .select('product_id, item_id, quantity');
+      const recipeByProduct: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+      (recipesData || []).forEach((r: any) => {
+        if (!r.product_id || !r.item_id) return;
+        if (!recipeByProduct[r.product_id]) recipeByProduct[r.product_id] = [];
+        recipeByProduct[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
+      });
+
       if (wastageData && wastageData.length > 0) {
-        // Sum wastage quantities by item_id + date
+        // Sumar cantidades de decomiso por insumo + fecha.
+        // - type 'insumo': suma directa.
+        // - type 'producto': descompone vía receta (cantidad_producto × cantidad_receta por insumo).
         const wastageByDateItem: Record<string, Record<string, number>> = {};
         wastageData.forEach((w: any) => {
           if (!w.reference_id || !w.date) return;
           if (!wastageByDateItem[w.date]) wastageByDateItem[w.date] = {};
-          wastageByDateItem[w.date][w.reference_id] = 
-            (wastageByDateItem[w.date][w.reference_id] || 0) + Number(w.quantity || 0);
+          const qty = Number(w.quantity || 0);
+          if (w.type === 'producto') {
+            // Descomponer producto en sus insumos según la receta
+            const recipe = recipeByProduct[w.reference_id];
+            if (recipe && recipe.length > 0) {
+              recipe.forEach(ing => {
+                wastageByDateItem[w.date][ing.itemId] =
+                  (wastageByDateItem[w.date][ing.itemId] || 0) + (qty * ing.quantity);
+              });
+            }
+            // Si el producto no tiene receta cargada, no se puede descomponer: se ignora
+          } else {
+            // Insumo decomisado directamente
+            wastageByDateItem[w.date][w.reference_id] =
+              (wastageByDateItem[w.date][w.reference_id] || 0) + qty;
+          }
         });
 
-        // Merge into dailyData: only fill decomisos if still 0 (don't override manual entries)
+        // Merge into dailyData: el decomiso calculado SOBREESCRIBE el valor (es el total correcto del día)
         const upsertPromises: any[] = [];
         setDailyData(prev => {
           const merged = { ...prev };
@@ -214,19 +240,21 @@ export default function StockView({
             Object.keys(wastageByDateItem[date]).forEach(itemId => {
               const wastageQty = wastageByDateItem[date][itemId];
               const existing = merged[date][itemId];
+              const rounded = Math.round(wastageQty * 100) / 100;
               if (!existing) {
-                merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: wastageQty, compras: 0 };
+                merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: rounded, compras: 0 };
                 upsertPromises.push(
                   supabase.from('inventory_logs').upsert(
-                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: wastageQty },
+                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: rounded },
                     { onConflict: 'branch_id,item_id,date' }
                   )
                 );
-              } else if (!existing.decomisos || existing.decomisos === 0) {
-                merged[date][itemId] = { ...existing, decomisos: wastageQty };
+              } else if ((existing.decomisos || 0) !== rounded) {
+                // El total de Decomisos Diarios es la fuente de verdad: actualizar
+                merged[date][itemId] = { ...existing, decomisos: rounded };
                 upsertPromises.push(
                   supabase.from('inventory_logs').upsert(
-                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: wastageQty },
+                    { branch_id: selectedBranchId, item_id: itemId, date, decomisos: rounded },
                     { onConflict: 'branch_id,item_id,date' }
                   )
                 );
