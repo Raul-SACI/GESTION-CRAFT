@@ -1035,6 +1035,7 @@ export default function FinanceView({
     categories.forEach(cat => {
       if (cat.type !== 'expense') return;
       cat.items.forEach(item => {
+        if (item.id === 'pase_out' || item.id === 'pase_in') return; // pases no son gastos
         let total = 0;
         allEntries.forEach(e => {
           if (e.itemId === item.id && weekDates.has(e.date)) {
@@ -1056,6 +1057,7 @@ export default function FinanceView({
     categories.forEach(cat => {
       if (cat.type !== 'income') return;
       cat.items.forEach(item => {
+        if (item.id === 'pase_in' || item.id === 'pase_out') return; // pases no son ingresos
         let total = 0;
         allEntries.forEach(e => {
           if (e.itemId === item.id && weekDates.has(e.date)) {
@@ -1075,6 +1077,7 @@ export default function FinanceView({
     ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
     allEntries.forEach(e => {
       if (!weekDates.has(e.date)) return;
+      if (e.itemId === 'pase_in' || e.itemId === 'pase_out') return; // pases no son ingresos
       const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
       if (cat?.type !== 'income') return;
       ACCOUNTS.forEach(a => { byAcc[a.id] += (e.amounts[a.id] as number) || 0; });
@@ -1558,6 +1561,37 @@ export default function FinanceView({
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Saldo final proyectado de la semana */}
+            {periodType === 'weekly' && (
+              <div className="bg-bg-sidebar border-2 border-brand-500/30 rounded-xl p-5">
+                <h3 className="text-xs font-black uppercase text-text-main tracking-widest mb-4">Saldo Final Proyectado de la Semana</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-bg-accent/30 border border-border-dim/40 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">Saldo de Inicio</span>
+                    <p className="text-sm font-mono font-black text-text-main mt-1">${totalStartBalance.toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">+ Ingresos Proyectados</span>
+                    <p className="text-sm font-mono font-black text-emerald-400 mt-1">${totalWeeklyIncome.toLocaleString('es-AR')}</p>
+                  </div>
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">− Egresos Proyectados</span>
+                    <p className="text-sm font-mono font-black text-red-400 mt-1">${totalWeeklyExpense.toLocaleString('es-AR')}</p>
+                  </div>
+                  {(() => {
+                    const saldoFinal = totalStartBalance + totalWeeklyIncome - totalWeeklyExpense;
+                    return (
+                      <div className={cn("rounded-lg p-3 border-2", saldoFinal >= 0 ? "bg-brand-500/10 border-brand-500/40" : "bg-red-500/20 border-red-500/50")}>
+                        <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">= Saldo Final Proyectado</span>
+                        <p className={cn("text-base font-mono font-black mt-1", saldoFinal >= 0 ? "text-brand-500" : "text-red-500")}>${saldoFinal.toLocaleString('es-AR')}</p>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <p className="text-[9px] text-text-dim font-bold uppercase mt-3 opacity-70">Resultado estimado al cierre de la semana (no incluye pases de fondos, que solo reubican dinero entre cuentas).</p>
               </div>
             )}
 
