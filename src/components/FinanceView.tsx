@@ -586,6 +586,7 @@ export default function FinanceView({
       monday: mondayStr,
       sunday: sundayStr,
       days: daysOfWeek,
+      weekdays: daysOfWeek.slice(0, 5), // Lunes a Viernes (sin fin de semana)
       label: `Semana del Lunes ${daysOfWeek[0].shortLabel.split(' ')[1]} al Domingo ${daysOfWeek[6].shortLabel.split(' ')[1]}`
     };
   }, [currentDateStr]);
@@ -1003,6 +1004,49 @@ export default function FinanceView({
     return result;
   }, [activeWeekRange.days, allEntries, weekStartBalances, categories]);
 
+  // Alertas de saldo negativo: detecta qué día y medio de pago queda en rojo (solo Lun-Vie)
+  const negativeAlerts = useMemo(() => {
+    const alerts: Array<{ dayName: string; dateLabel: string; accountName: string; amount: number }> = [];
+    activeWeekRange.weekdays.forEach((day) => {
+      const dayIdx = activeWeekRange.days.findIndex(d => d.dateStr === day.dateStr);
+      const dayData = dailyAccountBalancesProjected[dayIdx];
+      if (!dayData) return;
+      ACCOUNTS.forEach(acc => {
+        const end = dayData.accounts[acc.id]?.end ?? 0;
+        if (end < 0) {
+          alerts.push({
+            dayName: day.name,
+            dateLabel: day.shortLabel.split(' ')[1],
+            accountName: acc.name,
+            amount: end
+          });
+        }
+      });
+    });
+    return alerts;
+  }, [activeWeekRange.weekdays, activeWeekRange.days, dailyAccountBalancesProjected]);
+
+  // Total por rubro de la semana (cuánta plata necesito para cada gasto)
+  const weeklyExpenseByItem = useMemo(() => {
+    const result: Array<{ catName: string; itemName: string; total: number }> = [];
+    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    categories.forEach(cat => {
+      if (cat.type !== 'expense') return;
+      cat.items.forEach(item => {
+        let total = 0;
+        allEntries.forEach(e => {
+          if (e.itemId === item.id && weekDates.has(e.date)) {
+            total += Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+          }
+        });
+        if (total > 0) result.push({ catName: cat.name, itemName: item.name, total });
+      });
+    });
+    return result.sort((a, b) => b.total - a.total);
+  }, [activeWeekRange.weekdays, allEntries, categories]);
+
+  const totalWeeklyExpense = useMemo(() => weeklyExpenseByItem.reduce((s, r) => s + r.total, 0), [weeklyExpenseByItem]);
+
   const toggleGroupExecution = (itemId: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const row = groupedRows[itemId];
@@ -1351,6 +1395,46 @@ export default function FinanceView({
             exit={{ opacity: 0, x: 20 }}
             className="space-y-6"
           >
+            {/* Panel de alertas de saldo negativo (solo semanal) */}
+            {periodType === 'weekly' && negativeAlerts.length > 0 && (
+              <div className="bg-red-500/10 border-2 border-red-500/40 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertCircle size={18} className="text-red-500" />
+                  <h3 className="text-xs font-black uppercase text-red-500 tracking-widest">¡Atención! Saldos negativos esta semana</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {negativeAlerts.map((a, i) => (
+                    <div key={i} className="bg-red-500/10 border border-red-500/30 rounded px-3 py-2 flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-text-main uppercase">{a.dayName} {a.dateLabel} · {a.accountName}</span>
+                      <span className="text-[11px] font-mono font-black text-red-500">${a.amount.toLocaleString('es-AR')}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-text-dim font-bold uppercase mt-3 opacity-70">Estos medios de pago quedan en rojo ese día. Necesitás cubrir esos montos o reprogramar gastos.</p>
+              </div>
+            )}
+
+            {/* Total por rubro de la semana (cuánta plata necesito para cada gasto) */}
+            {periodType === 'weekly' && weeklyExpenseByItem.length > 0 && (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h3 className="text-xs font-black uppercase text-text-main tracking-widest">Gastos a cubrir esta semana · por rubro</h3>
+                  <span className="text-sm font-mono font-black text-red-400">Total: ${totalWeeklyExpense.toLocaleString('es-AR')}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {weeklyExpenseByItem.map((r, i) => (
+                    <div key={i} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[10px] font-black text-text-main uppercase truncate">{r.itemName}</span>
+                        <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{r.catName}</span>
+                      </div>
+                      <span className="text-[11px] font-mono font-black text-red-400 shrink-0">${r.total.toLocaleString('es-AR')}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {periodType === 'weekly' && !hasClosedCurrentWeek && (
               <div className="bg-red-500/10 border border-red-500/30 text-red-500 p-5 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-pulse">
                 <div className="flex items-center gap-3">
@@ -1497,7 +1581,7 @@ export default function FinanceView({
                           <th rowSpan={2} className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px] border-b border-border-dim/50">Subrubro</th>
                           <th rowSpan={2} className="px-4 py-4 text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[170px] border-b border-border-dim/50">Concepto</th>
                           <th rowSpan={2} className="px-4 py-4 text-center text-[9px] font-black uppercase text-text-dim tracking-widest w-[80px] border-b border-border-dim/50">Ejecución</th>
-                          {activeWeekRange.days.map((day) => (
+                          {activeWeekRange.weekdays.map((day) => (
                             <th key={day.dateStr} colSpan={ACCOUNTS.length} className="px-2 py-2 text-center border-r border-l border-border-dim/20 bg-bg-accent/15">
                               <span className="text-[10px] font-black text-brand-500 block">{day.name.toUpperCase()}</span>
                               <span className="text-[8px] font-mono text-text-dim block">{day.dateStr.slice(8, 10)}/{day.dateStr.slice(5, 7)}</span>
@@ -1514,7 +1598,7 @@ export default function FinanceView({
                           <th rowSpan={2} className="px-4 py-4 text-right text-[9px] font-black uppercase text-text-dim tracking-widest min-w-[120px] border-l border-border-dim/25 border-b border-border-dim/50">Total</th>
                         </tr>
                         <tr className="bg-bg-accent/45 border-b border-border-dim">
-                          {activeWeekRange.days.map((day) => (
+                          {activeWeekRange.weekdays.map((day) => (
                             <React.Fragment key={day.dateStr}>
                               {ACCOUNTS.map(acc => (
                                 <th key={acc.id} className="px-1.5 py-1 text-center font-bold text-[7.5px] text-text-dim/80 border-r border-border-dim/10 uppercase tracking-tighter min-w-[55px] bg-bg-accent/5">
@@ -1626,7 +1710,7 @@ export default function FinanceView({
                                     </td>
 
                                     {periodType === 'weekly' ? (
-                                      activeWeekRange.days.map((day, dayIdx) => (
+                                      activeWeekRange.weekdays.map((day, dayIdx) => (
                                         <React.Fragment key={day.dateStr}>
                                           {ACCOUNTS.map(acc => {
                                             const val = (row.dailyAccountValues && row.dailyAccountValues[dayIdx] && row.dailyAccountValues[dayIdx][acc.id]) || 0;
@@ -1679,7 +1763,7 @@ export default function FinanceView({
                                   {/* Detalle expandible: entradas individuales con tildar y mover */}
                                   {expandedItem === item.id && entriesCount > 0 && (
                                     <tr className="bg-bg-card/40">
-                                      <td colSpan={periodType === 'weekly' ? 5 + 8 * ACCOUNTS.length : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length} className="px-4 py-3">
+                                      <td colSpan={periodType === 'weekly' ? 5 + 5 * ACCOUNTS.length : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length} className="px-4 py-3">
                                         <div className="space-y-2">
                                           {row.entriesInPeriod.map((en: any) => {
                                             const enTotal = Object.values(en.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
@@ -1747,7 +1831,7 @@ export default function FinanceView({
 
                         if (totalRenderedItems === 0) {
                           const totalCols = periodType === 'weekly'
-                            ? 5 + 8 * ACCOUNTS.length
+                            ? 5 + 5 * ACCOUNTS.length
                             : 5 + (activeMonthRange.weeks.length || 5) + ACCOUNTS.length;
                           return (
                             <tr>
@@ -1770,7 +1854,7 @@ export default function FinanceView({
                         <td className="px-4 py-2.5"></td>
                         <td className="px-4 py-2.5"></td>
                         {periodType === 'weekly' ? (
-                          activeWeekRange.days.map((day, dayIdx) => (
+                          activeWeekRange.weekdays.map((day, dayIdx) => (
                             <React.Fragment key={day.dateStr}>
                               {ACCOUNTS.map(acc => {
                                 const val = columnTotals.daysAccountIncome[dayIdx][acc.id] || 0;
@@ -1809,7 +1893,7 @@ export default function FinanceView({
                         <td className="px-4 py-2.5"></td>
                         <td className="px-4 py-2.5"></td>
                         {periodType === 'weekly' ? (
-                          activeWeekRange.days.map((day, dayIdx) => (
+                          activeWeekRange.weekdays.map((day, dayIdx) => (
                             <React.Fragment key={day.dateStr}>
                               {ACCOUNTS.map(acc => {
                                 const val = columnTotals.daysAccountExpense[dayIdx][acc.id] || 0;
@@ -1848,7 +1932,7 @@ export default function FinanceView({
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         {periodType === 'weekly' ? (
-                          activeWeekRange.days.map((day, dayIdx) => (
+                          activeWeekRange.weekdays.map((day, dayIdx) => (
                             <React.Fragment key={day.dateStr}>
                               {ACCOUNTS.map(acc => {
                                 const inc = columnTotals.daysAccountIncome[dayIdx][acc.id] || 0;
@@ -1910,7 +1994,7 @@ export default function FinanceView({
                         <td className="px-4 py-3"></td>
                         <td className="px-4 py-3"></td>
                         {periodType === 'weekly' ? (
-                          activeWeekRange.days.map((day, dayIdx) => {
+                          activeWeekRange.weekdays.map((day, dayIdx) => {
                             const dayData = dailyAccountBalancesExecuted[dayIdx];
                             return (
                               <React.Fragment key={day.dateStr}>
@@ -1964,7 +2048,7 @@ export default function FinanceView({
                         <td className="px-4 py-3.5"></td>
                         <td className="px-4 py-3.5"></td>
                         {periodType === 'weekly' ? (
-                          activeWeekRange.days.map((day, dayIdx) => {
+                          activeWeekRange.weekdays.map((day, dayIdx) => {
                             const dayData = dailyAccountBalancesProjected[dayIdx];
                             return (
                               <React.Fragment key={day.dateStr}>
