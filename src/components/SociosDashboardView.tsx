@@ -13,6 +13,7 @@ import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import MonthlyRankingTop from './MonthlyRankingTop';
 import ProfitLossKPIs from './ProfitLossKPIs';
+import LiabilitiesConsolidatedSection from './LiabilitiesConsolidatedSection';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -528,6 +529,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             </div>
             <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranch !== 'all' ? selectedBranch : undefined} />
           </div>
+
+          {/* Pasivos consolidados por entidad (Bancarios / Fiscales / Legales) */}
+          <LiabilitiesConsolidatedSection />
 
           <div className="bg-bg-sidebar border border-dashed border-border-dim rounded-xl p-6 text-center">
             <p className="text-[10px] font-black uppercase tracking-widest text-text-dim">Estado de Resultados</p>
