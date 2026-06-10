@@ -214,6 +214,10 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
     return val * inflationFactor(`${yearOld}-${mm}`, `${yearNew}-${mm}`);
   };
 
+  // Meses presentes en AMBOS años (los únicos comparables de forma justa para acumulados)
+  const comparableMonths = yoyRows.filter(r => r.oldMd && r.newMd).map(r => MONTHS_ES[parseInt(r.mm) - 1]);
+  const isPartialYear = yearOld != null && comparableMonths.length > 0 && comparableMonths.length < 12;
+
   return (
     <div className="space-y-6">
       {/* Aviso y carga de inflación */}
@@ -354,7 +358,7 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
         <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/30 flex items-center justify-between flex-wrap gap-2">
           <h3 className="text-xs font-black uppercase text-text-main tracking-wider">
-            Gastos a Analizar · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(acumulado del año, ajustado por inflación · monto y % s/ventas)</span>
+            Gastos a Analizar · {yearOld || '—'} vs {yearNew} <span className="text-text-dim normal-case font-bold">(acumulado de los meses comparables, ajustado por inflación · monto y % s/ventas)</span>
           </h3>
           <button onClick={() => setShowExpensePicker(!showExpensePicker)}
             className="bg-bg-accent border border-border-dim text-text-main px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
@@ -392,7 +396,13 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
               ) : selectedExpenses.map(key => {
                 let oldSum = 0, oldVentas = 0, newSum = 0, newVentas = 0;
                 yoyRows.forEach(r => {
-                  if (r.oldMd) { oldSum += adjustOld(Math.abs(r.oldMd.lines[key] || 0), r.mm); oldVentas += adjustOld(r.oldMd.ventas, r.mm); }
+                  // Comparación justa: solo acumulamos el mes del año viejo si ese mismo
+                  // mes también tiene datos cargados en el año nuevo. Así no se compara
+                  // el año viejo completo contra un año nuevo parcial.
+                  if (r.oldMd && r.newMd) {
+                    oldSum += adjustOld(Math.abs(r.oldMd.lines[key] || 0), r.mm);
+                    oldVentas += adjustOld(r.oldMd.ventas, r.mm);
+                  }
                   if (r.newMd) { newSum += Math.abs(r.newMd.lines[key] || 0); newVentas += r.newMd.ventas; }
                 });
                 const oldPct = oldVentas !== 0 ? (oldSum / oldVentas) * 100 : 0;
@@ -416,7 +426,11 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
             </tbody>
           </table>
         </div>
-        <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">En gastos, una variación en rojo (subió en términos reales) es lo que conviene vigilar.</p>
+        <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">
+          {isPartialYear
+            ? `Comparación justa: solo se suman los meses cargados en ambos años (${comparableMonths.join(', ')}). En gastos, una variación en rojo (subió en términos reales) es lo que conviene vigilar.`
+            : 'En gastos, una variación en rojo (subió en términos reales) es lo que conviene vigilar.'}
+        </p>
       </div>
     </div>
   );
