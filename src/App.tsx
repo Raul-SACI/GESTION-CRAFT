@@ -598,7 +598,11 @@ function AppContent() {
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
       { id: 'usuarios', label: 'Usuarios/Roles', icon: Users },
-      { id: 'empleados', label: 'Empleados', icon: IdCard },
+      // DESACTIVADO temporalmente: el modulo "Empleados" (EmployeesView) comparte la tabla
+      // employees del Maestro de Personal y usa la columna inexistente "active" (la correcta es "is_active"),
+      // lo que rompia datos. Se desconecta del menu hasta retomar el Fichaje con QR.
+      // Para reactivarlo: descomentar esta linea Y alinear EmployeesView a is_active.
+      // { id: 'empleados', label: 'Empleados', icon: IdCard },
     ]
   });
 

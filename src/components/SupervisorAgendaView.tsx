@@ -71,6 +71,7 @@ interface CoverageRule {
 export default function SupervisorAgendaView({ branches, mode = 'armado', isReadOnly = false }: { branches: Branch[]; mode?: 'armado' | 'control'; isReadOnly?: boolean }) {
   const isControl = mode === 'control';
   const [leaders, setLeaders] = useState<string[]>([]);
+  const [leadersDiag, setLeadersDiag] = useState<{ totalEmps: number; lideres: number; err: string | null }>({ totalEmps: 0, lideres: 0, err: null });
   const [agendas, setAgendas] = useState<AgendaEntry[]>([]);
   const [coverageRules, setCoverageRules] = useState<CoverageRule[]>([]);
   const [compliance, setCompliance] = useState<Record<string, boolean>>({}); // key: 'entry|<id>' o 'day|<date>'
@@ -111,7 +112,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     try {
       // Líderes (empleados con puesto "Líder...") del maestro de personal
       // No filtramos en la query por is_active (puede venir null); excluimos solo los explícitamente inactivos.
-      const { data: emps } = await supabase
+      const { data: emps, error: empErr } = await supabase
         .from('employees')
         .select('name, position, is_active');
       if (emps) {
@@ -123,7 +124,12 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
             return esLider && activo;
           })
           .map(e => e.name);
-        setLeaders(Array.from(new Set(ld)).sort());
+        const unicos = Array.from(new Set(ld)).sort();
+        setLeaders(unicos);
+        setLeadersDiag({ totalEmps: emps.length, lideres: unicos.length, err: empErr ? empErr.message : null });
+      } else {
+        setLeaders([]);
+        setLeadersDiag({ totalEmps: 0, lideres: 0, err: empErr ? empErr.message : 'No se recibieron datos de empleados.' });
       }
 
       // Agenda de la semana seleccionada
@@ -600,6 +606,10 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                     {leaders.map(l => <option key={l} value={l}>{l}</option>)}
                   </select>
                   {leaders.length === 0 && <p className="text-[8px] text-text-dim italic uppercase mt-1 opacity-60">No hay empleados "Líder de…" en el maestro.</p>}
+                  <p className="text-[8px] text-text-dim uppercase mt-1 opacity-70 tracking-wide">
+                    Diagnóstico: {leadersDiag.totalEmps} empleados leídos · {leadersDiag.lideres} líderes detectados
+                    {leadersDiag.err ? ` · ERROR: ${leadersDiag.err}` : ''}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
