@@ -31,6 +31,15 @@ interface Employee {
   username: string;
   password: string;
   active: boolean;
+  sexo?: string;
+  dni?: string;
+  fecha_ingreso?: string;
+  fecha_nacimiento?: string;
+  talle_remera?: string;
+  talle_pantalon?: string;
+  telefono?: string;
+  email?: string;
+  domicilio?: string;
 }
 
 export default function EmployeesView({ branches, isReadOnly = false }: { branches: Branch[], isReadOnly?: boolean }) {
@@ -49,7 +58,16 @@ export default function EmployeesView({ branches, isReadOnly = false }: { branch
     name: '',
     branch_id: operativeBranches[0]?.id || '',
     position: '',
-    username: ''
+    username: '',
+    sexo: '',
+    dni: '',
+    fecha_ingreso: '',
+    fecha_nacimiento: '',
+    talle_remera: '',
+    talle_pantalon: '',
+    telefono: '',
+    email: '',
+    domicilio: ''
   });
 
   const loadEmployees = async () => {
@@ -87,13 +105,22 @@ export default function EmployeesView({ branches, isReadOnly = false }: { branch
         position: form.position.trim(),
         username,
         password: '', // la define el empleado en el primer ingreso
-        active: true
+        active: true,
+        sexo: form.sexo.trim(),
+        dni: form.dni.trim(),
+        fecha_ingreso: form.fecha_ingreso.trim(),
+        fecha_nacimiento: form.fecha_nacimiento.trim(),
+        talle_remera: form.talle_remera.trim(),
+        talle_pantalon: form.talle_pantalon.trim(),
+        telefono: form.telefono.trim(),
+        email: form.email.trim(),
+        domicilio: form.domicilio.trim()
       });
       if (error) {
         if (error.code === '23505') alert('Ese nombre de usuario ya existe. Elegí otro.');
         else alert('Error al guardar: ' + error.message);
       } else {
-        setForm({ legajo: '', name: '', branch_id: operativeBranches[0]?.id || '', position: '', username: '' });
+        setForm({ legajo: '', name: '', branch_id: operativeBranches[0]?.id || '', position: '', username: '', sexo: '', dni: '', fecha_ingreso: '', fecha_nacimiento: '', talle_remera: '', talle_pantalon: '', telefono: '', email: '', domicilio: '' });
         setIsAdding(false);
         await loadEmployees();
       }
@@ -119,8 +146,8 @@ export default function EmployeesView({ branches, isReadOnly = false }: { branch
   // Descargar modelo Excel
   const handleDownloadModel = () => {
     const data = [
-      { 'LEGAJO': '001', 'NOMBRE': 'Juan Pérez', 'SUCURSAL': 'CRAFT Barrio Norte', 'PUESTO': 'Cocina', 'USUARIO': 'juan.perez' },
-      { 'LEGAJO': '002', 'NOMBRE': 'María Gómez', 'SUCURSAL': 'CRAFT PERON', 'PUESTO': 'Salón', 'USUARIO': 'maria.gomez' }
+      { 'LEGAJO': '001', 'NOMBRE': 'Juan Pérez', 'SUCURSAL': 'CRAFT Barrio Norte', 'PUESTO': 'Cocina', 'USUARIO': 'juan.perez', 'SEXO': 'M', 'DNI': '30111222', 'FECHA INGRESO': '2024-03-15', 'FECHA NACIMIENTO': '1995-07-20', 'TALLE REMERA': 'L', 'TALLE PANTALON': '42', 'TELEFONO': '3815551234', 'EMAIL': 'juan@mail.com', 'DOMICILIO': 'Av. Siempreviva 123' },
+      { 'LEGAJO': '002', 'NOMBRE': 'María Gómez', 'SUCURSAL': 'CRAFT PERON', 'PUESTO': 'Salón', 'USUARIO': 'maria.gomez', 'SEXO': 'F', 'DNI': '32444555', 'FECHA INGRESO': '2023-11-01', 'FECHA NACIMIENTO': '1998-02-10', 'TALLE REMERA': 'M', 'TALLE PANTALON': '38', 'TELEFONO': '3815554321', 'EMAIL': 'maria@mail.com', 'DOMICILIO': 'Calle Falsa 456' }
     ];
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -176,7 +203,16 @@ export default function EmployeesView({ branches, isReadOnly = false }: { branch
           position,
           username,
           password: '',
-          active: true
+          active: true,
+          sexo: findVal(r, ['sexo', 'genero', 'género']),
+          dni: findVal(r, ['dni', 'documento', 'doc']),
+          fecha_ingreso: findVal(r, ['fecha ingreso', 'ingreso', 'alta', 'fecha de ingreso']),
+          fecha_nacimiento: findVal(r, ['fecha nacimiento', 'nacimiento', 'fecha de nacimiento', 'nac']),
+          talle_remera: findVal(r, ['talle remera', 'remera', 'talle camiseta']),
+          talle_pantalon: findVal(r, ['talle pantalon', 'talle pantalón', 'pantalon', 'pantalón']),
+          telefono: findVal(r, ['telefono', 'teléfono', 'celular', 'cel', 'tel']),
+          email: findVal(r, ['email', 'e-mail', 'correo', 'mail']),
+          domicilio: findVal(r, ['domicilio', 'direccion', 'dirección', 'address'])
         };
       }).filter(e => e.name && e.username);
 
@@ -259,6 +295,44 @@ export default function EmployeesView({ branches, isReadOnly = false }: { branch
           <div>
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Usuario</label>
             <input value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder={form.name ? suggestUsername(form.name, form.legajo) : 'auto'} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none placeholder:text-text-dim/40" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sexo</label>
+            <select value={form.sexo} onChange={e => setForm({ ...form, sexo: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none">
+              <option value="">—</option><option value="M">Masculino</option><option value="F">Femenino</option><option value="X">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">DNI</label>
+            <input value={form.dni} onChange={e => setForm({ ...form, dni: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha Ingreso</label>
+            <input type="date" value={form.fecha_ingreso} onChange={e => setForm({ ...form, fecha_ingreso: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha Nacimiento</label>
+            <input type="date" value={form.fecha_nacimiento} onChange={e => setForm({ ...form, fecha_nacimiento: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Talle Remera</label>
+            <input value={form.talle_remera} onChange={e => setForm({ ...form, talle_remera: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Talle Pantalón</label>
+            <input value={form.talle_pantalon} onChange={e => setForm({ ...form, talle_pantalon: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Teléfono</label>
+            <input value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">E-mail</label>
+            <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Domicilio</label>
+            <input value={form.domicilio} onChange={e => setForm({ ...form, domicilio: e.target.value })} className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none" />
           </div>
           <div className="sm:col-span-2 lg:col-span-5 flex gap-2">
             <button onClick={handleSave} disabled={saving} className="bg-brand-500 hover:bg-brand-600 text-black px-5 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2">
