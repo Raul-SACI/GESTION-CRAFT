@@ -110,15 +110,17 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     setLoading(true);
     try {
       // Líderes (empleados con puesto "Líder...") del maestro de personal
+      // No filtramos en la query por is_active (puede venir null); excluimos solo los explícitamente inactivos.
       const { data: emps } = await supabase
         .from('employees')
-        .select('name, position, is_active')
-        .eq('is_active', true);
+        .select('name, position, is_active');
       if (emps) {
         const ld = emps
           .filter(e => {
             const pos = (e.position || '').toLowerCase().trim();
-            return pos.includes('líder') || pos.includes('lider');
+            const esLider = pos.includes('líder') || pos.includes('lider');
+            const activo = e.is_active !== false; // incluye true y null
+            return esLider && activo;
           })
           .map(e => e.name);
         setLeaders(Array.from(new Set(ld)).sort());
