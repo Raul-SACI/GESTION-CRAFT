@@ -61,19 +61,13 @@ interface SalaryPosition {
 }
 
 export default function SalaryManagementView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
-  // Cargar puestos desde Supabase
-  const [positions, setPositions] = useState<SalaryPosition[]>(() => {
-    // Fallback vacío, se carga async
-    const saved = localStorage.getItem('craft_salary_positions');
-    if (saved) {
-      try { return JSON.parse(saved); } catch(e) {}
-    }
-    return [];
-  });
+  // Supabase es la fuente de verdad. Arranca vacío y se carga async.
+  const [positions, setPositions] = useState<SalaryPosition[]>([]);
+  const [positionsLoaded, setPositionsLoaded] = useState(false);
 
-  // Persist data whenever it changes
+  // Persist data whenever it changes (solo después de la carga inicial, para no pisar Supabase con datos viejos)
   useEffect(() => {
-    localStorage.setItem('craft_salary_positions', JSON.stringify(positions));
+    if (!positionsLoaded) return;
     // También en Supabase (escala completa)
     if (positions.length === 0) return;
     const rows = positions.map((p: any) => ({
@@ -362,7 +356,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
     return matchesSearch && matchesBranch;
   });
 
-  // Cargar puestos desde Supabase al inicio
+  // Cargar puestos desde Supabase al inicio (fuente de verdad)
   useEffect(() => {
     const loadPositions = async () => {
       const { data, error } = await supabase.from('salary_positions').select('*').order('title');
@@ -380,13 +374,8 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
           notes: p.notes || '',
           history: Array.isArray(p.history) ? p.history : []
         })));
-      } else {
-        // Usar localStorage como fallback
-        const saved = localStorage.getItem('craft_salary_positions');
-        if (saved) {
-          try { setPositions(JSON.parse(saved)); } catch(e) {}
-        }
       }
+      setPositionsLoaded(true);
     };
     loadPositions();
   }, []);
