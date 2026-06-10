@@ -56,6 +56,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<BranchSales[]>([]);
+  // Metadata de carga del mes actual: hasta qué día hay datos y cuántos días
+  const [loadInfo, setLoadInfo] = useState<{ lastDate: string | null; daysLoaded: number; daysPrevMonth: number }>({ lastDate: null, daysLoaded: 0, daysPrevMonth: 30 });
 
   const operativeBranches = useMemo(
     () => branches.filter(b => !/almac/i.test(b.name)),
@@ -141,6 +143,16 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         a.projection = ud > 0 ? (a.netCurrent / ud) * daysInMonth : 0;
       });
 
+      // Metadata de carga: hasta qué día (fecha máxima) y cuántos días distintos hay cargados
+      // a nivel consolidado (union de fechas de todas las sucursales).
+      const allCurrentDates = new Set<string>();
+      currTickets.forEach(t => { if (t.date) allCurrentDates.add(t.date); });
+      const sortedDates = Array.from(allCurrentDates).sort();
+      const lastDate = sortedDates.length > 0 ? sortedDates[sortedDates.length - 1] : null;
+      const daysLoaded = allCurrentDates.size;
+      const daysPrevMonth = new Date(py, pm, 0).getDate();
+      setLoadInfo({ lastDate, daysLoaded, daysPrevMonth });
+
       if (pyRows.data) {
         const acc: Record<string, { resto: number[]; cafe: number[] }> = {};
         pyRows.data.forEach((row: any) => {
@@ -213,14 +225,33 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
 
+  // Factor de prorrateo: comparamos el mes actual (parcial) contra la MISMA proporción
+  // de días del mes anterior. Ej: 7 días cargados / 31 días de mayo = 0.2258
+  // Si el mes está completo (o no hay datos aún), el factor es 1 (comparación normal).
+  const prorateFactor = useMemo(() => {
+    if (loadInfo.daysLoaded <= 0) return 1;
+    if (loadInfo.daysLoaded >= loadInfo.daysPrevMonth) return 1;
+    return loadInfo.daysLoaded / loadInfo.daysPrevMonth;
+  }, [loadInfo]);
+
+  const isPartial = prorateFactor < 1;
+
+  // Etiqueta de fecha de carga (DD/MM/AAAA)
+  const lastDateLabel = useMemo(() => {
+    if (!loadInfo.lastDate) return null;
+    const [y, m, d] = loadInfo.lastDate.split('-');
+    return `${d}/${m}/${y}`;
+  }, [loadInfo.lastDate]);
+
   const DeltaBadge = ({ curr, prev }: { curr: number; prev: number }) => {
-    const p = pct(curr, prev);
+    const adjustedPrev = prev * prorateFactor;
+    const p = pct(curr, adjustedPrev);
     if (p === null) return <span className="text-text-dim text-[10px] font-bold">— sin datos previos</span>;
     const up = p >= 0;
     return (
       <div className={cn('flex items-center gap-1 text-[10px] font-bold', up ? 'text-emerald-500' : 'text-red-500')}>
         {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}</span>
+        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}{isPartial ? ' (prorrateado)' : ''}</span>
       </div>
     );
   };
@@ -281,6 +312,25 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         </div>
       ) : (
         <>
+          {lastDateLabel && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
+              <Clock size={16} className="text-amber-500 shrink-0 mt-0.5" />
+              <div className="text-[10px] leading-relaxed">
+                <span className="font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  Información cargada hasta el día {lastDateLabel}
+                </span>
+                <span className="text-text-dim font-bold">
+                  {' '}({loadInfo.daysLoaded} {loadInfo.daysLoaded === 1 ? 'día' : 'días'} del mes).
+                </span>
+                {isPartial && (
+                  <span className="block text-text-dim font-medium normal-case mt-0.5">
+                    Las comparativas con {prevMonthLabel} están prorrateadas a los mismos {loadInfo.daysLoaded} días para que sean comparables (no se compara contra el mes anterior completo).
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
@@ -329,9 +379,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 </thead>
                 <tbody className="divide-y divide-border-dim">
                   {shown.map(d => {
-                    const pn = pct(d.netCurrent, d.netPrev);
-                    const pg = pct(d.grossCurrent, d.grossPrev);
-                    const pt = pct(d.ticketsCurrent, d.ticketsPrev);
+                    const pn = pct(d.netCurrent, d.netPrev * prorateFactor);
+                    const pg = pct(d.grossCurrent, d.grossPrev * prorateFactor);
+                    const pt = pct(d.ticketsCurrent, d.ticketsPrev * prorateFactor);
                     const cell = (p: number | null) => p === null
                       ? <span className="text-text-dim">—</span>
                       : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>;
