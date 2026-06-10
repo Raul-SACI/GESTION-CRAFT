@@ -109,14 +109,17 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const loadData = async () => {
     setLoading(true);
     try {
-      // Líderes (empleados "Líder de...") del maestro de personal
+      // Líderes (empleados con puesto "Líder...") del maestro de personal
       const { data: emps } = await supabase
         .from('employees')
-        .select('name, position')
+        .select('name, position, is_active')
         .eq('is_active', true);
       if (emps) {
         const ld = emps
-          .filter(e => (e.position || '').toLowerCase().trim().startsWith('líder de') || (e.position || '').toLowerCase().trim().startsWith('lider de'))
+          .filter(e => {
+            const pos = (e.position || '').toLowerCase().trim();
+            return pos.includes('líder') || pos.includes('lider');
+          })
           .map(e => e.name);
         setLeaders(Array.from(new Set(ld)).sort());
       }
