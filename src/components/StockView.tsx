@@ -240,7 +240,7 @@ export default function StockView({
             Object.keys(wastageByDateItem[date]).forEach(itemId => {
               const wastageQty = wastageByDateItem[date][itemId];
               const existing = merged[date][itemId];
-              const rounded = Math.round(wastageQty * 100) / 100;
+              const rounded = Math.round(wastageQty * 1000) / 1000;
               if (!existing) {
                 merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: rounded, compras: 0 };
                 upsertPromises.push(
@@ -316,7 +316,7 @@ export default function StockView({
             const merged = { ...prev };
             if (!merged[firstDay]) merged[firstDay] = {};
             Object.keys(theoreticalByItem).forEach(itemId => {
-              const vt = Math.round(theoreticalByItem[itemId] * 100) / 100;
+              const vt = Math.round(theoreticalByItem[itemId] * 1000) / 1000;
               const existing = merged[firstDay][itemId];
               if (!existing) {
                 merged[firstDay][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: vt, decomisos: 0, compras: 0 };
@@ -868,9 +868,10 @@ function StockInputCell({ value, onChange, disabled, className }: { value: numbe
     <td className={cn("px-2 py-4", disabled ? "bg-bg-accent/30" : "bg-bg-sidebar", className)}>
       <input 
         type="number"
+        step="0.001"
         value={value || ''}
         onChange={e => onChange(parseFloat(e.target.value) || 0)}
-        placeholder="0.0"
+        placeholder="0.000"
         disabled={disabled}
         className={cn(
           "w-16 mx-auto block bg-transparent border border-border-dim/50 rounded py-1 px-1 text-center text-[10px] text-text-main font-mono focus:border-brand-500 outline-none transition-colors",

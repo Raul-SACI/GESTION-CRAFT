@@ -191,7 +191,7 @@ export default function DeviationControlView({
           prev.forEach(l => { byKey[`${l.date}-${l.item_id}`] = { ...l }; });
 
           const applyVal = (date: string, itemId: string, field: 'waste' | 'theoretical_sales', col: string, val: number) => {
-            const rounded = Math.round(val * 100) / 100;
+            const rounded = Math.round(val * 1000) / 1000;
             const key = `${date}-${itemId}`;
             const existing = byKey[key];
             if (existing) {
@@ -1008,6 +1008,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
                                    <input 
                                      type="number"
+                                     step="0.001"
                                      value={log.purchases || ''}
                                      placeholder="0"
                                      onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)}
@@ -1017,6 +1018,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
                                    <input 
                                      type="number"
+                                     step="0.001"
                                      value={log.waste || ''}
                                      placeholder="0"
                                      onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)}
@@ -1026,6 +1028,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
                                    <input 
                                      type="number"
+                                     step="0.001"
                                      value={log.theoretical_sales || ''}
                                      placeholder="0"
                                      onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)}
