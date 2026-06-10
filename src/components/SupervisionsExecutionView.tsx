@@ -469,6 +469,8 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                 <tr className="bg-bg-accent text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
                   <th className="px-4 py-3">Fecha</th>
                   <th className="px-4 py-3">Sucursal</th>
+                  <th className="px-4 py-3">Formulario</th>
+                  <th className="px-4 py-3">Usuario</th>
                   <th className="px-4 py-3 text-center">Puntaje</th>
                   <th className="px-4 py-3 text-center">🔴</th>
                   <th className="px-4 py-3 text-center">🟡</th>
@@ -480,10 +482,14 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                   const flags = r.scores?.flags || {};
                   const score = Number(r.total_score) || 0;
                   const bName = branches.find(b => b.id === r.branch_id)?.name || r.branch_id;
+                  const formName = r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name || '—';
+                  const userName = r.scores?.supervisor?.name || '—';
                   return (
                     <tr key={r.id} className="hover:bg-bg-accent/40">
                       <td className="px-4 py-3 font-mono text-text-dim">{r.date}</td>
                       <td className="px-4 py-3 font-black text-text-main uppercase">{bName}</td>
+                      <td className="px-4 py-3 font-bold text-text-main uppercase">{formName}</td>
+                      <td className="px-4 py-3 font-bold text-text-dim uppercase">{userName}</td>
                       <td className="px-4 py-3 text-center">
                         <span className={cn("font-black", score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500")}>{score.toFixed(1)}/10</span>
                       </td>
