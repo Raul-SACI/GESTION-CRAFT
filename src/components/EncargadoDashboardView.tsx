@@ -25,7 +25,6 @@ import {
   AlertTriangle, 
   Percent, 
   ShieldAlert, 
-  Sliders, 
   RefreshCw,
   CheckCircle2,
   XCircle,
@@ -936,108 +935,6 @@ export default function EncargadoDashboardView({
         />
       )}
 
-      {/* SIMULATOR AND OVERRIDE MODE FOR USER EXPERIENCE PREVIEW */}
-      <div className="bg-brand-500/5 border border-brand-500/20 p-4 rounded bg-gradient-to-r from-bg-sidebar/90 to-brand-500/5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Sliders size={18} className="text-brand-500 shrink-0" />
-            <div>
-              <p className="text-[11px] font-black text-text-main uppercase">Panel de Configuración de Calibrado / Simulación</p>
-              <p className="text-[9px] text-text-dim uppercase">Permite al encargado proyectar ventas, CMV y estrellas de calificaciones para previsualizar impacto en premios</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => {
-              setIsSimulationMode(!isSimulationMode);
-              if(!isSimulationMode) {
-                // Populate default overrides
-                setManualSalesOverride(salesNet.toString());
-                setManualCmvOverride(cmvPercentage.toFixed(1));
-                setManualGoogleOverride(googleRating.toFixed(1));
-                setManualPyRestoOverride(pedidosYaRestoRating.toFixed(1));
-                setManualPyCafeOverride(pedidosYaCafeRating.toFixed(1));
-                setManualRedFlagsOverride(supervisionFlags.red.toString());
-              }
-            }}
-            className={cn(
-              "px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer border transition-all",
-              isSimulationMode 
-                ? "bg-brand-500 text-black border-brand-500" 
-                : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main"
-            )}
-          >
-            {isSimulationMode ? "Desactivar Calibrador" : "Simular / Calibrar Proyección"}
-          </button>
-        </div>
-
-        {isSimulationMode && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-4 pt-4 border-t border-brand-500/20"
-          >
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">Sales Net ($)</label>
-              <input 
-                type="number"
-                value={manualSalesOverride}
-                onChange={(e) => setManualSalesOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">CMV (%)</label>
-              <input 
-                type="number"
-                step="0.1"
-                value={manualCmvOverride}
-                onChange={(e) => setManualCmvOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">Google Score</label>
-              <input 
-                type="number"
-                step="0.1"
-                value={manualGoogleOverride}
-                onChange={(e) => setManualGoogleOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">PeYa Restó (1-5)</label>
-              <input 
-                type="number"
-                step="0.1"
-                value={manualPyRestoOverride}
-                onChange={(e) => setManualPyRestoOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">PeYa Café (1-5)</label>
-              <input 
-                type="number"
-                step="0.1"
-                value={manualPyCafeOverride}
-                onChange={(e) => setManualPyCafeOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[8px] font-black text-text-dim uppercase">Banderas Rojas</label>
-              <input 
-                type="number"
-                value={manualRedFlagsOverride}
-                onChange={(e) => setManualRedFlagsOverride(e.target.value)}
-                className="w-full bg-bg-sidebar border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-mono text-text-main outline-none focus:border-brand-500"
-              />
-            </div>
-          </motion.div>
-        )}
-      </div>
-
       {/* Primary Financial & Operation Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Sales Net Column */}
@@ -1050,9 +947,6 @@ export default function EncargadoDashboardView({
             <h2 className="text-2xl font-mono font-black text-text-main">
               ${liveNetSales.toLocaleString()}
             </h2>
-            {isSimulationMode && (
-              <span className="text-[8px] text-brand-500 font-black uppercase">Simulado</span>
-            )}
           </div>
           <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-border-dim/40 text-[9px] text-text-dim font-bold font-mono">
             <span>BRUTAS (TICKETS):</span>
