@@ -27,6 +27,59 @@ import { Branch, StockItem, Product } from '../types';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 
+/**
+ * Input de cantidad para recetas.
+ * Mantiene un "borrador" de texto mientras el usuario escribe, para que pueda
+ * tipear decimales como "0.02" sin que el campo se reformatee en cada tecla.
+ * Recien convierte a numero y guarda al salir del campo (onBlur) o al apretar Enter.
+ * Acepta tanto punto como coma como separador decimal.
+ */
+function QuantityInput({
+  value,
+  onCommit,
+  className,
+  disabled = false,
+}: {
+  value: number;
+  onCommit: (val: number) => void;
+  className?: string;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  // Lo que se muestra: si el usuario esta editando, su borrador; si no, el valor real.
+  const shown = draft !== null ? draft : String(value);
+
+  const commit = () => {
+    if (draft === null) return;
+    const normalized = draft.trim().replace(',', '.');
+    const parsed = parseFloat(normalized);
+    onCommit(isNaN(parsed) ? 0 : parsed);
+    setDraft(null); // vuelve a mostrar el valor real (ya guardado)
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={shown}
+      disabled={disabled}
+      onChange={(e) => {
+        // Solo permitimos digitos, un separador decimal (punto o coma) y vacio.
+        const v = e.target.value;
+        if (v === '' || /^[0-9]*[.,]?[0-9]*$/.test(v)) setDraft(v);
+      }}
+      onFocus={(e) => { setDraft(String(value)); e.target.select(); }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { commit(); (e.target as HTMLInputElement).blur(); }
+        if (e.key === 'Escape') { setDraft(null); (e.target as HTMLInputElement).blur(); }
+      }}
+      className={className}
+    />
+  );
+}
+
 export default function DeviationControlView({ 
   branches, 
   selectedBranchId,
@@ -1387,12 +1440,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                    <div className="flex flex-col items-end gap-1">
                                       <span className="text-[8px] font-black text-text-dim uppercase">Cantidad</span>
                                       <div className="flex items-center bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-sm">
-                                         <input 
-                                           type="number" 
-                                           step="0.001"
-                                           value={getDisplayQuantity(line.itemId, line.quantity, selectedProductId)} 
-                                           onChange={(e) => updateIngredientQuantity(selectedProductId, line.itemId, parseFloat(e.target.value) || 0)}
-                                           className="w-24 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none focus:bg-brand-500/5 transition-colors" 
+                                         <QuantityInput
+                                           value={getDisplayQuantity(line.itemId, line.quantity, selectedProductId)}
+                                           onCommit={(val) => updateIngredientQuantity(selectedProductId, line.itemId, val)}
+                                           disabled={isReadOnly}
+                                           className="w-24 py-2 px-3 text-center text-[12px] font-mono font-black text-brand-500 bg-transparent outline-none focus:bg-brand-500/5 transition-colors"
                                          />
                                          <button 
                                             onClick={() => {
@@ -1506,12 +1558,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                 <p className="text-[10px] font-black uppercase text-brand-500">{item?.name}</p>
                               </td>
                               <td className="p-4 text-center">
-                                <input 
-                                  type="number" 
-                                  step="0.001"
-                                  value={getDisplayQuantity(line.itemId, line.quantity, line.productId)} 
-                                  onChange={(e) => updateIngredientQuantity(line.productId, line.itemId, parseFloat(e.target.value) || 0)}
-                                  className="w-20 py-1 px-2 text-center text-[11px] font-mono font-black text-brand-500 bg-bg-sidebar border border-border-dim rounded outline-none focus:border-brand-500 transition-colors" 
+                                <QuantityInput
+                                  value={getDisplayQuantity(line.itemId, line.quantity, line.productId)}
+                                  onCommit={(val) => updateIngredientQuantity(line.productId, line.itemId, val)}
+                                  disabled={isReadOnly}
+                                  className="w-20 py-1 px-2 text-center text-[11px] font-mono font-black text-brand-500 bg-bg-sidebar border border-border-dim rounded outline-none focus:border-brand-500 transition-colors"
                                 />
                               </td>
                               <td className="p-4 text-center">
