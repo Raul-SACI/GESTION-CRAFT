@@ -10,6 +10,7 @@ import {
   TrendingUp, 
   Utensils, 
   Users, 
+  IdCard,
   Package, 
   Star, 
   ClipboardList, 
@@ -92,6 +93,7 @@ const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const UsersView = lazy(() => import('./components/UsersView'));
+const EmployeesView = lazy(() => import('./components/EmployeesView'));
 const BranchManagementView = lazy(() => import('./components/BranchManagementView'));
 const FinanceView = lazy(() => import('./components/FinanceView'));
 const ProfitLossView = lazy(() => import('./components/ProfitLossView'));
@@ -511,7 +513,7 @@ function AppContent() {
     'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios',
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
-    'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios',
+    'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
@@ -596,6 +598,7 @@ function AppContent() {
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
       { id: 'usuarios', label: 'Usuarios/Roles', icon: Users },
+      { id: 'empleados', label: 'Empleados', icon: IdCard },
     ]
   });
 
@@ -648,7 +651,8 @@ function AppContent() {
           aprobacion_presupuestos: Layers,
           control_agendas: ClipboardList,
           sucursales: Building2,
-          usuarios: Users
+          usuarios: Users,
+          empleados: IdCard
         };
 
         const rehydrated: Record<string, MenuItem[]> = {};
@@ -1441,6 +1445,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'usuarios' && <UsersView key="usuarios" branches={branches} selectedBranchId={selectedBranchId} onUsersChanged={loadAccessControlData} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'empleados' && <EmployeesView key="empleados" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'p&l' && <ProfitLossView key="p&l" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'ordenes' && <OrdersView key="ordenes" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'finanzas_estimado' && <FinanceView key="finanzas_estimado" branches={branches} selectedBranchId={selectedBranchId} mode="default" isReadOnly={isCurrentTabReadOnly} />}
