@@ -20,6 +20,7 @@ interface Props {
 
 export default function OrdersSummary({ scope }: Props) {
   const [orders, setOrders] = useState<Record<string, number>>({});
+  const [daysLoadedByMonth, setDaysLoadedByMonth] = useState<Record<string, number>>({});
   const [sales, setSales] = useState<Record<string, number>>({});
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -46,9 +47,12 @@ export default function OrdersSummary({ scope }: Props) {
         }
         const seen: Record<string, Set<string>> = {};
         const fb: Record<string, number> = {};
+        const daysByMonth: Record<string, Set<string>> = {}; // mes -> set de fechas distintas con datos
         allTk.forEach((t: any) => {
           if (!t.date) return;
           const m = String(t.date).slice(0, 7);
+          if (!daysByMonth[m]) daysByMonth[m] = new Set();
+          daysByMonth[m].add(String(t.date));
           const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
           // Un duplicado real es: misma sucursal + mismo comprobante + MISMO DÍA.
           // Si el comprobante se repite en días distintos, son ventas legítimas distintas
@@ -56,6 +60,9 @@ export default function OrdersSummary({ scope }: Props) {
           if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${String(t.date)}|${comp}`); }
           else { fb[m] = (fb[m] || 0) + Number(t.orders || 0); }
         });
+        const dlm: Record<string, number> = {};
+        Object.entries(daysByMonth).forEach(([m, set]) => { dlm[m] = set.size; });
+        setDaysLoadedByMonth(dlm);
         new Set([...Object.keys(seen), ...Object.keys(fb)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fb[m] || 0); });
         const om: Record<string, number> = { ...manual };
         Object.entries(auto).forEach(([m, o]) => { if (o > 0) om[m] = o; });
@@ -85,6 +92,26 @@ export default function OrdersSummary({ scope }: Props) {
     return Array.from(ys).sort();
   }, [orders]);
   const refYear = years.length > 0 ? years[years.length - 1] : null;
+
+  // Mes en curso (actual, sin cerrar) en formato YYYY-MM
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  // Devuelve { value, isProjected } para un mes dado.
+  // Si es el mes en curso y tiene datos parciales, proyecta: ordenes / diasConDatos * diasDelMes.
+  const getOrdersDisplay = (year: string, mm: string): { value: number | undefined; isProjected: boolean } => {
+    const month = `${year}-${mm}`;
+    const raw = orders[month];
+    if (raw === undefined) return { value: undefined, isProjected: false };
+    if (month === currentMonthKey) {
+      const daysLoaded = daysLoadedByMonth[month] || 0;
+      const daysInMonth = new Date(Number(year), Number(mm), 0).getDate();
+      if (daysLoaded > 0 && daysLoaded < daysInMonth) {
+        return { value: Math.round((raw / daysLoaded) * daysInMonth), isProjected: true };
+      }
+    }
+    return { value: raw, isProjected: false };
+  };
 
   const inflationFactor = (fromMonth: string, toMonth: string): number => {
     if (fromMonth >= toMonth) return 1;
@@ -119,7 +146,7 @@ export default function OrdersSummary({ scope }: Props) {
     <div className="space-y-5">
       {/* Volumen de órdenes */}
       <div>
-        <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Cantidad de Órdenes por mes</p>
+        <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Cantidad de Órdenes por mes <span className="normal-case text-amber-500/70">(el mes en curso se proyecta a fin de mes según los días cargados)</span></p>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[420px]">
             <thead>
@@ -132,16 +159,22 @@ export default function OrdersSummary({ scope }: Props) {
             <tbody>
               {MONTHS_ES.map((mname, idx) => {
                 const mm = String(idx + 1).padStart(2, '0');
-                const vals = years.map(y => orders[`${y}-${mm}`]);
-                if (vals.every(v => v === undefined)) return null;
+                const disp = years.map(y => getOrdersDisplay(y, mm));
+                if (disp.every(d => d.value === undefined)) return null;
                 const lastTwo = years.slice(-2);
-                const newV = lastTwo[1] ? orders[`${lastTwo[1]}-${mm}`] : undefined;
-                const oldV = lastTwo[0] ? orders[`${lastTwo[0]}-${mm}`] : undefined;
-                const varV = (newV && oldV) ? ((newV - oldV) / oldV) * 100 : null;
+                const newD = lastTwo[1] ? getOrdersDisplay(lastTwo[1], mm) : { value: undefined, isProjected: false };
+                const oldD = lastTwo[0] ? getOrdersDisplay(lastTwo[0], mm) : { value: undefined, isProjected: false };
+                const varV = (newD.value && oldD.value) ? ((newD.value - oldD.value) / oldD.value) * 100 : null;
                 return (
                   <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
                     <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
-                    {years.map(y => <td key={y} className="py-1.5 text-right font-mono text-text-main">{orders[`${y}-${mm}`] !== undefined ? fmtNum(orders[`${y}-${mm}`]) : '—'}</td>)}
+                    {disp.map((d, i) => (
+                      <td key={years[i]} className={cn("py-1.5 text-right font-mono", d.isProjected ? "text-amber-500" : "text-text-main")}>
+                        {d.value !== undefined
+                          ? <>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</>
+                          : '—'}
+                      </td>
+                    ))}
                     {years.length >= 2 && (
                       <td className={cn("py-1.5 text-right font-mono font-black inline-flex items-center justify-end gap-0.5 w-full", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : "text-red-500")}>
                         {varV !== null ? <>{varV > 0 ? <TrendingUp size={9} /> : <TrendingDown size={9} />}{(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}</> : '—'}
