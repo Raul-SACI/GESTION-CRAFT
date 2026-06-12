@@ -32,6 +32,39 @@ const fmtMoney = (n: number, usd = false) => {
   return n < 0 ? `-${s}` : s;
 };
 
+/**
+ * Celda de dinero editable: muestra el valor con formato ($222.107.261) cuando no
+ * está enfocada, y al hacer clic muestra el número crudo para editar cómodamente.
+ */
+function EditableMoneyCell({ value, onChange }: { value: number; onChange: (raw: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  if (editing) {
+    return (
+      <input
+        type="number"
+        autoFocus
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); onChange(e.target.value); }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+        placeholder="0"
+        className="w-28 bg-transparent border border-brand-500 rounded px-1 py-0.5 text-right font-mono text-[11px] text-text-main outline-none"
+      />
+    );
+  }
+  return (
+    <span
+      onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
+      className="cursor-text hover:bg-brand-500/10 rounded px-1 py-0.5 transition-colors inline-block min-w-[60px]"
+      title="Clic para editar"
+    >
+      {fmtMoney(value)}
+    </span>
+  );
+}
+
 export default function ProfitLossView({
   branches, selectedBranchId, onBranchChange, isReadOnly = false
 }: {
@@ -320,8 +353,7 @@ export default function ProfitLossView({
                       </td>
                       <td className={cn("px-3 py-2 text-right font-mono bg-bg-accent/20", projP < 0 ? "text-red-400" : "text-text-main")}>
                         {def.type === 'input' && !isReadOnly ? (
-                          <input type="number" value={lines[def.key]?.projPesos || ''} onChange={(e) => updateLine(def.key, 'projPesos', e.target.value)}
-                            placeholder="0" className="w-28 bg-transparent border border-transparent hover:border-border-dim focus:border-brand-500 rounded px-1 py-0.5 text-right font-mono text-[11px] text-text-main outline-none" />
+                          <EditableMoneyCell value={lines[def.key]?.projPesos || 0} onChange={(raw) => updateLine(def.key, 'projPesos', raw)} />
                         ) : fmtMoney(projP)}
                       </td>
                       <td className={cn("px-3 py-2 text-right font-mono text-text-dim bg-bg-accent/20")}>{fmtMoney(v.projUsd, true)}</td>
