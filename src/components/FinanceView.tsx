@@ -1497,6 +1497,58 @@ export default function FinanceView({
             exit={{ opacity: 0, x: 20 }}
             className="space-y-6"
           >
+            {/* SELECTOR DE PERIODO/SEMANA — arriba de todo para que sea lo primero que elige el usuario */}
+            <div className="bg-bg-card border border-border-dim rounded-lg p-4 flex flex-wrap justify-between items-center gap-4 shadow-md">
+              <div className="flex items-center gap-2 bg-bg-card border border-border-dim p-1 rounded h-[38px]">
+                <button
+                  onClick={() => setPeriodType('weekly')}
+                  className={cn(
+                    "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                    periodType === 'weekly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                  )}
+                >
+                  Por Semana
+                </button>
+                <button
+                  onClick={() => setPeriodType('monthly')}
+                  className={cn(
+                    "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                    periodType === 'monthly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
+                  )}
+                >
+                  Por Mes
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    const d = new Date(currentDateStr + 'T12:00:00');
+                    if (periodType === 'weekly') { d.setDate(d.getDate() - 7); } else { d.setMonth(d.getMonth() - 1); }
+                    setCurrentDateStr(toLocalISO(d));
+                  }}
+                  className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
+                >
+                  &larr; Anterior
+                </button>
+
+                <span className="text-[10px] font-mono font-black text-brand-500 bg-bg-accent/60 border border-border-dim px-4 py-1.5 rounded uppercase tracking-widest">
+                  {periodType === 'weekly' ? activeWeekRange.label : activeMonthRange.monthLabel}
+                </span>
+
+                <button
+                  onClick={() => {
+                    const d = new Date(currentDateStr + 'T12:00:00');
+                    if (periodType === 'weekly') { d.setDate(d.getDate() + 7); } else { d.setMonth(d.getMonth() + 1); }
+                    setCurrentDateStr(toLocalISO(d));
+                  }}
+                  className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
+                >
+                  Siguiente &rarr;
+                </button>
+              </div>
+            </div>
+
             {/* Panel de alertas de saldo negativo (solo semanal) */}
             {periodType === 'weekly' && negativeAlerts.length > 0 && (
               <div className="bg-red-500/10 border-2 border-red-500/40 rounded-xl p-5">
@@ -1689,69 +1741,15 @@ export default function FinanceView({
             )}
 
             <div className="bg-bg-card border border-border-dim rounded-lg overflow-hidden">
-                {/* CALENDAR NAVIGATION & VIEW TOGGLES */}
+                {/* HEADER DE LA PLANILLA (el selector de periodo se movió arriba de todo) */}
                 <div className="p-6 border-b border-border-dim flex flex-wrap justify-between items-center gap-4 bg-bg-card/50">
                   <div className="flex items-center gap-4">
                     <History size={20} className="text-brand-500" />
                     <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Planilla de Flujo de Caja</h3>
                   </div>
-                  
-                  <div className="flex items-center gap-2 bg-bg-card border border-border-dim p-1 rounded h-[38px]">
-                    <button
-                      onClick={() => setPeriodType('weekly')}
-                      className={cn(
-                        "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
-                        periodType === 'weekly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-                      )}
-                    >
-                      Por Semana
-                    </button>
-                    <button
-                      onClick={() => setPeriodType('monthly')}
-                      className={cn(
-                        "px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all",
-                        periodType === 'monthly' ? "bg-brand-500 text-black shadow-lg" : "text-text-dim hover:text-text-main"
-                      )}
-                    >
-                      Por Mes
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => {
-                        const d = new Date(currentDateStr + 'T12:00:00');
-                        if (periodType === 'weekly') {
-                          d.setDate(d.getDate() - 7);
-                        } else {
-                          d.setMonth(d.getMonth() - 1);
-                        }
-                        setCurrentDateStr(toLocalISO(d));
-                      }}
-                      className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
-                    >
-                      &larr; Anterior
-                    </button>
-
-                    <span className="text-[10px] font-mono font-black text-brand-500 bg-bg-accent/60 border border-border-dim px-4 py-1.5 rounded uppercase tracking-widest">
-                      {periodType === 'weekly' ? activeWeekRange.label : activeMonthRange.monthLabel}
-                    </span>
-
-                    <button
-                      onClick={() => {
-                        const d = new Date(currentDateStr + 'T12:00:00');
-                        if (periodType === 'weekly') {
-                          d.setDate(d.getDate() + 7);
-                        } else {
-                          d.setMonth(d.getMonth() + 1);
-                        }
-                        setCurrentDateStr(toLocalISO(d));
-                      }}
-                      className="px-3 py-1.5 bg-bg-accent hover:bg-bg-accent/80 border border-border-dim rounded text-[9px] font-black uppercase text-text-main transition-all"
-                    >
-                      Siguiente &rarr;
-                    </button>
-                  </div>
+                  <span className="text-[10px] font-mono font-black text-brand-500 bg-bg-accent/60 border border-border-dim px-4 py-1.5 rounded uppercase tracking-widest">
+                    {periodType === 'weekly' ? activeWeekRange.label : activeMonthRange.monthLabel}
+                  </span>
                 </div>
 
                 {/* Barra de búsqueda de movimientos */}
