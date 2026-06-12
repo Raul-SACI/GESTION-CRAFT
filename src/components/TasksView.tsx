@@ -154,6 +154,52 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
         }
       });
 
+      // 1.b Días sin carga de decomisos (del mes, hasta hoy) por sucursal.
+      // Caso especial: "Almacén y Producción" no trabaja domingos ni feriados,
+      // así que esos días no se exigen. El resto de sucursales trabaja todos los días.
+      const { data: wasteRows } = await supabase
+        .from('daily_wastage').select('branch_id, date')
+        .gte('date', `${month}-01`).lte('date', `${month}-${String(lastDay).padStart(2, '0')}`);
+      const wasteByBranch: Record<string, Set<string>> = {};
+      (wasteRows || []).forEach((r: any) => {
+        if (!wasteByBranch[r.branch_id]) wasteByBranch[r.branch_id] = new Set();
+        wasteByBranch[r.branch_id].add(r.date);
+      });
+      // Feriados del mes (tomados del Presupuestador de Horas)
+      let monthHolidays = new Set<string>();
+      try {
+        const { data: holData } = await supabase
+          .from('budget_holidays').select('holiday_dates').eq('month', month).maybeSingle();
+        if (holData?.holiday_dates && Array.isArray(holData.holiday_dates)) {
+          monthHolidays = new Set(holData.holiday_dates);
+        }
+      } catch (e) { /* sin feriados cargados */ }
+
+      branchesToCheck.forEach(b => {
+        const isAlmacen = (b.name || '').toLowerCase().includes('almac');
+        const loggedW = wasteByBranch[b.id] || new Set();
+        const missingW: string[] = [];
+        for (let d = 1; d <= limitDay; d++) {
+          const ds = `${month}-${String(d).padStart(2, '0')}`;
+          if (loggedW.has(ds)) continue;
+          // Para Almacén y Producción: no exigir domingos ni feriados
+          if (isAlmacen) {
+            const dow = new Date(`${ds}T12:00:00`).getDay(); // 0 = domingo
+            if (dow === 0 || monthHolidays.has(ds)) continue;
+          }
+          missingW.push(String(d));
+        }
+        if (missingW.length > 0) {
+          auto.push({
+            id: `auto-decomisos-${b.id}`,
+            description: `Cargar decomisos (${b.name})`,
+            detail: `Faltan ${missingW.length} día(s): ${missingW.join(', ')}`,
+            branchId: b.id,
+            severity: 'overdue'
+          });
+        }
+      });
+
       // 2. Arqueo de caja central de hoy sin cargar (solo admin/tesorería - lo mostramos a quienes ven todas)
       if (isAdmin || currentUser.accessScope === 'all_branches') {
         const { data: arqueo } = await supabase.from('treasury_cash_count').select('date').eq('date', today).maybeSingle();
