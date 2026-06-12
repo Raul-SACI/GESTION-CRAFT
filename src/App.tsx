@@ -1126,10 +1126,13 @@ function AppContent() {
   return (
     <div className="flex min-h-screen bg-bg-main font-sans text-text-main">
       {/* Sidebar */}
-      <aside className={cn(
-        "border-r border-sidebar-border bg-bg-sidebar flex flex-col fixed h-full z-20 transition-all duration-300",
-        isSidebarCollapsed ? "w-0 -translate-x-full overflow-hidden" : "w-56 translate-x-0"
-      )}>
+      <aside
+        className={cn(
+          "border-r border-sidebar-border bg-bg-sidebar flex flex-col fixed h-full z-20 transition-all duration-300",
+          isSidebarCollapsed ? "w-0 -translate-x-full overflow-hidden" : "w-56 translate-x-0"
+        )}
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <div className="p-4 border-b border-sidebar-border">
           <div className="flex items-center gap-2">
             <h1 className="text-brand-500 font-extrabold text-2xl tracking-tighter italic">CRAFT<span className="text-sidebar-text">.</span></h1>
@@ -1315,7 +1318,10 @@ function AppContent() {
         isSidebarCollapsed ? "ml-0" : "ml-56"
       )}>
         {/* Header */}
-        <header className="h-20 bg-bg-sidebar border-b border-border-dim sticky top-0 z-30 px-6 flex items-center justify-between">
+        <header
+          className="bg-bg-sidebar border-b border-border-dim sticky top-0 z-30 px-6 flex items-center justify-between"
+          style={{ paddingTop: 'env(safe-area-inset-top, 0px)', minHeight: '5rem' }}
+        >
           <div className="flex gap-8 items-center">
             {isSidebarCollapsed && (
               <button 
