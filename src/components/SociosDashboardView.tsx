@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import MonthlyRankingTop from './MonthlyRankingTop';
 import ProfitLossKPIs from './ProfitLossKPIs';
 import LiabilitiesConsolidatedSection from './LiabilitiesConsolidatedSection';
+import OrdersSummary from './OrdersSummary';
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -578,6 +579,15 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Ranking de Articulos</h3>
             </div>
             <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranch !== 'all' ? selectedBranch : undefined} />
+          </div>
+
+          {/* Tickets / Órdenes (misma tabla del Dashboard General) */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Receipt size={16} className="text-brand-500" />
+              <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Tickets / Órdenes</h3>
+            </div>
+            <OrdersSummary scope={selectedBranch === 'all' ? 'consolidated' : selectedBranch} />
           </div>
 
           {/* Pasivos consolidados por entidad (Bancarios / Fiscales / Legales) */}
