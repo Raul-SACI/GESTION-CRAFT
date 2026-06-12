@@ -50,7 +50,10 @@ export default function OrdersSummary({ scope }: Props) {
           if (!t.date) return;
           const m = String(t.date).slice(0, 7);
           const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
-          if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${comp}`); }
+          // Un duplicado real es: misma sucursal + mismo comprobante + MISMO DÍA.
+          // Si el comprobante se repite en días distintos, son ventas legítimas distintas
+          // (la numeración de comprobantes se reinicia/reutiliza), así que NO se deduplican.
+          if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${String(t.date)}|${comp}`); }
           else { fb[m] = (fb[m] || 0) + Number(t.orders || 0); }
         });
         new Set([...Object.keys(seen), ...Object.keys(fb)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fb[m] || 0); });

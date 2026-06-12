@@ -234,7 +234,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
       while (tkHasMore) {
         let tkQuery = supabase
           .from('sales_tickets')
-          .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name')
+          .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name, comprobante')
           .order('date', { ascending: false })
           .order('hour', { ascending: true })
           .range(tkPage * tkPageSize, (tkPage + 1) * tkPageSize - 1);
@@ -706,13 +706,24 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         else if (pm === 'Pedidos Ya') pyS += amt;
         else cardS += amt; // Tarjetas/Bancos
       });
+      // Órdenes: contar comprobantes ÚNICOS dentro del turno (un comprobante puede venir
+      // en varias filas por distintos medios de pago = 1 sola orden). Un duplicado es mismo
+      // comprobante en el mismo día/sucursal. Filas sin comprobante: respaldo con campo 'orders'.
+      const compSet = new Set<string>();
+      let ordersFallback = 0;
+      tickets.forEach((t: any) => {
+        const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
+        if (comp) compSet.add(`${t.branch_id}|${t.date}|${comp}`);
+        else ordersFallback += Number(t.orders || 0);
+      });
+      const ordersCount = compSet.size + ordersFallback;
       return {
         id: `hf|${key}`,
         branchId, date,
         type: type as SaleType,
         pesos: tickets.reduce((s: number, t: any) => s + Number(t.gross_sales || 0), 0),
         netSales: tickets.reduce((s: number, t: any) => s + Number(t.net_sales || 0), 0),
-        orders: tickets.reduce((s: number, t: any) => s + Number(t.orders || 0), 0),
+        orders: ordersCount,
         covers: tickets.reduce((s: number, t: any) => s + Number(t.covers || 0), 0),
         iva: tickets.reduce((s: number, t: any) => s + Number(t.iva || 0), 0),
         projection: 0,

@@ -63,10 +63,11 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
         if (tk.length < 1000) break;
         page++; if (page > 50) break;
       }
-      // Contar comprobantes ÚNICOS por mes (clave sucursal+comprobante).
-      // Las filas con comprobante cuentan 1 por comprobante distinto (aunque tengan varios medios de pago).
+      // Contar comprobantes ÚNICOS por mes. Un duplicado real es: misma sucursal +
+      // mismo comprobante + MISMO DÍA. Si el comprobante se repite en días distintos,
+      // son ventas legítimas distintas (la numeración se reinicia/reutiliza) y se cuentan.
       // Las filas SIN comprobante (datos viejos) usan el campo 'orders' como respaldo.
-      const seenComprobantes: Record<string, Set<string>> = {}; // mes -> set de "branch|comprobante"
+      const seenComprobantes: Record<string, Set<string>> = {}; // mes -> set de "branch|fecha|comprobante"
       const fallbackOrders: Record<string, number> = {};
       allTk.forEach((t: any) => {
         if (!t.date) return;
@@ -74,7 +75,7 @@ export default function OrdersView({ branches, selectedBranchId, isReadOnly = fa
         const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
         if (comp) {
           if (!seenComprobantes[m]) seenComprobantes[m] = new Set();
-          seenComprobantes[m].add(`${t.branch_id}|${comp}`);
+          seenComprobantes[m].add(`${t.branch_id}|${String(t.date)}|${comp}`);
         } else {
           fallbackOrders[m] = (fallbackOrders[m] || 0) + Number(t.orders || 0);
         }
