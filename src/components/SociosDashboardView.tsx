@@ -30,6 +30,7 @@ interface BranchSales {
   grossPrev: number;
   ticketsPrev: number;
   projection: number;
+  ticketsProjection: number;
   googleRating: number;
   googleVotes: number;
   pyResto: number | null;
@@ -114,6 +115,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0,
           netPrev: 0, grossPrev: 0, ticketsPrev: 0,
           projection: 0,
+          ticketsProjection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
           pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0
@@ -152,6 +154,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       Object.values(agg).forEach(a => {
         const ud = daysWithData[a.branchId]?.size || 0;
         a.projection = ud > 0 ? (a.netCurrent / ud) * daysInMonth : 0;
+        a.ticketsProjection = ud > 0 ? (a.ticketsCurrent / ud) * daysInMonth : 0;
       });
 
       // Metadata de carga: hasta qué día (fecha máxima) y cuántos días distintos hay cargados
@@ -228,10 +231,11 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       grossPrev: acc.grossPrev + d.grossPrev,
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
       projection: acc.projection + d.projection,
+      ticketsProjection: acc.ticketsProjection + d.ticketsProjection,
       cmv: acc.cmv + (d.cmv || 0),
       budgetHours: acc.budgetHours + d.budgetHours,
       workedHours: acc.workedHours + d.workedHours
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
@@ -378,7 +382,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                     <th className="px-3 py-2 text-right">vs Ant.</th>
                     <th className="px-3 py-2 text-right">Tickets</th>
                     <th className="px-3 py-2 text-right">vs Ant.</th>
-                    <th className="px-3 py-2 text-right">Proyección</th>
+                    <th className="px-3 py-2 text-right">Proy. Ventas</th>
+                    <th className="px-3 py-2 text-right">Proy. Tickets</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim">
@@ -399,6 +404,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{Math.round(d.ticketsProjection).toLocaleString('es-AR')}</td>
                       </tr>
                     );
                   })}
@@ -412,6 +418,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       <td className="px-3 py-2.5 text-right font-mono text-text-main">{totals.ticketsCurrent.toLocaleString('es-AR')}</td>
                       <td className="px-3 py-2.5"></td>
                       <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{fmt(totals.projection)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{Math.round(totals.ticketsProjection).toLocaleString('es-AR')}</td>
                     </tr>
                   )}
                 </tbody>
