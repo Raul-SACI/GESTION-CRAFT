@@ -120,7 +120,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         };
       });
 
-      const daysWithData: Record<string, Set<string>> = {};
+      const daysWithData: Record<string, Set<string>> = {};       // branch -> fechas completas (YYYY-MM-DD) del mes actual
+      const dayNumsWithData: Record<string, Set<string>> = {};     // branch -> números de día (DD) cargados en el mes actual
       currTickets.forEach(t => {
         const a = agg[t.branch_id];
         if (!a) return;
@@ -129,10 +130,19 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         a.ticketsCurrent += Number(t.orders) || 0;
         if (!daysWithData[t.branch_id]) daysWithData[t.branch_id] = new Set();
         daysWithData[t.branch_id].add(t.date);
+        if (!dayNumsWithData[t.branch_id]) dayNumsWithData[t.branch_id] = new Set();
+        dayNumsWithData[t.branch_id].add(String(t.date).slice(8, 10)); // "DD"
       });
+      // Para el mes anterior, sumamos SOLO los mismos números de día que están cargados
+      // en el mes actual (por sucursal). Así comparamos 1-7 de junio contra 1-7 de mayo,
+      // no contra todo mayo. Esto es exacto, no un prorrateo por promedio.
       prevTickets.forEach(t => {
         const a = agg[t.branch_id];
         if (!a) return;
+        const dayNum = String(t.date).slice(8, 10);
+        const loadedDays = dayNumsWithData[t.branch_id];
+        // Si la sucursal tiene días cargados en el mes actual, solo contamos esos mismos días del mes anterior.
+        if (loadedDays && loadedDays.size > 0 && !loadedDays.has(dayNum)) return;
         a.netPrev += Number(t.net_sales) || 0;
         a.grossPrev += Number(t.gross_sales) || 0;
         a.ticketsPrev += Number(t.orders) || 0;
@@ -226,16 +236,10 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
 
-  // Factor de prorrateo: comparamos el mes actual (parcial) contra la MISMA proporción
-  // de días del mes anterior. Ej: 7 días cargados / 31 días de mayo = 0.2258
-  // Si el mes está completo (o no hay datos aún), el factor es 1 (comparación normal).
-  const prorateFactor = useMemo(() => {
-    if (loadInfo.daysLoaded <= 0) return 1;
-    if (loadInfo.daysLoaded >= loadInfo.daysPrevMonth) return 1;
-    return loadInfo.daysLoaded / loadInfo.daysPrevMonth;
-  }, [loadInfo]);
-
-  const isPartial = prorateFactor < 1;
+  // Indica si el mes actual está parcial (menos días cargados que el mes completo).
+  // Ya NO se prorratea: el mes anterior se compara con los MISMOS días del calendario
+  // (ver carga de prevTickets), así que la comparación es exacta día a día.
+  const isPartial = loadInfo.daysLoaded > 0 && loadInfo.daysLoaded < loadInfo.daysPrevMonth;
 
   // Etiqueta de fecha de carga (DD/MM/AAAA)
   const lastDateLabel = useMemo(() => {
@@ -245,14 +249,13 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   }, [loadInfo.lastDate]);
 
   const DeltaBadge = ({ curr, prev }: { curr: number; prev: number }) => {
-    const adjustedPrev = prev * prorateFactor;
-    const p = pct(curr, adjustedPrev);
+    const p = pct(curr, prev);
     if (p === null) return <span className="text-text-dim text-[10px] font-bold">— sin datos previos</span>;
     const up = p >= 0;
     return (
       <div className={cn('flex items-center gap-1 text-[10px] font-bold', up ? 'text-emerald-500' : 'text-red-500')}>
         {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}{isPartial ? ' (prorrateado)' : ''}</span>
+        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}{isPartial ? ' (mismos días)' : ''}</span>
       </div>
     );
   };
@@ -325,7 +328,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 </span>
                 {isPartial && (
                   <span className="block text-text-dim font-medium normal-case mt-0.5">
-                    Las comparativas con {prevMonthLabel} están prorrateadas a los mismos {loadInfo.daysLoaded} días para que sean comparables (no se compara contra el mes anterior completo).
+                    Las comparativas con {prevMonthLabel} usan los mismos días del calendario ya cargados (ej. 1 al {loadInfo.daysLoaded} de cada mes) para que sean comparables, no el mes anterior completo.
                   </span>
                 )}
               </div>
@@ -380,9 +383,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 </thead>
                 <tbody className="divide-y divide-border-dim">
                   {shown.map(d => {
-                    const pn = pct(d.netCurrent, d.netPrev * prorateFactor);
-                    const pg = pct(d.grossCurrent, d.grossPrev * prorateFactor);
-                    const pt = pct(d.ticketsCurrent, d.ticketsPrev * prorateFactor);
+                    const pn = pct(d.netCurrent, d.netPrev);
+                    const pg = pct(d.grossCurrent, d.grossPrev);
+                    const pt = pct(d.ticketsCurrent, d.ticketsPrev);
                     const cell = (p: number | null) => p === null
                       ? <span className="text-text-dim">—</span>
                       : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>;
