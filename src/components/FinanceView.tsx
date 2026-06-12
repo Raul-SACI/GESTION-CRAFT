@@ -275,7 +275,7 @@ export default function FinanceView({
 
   const [activeSubTab, setActiveSubTab] = useState<'flow' | 'payments'>(mode === 'default' ? 'flow' : 'payments');
   const [periodType, setPeriodType] = useState<'weekly' | 'monthly'>('weekly');
-  const [currentDateStr, setCurrentDateStr] = useState('2026-05-24');
+  const [currentDateStr, setCurrentDateStr] = useState(() => toLocalISO(new Date()));
   
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
   const [dataLoaded, setDataLoaded] = useState(false);
