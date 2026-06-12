@@ -85,6 +85,7 @@ export default function EncargadoDashboardView({
   const [salesNet, setSalesNet] = useState(0);
   const [salesGross, setSalesGross] = useState(0);
   const [salesOrdersCount, setSalesOrdersCount] = useState(0);
+  const [salesLastDate, setSalesLastDate] = useState<string | null>(null);
   
   // CMV State (EI, EF, Purchases, Movements)
   const [cmvInitial, setCmvInitial] = useState(0);
@@ -145,7 +146,7 @@ export default function EncargadoDashboardView({
       while (hasMore) {
         let query = supabase
           .from('sales_tickets')
-          .select('net_sales, gross_sales, orders, covers')
+          .select('net_sales, gross_sales, orders, covers, date')
           .eq('month', month)
           .order('id', { ascending: true })
           .range(page * pageSize, (page + 1) * pageSize - 1);
@@ -171,10 +172,15 @@ export default function EncargadoDashboardView({
         setSalesNet(allData.reduce((s, i) => s + (Number(i.net_sales) || 0), 0));
         setSalesGross(allData.reduce((s, i) => s + (Number(i.gross_sales) || 0), 0));
         setSalesOrdersCount(allData.reduce((s, i) => s + (Number(i.orders) || 0), 0));
+        // Última fecha con datos cargados (la mayor entre todos los tickets del mes)
+        let last: string | null = null;
+        allData.forEach(i => { if (i.date && (!last || String(i.date) > last)) last = String(i.date); });
+        setSalesLastDate(last);
       } else {
         setSalesNet(0);
         setSalesGross(0);
         setSalesOrdersCount(0);
+        setSalesLastDate(null);
       }
     } catch (err) {
       console.error('Error fetching sales data:', err);
@@ -933,6 +939,18 @@ export default function EncargadoDashboardView({
           currentUser={{ ...currentUser, branchId: selectedBranchId !== 'all' ? selectedBranchId : currentUser.branchId }}
           onOpenTasks={onNavigateToTab ? () => onNavigateToTab('tareas') : undefined}
         />
+      )}
+
+      {/* Alerta: hasta qué día está cargada la información de Ventas */}
+      {salesLastDate && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
+          <Clock size={16} className="text-amber-500 shrink-0 mt-0.5" />
+          <div className="text-[10px] leading-relaxed">
+            <span className="font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Información de Ventas cargada hasta el día {salesLastDate.split('-').reverse().join('/')}
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Primary Financial & Operation Status Cards */}
