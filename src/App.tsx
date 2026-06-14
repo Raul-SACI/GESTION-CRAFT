@@ -12,6 +12,7 @@ import {
   Users, 
   IdCard,
   Package, 
+  ShoppingCart,
   Star, 
   ClipboardList, 
   Tag,
@@ -108,6 +109,7 @@ const PaymentScheduleView = lazy(() => import('./components/PaymentScheduleView'
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
+const InternalOrdersView = lazy(() => import('./components/InternalOrdersView'));
 const PerformanceView = lazy(() => import('./components/PerformanceView'));
 const PerformanceAdminView = lazy(() => import('./components/PerformanceAdminView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
@@ -394,7 +396,8 @@ function AppContent() {
           id: i.id,
           name: i.name,
           unit: i.unit,
-          cost: i.cost
+          cost: i.cost,
+          category: i.category
         })));
       }
 
@@ -549,6 +552,7 @@ function AppContent() {
       { id: 'horas', label: 'Carga de Horas', icon: Clock },
       { id: 'novedades', label: 'Novedades', icon: ClipboardList },
       { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
+      { id: 'pedidos_internos', label: 'Pedidos Internos', icon: ShoppingCart },
       { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
       { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
     ],
@@ -851,6 +855,7 @@ function AppContent() {
     { id: 'horas', label: 'Carga de Horas', icon: Clock },
     { id: 'novedades', label: 'Novedades', icon: ClipboardList },
     { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
+    { id: 'pedidos_internos', label: 'Pedidos Internos', icon: ShoppingCart },
     { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
     { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
   ];
@@ -1334,7 +1339,7 @@ function AppContent() {
             )}
 
             {/* Sucursal Activa and Ventas Semanales removed per user requirement */}
-            {['dashboard', 'stock', 'vajilla', 'horas', 'novedades', 'decomisos', 'papeles_sucursal', 'cuentas', 'decomisos_deposito'].includes(activeTab) && (
+            {['dashboard', 'stock', 'vajilla', 'horas', 'novedades', 'decomisos', 'pedidos_internos', 'papeles_sucursal', 'cuentas', 'decomisos_deposito'].includes(activeTab) && (
               <div className="flex items-center gap-3 bg-bg-card border border-border-dim px-4 py-2 rounded-lg">
                 <span className="text-[10px] font-black uppercase text-text-dim tracking-wider">Filtrar por Sucursal:</span>
                 <select
@@ -1492,6 +1497,16 @@ function AppContent() {
                   selectedBranchId={selectedBranchId}
                   items={items}
                   products={products}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
+              )}
+              {activeTab === 'pedidos_internos' && (
+                <InternalOrdersView
+                  key="pedidos_internos"
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  items={items}
+                  currentUser={currentUserProfile}
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
