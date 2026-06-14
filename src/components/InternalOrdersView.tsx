@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Factory, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History } from 'lucide-react';
+import { ShoppingCart, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History, Eye, X } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch, StockItem } from '../types';
@@ -70,6 +70,7 @@ export default function InternalOrdersView({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [recentOrders, setRecentOrders] = useState<SavedOrder[]>([]);
+  const [viewingOrder, setViewingOrder] = useState<{ order: SavedOrder; lines: OrderLine[] } | null>(null);
 
   // Fecha de hoy y de entrega (día siguiente)
   const today = new Date();
@@ -116,6 +117,57 @@ export default function InternalOrdersView({
 
   useEffect(() => { loadRecentOrders(); }, [selectedBranchId]);
 
+  // Trae las líneas de un pedido guardado
+  const fetchOrderLines = async (orderId: string) => {
+    const { data } = await supabase
+      .from('internal_order_items')
+      .select('*')
+      .eq('order_id', orderId);
+    return (data || []).map((d: any) => ({
+      category: d.category || 'SIN CATEGORÍA',
+      itemName: d.item_name,
+      unit: d.unit || '',
+      quantity: Number(d.quantity) || 0,
+      observations: d.observations || ''
+    }));
+  };
+
+  // Volver a descargar el PDF de un pedido guardado
+  const redownloadOrder = async (o: SavedOrder) => {
+    const pdfLines = await fetchOrderLines(o.id);
+    if (pdfLines.length === 0) { alert('Este pedido no tiene insumos cargados.'); return; }
+    generatePDF({
+      type: o.order_type,
+      branch: branches.find(b => b.id === o.branch_id)?.name || branchName,
+      orderDate: o.order_date,
+      deliv: o.delivery_date,
+      by: o.created_by,
+      pdfLines,
+      generalNotes: o.notes
+    });
+  };
+
+  // Ver detalle de un pedido en un modal
+  const viewOrder = async (o: SavedOrder) => {
+    const detail = await fetchOrderLines(o.id);
+    setViewingOrder({ order: o, lines: detail });
+  };
+
+  // Eliminar un pedido (cabecera + líneas)
+  const deleteOrder = async (o: SavedOrder) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés eliminar pedidos.'); return; }
+    if (!window.confirm(`¿Eliminar el pedido de ${o.order_type === 'compras' ? 'Compras' : 'Producción'} del ${fmtDMY(o.order_date)}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await supabase.from('internal_order_items').delete().eq('order_id', o.id);
+      const { error } = await supabase.from('internal_orders').delete().eq('id', o.id);
+      if (error) throw error;
+      await loadRecentOrders();
+      if (viewingOrder?.order.id === o.id) setViewingOrder(null);
+    } catch (e: any) {
+      alert('Error al eliminar el pedido: ' + (e.message || e));
+    }
+  };
+
   const addItem = (item: StockItem) => {
     setLines(prev => [...prev, {
       itemId: item.id,
@@ -135,9 +187,17 @@ export default function InternalOrdersView({
     setLines(prev => prev.filter(l => l.itemId !== itemId));
   };
 
-  const generatePDF = (orderDate: string, deliv: string) => {
+  const generatePDF = (params: {
+    type: string;
+    branch: string;
+    orderDate: string;
+    deliv: string;
+    by?: string | null;
+    pdfLines: { category: string; itemName: string; unit: string; quantity: number; observations: string }[];
+    generalNotes?: string | null;
+  }) => {
     const doc = new jsPDF();
-    const typeLabel = orderType === 'compras' ? 'PEDIDO DE COMPRAS' : 'PEDIDO A PRODUCCIÓN';
+    const typeLabel = params.type === 'compras' ? 'PEDIDO DE COMPRAS' : 'PEDIDO A PRODUCCIÓN';
 
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
@@ -147,12 +207,12 @@ export default function InternalOrdersView({
 
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Sucursal: ${branchName}`, 14, 37);
-    doc.text(`Fecha de pedido: ${fmtDMY(orderDate)}`, 14, 43);
-    doc.text(`Fecha de entrega: ${fmtDMY(deliv)}`, 14, 49);
-    if (currentUser?.name) doc.text(`Cargado por: ${currentUser.name}`, 14, 55);
+    doc.text(`Sucursal: ${params.branch}`, 14, 37);
+    doc.text(`Fecha de pedido: ${fmtDMY(params.orderDate)}`, 14, 43);
+    doc.text(`Fecha de entrega: ${fmtDMY(params.deliv)}`, 14, 49);
+    if (params.by) doc.text(`Cargado por: ${params.by}`, 14, 55);
 
-    const body = lines.map(l => [
+    const body = params.pdfLines.map(l => [
       l.category,
       l.itemName,
       l.unit,
@@ -169,13 +229,13 @@ export default function InternalOrdersView({
       alternateRowStyles: { fillColor: [245, 245, 245] }
     });
 
-    if (notes.trim()) {
+    if (params.generalNotes && params.generalNotes.trim()) {
       const finalY = (doc as any).lastAutoTable.finalY || 62;
       doc.setFontSize(9);
-      doc.text(`Observaciones generales: ${notes.trim()}`, 14, finalY + 10);
+      doc.text(`Observaciones generales: ${params.generalNotes.trim()}`, 14, finalY + 10);
     }
 
-    const fileName = `${orderType}_${branchName.replace(/\s+/g, '_')}_${orderDate}.pdf`;
+    const fileName = `${params.type}_${params.branch.replace(/\s+/g, '_')}_${params.orderDate}.pdf`;
     doc.save(fileName);
   };
 
@@ -215,7 +275,15 @@ export default function InternalOrdersView({
       if (itemsErr) throw itemsErr;
 
       // Generar PDF y limpiar
-      generatePDF(todayISO, deliveryISO);
+      generatePDF({
+        type: orderType,
+        branch: branchName,
+        orderDate: todayISO,
+        deliv: deliveryISO,
+        by: currentUser?.name || currentUser?.username || null,
+        pdfLines: lines,
+        generalNotes: notes
+      });
       alert('Pedido guardado y PDF generado correctamente.');
       setLines([]);
       setNotes('');
@@ -259,25 +327,19 @@ export default function InternalOrdersView({
       )}
 
       {/* Selector de tipo de pedido */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => setOrderType('compras')}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+        <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Tipo de Pedido</label>
+        <select
+          value={orderType}
+          onChange={e => setOrderType(e.target.value as 'compras' | 'produccion')}
           className={cn(
-            "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all",
-            orderType === 'compras' ? "bg-brand-500 text-white border-brand-500 shadow-lg" : "bg-bg-sidebar text-text-dim border-border-dim hover:border-brand-500/40"
+            "w-full bg-bg-card border rounded-lg px-4 py-3 text-[12px] font-black uppercase tracking-wide outline-none transition-all cursor-pointer",
+            orderType === 'compras' ? "border-brand-500 text-brand-500 focus:border-brand-500" : "border-teal-500 text-teal-500 focus:border-teal-500"
           )}
         >
-          <ShoppingCart size={16} /> Pedido de Compras
-        </button>
-        <button
-          onClick={() => setOrderType('produccion')}
-          className={cn(
-            "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all",
-            orderType === 'produccion' ? "bg-teal-500 text-white border-teal-500 shadow-lg" : "bg-bg-sidebar text-text-dim border-border-dim hover:border-teal-500/40"
-          )}
-        >
-          <Factory size={16} /> Pedido a Producción
-        </button>
+          <option value="compras">Pedido de Compras (Almacén Central)</option>
+          <option value="produccion">Pedido a Producción (Elaborados)</option>
+        </select>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -398,14 +460,73 @@ export default function InternalOrdersView({
           </div>
           <div className="space-y-1.5">
             {recentOrders.map(o => (
-              <div key={o.id} className="flex items-center justify-between p-2.5 bg-bg-accent/30 rounded border border-border-dim text-[9px]">
-                <span className={cn("font-black uppercase px-2 py-0.5 rounded", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
+              <div key={o.id} className="flex items-center justify-between gap-2 p-2.5 bg-bg-accent/30 rounded border border-border-dim text-[9px]">
+                <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
                   {o.order_type === 'compras' ? 'Compras' : 'Producción'}
                 </span>
-                <span className="text-text-dim font-bold uppercase">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
-                <span className="text-text-dim font-mono">{o.created_by || '—'}</span>
+                <span className="text-text-dim font-bold uppercase flex-1 truncate">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                <span className="text-text-dim font-mono hidden sm:block truncate max-w-[120px]">{o.created_by || '—'}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => viewOrder(o)} title="Ver detalle" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
+                  <button onClick={() => redownloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
+                  {!isReadOnly && <button onClick={() => deleteOrder(o)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>}
+                </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de detalle del pedido */}
+      {viewingOrder && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setViewingOrder(null)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-border-dim">
+              <div>
+                <h3 className="text-sm font-black uppercase text-text-main tracking-wide">
+                  {viewingOrder.order.order_type === 'compras' ? 'Pedido de Compras' : 'Pedido a Producción'}
+                </h3>
+                <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">
+                  {branches.find(b => b.id === viewingOrder.order.branch_id)?.name || ''} · Pedido {fmtDMY(viewingOrder.order.order_date)} → entrega {fmtDMY(viewingOrder.order.delivery_date)}
+                  {viewingOrder.order.created_by ? ` · ${viewingOrder.order.created_by}` : ''}
+                </p>
+              </div>
+              <button onClick={() => setViewingOrder(null)} className="p-1.5 text-text-dim hover:text-text-main transition-colors"><X size={18} /></button>
+            </div>
+            <div className="p-5 overflow-y-auto custom-scrollbar">
+              <table className="w-full text-[10px]">
+                <thead>
+                  <tr className="text-text-dim uppercase font-black border-b border-border-dim">
+                    <th className="text-left py-2">Categoría</th>
+                    <th className="text-left py-2">Insumo</th>
+                    <th className="text-center py-2">Unidad</th>
+                    <th className="text-right py-2">Cantidad</th>
+                    <th className="text-left py-2 pl-3">Observaciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewingOrder.lines.map((l, i) => (
+                    <tr key={i} className="border-b border-border-dim/30">
+                      <td className="py-1.5 text-text-dim uppercase">{l.category}</td>
+                      <td className="py-1.5 font-black text-text-main uppercase">{l.itemName}</td>
+                      <td className="py-1.5 text-center text-text-dim uppercase">{l.unit}</td>
+                      <td className="py-1.5 text-right font-mono font-black text-text-main">{l.quantity}</td>
+                      <td className="py-1.5 pl-3 text-text-dim">{l.observations || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {viewingOrder.order.notes && (
+                <p className="text-[9px] text-text-dim font-bold uppercase mt-4 pt-3 border-t border-border-dim">
+                  Observaciones generales: <span className="text-text-main">{viewingOrder.order.notes}</span>
+                </p>
+              )}
+            </div>
+            <div className="p-4 border-t border-border-dim flex gap-2 justify-end">
+              <button onClick={() => redownloadOrder(viewingOrder.order)} className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
+                <FileDown size={14} /> Descargar PDF
+              </button>
+            </div>
           </div>
         </div>
       )}
