@@ -125,7 +125,7 @@ export default function DeviationControlView({
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
   const reloadItems = async () => {
     const { data } = await supabase.from('stock_items').select('*').order('name');
-    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost })));
+    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category })));
   };
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
@@ -351,7 +351,9 @@ export default function DeviationControlView({
   // New CRUD state
   const [editingItem, setEditingItem] = useState<StockItem | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0 });
+  const [itemMasterSearch, setItemMasterSearch] = useState('');
+  const [productMasterSearch, setProductMasterSearch] = useState('');
+  const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0, category: '' });
   const [productForm, setProductForm] = useState({ name: '', category: '' });
 
   const downloadTemplate = (type: 'items' | 'products' | 'recipes') => {
@@ -359,7 +361,7 @@ export default function DeviationControlView({
     let filename = '';
 
     if (type === 'items') {
-      data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Costo': 100 }];
+      data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Costo': 100 }];
       filename = 'modelo_insumos.xlsx';
     } else if (type === 'products') {
       data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS' }];
@@ -397,6 +399,7 @@ export default function DeviationControlView({
         const newItems = data.map((row: any) => ({
           name: String(row.Nombre || row.name || '').toUpperCase(),
           unit: String(row.Unidad || row.unit || '').toLowerCase(),
+          category: String(row.Categoria || row.Categoría || row.category || '').toUpperCase() || null,
           cost: parseFloat(row.Costo || row.cost || 0)
         })).filter(i => i.name && i.unit);
 
@@ -1724,6 +1727,25 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                           <option value="pack">PACKS</option>
                         </select>
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Categoría</label>
+                        <input 
+                          value={itemForm.category}
+                          onChange={e => setItemForm({...itemForm, category: e.target.value})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-black"
+                          placeholder="CARNES..."
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Costo ($)</label>
+                        <input 
+                          type="number"
+                          value={itemForm.cost || ''}
+                          onChange={e => setItemForm({...itemForm, cost: parseFloat(e.target.value) || 0})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 font-mono font-black"
+                          placeholder="0"
+                        />
+                      </div>
                    </div>
                    <button 
                     onClick={async () => {
@@ -1734,7 +1756,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         } else {
                           await supabase.from('stock_items').insert(itemForm);
                         }
-                        setItemForm({ name: '', unit: '', cost: 0 });
+                        setItemForm({ name: '', unit: '', cost: 0, category: '' });
                         await reloadItems();
                     }}
                     className="w-full bg-brand-500 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all font-bold"
@@ -1742,22 +1764,40 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                      {editingItem ? 'Guardar Cambios' : 'Agregar Insumo'}
                    </button>
                    {editingItem && (
-                     <button onClick={() => { setEditingItem(null); setItemForm({ name: '', unit: '', cost: 0 }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
+                     <button onClick={() => { setEditingItem(null); setItemForm({ name: '', unit: '', cost: 0, category: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
                    )}
                 </div>
 
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+                  <input
+                    value={itemMasterSearch}
+                    onChange={e => setItemMasterSearch(e.target.value)}
+                    placeholder="Buscar insumo por nombre o categoría..."
+                    className="w-full bg-bg-card border border-border-dim rounded pl-9 pr-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-bold"
+                  />
+                </div>
+
                 <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                  {items.map(item => (
+                  {items.filter(item => {
+                    if (!itemMasterSearch) return true;
+                    const q = itemMasterSearch.toLowerCase();
+                    return item.name.toLowerCase().includes(q) || (item.category || '').toLowerCase().includes(q);
+                  }).map(item => (
                     <div key={item.id} className="flex items-center justify-between p-4 bg-bg-accent/40 rounded border border-border-dim group hover:border-brand-500/30 transition-all">
                       <div>
                         <p className="text-[11px] font-black text-text-main uppercase">{item.name}</p>
-                        <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Unidad: {item.unit}</p>
+                        <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
+                          Unidad: {item.unit}
+                          {item.category ? ` · ${item.category}` : ''}
+                          {item.cost ? ` · $${item.cost.toLocaleString('es-AR')}` : ''}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => {
                             setEditingItem(item);
-                            setItemForm({ name: item.name, unit: item.unit, cost: item.cost || 0 });
+                            setItemForm({ name: item.name, unit: item.unit, cost: item.cost || 0, category: item.category || '' });
                           }}
                           className="p-2 text-text-dim hover:text-brand-500 transition-colors"
                         >
@@ -1847,8 +1887,22 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                    )}
                 </div>
 
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+                  <input
+                    value={productMasterSearch}
+                    onChange={e => setProductMasterSearch(e.target.value)}
+                    placeholder="Buscar producto por nombre o categoría..."
+                    className="w-full bg-bg-card border border-border-dim rounded pl-9 pr-3 py-2 text-[10px] text-text-main outline-none focus:border-teal-500 uppercase font-bold"
+                  />
+                </div>
+
                 <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
-                  {products.map(p => (
+                  {products.filter(p => {
+                    if (!productMasterSearch) return true;
+                    const q = productMasterSearch.toLowerCase();
+                    return p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q);
+                  }).map(p => (
                     <div key={p.id} className="flex items-center justify-between p-4 bg-bg-accent/40 rounded border border-border-dim group hover:border-teal-500/30 transition-all">
                       <div>
                         <p className="text-[11px] font-black text-text-main uppercase">{p.name}</p>

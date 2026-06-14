@@ -45,6 +45,7 @@ export interface StockItem {
   name: string;
   unit: string;
   cost?: number;
+  category?: string;
 }
 
 export interface Product {
