@@ -110,6 +110,7 @@ const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
 const InternalOrdersView = lazy(() => import('./components/InternalOrdersView'));
+const InternalOrdersReceptionView = lazy(() => import('./components/InternalOrdersReceptionView'));
 const PerformanceView = lazy(() => import('./components/PerformanceView'));
 const PerformanceAdminView = lazy(() => import('./components/PerformanceAdminView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
@@ -514,7 +515,7 @@ function AppContent() {
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
     'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
     'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios',
-    'control_desvios', 'produccion_mes', 'produccion_stock_control', 'decomisos_deposito',
+    'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales'
@@ -569,6 +570,7 @@ function AppContent() {
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
       { id: 'produccion_stock_control', label: 'Control de Stock', icon: ClipboardCheck },
+      { id: 'pedidos_recepcion', label: 'Pedidos Internos', icon: ShoppingCart },
       { id: 'decomisos_deposito', label: 'Decomisos Depósito', icon: Trash2 },
     ],
     'Finanzas': [
@@ -1527,6 +1529,7 @@ function AppContent() {
                 />
               )}
               {activeTab === 'produccion_mes' && <ProductionCenterView key="produccion_mes" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'pedidos_recepcion' && <InternalOrdersReceptionView key="pedidos_recepcion" branches={branches} />}
               {activeTab === 'decomisos_deposito' && (
                 <DecomisosView
                   key="decomisos_deposito"
