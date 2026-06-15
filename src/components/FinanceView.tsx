@@ -1281,6 +1281,7 @@ export default function FinanceView({
       pendingInstallmentsCount: number;
       installmentAmounts: number[];
       totalPendingAmount: number;
+      nextDueDate: string | null;
     }> = {};
 
     // Parsea "11 de 12" -> total 12
@@ -1303,7 +1304,8 @@ export default function FinanceView({
           totalInstallments: totalFromInst((p as any).installmentNumber),
           pendingInstallmentsCount: 0,
           installmentAmounts: [],
-          totalPendingAmount: 0
+          totalPendingAmount: 0,
+          nextDueDate: null
         };
       }
       // Tomar el mayor total de cuotas visto (por si alguna fila lo trae)
@@ -1319,6 +1321,13 @@ export default function FinanceView({
         grouped[key].totalPendingAmount += p.amount;
         if (!grouped[key].installmentAmounts.includes(p.amount)) {
           grouped[key].installmentAmounts.push(p.amount);
+        }
+        // Próximo vencimiento: la fecha pendiente más temprana (la más urgente)
+        const dd = (p as any).dueDate;
+        if (dd) {
+          if (!grouped[key].nextDueDate || dd < grouped[key].nextDueDate) {
+            grouped[key].nextDueDate = dd;
+          }
         }
       }
     });
@@ -2641,6 +2650,16 @@ export default function FinanceView({
                               ${stat.totalPendingAmount.toLocaleString('es-AR')}
                             </p>
                           </div>
+                          {stat.nextDueDate && (
+                            <div className="text-right">
+                              <span className="text-[8px] text-text-dim uppercase font-black tracking-widest block opacity-70">
+                                Próxima cuota
+                              </span>
+                              <p className="text-[11px] font-mono font-black text-brand-500">
+                                {stat.nextDueDate.split('-').reverse().join('/')}
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
