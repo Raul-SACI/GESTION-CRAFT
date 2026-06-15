@@ -125,11 +125,59 @@ export default function DeviationControlView({
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
   const reloadItems = async () => {
     const { data } = await supabase.from('stock_items').select('*').order('name');
-    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category })));
+    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category, code: i.code })));
   };
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
     if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category })));
+  };
+
+  // --- Eliminación múltiple de INSUMOS ---
+  const toggleItemSelected = (id: string) => {
+    setSelectedItemIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const deleteSelectedItems = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (selectedItemIds.size === 0) return;
+    if (!window.confirm(`¿Eliminar ${selectedItemIds.size} insumo(s) seleccionado(s)? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('stock_items').delete().in('id', Array.from(selectedItemIds));
+    if (error) { alert('Error al eliminar: ' + error.message); return; }
+    setSelectedItemIds(new Set());
+    await reloadItems();
+  };
+  const deleteAllItems = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (items.length === 0) return;
+    if (!window.confirm(`¿Eliminar TODOS los ${items.length} insumos del maestro? Esta acción no se puede deshacer.`)) return;
+    if (!window.confirm('Confirmación final: se borrará el maestro de insumos completo. ¿Continuar?')) return;
+    const { error } = await supabase.from('stock_items').delete().in('id', items.map(i => i.id));
+    if (error) { alert('Error al eliminar: ' + error.message); return; }
+    setSelectedItemIds(new Set());
+    await reloadItems();
+  };
+
+  // --- Eliminación múltiple de PRODUCTOS ---
+  const toggleProductSelected = (id: string) => {
+    setSelectedProductIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const deleteSelectedProducts = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (selectedProductIds.size === 0) return;
+    if (!window.confirm(`¿Eliminar ${selectedProductIds.size} producto(s) seleccionado(s)? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('products').delete().in('id', Array.from(selectedProductIds));
+    if (error) { alert('Error al eliminar: ' + error.message); return; }
+    setSelectedProductIds(new Set());
+    await reloadProducts();
+  };
+  const deleteAllProducts = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (products.length === 0) return;
+    if (!window.confirm(`¿Eliminar TODOS los ${products.length} productos del maestro? Esta acción no se puede deshacer.`)) return;
+    if (!window.confirm('Confirmación final: se borrará el maestro de productos completo. ¿Continuar?')) return;
+    const { error } = await supabase.from('products').delete().in('id', products.map(p => p.id));
+    if (error) { alert('Error al eliminar: ' + error.message); return; }
+    setSelectedProductIds(new Set());
+    await reloadProducts();
   };
 
   // Fetch Daily Logs
@@ -353,7 +401,9 @@ export default function DeviationControlView({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [itemMasterSearch, setItemMasterSearch] = useState('');
   const [productMasterSearch, setProductMasterSearch] = useState('');
-  const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0, category: '' });
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0, category: '', code: '' });
   const [productForm, setProductForm] = useState({ name: '', category: '' });
 
   const downloadTemplate = (type: 'items' | 'products' | 'recipes') => {
@@ -361,7 +411,7 @@ export default function DeviationControlView({
     let filename = '';
 
     if (type === 'items') {
-      data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Costo': 100 }];
+      data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Codigo': 'INS-001', 'Costo': 100 }];
       filename = 'modelo_insumos.xlsx';
     } else if (type === 'products') {
       data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS' }];
@@ -400,6 +450,7 @@ export default function DeviationControlView({
           name: String(row.Nombre || row.name || '').toUpperCase(),
           unit: String(row.Unidad || row.unit || '').toLowerCase(),
           category: String(row.Categoria || row.Categoría || row.category || '').toUpperCase() || null,
+          code: String(row.Codigo || row.Código || row.code || '').toUpperCase() || null,
           cost: parseFloat(row.Costo || row.cost || 0)
         })).filter(i => i.name && i.unit);
 
@@ -1704,6 +1755,24 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 <div className="bg-bg-accent/40 p-4 rounded border border-brand-500/20 space-y-3">
                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Categoría</label>
+                        <input 
+                          value={itemForm.category}
+                          onChange={e => setItemForm({...itemForm, category: e.target.value})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-black"
+                          placeholder="CARNES..."
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
+                        <input 
+                          value={itemForm.code}
+                          onChange={e => setItemForm({...itemForm, code: e.target.value})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-black"
+                          placeholder="INS-001..."
+                        />
+                      </div>
+                      <div className="space-y-1">
                         <label className="text-[9px] font-black text-text-dim uppercase">Nombre</label>
                         <input 
                           value={itemForm.name}
@@ -1728,15 +1797,6 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </select>
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-black text-text-dim uppercase">Categoría</label>
-                        <input 
-                          value={itemForm.category}
-                          onChange={e => setItemForm({...itemForm, category: e.target.value})}
-                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-brand-500 uppercase font-black"
-                          placeholder="CARNES..."
-                        />
-                      </div>
-                      <div className="space-y-1">
                         <label className="text-[9px] font-black text-text-dim uppercase">Costo ($)</label>
                         <input 
                           type="number"
@@ -1756,7 +1816,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         } else {
                           await supabase.from('stock_items').insert(itemForm);
                         }
-                        setItemForm({ name: '', unit: '', cost: 0, category: '' });
+                        setItemForm({ name: '', unit: '', cost: 0, category: '', code: '' });
                         await reloadItems();
                     }}
                     className="w-full bg-brand-500 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all font-bold"
@@ -1764,7 +1824,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                      {editingItem ? 'Guardar Cambios' : 'Agregar Insumo'}
                    </button>
                    {editingItem && (
-                     <button onClick={() => { setEditingItem(null); setItemForm({ name: '', unit: '', cost: 0, category: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
+                     <button onClick={() => { setEditingItem(null); setItemForm({ name: '', unit: '', cost: 0, category: '', code: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
                    )}
                 </div>
 
@@ -1778,26 +1838,52 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   />
                 </div>
 
+                {!isReadOnly && items.length > 0 && (
+                  <div className="flex items-center justify-between gap-2 flex-wrap bg-bg-accent/30 border border-border-dim rounded px-3 py-2">
+                    <span className="text-[9px] font-black text-text-dim uppercase">
+                      {selectedItemIds.size > 0 ? `${selectedItemIds.size} seleccionado(s)` : `${items.length} insumo(s)`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {selectedItemIds.size > 0 && (
+                        <button onClick={deleteSelectedItems} className="flex items-center gap-1 px-2.5 py-1 bg-red-500/10 text-red-500 border border-red-500/30 rounded text-[9px] font-black uppercase hover:bg-red-500/20 transition-all">
+                          <Trash2 size={12} /> Eliminar selección
+                        </button>
+                      )}
+                      <button onClick={deleteAllItems} className="flex items-center gap-1 px-2.5 py-1 bg-bg-card text-text-dim border border-border-dim rounded text-[9px] font-black uppercase hover:text-red-500 hover:border-red-500/30 transition-all">
+                        <Trash2 size={12} /> Eliminar todo
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                   {items.filter(item => {
                     if (!itemMasterSearch) return true;
                     const q = itemMasterSearch.toLowerCase();
                     return item.name.toLowerCase().includes(q) || (item.category || '').toLowerCase().includes(q);
                   }).map(item => (
-                    <div key={item.id} className="flex items-center justify-between p-4 bg-bg-accent/40 rounded border border-border-dim group hover:border-brand-500/30 transition-all">
-                      <div>
-                        <p className="text-[11px] font-black text-text-main uppercase">{item.name}</p>
-                        <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
-                          Unidad: {item.unit}
-                          {item.category ? ` · ${item.category}` : ''}
-                          {item.cost ? ` · $${item.cost.toLocaleString('es-AR')}` : ''}
-                        </p>
+                    <div key={item.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedItemIds.has(item.id) ? "bg-brand-500/10 border-brand-500/40" : "bg-bg-accent/40 border-border-dim hover:border-brand-500/30")}>
+                      <div className="flex items-center gap-3">
+                        {!isReadOnly && (
+                          <input type="checkbox" checked={selectedItemIds.has(item.id)} onChange={() => toggleItemSelected(item.id)}
+                            className="w-4 h-4 accent-brand-500 cursor-pointer shrink-0" />
+                        )}
+                        <div>
+                          <p className="text-[11px] font-black text-text-main uppercase">
+                            {item.code ? <span className="text-brand-500 mr-1.5">{item.code}</span> : ''}{item.name}
+                          </p>
+                          <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
+                            Unidad: {item.unit}
+                            {item.category ? ` · ${item.category}` : ''}
+                            {item.cost ? ` · $${item.cost.toLocaleString('es-AR')}` : ''}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button 
                           onClick={() => {
                             setEditingItem(item);
-                            setItemForm({ name: item.name, unit: item.unit, cost: item.cost || 0, category: item.category || '' });
+                            setItemForm({ name: item.name, unit: item.unit, cost: item.cost || 0, category: item.category || '', code: item.code || '' });
                           }}
                           className="p-2 text-text-dim hover:text-brand-500 transition-colors"
                         >
@@ -1897,16 +1983,40 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   />
                 </div>
 
+                {!isReadOnly && products.length > 0 && (
+                  <div className="flex items-center justify-between gap-2 flex-wrap bg-bg-accent/30 border border-border-dim rounded px-3 py-2">
+                    <span className="text-[9px] font-black text-text-dim uppercase">
+                      {selectedProductIds.size > 0 ? `${selectedProductIds.size} seleccionado(s)` : `${products.length} producto(s)`}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {selectedProductIds.size > 0 && (
+                        <button onClick={deleteSelectedProducts} className="flex items-center gap-1 px-2.5 py-1 bg-red-500/10 text-red-500 border border-red-500/30 rounded text-[9px] font-black uppercase hover:bg-red-500/20 transition-all">
+                          <Trash2 size={12} /> Eliminar selección
+                        </button>
+                      )}
+                      <button onClick={deleteAllProducts} className="flex items-center gap-1 px-2.5 py-1 bg-bg-card text-text-dim border border-border-dim rounded text-[9px] font-black uppercase hover:text-red-500 hover:border-red-500/30 transition-all">
+                        <Trash2 size={12} /> Eliminar todo
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                   {products.filter(p => {
                     if (!productMasterSearch) return true;
                     const q = productMasterSearch.toLowerCase();
                     return p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q);
                   }).map(p => (
-                    <div key={p.id} className="flex items-center justify-between p-4 bg-bg-accent/40 rounded border border-border-dim group hover:border-teal-500/30 transition-all">
-                      <div>
-                        <p className="text-[11px] font-black text-text-main uppercase">{p.name}</p>
-                        <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Categoría: {p.category}</p>
+                    <div key={p.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedProductIds.has(p.id) ? "bg-teal-500/10 border-teal-500/40" : "bg-bg-accent/40 border-border-dim hover:border-teal-500/30")}>
+                      <div className="flex items-center gap-3">
+                        {!isReadOnly && (
+                          <input type="checkbox" checked={selectedProductIds.has(p.id)} onChange={() => toggleProductSelected(p.id)}
+                            className="w-4 h-4 accent-teal-500 cursor-pointer shrink-0" />
+                        )}
+                        <div>
+                          <p className="text-[11px] font-black text-text-main uppercase">{p.name}</p>
+                          <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Categoría: {p.category}</p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <button 

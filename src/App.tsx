@@ -398,7 +398,8 @@ function AppContent() {
           name: i.name,
           unit: i.unit,
           cost: i.cost,
-          category: i.category
+          category: i.category,
+          code: i.code
         })));
       }
 

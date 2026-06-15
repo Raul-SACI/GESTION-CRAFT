@@ -23,6 +23,7 @@ import autoTable from 'jspdf-autotable';
 interface OrderLine {
   itemId: string;
   itemName: string;
+  code: string;
   category: string;
   unit: string;
   quantity: number;
@@ -125,6 +126,7 @@ export default function InternalOrdersView({
       .eq('order_id', orderId);
     return (data || []).map((d: any) => ({
       category: d.category || 'SIN CATEGORÍA',
+      code: d.code || '',
       itemName: d.item_name,
       unit: d.unit || '',
       quantity: Number(d.quantity) || 0,
@@ -172,6 +174,7 @@ export default function InternalOrdersView({
     setLines(prev => [...prev, {
       itemId: item.id,
       itemName: item.name,
+      code: item.code || '',
       category: item.category || 'SIN CATEGORÍA',
       unit: item.unit || '',
       quantity: 1,
@@ -193,7 +196,7 @@ export default function InternalOrdersView({
     orderDate: string;
     deliv: string;
     by?: string | null;
-    pdfLines: { category: string; itemName: string; unit: string; quantity: number; observations: string }[];
+    pdfLines: { code: string; category: string; itemName: string; unit: string; quantity: number; observations: string }[];
     generalNotes?: string | null;
   }) => {
     const doc = new jsPDF();
@@ -214,6 +217,7 @@ export default function InternalOrdersView({
 
     const body = params.pdfLines.map(l => [
       l.category,
+      l.code || '-',
       l.itemName,
       l.unit,
       String(l.quantity),
@@ -222,7 +226,7 @@ export default function InternalOrdersView({
 
     autoTable(doc, {
       startY: 62,
-      head: [['Categoría', 'Insumo', 'Unidad', 'Cantidad', 'Observaciones']],
+      head: [['Categoría', 'Código', 'Insumo', 'Unidad', 'Cantidad', 'Observaciones']],
       body,
       styles: { fontSize: 9, cellPadding: 2 },
       headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
@@ -266,6 +270,7 @@ export default function InternalOrdersView({
         order_id: order.id,
         item_id: l.itemId,
         item_name: l.itemName,
+        code: l.code || null,
         category: l.category,
         unit: l.unit,
         quantity: l.quantity,
@@ -371,7 +376,9 @@ export default function InternalOrdersView({
                 className="w-full flex items-center justify-between p-2.5 bg-bg-accent/40 rounded border border-border-dim hover:border-brand-500/40 transition-all text-left group"
               >
                 <div>
-                  <p className="text-[10px] font-black text-text-main uppercase">{item.name}</p>
+                  <p className="text-[10px] font-black text-text-main uppercase">
+                    {item.code ? <span className="text-brand-500 mr-1">{item.code}</span> : ''}{item.name}
+                  </p>
                   <p className="text-[8px] text-text-dim font-bold uppercase">{item.category || 'SIN CATEGORÍA'} · {item.unit}</p>
                 </div>
                 <Plus size={14} className="text-text-dim group-hover:text-brand-500" />
@@ -391,7 +398,9 @@ export default function InternalOrdersView({
               <div key={l.itemId} className="p-3 bg-bg-accent/40 rounded border border-border-dim space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-black text-text-main uppercase">{l.itemName}</p>
+                    <p className="text-[10px] font-black text-text-main uppercase">
+                      {l.code ? <span className="text-brand-500 mr-1">{l.code}</span> : ''}{l.itemName}
+                    </p>
                     <p className="text-[8px] text-text-dim font-bold uppercase">{l.category} · {l.unit}</p>
                   </div>
                   <button onClick={() => removeLine(l.itemId)} className="p-1.5 text-text-dim hover:text-red-500 transition-colors">
@@ -498,6 +507,7 @@ export default function InternalOrdersView({
                 <thead>
                   <tr className="text-text-dim uppercase font-black border-b border-border-dim">
                     <th className="text-left py-2">Categoría</th>
+                    <th className="text-left py-2">Código</th>
                     <th className="text-left py-2">Insumo</th>
                     <th className="text-center py-2">Unidad</th>
                     <th className="text-right py-2">Cantidad</th>
@@ -508,6 +518,7 @@ export default function InternalOrdersView({
                   {viewingOrder.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border-dim/30">
                       <td className="py-1.5 text-text-dim uppercase">{l.category}</td>
+                      <td className="py-1.5 font-mono text-brand-500 uppercase">{l.code || '-'}</td>
                       <td className="py-1.5 font-black text-text-main uppercase">{l.itemName}</td>
                       <td className="py-1.5 text-center text-text-dim uppercase">{l.unit}</td>
                       <td className="py-1.5 text-right font-mono font-black text-text-main">{l.quantity}</td>

@@ -28,6 +28,7 @@ interface SavedOrder {
 
 interface OrderLine {
   category: string;
+  code: string;
   itemName: string;
   unit: string;
   quantity: number;
@@ -71,6 +72,7 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
     const { data } = await supabase.from('internal_order_items').select('*').eq('order_id', orderId);
     return (data || []).map((d: any) => ({
       category: d.category || 'SIN CATEGORÍA',
+      code: d.code || '',
       itemName: d.item_name,
       unit: d.unit || '',
       quantity: Number(d.quantity) || 0,
@@ -97,8 +99,8 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
     if (o.created_by) doc.text(`Cargado por: ${o.created_by}`, 14, 55);
     autoTable(doc, {
       startY: 62,
-      head: [['Categoría', 'Insumo', 'Unidad', 'Cantidad', 'Observaciones']],
-      body: pdfLines.map(l => [l.category, l.itemName, l.unit, String(l.quantity), l.observations || '-']),
+      head: [['Categoría', 'Código', 'Insumo', 'Unidad', 'Cantidad', 'Observaciones']],
+      body: pdfLines.map(l => [l.category, l.code || '-', l.itemName, l.unit, String(l.quantity), l.observations || '-']),
       styles: { fontSize: 9, cellPadding: 2 },
       headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 245, 245] }
@@ -214,6 +216,7 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
                 <thead>
                   <tr className="text-text-dim uppercase font-black border-b border-border-dim">
                     <th className="text-left py-2">Categoría</th>
+                    <th className="text-left py-2">Código</th>
                     <th className="text-left py-2">Insumo</th>
                     <th className="text-center py-2">Unidad</th>
                     <th className="text-right py-2">Cantidad</th>
@@ -224,6 +227,7 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
                   {viewingOrder.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border-dim/30">
                       <td className="py-1.5 text-text-dim uppercase">{l.category}</td>
+                      <td className="py-1.5 font-mono text-brand-500 uppercase">{l.code || '-'}</td>
                       <td className="py-1.5 font-black text-text-main uppercase">{l.itemName}</td>
                       <td className="py-1.5 text-center text-text-dim uppercase">{l.unit}</td>
                       <td className="py-1.5 text-right font-mono font-black text-text-main">{l.quantity}</td>
