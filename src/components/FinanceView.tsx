@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentCalendar from './PaymentCalendar';
 import * as XLSX from 'xlsx';
@@ -1180,6 +1180,18 @@ export default function FinanceView({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [flowSearch, setFlowSearch] = useState('');
+
+  // Scroll horizontal sincronizado: barra arriba de la tabla del flujo de caja,
+  // para no tener que bajar al fondo para desplazarse a los costados.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const [flowTableWidth, setFlowTableWidth] = useState(1200);
+  useEffect(() => {
+    const inner = tableScrollRef.current?.querySelector('table');
+    if (inner) setFlowTableWidth(inner.scrollWidth);
+  }, [periodType, currentDateStr, flowSearch]);
+  const syncFromTop = () => { if (tableScrollRef.current && topScrollRef.current) tableScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft; };
+  const syncFromTable = () => { if (tableScrollRef.current && topScrollRef.current) topScrollRef.current.scrollLeft = tableScrollRef.current.scrollLeft; };
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
   const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
@@ -1767,7 +1779,17 @@ export default function FinanceView({
                   )}
                 </div>
 
-                <div className="overflow-x-auto w-full">
+                {/* Barra de scroll superior sincronizada (siempre visible, sin bajar al fondo) */}
+                <div
+                  ref={topScrollRef}
+                  onScroll={syncFromTop}
+                  className="overflow-x-auto w-full mb-1"
+                  style={{ height: '14px' }}
+                >
+                  <div style={{ width: flowTableWidth, height: '1px' }} />
+                </div>
+
+                <div ref={tableScrollRef} onScroll={syncFromTable} className="overflow-x-auto w-full">
                   <table className="w-full text-left border-collapse min-w-[1200px]">
                     {periodType === 'weekly' ? (
                       <thead>
