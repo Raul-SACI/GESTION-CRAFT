@@ -28,7 +28,17 @@ interface MenuItem {
   name: string;
   price: number;
   lastUpdate: string;
+  basePrice?: number | null;   // primer precio del año (enero), para la variación acumulada
+  baseDate?: string | null;
 }
+
+// Formatea YYYY-MM-DD a DD/MM/AAAA
+const fmtFecha = (iso: string | null | undefined): string => {
+  if (!iso) return '-';
+  const [y, m, d] = String(iso).split('-');
+  if (!y || !m || !d) return String(iso);
+  return `${d}/${m}/${y}`;
+};
 
 const MENU_TYPES = [
   { id: 'salon', label: 'Carta Salón', icon: UtensilsCrossed },
@@ -59,6 +69,21 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const fetchData = async () => {
     setLoading(true);
     const { data } = await supabase.from('menu_items').select('*');
+    // Traer todo el historial para calcular el precio base del año (el más antiguo) por producto
+    const { data: history } = await supabase
+      .from('menu_price_history')
+      .select('menu_item_id, new_price, change_date')
+      .order('change_date', { ascending: true });
+
+    // Primer registro (más antiguo) de cada producto = precio base del año
+    const baseByItem: Record<string, { price: number; date: string }> = {};
+    (history || []).forEach((h: any) => {
+      if (!h.menu_item_id) return;
+      if (!baseByItem[h.menu_item_id]) {
+        baseByItem[h.menu_item_id] = { price: Number(h.new_price), date: h.change_date };
+      }
+    });
+
     if (data) {
       const organized: Record<string, MenuItem[]> = {
         salon: [],
@@ -67,12 +92,15 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       };
       data.forEach(item => {
         if (organized[item.menu_type]) {
+          const base = baseByItem[item.id];
           organized[item.menu_type].push({
             id: item.id,
             category: item.category,
             name: item.name,
             price: item.price,
-            lastUpdate: item.last_update
+            lastUpdate: item.last_update,
+            basePrice: base ? base.price : null,
+            baseDate: base ? base.date : null
           });
         }
       });
@@ -263,7 +291,9 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               <tr className="bg-bg-accent border-b border-border-dim">
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Categoría</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Producto</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Inicial<br/><span className="text-[8px] opacity-60">(01/01/2026)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Actual</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Var. Año</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Última Act.</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
               </tr>
@@ -277,6 +307,13 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                     </span>
                   </td>
                   <td className="px-6 py-4 text-[11px] font-bold text-text-main uppercase">{item.name}</td>
+                  <td className="px-6 py-4 text-right">
+                    {item.basePrice ? (
+                      <span className="text-[12px] font-mono text-text-dim">${item.basePrice.toLocaleString('es-AR')}</span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-text-dim/50 italic">s/d</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-right">
                     {editingItem?.id === item.id ? (
                       <div className="flex items-center justify-end gap-2">
@@ -300,7 +337,20 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                     )}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <span className="text-[10px] font-mono text-text-dim">{item.lastUpdate}</span>
+                    {item.basePrice && item.basePrice > 0 ? (() => {
+                      const varPct = ((item.price - item.basePrice) / item.basePrice) * 100;
+                      const up = varPct >= 0;
+                      return (
+                        <span className={cn("text-[11px] font-black font-mono", up ? "text-emerald-500" : "text-red-500")}>
+                          {up ? '+' : ''}{varPct.toFixed(1)}%
+                        </span>
+                      );
+                    })() : (
+                      <span className="text-[10px] text-text-dim/50 italic">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="text-[10px] font-mono text-text-dim">{fmtFecha(item.lastUpdate)}</span>
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
