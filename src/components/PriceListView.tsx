@@ -34,6 +34,14 @@ interface MenuItem {
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
+// Redondea a un valor comercial "lindo" según la magnitud del precio
+const redondeoComercial = (n: number): number => {
+  if (n <= 0) return 0;
+  if (n < 1000) return Math.round(n / 50) * 50;        // < $1.000 → múltiplos de 50
+  if (n < 10000) return Math.round(n / 100) * 100;     // < $10.000 → múltiplos de 100
+  return Math.round(n / 500) * 500;                    // >= $10.000 → múltiplos de 500
+};
+
 // Formatea YYYY-MM-DD a DD/MM/AAAA
 const fmtFecha = (iso: string | null | undefined): string => {
   if (!iso) return '-';
@@ -376,6 +384,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Inicial<br/><span className="text-[8px] opacity-60">(01/01/2026)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Actual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Var. Año</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Ideal<br/><span className="text-[8px] opacity-60">(s/inflación)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Última Act.</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
               </tr>
@@ -426,6 +435,27 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                         <span className={cn("text-[11px] font-black font-mono", up ? "text-emerald-500" : "text-red-500")}>
                           {up ? '+' : ''}{varPct.toFixed(1)}%
                         </span>
+                      );
+                    })() : (
+                      <span className="text-[10px] text-text-dim/50 italic">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {item.basePrice && item.basePrice > 0 && yearInflation !== null ? (() => {
+                      const ideal = redondeoComercial(item.basePrice * (1 + yearInflation / 100));
+                      const diff = ideal - item.price;            // >0 = debería subir; <0 = está por encima
+                      const faltaSubir = diff > 0;
+                      return (
+                        <div>
+                          <p className="text-[13px] font-black font-mono text-text-main">${ideal.toLocaleString('es-AR')}</p>
+                          {Math.abs(diff) >= 1 ? (
+                            <p className={cn("text-[8px] font-bold uppercase", faltaSubir ? "text-amber-500" : "text-emerald-500")}>
+                              {faltaSubir ? `falta +$${diff.toLocaleString('es-AR')}` : `ya supera +$${Math.abs(diff).toLocaleString('es-AR')}`}
+                            </p>
+                          ) : (
+                            <p className="text-[8px] font-bold uppercase text-emerald-500">empatado</p>
+                          )}
+                        </div>
                       );
                     })() : (
                       <span className="text-[10px] text-text-dim/50 italic">—</span>
