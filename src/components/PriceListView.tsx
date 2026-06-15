@@ -85,6 +85,24 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     fetchData();
   }, []);
 
+  // Registra un cambio de precio en el historial (Supabase). old_price null = precio inicial.
+  const logPriceChange = async (params: {
+    menuItemId: string; menuType: string; category: string; itemName: string;
+    oldPrice: number | null; newPrice: number; date: string;
+  }) => {
+    try {
+      await supabase.from('menu_price_history').insert([{
+        menu_item_id: params.menuItemId,
+        menu_type: params.menuType,
+        category: params.category,
+        item_name: params.itemName,
+        old_price: params.oldPrice,
+        new_price: params.newPrice,
+        change_date: params.date
+      }]);
+    } catch (e) { console.error('Error registrando historial de precio:', e); }
+  };
+
   const handleAddItem = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newItem.name || newItem.price <= 0) return;
@@ -98,6 +116,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     }]).select().single();
 
     if (data) {
+      // Registrar el precio inicial como primer punto del historial
+      await logPriceChange({
+        menuItemId: data.id, menuType: activeMenu, category: data.category,
+        itemName: data.name, oldPrice: null, newPrice: data.price, date: data.last_update
+      });
       setMenus({
         ...menus,
         [activeMenu]: [...menus[activeMenu], {
@@ -116,12 +139,22 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const handleUpdatePrice = async (id: string, newPrice: number) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const today = new Date().toISOString().split('T')[0];
+    const current = menus[activeMenu].find(i => i.id === id);
+    // Si el precio no cambió, no registramos nada
+    if (current && current.price === newPrice) { setEditingItem(null); return; }
     const { error } = await supabase
       .from('menu_items')
       .update({ price: newPrice, last_update: today })
       .eq('id', id);
 
     if (!error) {
+      // Registrar el cambio en el historial
+      if (current) {
+        await logPriceChange({
+          menuItemId: id, menuType: activeMenu, category: current.category,
+          itemName: current.name, oldPrice: current.price, newPrice, date: today
+        });
+      }
       setMenus({
         ...menus,
         [activeMenu]: menus[activeMenu].map(item => 
