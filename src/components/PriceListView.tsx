@@ -32,6 +32,8 @@ interface MenuItem {
   baseDate?: string | null;
 }
 
+const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
 // Formatea YYYY-MM-DD a DD/MM/AAAA
 const fmtFecha = (iso: string | null | undefined): string => {
   if (!iso) return '-';
@@ -66,6 +68,10 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     price: 0
   });
 
+  // Inflación acumulada del año (ene a último mes cargado), leída de monthly_inflation
+  const [yearInflation, setYearInflation] = useState<number | null>(null);
+  const [inflationPeriod, setInflationPeriod] = useState<string>('');
+
   const fetchData = async () => {
     setLoading(true);
     const { data } = await supabase.from('menu_items').select('*');
@@ -83,6 +89,23 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         baseByItem[h.menu_item_id] = { price: Number(h.new_price), date: h.change_date };
       }
     });
+
+    // Inflación acumulada del año en curso: compone los meses cargados desde enero (monthly_inflation)
+    try {
+      const year = String(new Date().getFullYear());
+      const { data: infl } = await supabase.from('monthly_inflation').select('*');
+      const monthsThisYear = (infl || [])
+        .filter((r: any) => String(r.month).startsWith(year))
+        .sort((a: any, b: any) => String(a.month).localeCompare(String(b.month)));
+      if (monthsThisYear.length > 0) {
+        let factor = 1;
+        monthsThisYear.forEach((r: any) => { factor *= (1 + (Number(r.inflation_pct) || 0) / 100); });
+        setYearInflation((factor - 1) * 100);
+        const first = monthsThisYear[0].month.split('-')[1];
+        const last = monthsThisYear[monthsThisYear.length - 1].month.split('-')[1];
+        setInflationPeriod(`${MONTHS_ES[parseInt(first) - 1]} a ${MONTHS_ES[parseInt(last) - 1]}`);
+      }
+    } catch (e) { console.error('Error cargando inflación:', e); }
 
     if (data) {
       const organized: Record<string, MenuItem[]> = {
@@ -210,6 +233,16 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     item.category.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Aumento promedio de la lista activa: solo productos con precio base (enero) > 0
+  const listAvgIncrease = (() => {
+    const withBase = (menus[activeMenu] || []).filter(i => i.basePrice && i.basePrice > 0);
+    if (withBase.length === 0) return null;
+    const sum = withBase.reduce((acc, i) => acc + ((i.price - (i.basePrice as number)) / (i.basePrice as number)) * 100, 0);
+    return { avg: sum / withBase.length, count: withBase.length };
+  })();
+
+  const menuLabel = MENU_TYPES.find(m => m.id === activeMenu)?.label || '';
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -283,6 +316,55 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           >
             <Plus size={14} /> Agregar Item
           </button>
+        </div>
+
+        {/* Resúmenes: aumento promedio de la lista e inflación del año */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-6 pb-4">
+          <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4">
+            <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Aumento promedio · {menuLabel}</p>
+            {listAvgIncrease ? (
+              <>
+                <p className={cn("text-xl font-black font-mono mt-1", listAvgIncrease.avg >= 0 ? "text-emerald-500" : "text-red-500")}>
+                  {listAvgIncrease.avg >= 0 ? '+' : ''}{listAvgIncrease.avg.toFixed(1)}%
+                </p>
+                <p className="text-[8px] text-text-dim uppercase">en lo que va del año · {listAvgIncrease.count} productos</p>
+              </>
+            ) : (
+              <p className="text-sm text-text-dim italic mt-1">Sin datos de enero</p>
+            )}
+          </div>
+
+          <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4">
+            <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Inflación acumulada</p>
+            {yearInflation !== null ? (
+              <>
+                <p className="text-xl font-black font-mono mt-1 text-amber-500">+{yearInflation.toFixed(1)}%</p>
+                <p className="text-[8px] text-text-dim uppercase">{inflationPeriod} (del Estado de Resultado)</p>
+              </>
+            ) : (
+              <p className="text-sm text-text-dim italic mt-1">Sin inflación cargada</p>
+            )}
+          </div>
+
+          <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4">
+            <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Precios vs Inflación</p>
+            {listAvgIncrease && yearInflation !== null ? (() => {
+              const diff = listAvgIncrease.avg - yearInflation;
+              const over = diff >= 0;
+              return (
+                <>
+                  <p className={cn("text-xl font-black font-mono mt-1", over ? "text-red-500" : "text-emerald-500")}>
+                    {over ? '+' : ''}{diff.toFixed(1)} pts
+                  </p>
+                  <p className="text-[8px] text-text-dim uppercase">
+                    {over ? 'los precios subieron MÁS que la inflación' : 'los precios subieron MENOS que la inflación'}
+                  </p>
+                </>
+              );
+            })() : (
+              <p className="text-sm text-text-dim italic mt-1">Faltan datos</p>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
