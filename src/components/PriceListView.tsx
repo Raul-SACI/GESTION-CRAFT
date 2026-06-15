@@ -59,6 +59,7 @@ const MENU_TYPES = [
 export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [activeMenu, setActiveMenu] = useState('salon');
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -236,10 +237,19 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     }
   };
 
-  const filteredItems = (menus[activeMenu] || []).filter(item => 
-    item.name.toLowerCase().includes(search.toLowerCase()) ||
-    item.category.toLowerCase().includes(search.toLowerCase())
-  );
+  // Categorías disponibles en la lista activa (para el filtro desplegable)
+  const availableCategories = Array.from(new Set((menus[activeMenu] || []).map(i => i.category))).sort();
+
+  const filteredItems = (menus[activeMenu] || []).filter(item => {
+    // Filtro por categoría
+    if (categoryFilter !== 'all' && item.category !== categoryFilter) return false;
+    // Buscador (nombre o categoría)
+    if (search) {
+      const q = search.toLowerCase();
+      if (!item.name.toLowerCase().includes(q) && !item.category.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   // Aumento promedio de la lista activa: solo productos con precio base (enero) > 0
   const listAvgIncrease = (() => {
@@ -271,7 +281,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           {MENU_TYPES.map(type => (
             <button
               key={type.id}
-              onClick={() => setActiveMenu(type.id)}
+              onClick={() => { setActiveMenu(type.id); setCategoryFilter('all'); }}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
                 activeMenu === type.id 
@@ -318,6 +328,14 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               className="w-full bg-bg-accent border border-border-dim rounded-full pl-10 pr-4 py-2 text-xs text-text-main outline-none focus:border-brand-500"
             />
           </div>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="bg-bg-accent border border-border-dim rounded-full px-4 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer"
+          >
+            <option value="all">Todas las categorías</option>
+            {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
           <button 
             onClick={() => setShowAddModal(true)}
             className="bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
