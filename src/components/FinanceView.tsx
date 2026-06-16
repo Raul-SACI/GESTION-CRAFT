@@ -1088,6 +1088,21 @@ export default function FinanceView({
   const totalWeeklyIncome = useMemo(() => weeklyIncomeByItem.reduce((s, r) => s + r.total, 0), [weeklyIncomeByItem]);
   const totalStartBalance = useMemo(() => Object.values(weekStartBalances).reduce((a: number, b: number) => a + b, 0) as number, [weekStartBalances]);
 
+  // Gastos a cubrir de la semana por medio de cobro (cuenta)
+  const weeklyExpenseByAccount = useMemo(() => {
+    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const byAcc: Record<string, number> = {};
+    ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
+    allEntries.forEach(e => {
+      if (!weekDates.has(e.date)) return;
+      if (e.itemId === 'pase_in' || e.itemId === 'pase_out') return; // pases no son egresos
+      const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
+      if (cat?.type !== 'expense') return;
+      ACCOUNTS.forEach(a => { byAcc[a.id] += (e.amounts[a.id] as number) || 0; });
+    });
+    return byAcc;
+  }, [activeWeekRange.weekdays, allEntries, categories]);
+
   const toggleGroupExecution = (itemId: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const row = groupedRows[itemId];
@@ -1653,6 +1668,17 @@ export default function FinanceView({
                         <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{r.catName}</span>
                       </div>
                       <span className="text-[11px] font-mono font-black text-red-400 shrink-0">${r.total.toLocaleString('es-AR')}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Por medio de pago */}
+                <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2 mt-4">Por medio de pago</p>
+                <div className="flex flex-wrap gap-2">
+                  {ACCOUNTS.filter(a => (weeklyExpenseByAccount[a.id] || 0) !== 0).map(acc => (
+                    <div key={acc.id} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center gap-2">
+                      <span className="text-[10px] font-black text-text-main uppercase">{acc.name}</span>
+                      <span className="text-[11px] font-mono font-black text-red-400 shrink-0">${(weeklyExpenseByAccount[acc.id] || 0).toLocaleString('es-AR')}</span>
                     </div>
                   ))}
                 </div>
@@ -2461,33 +2487,6 @@ export default function FinanceView({
                 </div>
               </div>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-               <div className="md:col-span-3 p-6 bg-brand-500/5 border border-brand-500/20 rounded-lg flex items-center gap-4">
-                 <div className="p-3 bg-brand-500/10 rounded-full text-brand-500">
-                    <AlertCircle size={24} />
-                 </div>
-                 <div>
-                    <p className="text-[10px] font-black uppercase text-brand-500 tracking-widest">Información de Tesorería</p>
-                    <p className="text-xs text-text-dim mt-1">
-                      Los ítems <span className="text-text-main font-bold">tildados</span> impactan en el <span className="text-emerald-400 font-bold underline">Saldo Real</span>. 
-                      Los pendientes se consideran presupuestados y solo afectan a la proyección.
-                    </p>
-                 </div>
-               </div>
-               <div className="bg-bg-card border border-border-dim p-6 rounded-lg text-center flex flex-col justify-center">
-                  <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-1">Saldo Real (Hoy)</p>
-                  <p className="text-2xl font-mono font-black text-emerald-400 italic tracking-tighter">
-                    ${(Object.values(initialBalances).reduce((a: number, b: any) => a + (b as number), 0) + 
-                             allEntries.filter(e => e.isExecuted).reduce((total: number, e) => {
-                               const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
-                               const rowTotal = Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0);
-                               const val = (cat?.type === 'income' ? rowTotal : -rowTotal) as number;
-                               return total + val;
-                             }, 0)).toLocaleString()}
-                  </p>
-               </div>
-            </div>
           </motion.div>
         ) : (
           <motion.div 
