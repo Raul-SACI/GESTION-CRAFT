@@ -220,6 +220,17 @@ export default function DecomisosView({
   };
 
   // Analytics
+  // Costo en vivo: cantidad × costo actual del insumo en el maestro (no editable, siempre actualizado)
+  const liveCost = (d: { type: string; referenceId: string; quantity: number; cost?: number }) => {
+    if (d.type === 'insumo') {
+      const it = items.find(i => i.id === d.referenceId);
+      if (it && it.cost) return it.cost * d.quantity;
+    }
+    return d.cost || 0; // productos u otros: usa lo guardado
+  };
+  // Redondeo a 2 decimales para mostrar cantidades
+  const fmtQty = (n: number) => Math.round(n * 100) / 100;
+
   const topWasted = useMemo(() => {
     const counts: Record<string, { name: string, quantity: number, type: string, cost: number }> = {};
     decomisos.forEach(d => {
@@ -231,10 +242,11 @@ export default function DecomisosView({
         counts[key] = { name: item.name, quantity: 0, type: d.type, cost: 0 };
       }
       counts[key].quantity += d.quantity;
-      counts[key].cost += d.cost || 0;
+      counts[key].cost += liveCost(d);
     });
 
     return Object.values(counts)
+      .map(c => ({ ...c, quantity: fmtQty(c.quantity) }))
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
   }, [decomisos, items, products]);
@@ -242,20 +254,20 @@ export default function DecomisosView({
   const trends = useMemo(() => {
     const days: Record<string, number> = {};
     decomisos.forEach(d => {
-      days[d.date] = (days[d.date] || 0) + (d.cost || d.quantity); // Cost preferred for trend if available
+      days[d.date] = (days[d.date] || 0) + (liveCost(d) || d.quantity);
     });
     
     return Object.entries(days)
       .map(([date, val]) => ({ date, value: val }))
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [decomisos]);
+  }, [decomisos, items]);
 
   const filteredSelection = (type === 'insumo' ? items : products).filter(x => 
     !searchTerm || x.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const stats = useMemo(() => {
-    const totalCost = decomisos.reduce((sum, d) => sum + (d.cost || 0), 0);
+    const totalCost = decomisos.reduce((sum, d) => sum + liveCost(d), 0);
     const totalInsumos = decomisos.filter(d => d.type === 'insumo').length;
     const totalProductos = decomisos.filter(d => d.type === 'producto').length;
     
@@ -265,7 +277,7 @@ export default function DecomisosView({
       totalProductos,
       count: decomisos.length
     };
-  }, [decomisos]);
+  }, [decomisos, items]);
 
   const selectedItemUnit = useMemo(() => {
     if (!referenceId) return '-';
@@ -301,7 +313,7 @@ export default function DecomisosView({
             </div>
             <div>
               <p className="text-[10px] font-black text-text-dim uppercase tracking-widest leading-none">Costo Estimado</p>
-              <p className="text-xl font-black text-text-main mt-1 leading-none">${stats.totalCost.toLocaleString()}</p>
+              <p className="text-xl font-black text-text-main mt-1 leading-none">${Math.round(stats.totalCost).toLocaleString('es-AR')}</p>
             </div>
           </div>
           <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Pérdida por decomisos</p>
@@ -566,10 +578,10 @@ export default function DecomisosView({
                               </>
                             )}
                           </td>
-                          <td className="p-4 text-center font-mono text-[11px] font-black text-brand-500">{d.quantity}</td>
+                          <td className="p-4 text-center font-mono text-[11px] font-black text-brand-500">{fmtQty(d.quantity)}</td>
                           <td className="p-4 text-[9px] text-text-dim italic font-medium uppercase truncate max-w-[150px]">{d.reason || '-'}</td>
                           <td className="p-4 text-right font-mono text-[10px] font-black text-text-main">
-                            {d.cost ? `$${d.cost.toLocaleString()}` : '-'}
+                            {liveCost(d) ? `$${Math.round(liveCost(d)).toLocaleString('es-AR')}` : '-'}
                           </td>
                           <td className="p-4 text-right">
                             <button 
@@ -607,7 +619,7 @@ export default function DecomisosView({
                     </div>
                     <div className="text-right">
                       <p className="text-[11px] font-black text-brand-500 leading-none">{item.quantity}</p>
-                      <p className="text-[9px] font-bold text-text-dim mt-0.5">${item.cost.toLocaleString()}</p>
+                      <p className="text-[9px] font-bold text-text-dim mt-0.5">${Math.round(item.cost).toLocaleString('es-AR')}</p>
                     </div>
                   </div>
                   <div className="h-1.5 bg-bg-accent rounded-full overflow-hidden border border-border-dim/20">
