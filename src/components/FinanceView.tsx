@@ -1,5 +1,6 @@
 /**
  * SPDX-License-Identifier: Apache-2.0
+ * Flujo de Caja Estimado.
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
