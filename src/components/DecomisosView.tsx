@@ -17,8 +17,7 @@ import {
   Upload,
   AlertTriangle,
   ArrowUpRight,
-  ArrowDownRight,
-  Info
+  ArrowDownRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -85,6 +84,7 @@ export default function DecomisosView({
   const [selectedPresetReason, setSelectedPresetReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [decomisoSearch, setDecomisoSearch] = useState('');
 
   // Metrics Month
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
@@ -265,6 +265,16 @@ export default function DecomisosView({
   const filteredSelection = (type === 'insumo' ? items : products).filter(x => 
     !searchTerm || x.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Decomisos filtrados por el buscador (por nombre del insumo/producto)
+  const filteredDecomisos = useMemo(() => {
+    if (!decomisoSearch.trim()) return decomisos;
+    const q = decomisoSearch.toLowerCase();
+    return decomisos.filter(d => {
+      const item = d.type === 'insumo' ? items.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
+      return item?.name.toLowerCase().includes(q);
+    });
+  }, [decomisos, items, products, decomisoSearch]);
 
   const stats = useMemo(() => {
     const totalCost = decomisos.reduce((sum, d) => sum + liveCost(d), 0);
@@ -500,9 +510,24 @@ export default function DecomisosView({
                     className="bg-transparent border-none text-[10px] font-black uppercase text-brand-500 outline-none"
                   />
                 </div>
+                <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2 py-1">
+                  <Search size={12} className="text-text-dim mr-2" />
+                  <input 
+                    type="text"
+                    value={decomisoSearch}
+                    onChange={(e) => setDecomisoSearch(e.target.value)}
+                    placeholder="Buscar (ej: Palta)..."
+                    className="bg-transparent border-none text-[10px] font-bold text-text-main outline-none w-40 placeholder:text-text-dim/60"
+                  />
+                  {decomisoSearch && (
+                    <button onClick={() => setDecomisoSearch('')} className="ml-1 text-text-dim hover:text-text-main">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="text-[10px] font-black text-text-dim uppercase bg-bg-accent px-2 py-1 rounded">
-                Mostrando {decomisos.length} registros
+                Mostrando {filteredDecomisos.length} {decomisoSearch ? `de ${decomisos.length}` : ''} registros
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -535,8 +560,15 @@ export default function DecomisosView({
                         <p className="text-[10px] font-black uppercase">No hay decomisos registrados en este periodo</p>
                       </td>
                     </tr>
+                  ) : filteredDecomisos.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-12 text-center text-text-dim">
+                        <Search className="mx-auto mb-2 opacity-50" size={32} />
+                        <p className="text-[10px] font-black uppercase">No se encontraron decomisos para "{decomisoSearch}"</p>
+                      </td>
+                    </tr>
                   ) : (
-                    decomisos.map(d => {
+                    filteredDecomisos.map(d => {
                       const item = d.type === 'insumo' ? items.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
                       return (
                         <tr key={d.id} className="hover:bg-bg-accent/40 transition-colors group">
@@ -675,32 +707,6 @@ export default function DecomisosView({
                    </AreaChart>
                  </ResponsiveContainer>
                </div>
-            </div>
-          </div>
-
-          <div className="glass-card p-6 border-l-4 border-amber-500 bg-amber-500/5">
-            <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-widest flex items-center gap-2 mb-3">
-              <Info size={14} />
-              Sql para Tablas
-            </h4>
-            <p className="text-[9px] text-text-dim font-bold uppercase leading-relaxed mb-4">
-              Asegúrate de que la tabla de decomisos exista en tu base de datos Supabase:
-            </p>
-            <div className="bg-black/40 p-3 rounded font-mono text-[8px] text-amber-500/80 whitespace-pre border border-amber-500/20 overflow-x-auto">
-{`CREATE TABLE daily_wastage (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  branch_id TEXT NOT NULL,
-  date DATE NOT NULL,
-  type TEXT NOT NULL, -- 'insumo' | 'producto'
-  reference_id TEXT NOT NULL,
-  quantity NUMERIC NOT NULL,
-  reason TEXT,
-  cost NUMERIC DEFAULT 0,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-
-ALTER TABLE daily_wastage ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public Access" ON daily_wastage FOR ALL USING (true);`}
             </div>
           </div>
         </div>
