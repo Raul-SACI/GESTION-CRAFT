@@ -38,6 +38,7 @@ interface BranchSales {
   cmv: number | null;
   budgetHours: number;
   workedHours: number;
+  hoursByPosition: Record<string, { budget: number; worked: number }>;
 }
 
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -58,6 +59,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<BranchSales[]>([]);
+  // Desglose de horas por puesto, por sucursal: { branchId: { puesto: { budget, worked } } }
+  const [hoursByPosition, setHoursByPosition] = useState<Record<string, Record<string, { budget: number; worked: number }>>>({});
+  const [expandedHoursBranch, setExpandedHoursBranch] = useState<string | null>(null);
   // Metadata de carga del mes actual: hasta qué día hay datos y cuántos días
   const [loadInfo, setLoadInfo] = useState<{ lastDate: string | null; daysLoaded: number; daysPrevMonth: number }>({ lastDate: null, daysLoaded: 0, daysPrevMonth: 30 });
 
@@ -103,8 +107,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth),
         supabase.from('cmv_monthly').select('*').eq('month', selectedMonth),
         supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth),
-        supabase.from('hour_budgets').select('branch_id, total_hours, status').eq('month', selectedMonth).eq('status', 'approved'),
-        supabase.from('hour_logs').select('branch_id, hours_actual').eq('month', selectedMonth)
+        supabase.from('hour_budgets').select('branch_id, total_hours, status, position_name').eq('month', selectedMonth).eq('status', 'approved'),
+        supabase.from('hour_logs').select('branch_id, hours_actual, position').eq('month', selectedMonth)
       ]);
 
       const agg: Record<string, BranchSales> = {};
@@ -118,7 +122,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           ticketsProjection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
-          pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0
+          pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0,
+          hoursByPosition: {}
         };
       });
 
@@ -204,12 +209,24 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       });
 
       // Presupuesto de horas (solo aprobados) y horas reales cargadas, por sucursal
+      // y además desglosado por puesto de trabajo
+      const byPos: Record<string, Record<string, { budget: number; worked: number }>> = {};
+      const ensurePos = (bid: string, pos: string) => {
+        if (!byPos[bid]) byPos[bid] = {};
+        if (!byPos[bid][pos]) byPos[bid][pos] = { budget: 0, worked: 0 };
+        return byPos[bid][pos];
+      };
       (budgetRows.data || []).forEach((r: any) => {
         if (agg[r.branch_id]) agg[r.branch_id].budgetHours += Number(r.total_hours) || 0;
+        const pos = (r.position_name || 'SIN PUESTO').toString().toUpperCase();
+        ensurePos(r.branch_id, pos).budget += Number(r.total_hours) || 0;
       });
       (hourLogRows.data || []).forEach((r: any) => {
         if (agg[r.branch_id]) agg[r.branch_id].workedHours += Number(r.hours_actual) || 0;
+        const pos = (r.position || 'SIN PUESTO').toString().toUpperCase();
+        ensurePos(r.branch_id, pos).worked += Number(r.hours_actual) || 0;
       });
+      setHoursByPosition(byPos);
 
       setData(Object.values(agg));
       setLoading(false);
@@ -565,9 +582,26 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 <tbody className="divide-y divide-border-dim">
                   {shown.map(d => {
                     const pct = d.budgetHours > 0 ? (d.workedHours / d.budgetHours) * 100 : null;
+                    const isExpanded = expandedHoursBranch === d.branchId;
+                    const positions = hoursByPosition[d.branchId] || {};
+                    const posEntries = (Object.entries(positions) as [string, { budget: number; worked: number }][]).sort((a, b) => b[1].budget - a[1].budget);
+                    // Proyección: si es el mes actual, proyectar por días transcurridos; si es pasado, = consumido
+                    const now = new Date();
+                    const isCurrentMonth = selectedMonth === now.toISOString().slice(0, 7);
+                    const [yy, mm] = selectedMonth.split('-').map(Number);
+                    const totalDays = new Date(yy, mm, 0).getDate();
+                    const daysPassed = isCurrentMonth ? now.getDate() : totalDays;
+                    const projectFn = (worked: number) => daysPassed > 0 ? (worked / daysPassed) * totalDays : worked;
                     return (
-                      <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
-                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
+                      <React.Fragment key={d.branchId}>
+                      <tr
+                        className="text-[11px] font-medium hover:bg-bg-accent/30 cursor-pointer"
+                        onClick={() => setExpandedHoursBranch(isExpanded ? null : d.branchId)}
+                      >
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main flex items-center gap-1.5">
+                          <span className={cn("transition-transform text-text-dim", isExpanded ? "rotate-90" : "")}>▶</span>
+                          {d.branchName}
+                        </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.budgetHours > 0 ? Math.round(d.budgetHours).toLocaleString('es-AR') + ' hs' : <span className="text-text-dim">— sin aprobar</span>}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-dim">{Math.round(d.workedHours).toLocaleString('es-AR')} hs</td>
                         <td className="px-3 py-2.5 text-right font-mono font-bold">
@@ -575,6 +609,46 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                             <span className={pct > 100 ? 'text-red-500' : pct > 85 ? 'text-amber-500' : 'text-emerald-500'}>{pct.toFixed(1)}%</span>}
                         </td>
                       </tr>
+                      {isExpanded && (
+                        <tr className="bg-bg-accent/20">
+                          <td colSpan={4} className="px-3 py-3">
+                            {posEntries.length === 0 ? (
+                              <p className="text-[10px] text-text-dim italic uppercase text-center py-2">Sin desglose por puesto para esta sucursal.</p>
+                            ) : (
+                              <table className="w-full text-left">
+                                <thead>
+                                  <tr className="text-[8px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim/50">
+                                    <th className="px-2 py-1.5">Puesto</th>
+                                    <th className="px-2 py-1.5 text-right">Presupuesto</th>
+                                    <th className="px-2 py-1.5 text-right">Consumido</th>
+                                    <th className="px-2 py-1.5 text-right">Proyección</th>
+                                    <th className="px-2 py-1.5 text-right">% Consumo</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {posEntries.map(([pos, v]) => {
+                                    const ppct = v.budget > 0 ? (v.worked / v.budget) * 100 : null;
+                                    const proj = projectFn(v.worked);
+                                    return (
+                                      <tr key={pos} className="text-[10px] border-b border-border-dim/20">
+                                        <td className="px-2 py-1.5 font-bold uppercase text-text-main">{pos}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono text-text-main">{v.budget > 0 ? Math.round(v.budget).toLocaleString('es-AR') + ' hs' : '—'}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono text-text-dim">{Math.round(v.worked).toLocaleString('es-AR')} hs</td>
+                                        <td className="px-2 py-1.5 text-right font-mono text-amber-500">{Math.round(proj).toLocaleString('es-AR')} hs</td>
+                                        <td className="px-2 py-1.5 text-right font-mono font-bold">
+                                          {ppct === null ? <span className="text-text-dim">—</span> :
+                                            <span className={ppct > 100 ? 'text-red-500' : ppct > 85 ? 'text-amber-500' : 'text-emerald-500'}>{ppct.toFixed(1)}%</span>}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
