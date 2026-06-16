@@ -485,6 +485,7 @@ function AppContent() {
       name: currentUserProfile.name,
       role: roleId,
       branch: currentUserProfile.branch_name || 'Todas las Sucursales',
+      branchId: currentUserProfile.branch_id || null,
       permissions: allowed,
       modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
@@ -525,10 +526,18 @@ function AppContent() {
 
   // Find current user's branch ID
   const currentUserBranchId = useMemo(() => {
+    // 1) Preferir el branch_id del perfil (exacto e infalible)
+    if ((currentUser as any).branchId) {
+      const byId = branches.find(b => b.id === (currentUser as any).branchId);
+      if (byId) return byId.id;
+    }
+    // 2) Respaldo: cruzar por nombre, tolerando el prefijo "CRAFT" y mayúsculas/espacios
     if (!currentUser.branch || currentUser.branch === 'Todas las Sucursales') return 'all';
-    const found = branches.find(b => b.name.toUpperCase() === currentUser.branch?.toUpperCase());
+    const normBranch = (s: string) => s.toUpperCase().replace(/^CRAFT\s+/, '').trim();
+    const target = normBranch(currentUser.branch);
+    const found = branches.find(b => normBranch(b.name) === target);
     return found ? found.id : 'all';
-  }, [currentUser.branch, branches]);
+  }, [currentUser, branches]);
 
   // Lock selectedBranchId if single_branch role
   useEffect(() => {

@@ -230,6 +230,10 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       if (selectedRoleConfig && selectedRoleConfig.access_scope === 'all_branches') {
         finalBranch = 'Todas las Sucursales';
       }
+      // Resolver el branch_id a partir de la sucursal elegida (null si es "Todas")
+      const finalBranchId = finalBranch === 'Todas las Sucursales'
+        ? null
+        : (branches.find(b => b.name === finalBranch)?.id || null);
 
       if (userForm.id) {
         // --- EDITAR: solo actualiza el perfil ---
@@ -237,6 +241,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           name: userForm.name.toUpperCase(),
           role: userForm.role,
           branch_name: finalBranch,
+          branch_id: finalBranchId,
           can_see_payments: userForm.canSeePayments,
         };
         const { error } = await supabase.from('profiles').update(payload).eq('id', userForm.id);
@@ -270,6 +275,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
               name: userForm.name.trim(),
               role: userForm.role,
               branch_name: finalBranch,
+              branch_id: finalBranchId,
             }),
           }
         );
