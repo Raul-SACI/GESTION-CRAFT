@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck, PackageCheck } from 'lucide-react';
+import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck, PackageCheck, AlertTriangle } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -56,6 +56,7 @@ const fmtDMY = (iso: string) => {
 
 export default function InternalOrdersReceptionView({ branches }: { branches: Branch[] }) {
   const [orders, setOrders] = useState<SavedOrder[]>([]);
+  const [shortfalls, setShortfalls] = useState<Record<string, { name: string; detail: string }[]>>({});
   const [loading, setLoading] = useState(true);
   const [branchFilter, setBranchFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -70,7 +71,30 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
         .order('delivery_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(200);
-      if (data) setOrders(data);
+      if (data) {
+        setOrders(data);
+        // Detectar faltantes en pedidos recibidos
+        const recibidos = data.filter((o: any) => o.status === 'recibido').map((o: any) => o.id);
+        if (recibidos.length > 0) {
+          const { data: its } = await supabase
+            .from('internal_order_items')
+            .select('order_id, item_name, quantity, received, received_qty, reception_note')
+            .in('order_id', recibidos);
+          const sf: Record<string, { name: string; detail: string }[]> = {};
+          (its || []).forEach((it: any) => {
+            const noRecibido = it.received === false;
+            const parcial = it.received !== false && it.received_qty != null && Number(it.received_qty) !== Number(it.quantity);
+            if (noRecibido || parcial) {
+              if (!sf[it.order_id]) sf[it.order_id] = [];
+              sf[it.order_id].push({
+                name: it.item_name,
+                detail: noRecibido ? `no recibido${it.reception_note ? ` (${it.reception_note})` : ''}` : `parcial: ${it.received_qty}${it.reception_note ? ` (${it.reception_note})` : ''}`
+              });
+            }
+          });
+          setShortfalls(sf);
+        }
+      }
     } catch (e) {
       console.error('Error cargando pedidos:', e);
     }
@@ -185,6 +209,34 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
         </div>
         <p className="text-[10px] text-text-dim font-bold uppercase">Pedidos entrantes de todas las sucursales para preparar y enviar</p>
       </div>
+
+      {/* Alerta de faltantes en pedidos recibidos */}
+      {Object.keys(shortfalls).length > 0 && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle size={16} className="text-red-500 shrink-0" />
+            <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">
+              {Object.keys(shortfalls).length} pedido(s) con faltantes
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            {orders.filter(o => o.status === 'recibido' && shortfalls[o.id]).map(o => (
+              <button key={o.id} onClick={() => viewOrder(o)}
+                className="w-full text-left bg-bg-card border border-red-500/20 rounded-lg px-3 py-2 hover:border-red-500/50 transition-all">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[9px] font-black text-text-main uppercase">
+                    {branchNameById(o.branch_id)} · {o.order_type === 'compras' ? 'Compras' : 'Producción'} · {fmtDMY(o.order_date)}
+                  </span>
+                  <span className="text-[8px] font-black text-red-500 uppercase">Ver detalle →</span>
+                </div>
+                <p className="text-[9px] text-text-dim font-bold mt-1">
+                  {shortfalls[o.id].map(s => `${s.name} (${s.detail})`).join(' · ')}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
