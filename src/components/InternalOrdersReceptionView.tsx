@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox } from 'lucide-react';
+import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -24,6 +24,7 @@ interface SavedOrder {
   created_by: string | null;
   notes: string | null;
   created_at: string;
+  status?: string;
 }
 
 interface OrderLine {
@@ -33,7 +34,19 @@ interface OrderLine {
   unit: string;
   quantity: number;
   observations: string;
+  received?: boolean;
+  receivedQty?: number | null;
+  receptionNote?: string;
 }
+
+// Estados del pedido y su presentación
+const ORDER_STATUS: Record<string, { label: string; color: string }> = {
+  pendiente:    { label: 'Pendiente de Recepción', color: 'text-amber-500 bg-amber-500/10' },
+  preparacion:  { label: 'En preparación',         color: 'text-indigo-500 bg-indigo-500/10' },
+  enviado:      { label: 'Enviado',                color: 'text-blue-500 bg-blue-500/10' },
+  recibido:     { label: 'Recibido',               color: 'text-emerald-500 bg-emerald-500/10' },
+};
+const statusInfo = (s?: string) => ORDER_STATUS[s || 'pendiente'] || ORDER_STATUS.pendiente;
 
 const fmtDMY = (iso: string) => {
   if (!iso) return '';
@@ -66,6 +79,20 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
 
   useEffect(() => { loadOrders(); }, []);
 
+  // El Centro marca "En preparación" y "Enviado" (no marca Recibido: eso es de la sucursal)
+  const changeStatus = async (o: SavedOrder, newStatus: string) => {
+    try {
+      const updates: any = { status: newStatus };
+      if (newStatus === 'preparacion') updates.prep_at = new Date().toISOString();
+      if (newStatus === 'enviado') updates.sent_at = new Date().toISOString();
+      const { error } = await supabase.from('internal_orders').update(updates).eq('id', o.id);
+      if (error) throw error;
+      await loadOrders();
+    } catch (e: any) {
+      alert('Error al cambiar el estado: ' + (e.message || e));
+    }
+  };
+
   const branchNameById = (id: string) => branches.find(b => b.id === id)?.name || id;
 
   const fetchOrderLines = async (orderId: string): Promise<OrderLine[]> => {
@@ -76,7 +103,10 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
       itemName: d.item_name,
       unit: d.unit || '',
       quantity: Number(d.quantity) || 0,
-      observations: d.observations || ''
+      observations: d.observations || '',
+      received: d.received,
+      receivedQty: d.received_qty != null ? Number(d.received_qty) : null,
+      receptionNote: d.reception_note || ''
     }));
   };
 
@@ -182,9 +212,21 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
                   <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
                     {o.order_type === 'compras' ? 'Compras' : 'Producción'}
                   </span>
-                  <span className="text-text-dim font-bold uppercase flex-1 truncate">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
-                  <span className="text-text-dim font-mono hidden sm:block truncate max-w-[120px]">{o.created_by || '—'}</span>
+                  <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
+                    {statusInfo(o.status).label}
+                  </span>
+                  <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
                   <div className="flex items-center gap-1 shrink-0">
+                    {(o.status === 'pendiente' || !o.status) && (
+                      <button onClick={() => changeStatus(o, 'preparacion')} title="Marcar en preparación" className="flex items-center gap-1 px-2 py-1 bg-indigo-500/10 text-indigo-500 border border-indigo-500/30 rounded text-[8px] font-black uppercase hover:bg-indigo-500/20 transition-all">
+                        <Package size={12} /> Preparar
+                      </button>
+                    )}
+                    {o.status === 'preparacion' && (
+                      <button onClick={() => changeStatus(o, 'enviado')} title="Marcar como enviado" className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-500 border border-blue-500/30 rounded text-[8px] font-black uppercase hover:bg-blue-500/20 transition-all">
+                        <Truck size={12} /> Enviar
+                      </button>
+                    )}
                     <button onClick={() => viewOrder(o)} title="Ver detalle" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
                     <button onClick={() => downloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
                   </div>
@@ -221,6 +263,7 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
                     <th className="text-center py-2">Unidad</th>
                     <th className="text-right py-2">Cantidad</th>
                     <th className="text-left py-2 pl-3">Observaciones</th>
+                    {viewingOrder.order.status === 'recibido' && <th className="text-left py-2 pl-3">Recepción</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -232,6 +275,17 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
                       <td className="py-1.5 text-center text-text-dim uppercase">{l.unit}</td>
                       <td className="py-1.5 text-right font-mono font-black text-text-main">{l.quantity}</td>
                       <td className="py-1.5 pl-3 text-text-dim">{l.observations || '-'}</td>
+                      {viewingOrder.order.status === 'recibido' && (
+                        <td className="py-1.5 pl-3">
+                          {l.received === false ? (
+                            <span className="text-red-500 font-black uppercase text-[9px]">No recibido{l.receptionNote ? ` · ${l.receptionNote}` : ''}</span>
+                          ) : l.receivedQty != null && l.receivedQty !== l.quantity ? (
+                            <span className="text-amber-500 font-black uppercase text-[9px]">Parcial: {l.receivedQty}{l.receptionNote ? ` · ${l.receptionNote}` : ''}</span>
+                          ) : (
+                            <span className="text-emerald-500 font-black uppercase text-[9px]">OK</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

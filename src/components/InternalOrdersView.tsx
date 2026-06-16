@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History, Eye, X } from 'lucide-react';
+import { ShoppingCart, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History, Eye, X, PackageCheck } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch, StockItem } from '../types';
@@ -39,7 +39,17 @@ interface SavedOrder {
   created_by: string | null;
   notes: string | null;
   created_at: string;
+  status?: string;
 }
+
+// Estados del pedido y su presentación
+const ORDER_STATUS: Record<string, { label: string; color: string }> = {
+  pendiente:    { label: 'Pendiente de Recepción', color: 'text-amber-500 bg-amber-500/10' },
+  preparacion:  { label: 'En preparación',         color: 'text-indigo-500 bg-indigo-500/10' },
+  enviado:      { label: 'Enviado',                color: 'text-blue-500 bg-blue-500/10' },
+  recibido:     { label: 'Recibido',               color: 'text-emerald-500 bg-emerald-500/10' },
+};
+const statusInfo = (s?: string) => ORDER_STATUS[s || 'pendiente'] || ORDER_STATUS.pendiente;
 
 // Helper de fecha local (evita corrimiento por UTC)
 const toLocalISO = (d: Date) => {
@@ -72,6 +82,10 @@ export default function InternalOrdersView({
   const [saving, setSaving] = useState(false);
   const [recentOrders, setRecentOrders] = useState<SavedOrder[]>([]);
   const [viewingOrder, setViewingOrder] = useState<{ order: SavedOrder; lines: OrderLine[] } | null>(null);
+  // Modal de recepción ítem por ítem (al marcar como Recibido)
+  const [receivingOrder, setReceivingOrder] = useState<SavedOrder | null>(null);
+  const [receptionLines, setReceptionLines] = useState<any[]>([]);
+  const [savingReception, setSavingReception] = useState(false);
 
   // Fecha de hoy y de entrega (día siguiente)
   const today = new Date();
@@ -170,6 +184,69 @@ export default function InternalOrdersView({
     }
   };
 
+  // Abrir el modal de recepción ítem por ítem (paso a "Recibido")
+  const openReception = async (o: SavedOrder) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const { data } = await supabase.from('internal_order_items').select('*').eq('order_id', o.id);
+    const lines = (data || []).map((d: any) => ({
+      id: d.id,
+      itemName: d.item_name,
+      code: d.code || '',
+      category: d.category || 'SIN CATEGORÍA',
+      unit: d.unit || '',
+      quantity: Number(d.quantity) || 0,
+      received: d.received ?? true,                       // por defecto se asume recibido
+      receivedQty: d.received_qty != null ? Number(d.received_qty) : Number(d.quantity) || 0,
+      receptionNote: d.reception_note || ''
+    }));
+    setReceptionLines(lines);
+    setReceivingOrder(o);
+  };
+
+  const updateReceptionLine = (id: string, field: string, value: any) => {
+    setReceptionLines(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      const next = { ...l, [field]: value };
+      // Si se destilda "recibido", la cantidad recibida pasa a 0
+      if (field === 'received' && value === false) next.receivedQty = 0;
+      // Si se vuelve a tildar, restablece la cantidad pedida
+      if (field === 'received' && value === true) next.receivedQty = l.quantity;
+      return next;
+    }));
+  };
+
+  const markAllReceived = () => {
+    setReceptionLines(prev => prev.map(l => ({ ...l, received: true, receivedQty: l.quantity })));
+  };
+
+  const saveReception = async () => {
+    if (!receivingOrder) return;
+    setSavingReception(true);
+    try {
+      // Actualizar cada ítem con su estado de recepción
+      for (const l of receptionLines) {
+        await supabase.from('internal_order_items').update({
+          received: l.received,
+          received_qty: l.received ? l.receivedQty : 0,
+          reception_note: l.receptionNote || null
+        }).eq('id', l.id);
+      }
+      // Marcar el pedido como recibido
+      const { error } = await supabase.from('internal_orders')
+        .update({ status: 'recibido', received_at: new Date().toISOString() })
+        .eq('id', receivingOrder.id);
+      if (error) throw error;
+      setReceivingOrder(null);
+      setReceptionLines([]);
+      await loadRecentOrders();
+      alert('Pedido marcado como recibido.');
+    } catch (e: any) {
+      alert('Error al guardar la recepción: ' + (e.message || e));
+    } finally {
+      setSavingReception(false);
+    }
+  };
+
   const addItem = (item: StockItem) => {
     setLines(prev => [...prev, {
       itemId: item.id,
@@ -260,7 +337,8 @@ export default function InternalOrdersView({
           order_date: todayISO,
           delivery_date: deliveryISO,
           created_by: currentUser?.name || currentUser?.username || null,
-          notes: notes.trim() || null
+          notes: notes.trim() || null,
+          status: 'pendiente'
         })
         .select()
         .single();
@@ -473,9 +551,16 @@ export default function InternalOrdersView({
                 <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
                   {o.order_type === 'compras' ? 'Compras' : 'Producción'}
                 </span>
-                <span className="text-text-dim font-bold uppercase flex-1 truncate">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
-                <span className="text-text-dim font-mono hidden sm:block truncate max-w-[120px]">{o.created_by || '—'}</span>
+                <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
+                  {statusInfo(o.status).label}
+                </span>
+                <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
                 <div className="flex items-center gap-1 shrink-0">
+                  {!isReadOnly && o.status === 'enviado' && (
+                    <button onClick={() => openReception(o)} title="Marcar recibido" className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded text-[8px] font-black uppercase hover:bg-emerald-500/20 transition-all">
+                      <PackageCheck size={12} /> Recibir
+                    </button>
+                  )}
                   <button onClick={() => viewOrder(o)} title="Ver detalle" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
                   <button onClick={() => redownloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
                   {!isReadOnly && <button onClick={() => deleteOrder(o)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>}
@@ -536,6 +621,70 @@ export default function InternalOrdersView({
             <div className="p-4 border-t border-border-dim flex gap-2 justify-end">
               <button onClick={() => redownloadOrder(viewingOrder.order)} className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
                 <FileDown size={14} /> Descargar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de recepción ítem por ítem */}
+      {receivingOrder && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => !savingReception && setReceivingOrder(null)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full max-h-[88vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-border-dim">
+              <div>
+                <h3 className="text-sm font-black uppercase text-text-main tracking-wide">Recepción del pedido</h3>
+                <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">
+                  Marcá lo que recibiste. Si llegó menos, ajustá la cantidad y dejá una nota.
+                </p>
+              </div>
+              <button onClick={() => setReceivingOrder(null)} className="p-1.5 text-text-dim hover:text-text-main transition-colors"><X size={18} /></button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-border-dim">
+              <button onClick={markAllReceived} className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded text-[9px] font-black uppercase hover:bg-emerald-500/20 transition-all">
+                <PackageCheck size={13} /> Marcar todos como recibidos
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto custom-scrollbar space-y-2">
+              {receptionLines.map(l => (
+                <div key={l.id} className={cn("p-3 rounded border transition-all", l.received ? "bg-bg-accent/30 border-border-dim" : "bg-red-500/5 border-red-500/30")}>
+                  <div className="flex items-center gap-3">
+                    <input type="checkbox" checked={l.received} onChange={e => updateReceptionLine(l.id, 'received', e.target.checked)}
+                      className="w-4 h-4 accent-emerald-500 cursor-pointer shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[10px] font-black text-text-main uppercase">
+                        {l.code ? <span className="text-brand-500 mr-1">{l.code}</span> : ''}{l.itemName}
+                      </p>
+                      <p className="text-[8px] text-text-dim font-bold uppercase">{l.category} · pidió {l.quantity} {l.unit}</p>
+                    </div>
+                    {l.received && (
+                      <div className="w-24 shrink-0">
+                        <label className="text-[7px] font-black text-text-dim uppercase block mb-0.5">Cant. recibida</label>
+                        <input type="number" value={l.receivedQty} onChange={e => updateReceptionLine(l.id, 'receivedQty', parseFloat(e.target.value) || 0)}
+                          className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-black text-text-main outline-none focus:border-emerald-500" />
+                      </div>
+                    )}
+                  </div>
+                  {/* Nota por ítem: visible si no se recibió o si la cantidad difiere */}
+                  {(!l.received || l.receivedQty !== l.quantity) && (
+                    <input value={l.receptionNote} onChange={e => updateReceptionLine(l.id, 'receptionNote', e.target.value)}
+                      placeholder={l.received ? "Nota (ej. llegó menos, vino machucada...)" : "Nota (ej. no llegó)"}
+                      className="w-full mt-2 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[9px] text-text-main outline-none focus:border-brand-500" />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-border-dim flex gap-2 justify-end">
+              <button onClick={() => setReceivingOrder(null)} disabled={savingReception}
+                className="px-4 py-2 bg-bg-accent text-text-dim rounded-lg text-[10px] font-black uppercase tracking-widest hover:text-text-main transition-all">
+                Cancelar
+              </button>
+              <button onClick={saveReception} disabled={savingReception}
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all disabled:opacity-60">
+                {savingReception ? <Loader2 size={14} className="animate-spin" /> : <PackageCheck size={14} />} Confirmar recepción
               </button>
             </div>
           </div>
