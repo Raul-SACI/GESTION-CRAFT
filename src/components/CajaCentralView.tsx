@@ -471,6 +471,12 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                   <input type="date" value={newW.arrivalDate} onChange={(e) => setNewW({ ...newW, arrivalDate: e.target.value })}
                     className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1" />
                 </div>
+                <div>
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest">Observaciones (opcional)</label>
+                  <input type="text" value={newW.notes} onChange={(e) => setNewW({ ...newW, notes: e.target.value })}
+                    placeholder="Notas relevantes del retiro..."
+                    className="w-full bg-bg-accent border border-border-dim rounded px-2 py-2 text-[11px] font-bold text-text-main outline-none mt-1" />
+                </div>
                 <button onClick={handleAddWithdrawal} disabled={savingW}
                   className="bg-brand-500 text-black px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60 flex items-center justify-center gap-1.5">
                   {savingW ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Agregar
@@ -504,6 +510,7 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                       <th className="px-4 py-3">Fecha Retiro</th>
                       <th className="px-4 py-3">Ingreso a Caja</th>
                       <th className="px-4 py-3">Estado</th>
+                      <th className="px-4 py-3">Observaciones</th>
                       <th className="px-4 py-3"></th>
                     </tr>
                   </thead>
@@ -543,6 +550,9 @@ export default function CajaCentralView({ branches, isReadOnly = false }: CajaCe
                           {w.status === 'reentered' && w.reentryReason && (
                             <p className="text-[8px] text-blue-400 font-bold mt-1 max-w-[160px] truncate" title={w.reentryReason}>↳ {w.reentryReason}</p>
                           )}
+                        </td>
+                        <td className="px-4 py-2.5 text-text-dim max-w-[200px]">
+                          {w.notes ? <span className="text-[10px]" title={w.notes}>{w.notes}</span> : <span className="text-text-dim/40">—</span>}
                         </td>
                         <td className="px-4 py-2.5 text-right">
                           {!isReadOnly && (
