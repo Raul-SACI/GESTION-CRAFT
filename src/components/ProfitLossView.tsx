@@ -76,7 +76,10 @@ export default function ProfitLossView({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [tab, setTab] = useState<'statement' | 'project' | 'kpis'>('statement');
+  const [tab, setTab] = useState<'statement' | 'project' | 'kpis' | 'yearly'>('statement');
+  // Datos por mes del año en curso (para la vista comparativa)
+  const [yearlyData, setYearlyData] = useState<Record<string, LinesMap>>({});
+  const [yearlyLoading, setYearlyLoading] = useState(false);
 
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
 
@@ -97,8 +100,32 @@ export default function ProfitLossView({
 
   useEffect(() => { fetchData(); }, [selectedMonth, scope]);
 
-  const computed = useMemo(() => {
-    const get = (k: string): LineValues => lines[k] || emptyLine();
+  // Carga todos los meses del año en curso (mismo scope) para la vista comparativa
+  const loadYearly = async () => {
+    setYearlyLoading(true);
+    try {
+      const year = selectedMonth.slice(0, 4);
+      const { data } = await supabase.from('income_statements').select('*')
+        .eq('scope', scope)
+        .gte('month', `${year}-01`)
+        .lte('month', `${year}-12`);
+      const byMonth: Record<string, LinesMap> = {};
+      (data || []).forEach((rec: any) => {
+        const arr = typeof rec.lines === 'string' ? JSON.parse(rec.lines) : rec.lines;
+        const map: LinesMap = {};
+        (arr || []).forEach((l: any) => { map[l.key] = { projPesos: l.projPesos || 0, projUsd: l.projUsd || 0, realPesos: l.realPesos || 0, realUsd: l.realUsd || 0 }; });
+        byMonth[rec.month] = map;
+      });
+      setYearlyData(byMonth);
+    } catch (e) { console.error('Error cargando año:', e); setYearlyData({}); }
+    setYearlyLoading(false);
+  };
+
+  useEffect(() => { if (tab === 'yearly') loadYearly(); }, [tab, scope, selectedMonth]);
+
+  // Computa inputs + subtotales para un mapa de líneas dado (reutilizable por mes)
+  const computeFromLines = (srcLines: LinesMap): LinesMap => {
+    const get = (k: string): LineValues => srcLines[k] || emptyLine();
     const result: LinesMap = {};
     PL_STRUCTURE.forEach(def => { if (def.type === 'input') result[def.key] = get(def.key); });
     const sumKeys = (keys: string[], field: keyof LineValues) => keys.reduce((s, k) => s + (result[k]?.[field] || 0), 0);
@@ -110,7 +137,9 @@ export default function ProfitLossView({
     result['ganancia_operativa_neta'] = { projPesos: sumKeys(OPERATIVA_NETA_COMPONENTS, 'projPesos'), projUsd: sumKeys(OPERATIVA_NETA_COMPONENTS, 'projUsd'), realPesos: sumKeys(OPERATIVA_NETA_COMPONENTS, 'realPesos'), realUsd: sumKeys(OPERATIVA_NETA_COMPONENTS, 'realUsd') };
     result['ganancia_final'] = { projPesos: sumKeys(FINAL_COMPONENTS, 'projPesos'), projUsd: sumKeys(FINAL_COMPONENTS, 'projUsd'), realPesos: sumKeys(FINAL_COMPONENTS, 'realPesos'), realUsd: sumKeys(FINAL_COMPONENTS, 'realUsd') };
     return result;
-  }, [lines]);
+  };
+
+  const computed = useMemo(() => computeFromLines(lines), [lines]);
 
   const ventasNetasProj = computed['ventas_netas']?.projPesos || 0;
   const ventasNetasReal = computed['ventas_netas']?.realPesos || 0;
@@ -300,12 +329,75 @@ export default function ProfitLossView({
             tab === 'kpis' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
           KPIs
         </button>
+        <button onClick={() => setTab('yearly')}
+          className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+            tab === 'yearly' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+          Meses del Año
+        </button>
       </div>
 
       {tab === 'kpis' ? (
         <ProfitLossKPIs scope={scope} />
       ) : tab === 'project' && scope === 'consolidated' ? (
         <ProfitLossProjector scope={scope} targetMonth={selectedMonth} isReadOnly={isReadOnly} onProjectionGenerated={fetchData} />
+      ) : tab === 'yearly' ? (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+          {yearlyLoading ? (
+            <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
+          ) : (() => {
+            const monthsLoaded = Object.keys(yearlyData).sort();
+            if (monthsLoaded.length === 0) {
+              return <div className="py-16 text-center text-text-dim text-[11px] font-black uppercase">No hay datos cargados para el año {selectedMonth.slice(0,4)}</div>;
+            }
+            const MES_ABBR = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const computedByMonth: Record<string, LinesMap> = {};
+            monthsLoaded.forEach(m => { computedByMonth[m] = computeFromLines(yearlyData[m]); });
+            const fmtCell = (n: number) => n === 0 ? '-' : '$' + Math.round(n).toLocaleString('es-AR');
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead>
+                    <tr className="bg-bg-accent/40 border-b border-border-dim">
+                      <th className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest sticky left-0 bg-bg-accent/40">Concepto (Real)</th>
+                      {monthsLoaded.map(m => (
+                        <th key={m} className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">
+                          {MES_ABBR[parseInt(m.slice(5,7)) - 1]}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PL_STRUCTURE.map(def => {
+                      if (def.type === 'header') {
+                        return (
+                          <tr key={def.key} className="bg-brand-500/5">
+                            <td colSpan={monthsLoaded.length + 1} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
+                          </tr>
+                        );
+                      }
+                      const isSub = def.type === 'subtotal';
+                      return (
+                        <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black")}>
+                          <td className={cn("px-4 py-2 text-[11px] sticky left-0 bg-bg-sidebar", isSub ? "font-black text-text-main uppercase" : "text-text-dim")} style={{ paddingLeft: `${16 + (def.indent || 0) * 16}px` }}>
+                            {def.label}
+                          </td>
+                          {monthsLoaded.map(m => {
+                            const val = computedByMonth[m][def.key]?.realPesos || 0;
+                            return (
+                              <td key={m} className={cn("px-4 py-2 text-right font-mono text-[11px]", val < 0 ? "text-red-400" : isSub ? "text-text-main" : "text-text-dim")}>
+                                {fmtCell(val)}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
       ) : (
       <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
         {loading ? (
