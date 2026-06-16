@@ -92,6 +92,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
     email: '',
     role: '',
     branch: 'Todas las Sucursales',
+    branchIds: [] as string[],
     password: '',
     canSeePayments: false,
   });
@@ -102,7 +103,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
     name: string;
     description: string;
     is_read_only: boolean;
-    access_scope: 'all_branches' | 'single_branch';
+    access_scope: 'all_branches' | 'single_branch' | 'multi_branch';
     allowed_modules: Record<string, 'edit' | 'view'>;
   }>({
     name: '',
@@ -186,6 +187,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           name: u.name,
           role: u.role,
           branch: u.branch_name,
+          branchIds: u.branch_ids || [],
           permissions: u.permissions || [],
           password: u.password || '',
           canSeePayments: u.can_see_payments === true
@@ -226,14 +228,29 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
 
     setLoading(true);
     try {
+      const scope = selectedRoleConfig?.access_scope;
       let finalBranch = userForm.branch;
-      if (selectedRoleConfig && selectedRoleConfig.access_scope === 'all_branches') {
+      if (scope === 'all_branches') {
         finalBranch = 'Todas las Sucursales';
       }
       // Resolver el branch_id a partir de la sucursal elegida (null si es "Todas")
       const finalBranchId = finalBranch === 'Todas las Sucursales'
         ? null
         : (branches.find(b => b.name === finalBranch)?.id || null);
+
+      // Multi-sucursal: lista de ids seleccionados
+      const finalBranchIds = scope === 'multi_branch' ? (userForm.branchIds || []) : null;
+      // Para multi, el branch_name muestra las sucursales elegidas (resumen legible)
+      if (scope === 'multi_branch') {
+        const names = (userForm.branchIds || []).map((id: string) => branches.find(b => b.id === id)?.name).filter(Boolean);
+        finalBranch = names.length > 0 ? names.join(' / ') : 'Sin asignar';
+      }
+
+      if (scope === 'multi_branch' && (!userForm.branchIds || userForm.branchIds.length === 0)) {
+        alert('Seleccioná al menos una sucursal para este usuario.');
+        setLoading(false);
+        return;
+      }
 
       if (userForm.id) {
         // --- EDITAR: solo actualiza el perfil ---
@@ -242,6 +259,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           role: userForm.role,
           branch_name: finalBranch,
           branch_id: finalBranchId,
+          branch_ids: finalBranchIds,
           can_see_payments: userForm.canSeePayments,
         };
         const { error } = await supabase.from('profiles').update(payload).eq('id', userForm.id);
@@ -287,7 +305,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       }
 
       setIsAddingUser(false);
-      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
+      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
       await fetchData();
       onUsersChanged?.();
     } catch (e: any) {
@@ -304,6 +322,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       name: user.name,
       role: user.role,
       branch: user.branch || 'Todas las Sucursales',
+      branchIds: user.branchIds || [],
       password: user.password || '',
       canSeePayments: user.canSeePayments === true
     });
@@ -489,7 +508,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                   </span>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
+                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
                       setIsAddingUser(true);
                     }}
                     className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
@@ -659,6 +678,28 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                         <Compass size={14} className="text-brand-500" />
                         <span className="text-[10px] font-black uppercase tracking-wider">Múltiples Sucursales (Consolidado)</span>
                       </div>
+                    ) : selectedRoleConfig?.access_scope === 'multi_branch' ? (
+                      <div className="bg-bg-accent/30 border border-border-dim p-3 rounded space-y-2">
+                        <p className="text-[9px] font-bold text-text-dim uppercase">Marcá las sucursales a las que accede este usuario:</p>
+                        {branches.map(b => {
+                          const checked = (userForm.branchIds || []).includes(b.id);
+                          return (
+                            <label key={b.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const curr = userForm.branchIds || [];
+                                  const next = e.target.checked ? [...curr, b.id] : curr.filter((id: string) => id !== b.id);
+                                  setUserForm({ ...userForm, branchIds: next });
+                                }}
+                                className="w-4 h-4 accent-brand-500 cursor-pointer"
+                              />
+                              <span className="text-[10px] font-black uppercase text-text-main">{b.name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <select
                         value={userForm.branch}
@@ -739,7 +780,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                     <button 
                       onClick={() => {
                         setIsAddingUser(false);
-                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', password: '', canSeePayments: false });
+                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
                       }}
                       className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                     >
@@ -898,7 +939,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                   {/* Access Scope Toggle Group */}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-text-dim uppercase tracking-wider block">Visibilidad de Sucursales</label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setRoleForm({ ...roleForm, access_scope: 'all_branches' })}
@@ -913,6 +954,18 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                       </button>
                       <button
                         type="button"
+                        onClick={() => setRoleForm({ ...roleForm, access_scope: 'multi_branch' })}
+                        className={cn(
+                          "py-2 rounded border text-[10px] font-black uppercase transition-all",
+                          roleForm.access_scope === 'multi_branch'
+                            ? "bg-brand-500 border-brand-500 text-black"
+                            : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500"
+                        )}
+                      >
+                        Varias
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => setRoleForm({ ...roleForm, access_scope: 'single_branch' })}
                         className={cn(
                           "py-2 rounded border text-[10px] font-black uppercase transition-all",
@@ -921,7 +974,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                             : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500"
                         )}
                       >
-                        Local (Solo su Sucursal)
+                        Local (Una)
                       </button>
                     </div>
                   </div>

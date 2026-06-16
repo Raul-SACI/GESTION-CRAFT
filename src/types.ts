@@ -21,6 +21,7 @@ export interface User {
   name: string;
   role: UserRole;
   branch?: string;
+  branchIds?: string[];
   permissions?: string[];
   password?: string;
   canSeePayments?: boolean;

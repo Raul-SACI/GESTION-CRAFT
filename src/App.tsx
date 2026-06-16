@@ -462,7 +462,7 @@ function AppContent() {
         branch: 'Todas las Sucursales',
         permissions: [],
         isReadOnly: true,
-        accessScope: 'all_branches' as 'all_branches' | 'single_branch'
+        accessScope: 'all_branches' as 'all_branches' | 'single_branch' | 'multi_branch'
       };
     }
     
@@ -486,10 +486,11 @@ function AppContent() {
       role: roleId,
       branch: currentUserProfile.branch_name || 'Todas las Sucursales',
       branchId: currentUserProfile.branch_id || null,
+      branchIds: (currentUserProfile.branch_ids || []) as string[],
       permissions: allowed,
       modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
-      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch',
+      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch' | 'multi_branch',
       canSeePayments: currentUserProfile.can_see_payments === true
     };
   }, [currentUserProfile, rolesConfigList]);
@@ -543,6 +544,12 @@ function AppContent() {
   useEffect(() => {
     if (currentUser.accessScope === 'single_branch' && currentUserBranchId !== 'all') {
       setSelectedBranchId(currentUserBranchId);
+    } else if (currentUser.accessScope === 'multi_branch') {
+      const allowed = (currentUser as any).branchIds || [];
+      // Si la sucursal actual no está entre las permitidas, ir a la primera asignada
+      if (allowed.length > 0 && !allowed.includes(selectedBranchId)) {
+        setSelectedBranchId(allowed[0]);
+      }
     }
   }, [currentUser, currentUserBranchId, branches, selectedBranchId]);
 
@@ -1359,6 +1366,10 @@ function AppContent() {
                   onChange={(e) => {
                     if (currentUser.accessScope === 'single_branch' && currentUserBranchId !== 'all') {
                       setSelectedBranchId(currentUserBranchId);
+                    } else if (currentUser.accessScope === 'multi_branch') {
+                      // Solo permitir elegir entre sus sucursales asignadas
+                      const allowed = (currentUser as any).branchIds || [];
+                      if (allowed.includes(e.target.value)) setSelectedBranchId(e.target.value);
                     } else {
                       setSelectedBranchId(e.target.value);
                     }
@@ -1370,11 +1381,15 @@ function AppContent() {
                       : "text-brand-500 cursor-pointer"
                   }`}
                 >
-                  {currentUser.accessScope !== 'single_branch' && (
+                  {currentUser.accessScope === 'all_branches' && (
                     <option value="all" className="bg-bg-card font-bold text-text-main">CONSOLIDADO (TODAS)</option>
                   )}
                   {branches
-                    .filter(b => currentUser.accessScope !== 'single_branch' || b.id === currentUserBranchId)
+                    .filter(b => {
+                      if (currentUser.accessScope === 'single_branch') return b.id === currentUserBranchId;
+                      if (currentUser.accessScope === 'multi_branch') return ((currentUser as any).branchIds || []).includes(b.id);
+                      return true;
+                    })
                     .map(b => (
                       <option key={b.id} value={b.id} className="bg-bg-card font-bold text-text-main">{b.name}</option>
                     ))}
