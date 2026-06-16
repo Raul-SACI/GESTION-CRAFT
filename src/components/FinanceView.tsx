@@ -1649,7 +1649,7 @@ export default function FinanceView({
                     <span className="text-[10px] font-bold uppercase text-text-dim">Saldo de inicio: <span className="font-mono font-black text-text-main">${totalStartBalance.toLocaleString('es-AR')}</span></span>
                     <span className="text-[10px] font-bold uppercase text-text-dim">+ Ingresos previstos: <span className="font-mono font-black text-emerald-400">${totalWeeklyIncome.toLocaleString('es-AR')}</span></span>
                   </div>
-                  <span className="text-[11px] font-black uppercase text-text-main">Disponible estimado: <span className="font-mono text-base text-brand-500">${(totalStartBalance + totalWeeklyIncome).toLocaleString('es-AR')}</span></span>
+                  <span className="text-[11px] font-black uppercase text-text-main">Disponible estimado: <span className="font-mono text-base text-emerald-400">${(totalStartBalance + totalWeeklyIncome).toLocaleString('es-AR')}</span></span>
                 </div>
               </div>
             )}
