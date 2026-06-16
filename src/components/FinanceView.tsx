@@ -1,6 +1,6 @@
 /**
  * SPDX-License-Identifier: Apache-2.0
- * Flujo de Caja Estimado.
+ * Flujo de Caja Estimado · vista financiera.
  */
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
