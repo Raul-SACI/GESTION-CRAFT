@@ -28,6 +28,9 @@ interface OrderLine {
   unit: string;
   quantity: number;
   observations: string;
+  received?: boolean;
+  receivedQty?: number | null;
+  receptionNote?: string;
 }
 
 interface SavedOrder {
@@ -132,6 +135,10 @@ export default function InternalOrdersView({
 
   useEffect(() => { loadRecentOrders(); }, [selectedBranchId]);
 
+  // Pedidos activos (en circuito) y cerrados (ya recibidos)
+  const activeOrders = recentOrders.filter(o => o.status !== 'recibido');
+  const closedOrders = recentOrders.filter(o => o.status === 'recibido');
+
   // Trae las líneas de un pedido guardado
   const fetchOrderLines = async (orderId: string) => {
     const { data } = await supabase
@@ -144,7 +151,10 @@ export default function InternalOrdersView({
       itemName: d.item_name,
       unit: d.unit || '',
       quantity: Number(d.quantity) || 0,
-      observations: d.observations || ''
+      observations: d.observations || '',
+      received: d.received,
+      receivedQty: d.received_qty != null ? Number(d.received_qty) : null,
+      receptionNote: d.reception_note || ''
     }));
   };
 
@@ -409,6 +419,39 @@ export default function InternalOrdersView({
         </div>
       )}
 
+      {/* Pedidos activos (en circuito) — arriba, antes de cargar uno nuevo */}
+      {activeOrders.length > 0 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <History size={15} className="text-brand-500" />
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Pedidos en curso</h3>
+          </div>
+          <div className="space-y-1.5">
+            {activeOrders.map(o => (
+              <div key={o.id} className="flex items-center justify-between gap-2 p-2.5 bg-bg-accent/30 rounded border border-border-dim text-[9px]">
+                <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
+                  {o.order_type === 'compras' ? 'Compras' : 'Producción'}
+                </span>
+                <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
+                  {statusInfo(o.status).label}
+                </span>
+                <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!isReadOnly && o.status === 'enviado' && (
+                    <button onClick={() => openReception(o)} title="Marcar recibido" className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded text-[8px] font-black uppercase hover:bg-emerald-500/20 transition-all">
+                      <PackageCheck size={12} /> Recibir
+                    </button>
+                  )}
+                  <button onClick={() => viewOrder(o)} title="Ver detalle" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
+                  <button onClick={() => redownloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
+                  {!isReadOnly && <button onClick={() => deleteOrder(o)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Selector de tipo de pedido */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
         <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Tipo de Pedido</label>
@@ -538,15 +581,16 @@ export default function InternalOrdersView({
         </div>
       </div>
 
-      {/* Pedidos recientes */}
-      {recentOrders.length > 0 && (
+      {/* Pedidos cerrados (ya recibidos por la sucursal) */}
+      {closedOrders.length > 0 && (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
           <div className="flex items-center gap-2 mb-3">
-            <History size={15} className="text-brand-500" />
-            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Pedidos recientes</h3>
+            <PackageCheck size={15} className="text-emerald-500" />
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Pedidos cerrados</h3>
+            <span className="text-[8px] font-bold text-text-dim uppercase">(recibidos)</span>
           </div>
           <div className="space-y-1.5">
-            {recentOrders.map(o => (
+            {closedOrders.map(o => (
               <div key={o.id} className="flex items-center justify-between gap-2 p-2.5 bg-bg-accent/30 rounded border border-border-dim text-[9px]">
                 <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
                   {o.order_type === 'compras' ? 'Compras' : 'Producción'}
@@ -556,12 +600,7 @@ export default function InternalOrdersView({
                 </span>
                 <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
                 <div className="flex items-center gap-1 shrink-0">
-                  {!isReadOnly && o.status === 'enviado' && (
-                    <button onClick={() => openReception(o)} title="Marcar recibido" className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded text-[8px] font-black uppercase hover:bg-emerald-500/20 transition-all">
-                      <PackageCheck size={12} /> Recibir
-                    </button>
-                  )}
-                  <button onClick={() => viewOrder(o)} title="Ver detalle" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
+                  <button onClick={() => viewOrder(o)} title="Ver detalle y recepción" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
                   <button onClick={() => redownloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
                   {!isReadOnly && <button onClick={() => deleteOrder(o)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>}
                 </div>
@@ -597,6 +636,7 @@ export default function InternalOrdersView({
                     <th className="text-center py-2">Unidad</th>
                     <th className="text-right py-2">Cantidad</th>
                     <th className="text-left py-2 pl-3">Observaciones</th>
+                    {viewingOrder.order.status === 'recibido' && <th className="text-left py-2 pl-3">Recepción</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -608,6 +648,17 @@ export default function InternalOrdersView({
                       <td className="py-1.5 text-center text-text-dim uppercase">{l.unit}</td>
                       <td className="py-1.5 text-right font-mono font-black text-text-main">{l.quantity}</td>
                       <td className="py-1.5 pl-3 text-text-dim">{l.observations || '-'}</td>
+                      {viewingOrder.order.status === 'recibido' && (
+                        <td className="py-1.5 pl-3">
+                          {l.received === false ? (
+                            <span className="text-red-500 font-black uppercase text-[9px]">No recibido{l.receptionNote ? ` · ${l.receptionNote}` : ''}</span>
+                          ) : l.receivedQty != null && l.receivedQty !== l.quantity ? (
+                            <span className="text-amber-500 font-black uppercase text-[9px]">Parcial: {l.receivedQty}{l.receptionNote ? ` · ${l.receptionNote}` : ''}</span>
+                          ) : (
+                            <span className="text-emerald-500 font-black uppercase text-[9px]">OK</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck } from 'lucide-react';
+import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck, PackageCheck } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -143,9 +143,26 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
     doc.save(`${o.order_type}_${branchNameById(o.branch_id).replace(/\s+/g, '_')}_${o.order_date}.pdf`);
   };
 
-  // Pedidos filtrados, agrupados por sucursal
+  // Pedidos filtrados, agrupados por sucursal (solo activos: no recibidos)
   const grouped = useMemo(() => {
     const filtered = orders.filter(o => {
+      if (o.status === 'recibido') return false;
+      if (branchFilter !== 'all' && o.branch_id !== branchFilter) return false;
+      if (typeFilter !== 'all' && o.order_type !== typeFilter) return false;
+      return true;
+    });
+    const groups: Record<string, SavedOrder[]> = {};
+    filtered.forEach(o => {
+      if (!groups[o.branch_id]) groups[o.branch_id] = [];
+      groups[o.branch_id].push(o);
+    });
+    return Object.entries(groups).sort((a, b) => branchNameById(a[0]).localeCompare(branchNameById(b[0])));
+  }, [orders, branchFilter, typeFilter, branches]);
+
+  // Pedidos cerrados (ya recibidos por la sucursal), agrupados por sucursal
+  const closedGrouped = useMemo(() => {
+    const filtered = orders.filter(o => {
+      if (o.status !== 'recibido') return false;
       if (branchFilter !== 'all' && o.branch_id !== branchFilter) return false;
       if (typeFilter !== 'all' && o.order_type !== typeFilter) return false;
       return true;
@@ -235,6 +252,42 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
             </div>
           </div>
         ))
+      )}
+
+      {/* Pedidos cerrados (ya recibidos por la sucursal) */}
+      {closedGrouped.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 pt-2">
+            <PackageCheck size={16} className="text-emerald-500" />
+            <h2 className="text-[12px] font-black uppercase text-text-main tracking-widest">Pedidos cerrados</h2>
+            <span className="text-[8px] font-bold text-text-dim uppercase">(recibidos por la sucursal)</span>
+          </div>
+          {closedGrouped.map(([branchId, list]) => (
+            <div key={branchId} className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3 border-b border-border-dim pb-2">
+                <h3 className="text-[11px] font-black uppercase text-emerald-500 tracking-widest">{branchNameById(branchId)}</h3>
+                <span className="text-[9px] font-mono font-black text-text-dim bg-bg-accent px-2 py-1 rounded border border-border-dim">{list.length} pedido(s)</span>
+              </div>
+              <div className="space-y-1.5">
+                {list.map(o => (
+                  <div key={o.id} className="flex items-center justify-between gap-2 p-2.5 bg-bg-accent/30 rounded border border-border-dim text-[9px]">
+                    <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", o.order_type === 'compras' ? "bg-brand-500/10 text-brand-500" : "bg-teal-500/10 text-teal-500")}>
+                      {o.order_type === 'compras' ? 'Compras' : 'Producción'}
+                    </span>
+                    <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
+                      {statusInfo(o.status).label}
+                    </span>
+                    <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => viewOrder(o)} title="Ver detalle y faltantes" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
+                      <button onClick={() => downloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Modal de detalle */}
