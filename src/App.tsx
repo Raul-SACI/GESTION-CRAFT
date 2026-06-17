@@ -54,6 +54,7 @@ import {
   ArrowUp,
   ArrowDown,
   Landmark,
+  Gift,
   Crown,
   Lock,
   Unlock,
@@ -94,6 +95,7 @@ const MantValorizationView = lazy(() => import('./components/MantValorizationVie
 const MantCostsView = lazy(() => import('./components/MantCostsView'));
 const MantConfigView = lazy(() => import('./components/MantConfigView'));
 const PublicQRView = lazy(() => import('./components/PublicQRView'));
+const GiftCardView = lazy(() => import('./components/GiftCardView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -536,7 +538,8 @@ function AppContent() {
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
-    'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config'
+    'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
+    'mkt_giftcard', 'mkt_cuentas', 'mkt_drive'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -641,6 +644,11 @@ function AppContent() {
       { id: 'mant_valorizacion', label: 'Valorización de Activos', icon: Landmark },
       { id: 'mant_costos', label: 'Costos', icon: DollarSign },
       { id: 'mant_config', label: 'Configuración', icon: Settings },
+    ],
+    'Marketing & Comercial': [
+      { id: 'mkt_giftcard', label: 'Gift Card', icon: Gift },
+      { id: 'mkt_cuentas', label: 'Cuentas y Contraseñas', icon: Key },
+      { id: 'mkt_drive', label: 'Drive MKT', icon: FileText },
     ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
@@ -1513,6 +1521,23 @@ function AppContent() {
               )}
               {activeTab === 'mant_config' && (
                 <MantConfigView />
+              )}
+              {activeTab === 'mkt_giftcard' && (
+                <GiftCardView key="mkt_giftcard" isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'mkt_cuentas' && (
+                <PasswordManagementView key="mkt_cuentas" section="marketing" isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'mkt_drive' && (
+                <DocumentsView
+                  key="mkt_drive"
+                  mode="encargado"
+                  branchId="__mkt__"
+                  branchName="Marketing"
+                  branches={branches}
+                  onBranchSelect={() => { /* fijo en MKT */ }}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
               )}
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />

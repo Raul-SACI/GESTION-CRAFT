@@ -1,0 +1,263 @@
+/**
+ * SPDX-License-Identifier: Apache-2.0
+ * GiftCard digital de CRAFT (Marketing & Comercial).
+ * Genera una gift card en PDF con el diseño de CRAFT y guarda el registro de cada emisión.
+ */
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { Loader2, Gift, Download, Trash2, Plus } from 'lucide-react';
+import jsPDF from 'jspdf';
+import { supabase } from '../lib/supabase';
+import { cn } from '../lib/utils';
+
+interface GiftCardRec {
+  id: string; codigo: string; para: string; regalo: string; de_parte_de: string; fecha_emision: string; created_at?: string;
+}
+
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const fmtDMY = (iso: string) => { if (!iso) return ''; const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; };
+// Código único tipo CRAFT-XXXX-XXXX
+const genCodigo = () => {
+  const part = () => Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `CRAFT-${part()}-${part()}`;
+};
+
+export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
+  const [records, setRecords] = useState<GiftCardRec[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ para: '', regalo: '', deParteDe: '', fecha: todayISO() });
+
+  const loadRecords = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase.from('gift_cards').select('*').order('created_at', { ascending: false }).limit(200);
+      setRecords((data as GiftCardRec[]) || []);
+    } catch (e) { console.error('Error cargando gift cards:', e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadRecords(); }, []);
+
+  // Genera el PDF de la gift card con el diseño de CRAFT
+  const buildPdf = (rec: GiftCardRec) => {
+    // Tarjeta apaisada tipo postal
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [148, 105] });
+    const W = 148, H = 105;
+    const RED = [227, 30, 36] as const;
+    const WHITE = [255, 255, 255] as const;
+
+    // Fondo rojo
+    doc.setFillColor(RED[0], RED[1], RED[2]);
+    doc.rect(0, 0, W, H, 'F');
+
+    // Título #GIFT CARD (izquierda)
+    doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
+    doc.setFont('helvetica', 'bolditalic');
+    doc.setFontSize(34);
+    doc.text('#GIFT', 10, 40);
+    doc.text('CARD', 10, 58);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text('@CRAFT.TUC', 10, 95);
+
+    // Sello CRAFT (arriba derecha)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('CRAFT', W - 28, 16);
+    doc.setFontSize(5);
+    doc.setFont('helvetica', 'normal');
+    doc.text('SINCE 2019', W - 30, 21);
+
+    // Campos en cajas blancas (derecha)
+    const boxX = 62, boxW = 78;
+    const drawBox = (y: number, h: number, label: string, value: string) => {
+      doc.setFillColor(WHITE[0], WHITE[1], WHITE[2]);
+      doc.roundedRect(boxX, y, boxW, h, 2, 2, 'F');
+      doc.setTextColor(RED[0], RED[1], RED[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(label, boxX + 4, y + 6);
+      doc.setTextColor(40, 40, 40);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      const lines = doc.splitTextToSize(value || '', boxW - 8);
+      doc.text(lines, boxX + 4, y + 12);
+    };
+
+    drawBox(20, 16, 'PARA:', rec.para);
+    drawBox(40, 22, 'TU REGALO ES:', rec.regalo);
+    drawBox(66, 16, 'DE PARTE DE:', rec.de_parte_de);
+
+    // Pie: código, fecha y validez
+    doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.text(`CÓDIGO: ${rec.codigo}`, boxX, 88);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.text(`FECHA DE EMISIÓN: ${fmtDMY(rec.fecha_emision)}`, boxX, 93);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VÁLIDO POR 30 DÍAS', boxX, 97);
+    doc.setFont('helvetica', 'normal');
+    const validez = doc.splitTextToSize('USO EXCLUSIVO EN SUCURSALES DE CASCO VIEJO, AV. PERON, BARRIO NORTE Y BARRIO SUR.', boxW);
+    doc.text(validez, boxX, 100);
+
+    return doc;
+  };
+
+  const generateAndSave = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!form.para.trim() || !form.regalo.trim()) { alert('Completá al menos "Para" y "Tu regalo es".'); return; }
+    setSaving(true);
+    try {
+      const rec: GiftCardRec = {
+        id: Math.random().toString(36).slice(2, 12),
+        codigo: genCodigo(),
+        para: form.para.trim(),
+        regalo: form.regalo.trim(),
+        de_parte_de: form.deParteDe.trim(),
+        fecha_emision: form.fecha || todayISO(),
+      };
+      const { error } = await supabase.from('gift_cards').insert(rec);
+      if (error) throw error;
+      // Descargar PDF
+      const doc = buildPdf(rec);
+      doc.save(`giftcard_${rec.codigo}.pdf`);
+      // Limpiar y recargar
+      setForm({ para: '', regalo: '', deParteDe: '', fecha: todayISO() });
+      await loadRecords();
+    } catch (e: any) {
+      alert('Error al generar la gift card: ' + (e.message || e));
+    }
+    setSaving(false);
+  };
+
+  const redownload = (rec: GiftCardRec) => {
+    const doc = buildPdf(rec);
+    doc.save(`giftcard_${rec.codigo}.pdf`);
+  };
+
+  const deleteRec = async (rec: GiftCardRec) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!window.confirm(`¿Eliminar el registro de la gift card ${rec.codigo}?`)) return;
+    try {
+      const { error } = await supabase.from('gift_cards').delete().eq('id', rec.id);
+      if (error) throw error;
+      await loadRecords();
+    } catch (e: any) { alert('Error al eliminar: ' + (e.message || e)); }
+  };
+
+  const inputCls = "w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[12px] text-text-main outline-none focus:border-brand-500";
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* Formulario */}
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Gift size={16} className="text-brand-500" />
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Nueva Gift Card</h3>
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Para</label>
+            <input value={form.para} onChange={e => setForm({ ...form, para: e.target.value })} placeholder="Nombre del destinatario" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Tu regalo es</label>
+            <textarea value={form.regalo} onChange={e => setForm({ ...form, regalo: e.target.value })} placeholder="Ej: Un café + medialuna / $5.000 en consumición" className={cn(inputCls, "min-h-[70px]")} />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">De parte de</label>
+            <input value={form.deParteDe} onChange={e => setForm({ ...form, deParteDe: e.target.value })} placeholder="Quién regala" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha de emisión</label>
+            <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} className={inputCls} />
+          </div>
+          <button onClick={generateAndSave} disabled={saving || isReadOnly}
+            className="w-full flex items-center justify-center gap-2 bg-brand-500 text-white py-3 rounded-lg text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Generar y descargar PDF
+          </button>
+          <p className="text-[9px] text-text-dim font-bold uppercase text-center">Se genera un código único y se guarda el registro</p>
+        </div>
+
+        {/* Vista previa */}
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Vista previa</h3>
+          <div className="rounded-xl overflow-hidden" style={{ background: '#e31e24', aspectRatio: '148/105' }}>
+            <div className="h-full w-full p-5 flex">
+              <div className="flex flex-col justify-center pr-3">
+                <p className="text-white font-black italic leading-none" style={{ fontSize: '28px' }}>#GIFT</p>
+                <p className="text-white font-black italic leading-none" style={{ fontSize: '28px' }}>CARD</p>
+                <p className="text-white text-[8px] font-bold mt-3">@CRAFT.TUC</p>
+              </div>
+              <div className="flex-1 flex flex-col justify-center gap-1.5">
+                <div className="bg-white rounded px-2 py-1">
+                  <p className="text-[7px] font-black" style={{ color: '#e31e24' }}>PARA:</p>
+                  <p className="text-[9px] text-neutral-800 font-bold truncate">{form.para || '—'}</p>
+                </div>
+                <div className="bg-white rounded px-2 py-1">
+                  <p className="text-[7px] font-black" style={{ color: '#e31e24' }}>TU REGALO ES:</p>
+                  <p className="text-[9px] text-neutral-800 truncate">{form.regalo || '—'}</p>
+                </div>
+                <div className="bg-white rounded px-2 py-1">
+                  <p className="text-[7px] font-black" style={{ color: '#e31e24' }}>DE PARTE DE:</p>
+                  <p className="text-[9px] text-neutral-800 truncate">{form.deParteDe || '—'}</p>
+                </div>
+                <p className="text-white text-[6px] font-bold mt-1">VÁLIDO POR 30 DÍAS · CASCO VIEJO, PERON, BARRIO NORTE Y SUR</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Historial de gift cards emitidas */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-dim flex items-center gap-2">
+          <Plus size={14} className="text-brand-500" />
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Gift Cards Emitidas</h3>
+          <span className="text-[9px] font-bold text-text-dim uppercase">({records.length})</span>
+        </div>
+        {loading ? (
+          <div className="py-12 flex justify-center"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[700px]">
+              <thead>
+                <tr className="bg-bg-accent/40 border-b border-border-dim text-[10px] font-black uppercase text-text-dim tracking-widest">
+                  <th className="px-4 py-3">Código</th>
+                  <th className="px-4 py-3">Para</th>
+                  <th className="px-4 py-3">Regalo</th>
+                  <th className="px-4 py-3">De parte de</th>
+                  <th className="px-4 py-3">Emisión</th>
+                  <th className="px-4 py-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {records.map(r => (
+                  <tr key={r.id} className="border-b border-border-dim/30 hover:bg-bg-accent/20 transition-colors text-[11px]">
+                    <td className="px-4 py-2.5 font-mono font-black text-brand-500">{r.codigo}</td>
+                    <td className="px-4 py-2.5 font-bold text-text-main">{r.para}</td>
+                    <td className="px-4 py-2.5 text-text-dim truncate max-w-[200px]">{r.regalo}</td>
+                    <td className="px-4 py-2.5 text-text-dim">{r.de_parte_de || '—'}</td>
+                    <td className="px-4 py-2.5 text-text-dim font-mono">{fmtDMY(r.fecha_emision)}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => redownload(r)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><Download size={14} /></button>
+                        {!isReadOnly && <button onClick={() => deleteRec(r)} title="Eliminar registro" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {records.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-[10px] font-black uppercase text-text-dim">Todavía no se emitieron gift cards</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}

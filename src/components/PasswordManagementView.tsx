@@ -41,7 +41,7 @@ const TYPE_ICONS: Record<string, any> = {
   other: Globe
 };
 
-export default function PasswordManagementView({ isReadOnly }: { isReadOnly?: boolean } = {}) {
+export default function PasswordManagementView({ isReadOnly, section = 'sucursal' }: { isReadOnly?: boolean; section?: string } = {}) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -59,15 +59,17 @@ export default function PasswordManagementView({ isReadOnly }: { isReadOnly?: bo
 
   const fetchData = async () => {
     setLoading(true);
+    // Filtra por sección (las filas viejas sin 'section' se asumen 'sucursal')
     const { data } = await supabase.from('passwords').select('*');
     if (data) {
-      setAccounts(data.map(p => ({
+      const filtered = data.filter((p: any) => (p.section || 'sucursal') === section);
+      setAccounts(filtered.map(p => ({
         id: p.id,
         service: p.service,
         type: p.category,
         username: p.username,
         password: p.password,
-        notes: '' // notes column wasn't in schema, but we can add it if needed or just ignore for now
+        notes: ''
       })));
     }
     setLoading(false);
@@ -75,7 +77,7 @@ export default function PasswordManagementView({ isReadOnly }: { isReadOnly?: bo
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [section]);
 
   const togglePassword = (id: string) => {
     setShowPassword(prev => ({ ...prev, [id]: !prev[id] }));
@@ -94,7 +96,8 @@ export default function PasswordManagementView({ isReadOnly }: { isReadOnly?: bo
       service: newAcc.service.toUpperCase(),
       category: newAcc.type,
       username: newAcc.username,
-      password: newAcc.password
+      password: newAcc.password,
+      section: section
     }]).select().single();
 
     if (data) {

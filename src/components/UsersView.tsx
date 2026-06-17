@@ -80,6 +80,9 @@ const SYSTEM_MODULES = [
   { id: 'mant_valorizacion', label: 'Valorización de Activos', category: 'Mantenimiento' },
   { id: 'mant_costos', label: 'Costos', category: 'Mantenimiento' },
   { id: 'mant_config', label: 'Configuración', category: 'Mantenimiento' },
+  { id: 'mkt_giftcard', label: 'Gift Card', category: 'Marketing & Comercial' },
+  { id: 'mkt_cuentas', label: 'Cuentas y Contraseñas', category: 'Marketing & Comercial' },
+  { id: 'mkt_drive', label: 'Drive MKT', category: 'Marketing & Comercial' },
 ];
 
 export default function UsersView({ selectedBranchId, branches, onUsersChanged, isReadOnly = false }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void, isReadOnly?: boolean }) {
