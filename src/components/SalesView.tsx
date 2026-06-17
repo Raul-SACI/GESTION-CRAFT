@@ -25,7 +25,8 @@ import {
   AlertCircle,
   Loader2,
   X,
-  ChevronRight
+  ChevronRight,
+  FileDown
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -161,6 +162,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
   const [rkFilterCategories, setRkFilterCategories] = useState<string[]>([]);
   const [rkFilterBranch, setRkFilterBranch] = useState('all');
   const [rkFilterPeriod, setRkFilterPeriod] = useState('all');
+  const [rkSelected, setRkSelected] = useState<Set<string>>(new Set());
   const [isImportingRanking, setIsImportingRanking] = useState(false);
   const [rankingToImport, setRankingToImport] = useState<{
     branchId: string;
@@ -537,6 +539,63 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
       return true;
     });
   }, [rankings, rkFilterProduct, rkFilterCode, rkFilterCategories, rkFilterBranch, rkFilterPeriod]);
+
+  // --- Ranking: selección múltiple, eliminación y plantilla modelo ---
+  const rkAllFilteredSelected = filteredRankings.length > 0 && filteredRankings.every(r => rkSelected.has(r.id));
+
+  const toggleRkSelectAll = () => {
+    setRkSelected(prev => {
+      const next = new Set(prev);
+      if (rkAllFilteredSelected) {
+        filteredRankings.forEach(r => next.delete(r.id));
+      } else {
+        filteredRankings.forEach(r => { if (r.id) next.add(r.id); });
+      }
+      return next;
+    });
+  };
+
+  const toggleRkOne = (id: string) => {
+    setRkSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const deleteSelectedRankings = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const ids = Array.from(rkSelected);
+    if (ids.length === 0) return;
+    if (!window.confirm(`¿Eliminar ${ids.length} artículo(s) seleccionado(s) del ranking? Esta acción no se puede deshacer.`)) return;
+    setImporting(true);
+    try {
+      // Borrar en lotes para no exceder límites
+      for (let i = 0; i < ids.length; i += 100) {
+        const chunk = ids.slice(i, i + 100);
+        const { error } = await supabase.from('product_rankings').delete().in('id', chunk);
+        if (error) throw error;
+      }
+      setRkSelected(new Set());
+      await fetchData();
+    } catch (e: any) {
+      alert('Error al eliminar: ' + (e.message || e));
+    }
+    setImporting(false);
+  };
+
+  // Descarga la planilla modelo con todas las columnas que el sistema reconoce al importar
+  const downloadRankingTemplate = () => {
+    const headers = ['Código', 'Nombre', 'Cantidad', 'Rubro de la Carta'];
+    const ejemplo = [
+      { 'Código': '15', 'Nombre': 'LATTE', 'Cantidad': 120, 'Rubro de la Carta': 'INFUSIONES & CAFETERIA' },
+      { 'Código': '76', 'Nombre': 'MEDIALUNA DE MANTECA', 'Cantidad': 80, 'Rubro de la Carta': 'DULCES & PASTELERIA' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(ejemplo, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ranking');
+    XLSX.writeFile(wb, 'plantilla_ranking_articulos.xlsx');
+  };
 
   const handleSelectAllToggle = () => {
     if (isAllSelected) {
@@ -2821,7 +2880,17 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                  <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
                     <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
                        <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
-                       <div className="flex items-center gap-4">
+                       <div className="flex items-center gap-3">
+                          {rkSelected.size > 0 && !isReadOnly && (
+                            <button onClick={deleteSelectedRankings}
+                              className="flex items-center gap-1 bg-red-500/10 text-red-500 border border-red-500/30 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
+                              <Trash2 size={12} /> Eliminar ({rkSelected.size})
+                            </button>
+                          )}
+                          <button onClick={downloadRankingTemplate}
+                            className="flex items-center gap-1 bg-bg-card text-text-dim border border-border-dim px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:text-emerald-500 transition-all">
+                            <FileDown size={12} /> Plantilla modelo
+                          </button>
                           <span className="text-[9px] font-bold text-text-dim uppercase">Mostrando: {selectedBranchId === 'all' ? 'Todas las Sucursales' : branches.find(b => b.id === selectedBranchId)?.name}</span>
                           {loading && (
                             <span className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-brand-500">
@@ -2840,6 +2909,10 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                        <table className="w-full border-collapse text-[10px]">
                           <thead>
                              <tr className="bg-bg-card border-b border-border-dim text-left text-text-dim font-bold uppercase tracking-widest">
+                                <th className="px-3 py-4 text-center">
+                                   <input type="checkbox" checked={rkAllFilteredSelected} onChange={toggleRkSelectAll}
+                                     className="w-3.5 h-3.5 accent-brand-500 cursor-pointer" title="Seleccionar todos los filtrados" />
+                                </th>
                                 <th className="px-4 py-4 text-center">#</th>
                                 <th className="px-6 py-4">Producto</th>
                                 <th className="px-4 py-4 text-center">Código</th>
@@ -2850,6 +2923,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                 <th className="px-6 py-4"></th>
                              </tr>
                              <tr className="bg-bg-sidebar border-b border-border-dim">
+                                <th className="px-2 py-2"></th>
                                 <th className="px-2 py-2"></th>
                                 <th className="px-3 py-2">
                                    <input
@@ -2896,7 +2970,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                           <tbody className="divide-y divide-border-dim">
                              {loading && rankings.length === 0 ? (
                                <tr>
-                                  <td colSpan={8} className="px-6 py-20 text-center text-brand-500 uppercase font-black tracking-widest">
+                                  <td colSpan={9} className="px-6 py-20 text-center text-brand-500 uppercase font-black tracking-widest">
                                      <span className="flex items-center justify-center gap-3">
                                         <Loader2 className="animate-spin" size={20} /> Cargando datos, aguarde…
                                      </span>
@@ -2904,7 +2978,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                </tr>
                              ) : filteredRankings.length === 0 ? (
                                <tr>
-                                  <td colSpan={8} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
+                                  <td colSpan={9} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                                      {rankings.length === 0
                                        ? 'No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.'
                                        : 'Ningún producto coincide con los filtros aplicados.'}
@@ -2912,7 +2986,11 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                </tr>
                              ) : (
                                filteredRankings.map((r, idx) => (
-                                 <tr key={r.id || idx} className="hover:bg-bg-accent/50 transition-colors group">
+                                 <tr key={r.id || idx} className={cn("hover:bg-bg-accent/50 transition-colors group", rkSelected.has(r.id) && "bg-brand-500/5")}>
+                                    <td className="px-3 py-4 text-center">
+                                       <input type="checkbox" checked={rkSelected.has(r.id)} onChange={() => toggleRkOne(r.id)}
+                                         className="w-3.5 h-3.5 accent-brand-500 cursor-pointer" />
+                                    </td>
                                     <td className="px-4 py-4 text-center font-black text-text-dim">{idx + 1}</td>
                                     <td className="px-6 py-4">
                                        <span className="font-black text-text-main uppercase">{r.product_name}</span>
@@ -2933,9 +3011,20 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                        {r.quantity.toLocaleString()}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                       <button className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                       {!isReadOnly && (
+                                         <button onClick={async () => {
+                                           if (!window.confirm(`¿Eliminar "${r.product_name}" del ranking?`)) return;
+                                           setImporting(true);
+                                           try {
+                                             const { error } = await supabase.from('product_rankings').delete().eq('id', r.id);
+                                             if (error) throw error;
+                                             await fetchData();
+                                           } catch (e: any) { alert('Error al eliminar: ' + (e.message || e)); }
+                                           setImporting(false);
+                                         }} className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                                           <Trash2 size={14} />
                                        </button>
+                                       )}
                                     </td>
                                  </tr>
                                ))
