@@ -42,36 +42,35 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
 
   // Genera el PDF de la gift card escribiendo sobre el diseño oficial de CRAFT
   const buildPdf = (rec: GiftCardRec) => {
-    // Página en px con el tamaño exacto de la imagen de fondo (1025x709)
-    const IW = 1025, IH = 709;
+    // Página en px con el tamaño exacto del diseño original (2883x1992)
+    const IW = 2883, IH = 1992;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [IW, IH] });
-    // Imagen de fondo (diseño oficial)
     doc.addImage(GIFTCARD_BG, 'JPEG', 0, 0, IW, IH);
 
-    doc.setTextColor(40, 40, 40);
-    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(35, 35, 35);
+    doc.setFont('helvetica', 'bold');
 
-    // PARA: (valor a la derecha de la etiqueta, dentro de la caja blanca)
-    doc.setFontSize(20);
-    doc.text(doc.splitTextToSize(rec.para || '', 380), 560, 185);
+    // PARA: (valor a la derecha de la etiqueta, dentro de la caja)
+    doc.setFontSize(46);
+    doc.text(doc.splitTextToSize(rec.para || '', 1150), 1520, 555);
 
     // TU REGALO ES: (valor a la derecha de la etiqueta multilínea)
-    doc.setFontSize(18);
-    doc.text(doc.splitTextToSize(rec.regalo || '', 380), 560, 322);
+    doc.setFontSize(44);
+    doc.text(doc.splitTextToSize(rec.regalo || '', 1100), 1520, 945);
 
     // DE PARTE DE: (valor a la derecha de la etiqueta)
-    doc.setFontSize(20);
-    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 330), 620, 478);
+    doc.setFontSize(46);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 950), 1760, 1355);
 
-    // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco sobre fondo rojo)
+    // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco)
     doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text(fmtDMY(rec.fecha_emision), 632, 585);
+    doc.setFontSize(32);
+    doc.text(fmtDMY(rec.fecha_emision), 1790, 1620);
 
-    // CÓDIGO (debajo, en blanco)
-    doc.setFontSize(12);
-    doc.text(`CÓDIGO: ${rec.codigo}`, 450, 660);
+    // CÓDIGO (espacio libre abajo, en blanco)
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(30);
+    doc.text(`CÓDIGO: ${rec.codigo}`, 1280, 1880);
 
     return doc;
   };
