@@ -9,6 +9,7 @@ import { Loader2, Gift, Download, Trash2, Plus } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { GIFTCARD_BG } from './giftCardBg';
 
 interface GiftCardRec {
   id: string; codigo: string; para: string; regalo: string; de_parte_de: string; fecha_emision: string; created_at?: string;
@@ -39,69 +40,38 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
 
   useEffect(() => { loadRecords(); }, []);
 
-  // Genera el PDF de la gift card con el diseño de CRAFT
+  // Genera el PDF de la gift card escribiendo sobre el diseño oficial de CRAFT
   const buildPdf = (rec: GiftCardRec) => {
-    // Tarjeta apaisada tipo postal
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [148, 105] });
-    const W = 148, H = 105;
-    const RED = [227, 30, 36] as const;
-    const WHITE = [255, 255, 255] as const;
+    // Página en px con el tamaño exacto de la imagen de fondo (1025x709)
+    const IW = 1025, IH = 709;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [IW, IH] });
+    // Imagen de fondo (diseño oficial)
+    doc.addImage(GIFTCARD_BG, 'JPEG', 0, 0, IW, IH);
 
-    // Fondo rojo
-    doc.setFillColor(RED[0], RED[1], RED[2]);
-    doc.rect(0, 0, W, H, 'F');
-
-    // Título #GIFT CARD (izquierda)
-    doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
-    doc.setFont('helvetica', 'bolditalic');
-    doc.setFontSize(34);
-    doc.text('#GIFT', 10, 40);
-    doc.text('CARD', 10, 58);
-    doc.setFontSize(9);
+    doc.setTextColor(40, 40, 40);
     doc.setFont('helvetica', 'normal');
-    doc.text('@CRAFT.TUC', 10, 95);
 
-    // Sello CRAFT (arriba derecha)
+    // PARA: (valor a la derecha de la etiqueta, dentro de la caja blanca)
+    doc.setFontSize(20);
+    doc.text(doc.splitTextToSize(rec.para || '', 380), 560, 185);
+
+    // TU REGALO ES: (valor a la derecha de la etiqueta multilínea)
+    doc.setFontSize(18);
+    doc.text(doc.splitTextToSize(rec.regalo || '', 380), 560, 322);
+
+    // DE PARTE DE: (valor a la derecha de la etiqueta)
+    doc.setFontSize(20);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 330), 620, 478);
+
+    // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco sobre fondo rojo)
+    doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text('CRAFT', W - 28, 16);
-    doc.setFontSize(5);
-    doc.setFont('helvetica', 'normal');
-    doc.text('SINCE 2019', W - 30, 21);
+    doc.setFontSize(13);
+    doc.text(fmtDMY(rec.fecha_emision), 632, 585);
 
-    // Campos en cajas blancas (derecha)
-    const boxX = 62, boxW = 78;
-    const drawBox = (y: number, h: number, label: string, value: string) => {
-      doc.setFillColor(WHITE[0], WHITE[1], WHITE[2]);
-      doc.roundedRect(boxX, y, boxW, h, 2, 2, 'F');
-      doc.setTextColor(RED[0], RED[1], RED[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
-      doc.text(label, boxX + 4, y + 6);
-      doc.setTextColor(40, 40, 40);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      const lines = doc.splitTextToSize(value || '', boxW - 8);
-      doc.text(lines, boxX + 4, y + 12);
-    };
-
-    drawBox(20, 16, 'PARA:', rec.para);
-    drawBox(40, 22, 'TU REGALO ES:', rec.regalo);
-    drawBox(66, 16, 'DE PARTE DE:', rec.de_parte_de);
-
-    // Pie: código, fecha y validez
-    doc.setTextColor(WHITE[0], WHITE[1], WHITE[2]);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.text(`CÓDIGO: ${rec.codigo}`, boxX, 88);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.text(`FECHA DE EMISIÓN: ${fmtDMY(rec.fecha_emision)}`, boxX, 93);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VÁLIDO POR 30 DÍAS', boxX, 97);
-    doc.setFont('helvetica', 'normal');
-    const validez = doc.splitTextToSize('USO EXCLUSIVO EN SUCURSALES DE CASCO VIEJO, AV. PERON, BARRIO NORTE Y BARRIO SUR.', boxW);
-    doc.text(validez, boxX, 100);
+    // CÓDIGO (debajo, en blanco)
+    doc.setFontSize(12);
+    doc.text(`CÓDIGO: ${rec.codigo}`, 450, 660);
 
     return doc;
   };
