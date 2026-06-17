@@ -86,6 +86,7 @@ const SociosDashboardView = lazy(() => import('./components/SociosDashboardView'
 const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
 const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
 const TasksView = lazy(() => import('./components/TasksView'));
+const MantPanelView = lazy(() => import('./components/MantPanelView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -521,7 +522,8 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
-    'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales'
+    'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
+    'mant_panel'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -617,6 +619,9 @@ function AppContent() {
       { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
       { id: 'ordenes', label: 'Tickets / Órdenes', icon: Ticket },
       { id: 'performance_admin', label: 'Configuración de Premios', icon: Trophy }
+    ],
+    'Mantenimiento': [
+      { id: 'mant_panel', label: 'Panel de Control', icon: BarChart3 },
     ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
@@ -1199,6 +1204,10 @@ function AppContent() {
               if (item.id === 'usuarios' || item.id === 'sucursales') {
                 return currentUser.role === 'administrador' || currentUser.role === 'dueño';
               }
+              // Módulos de Mantenimiento: por ahora solo admin/dueño (piloto)
+              if (item.id.startsWith('mant_')) {
+                return currentUser.role === 'administrador' || currentUser.role === 'dueño';
+              }
               if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return true;
               if (!currentUser.permissions || currentUser.permissions.length === 0) return false;
               return currentUser.permissions.includes(item.id);
@@ -1452,6 +1461,9 @@ function AppContent() {
                     Seleccioná un módulo del menú para comenzar
                   </p>
                 </motion.div>
+              )}
+              {activeTab === 'mant_panel' && (
+                <MantPanelView />
               )}
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
