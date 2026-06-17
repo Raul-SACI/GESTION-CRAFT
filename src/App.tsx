@@ -229,7 +229,7 @@ const LoadingState = () => (
 );
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState('tareas');
+  const [activeTab, setActiveTab] = useState('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
@@ -950,7 +950,7 @@ function AppContent() {
                 sessionStorage.setItem(`unlocked_profile_${profileToUnlock.id}`, 'true');
                 sessionStorage.setItem('active_profile_id', profileToUnlock.id);
                 setCurrentUserProfile(profileToUnlock);
-                setActiveTab('tareas'); // Al iniciar sesión, mostrar primero Tareas Pendientes
+                setActiveTab('home'); // Al iniciar sesión, mostrar pantalla de bienvenida con el logo
                 setTypedUnlockPassword('');
                 setUnlockError('');
                 setRefreshUnlockTrigger(prev => prev + 1);
@@ -1434,6 +1434,25 @@ function AppContent() {
             )}
           <Suspense fallback={<LoadingState />}>
             <AnimatePresence mode="wait">
+              {activeTab === 'home' && (
+                <motion.div
+                  key="home"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center justify-center min-h-[70vh] text-center select-none"
+                >
+                  <h1 className="text-6xl md:text-8xl font-black italic tracking-tighter text-brand-500 leading-none">
+                    CRAFT<span className="text-text-main">.</span>
+                  </h1>
+                  <p className="mt-3 text-sm md:text-base font-black uppercase tracking-[0.3em] text-text-dim">
+                    Sistemas &amp; Control
+                  </p>
+                  <p className="mt-8 text-[11px] font-bold uppercase tracking-widest text-text-dim/60">
+                    Seleccioná un módulo del menú para comenzar
+                  </p>
+                </motion.div>
+              )}
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
               )}
