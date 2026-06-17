@@ -1242,14 +1242,19 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         return;
       }
 
-      // Delete existing tickets for the months in this file, then insert
-      const months = [...new Set(tickets.map(t => t.month))];
+      // Borra solo los DÍAS que vienen en este archivo (no el mes completo),
+      // para no pisar ventas de otras semanas ya cargadas.
+      const fechasArchivo = [...new Set(tickets.map(t => t.date))];
       const branchIds = [...new Set(tickets.map(t => t.branch_id))];
 
-      for (const month of months) {
-        await supabase.from('sales_tickets').delete()
-          .eq('month', month)
-          .in('branch_id', branchIds);
+      for (const branchId of branchIds) {
+        // .in() en lotes para no exceder límites de URL si hay muchas fechas
+        for (let i = 0; i < fechasArchivo.length; i += 100) {
+          const chunk = fechasArchivo.slice(i, i + 100);
+          await supabase.from('sales_tickets').delete()
+            .eq('branch_id', branchId)
+            .in('date', chunk);
+        }
       }
 
       // Insert in batches of 500
@@ -1289,14 +1294,14 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
       }
       const aggRecords = Object.values(aggMap);
 
-      // Delete existing aggregated sales for these months/branches then insert
-      for (const month of months) {
-        const [my, mm] = month.split('-').map(Number);
-        const mLastDay = new Date(my, mm, 0).getDate();
-        await supabase.from('sales').delete()
-          .gte('date', `${month}-01`)
-          .lte('date', `${month}-${String(mLastDay).padStart(2, '0')}`)
-          .in('branch_id', branchIds);
+      // Borra los agregados solo de los DÍAS del archivo (no del mes completo)
+      for (const branchId of branchIds) {
+        for (let i = 0; i < fechasArchivo.length; i += 100) {
+          const chunk = fechasArchivo.slice(i, i + 100);
+          await supabase.from('sales').delete()
+            .eq('branch_id', branchId)
+            .in('date', chunk);
+        }
       }
       let aggErrors = 0;
       for (let i = 0; i < aggRecords.length; i += 200) {
@@ -1304,10 +1309,15 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         if (error) { console.warn('Error saving aggregated sales:', error.message); aggErrors++; }
       }
 
+      const fechasOrden = [...fechasArchivo].sort();
+      const rangoFechas = fechasOrden.length === 1
+        ? fechasOrden[0]
+        : `${fechasOrden[0]} a ${fechasOrden[fechasOrden.length - 1]}`;
+
       if (aggErrors > 0) {
-        alert(`✅ ${inserted.toLocaleString()} tickets importados (${months.join(', ')}).\n\n⚠️ Atención: hubo un problema al actualizar el resumen de ventas (${aggErrors} lote/s). Los tickets se guardaron, pero algunos reportes que usan el resumen podrían no reflejarlo. Reintentá la importación si notás diferencias.`);
+        alert(`✅ ${inserted.toLocaleString()} tickets importados (${rangoFechas}).\n\n⚠️ Atención: hubo un problema al actualizar el resumen de ventas (${aggErrors} lote/s). Los tickets se guardaron, pero algunos reportes que usan el resumen podrían no reflejarlo. Reintentá la importación si notás diferencias.`);
       } else {
-        alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${months.join(', ')})`);
+        alert(`✅ ${inserted.toLocaleString()} tickets importados correctamente (${rangoFechas})`);
       }
     } catch (err: any) {
       console.error('Error importando tickets:', err);
