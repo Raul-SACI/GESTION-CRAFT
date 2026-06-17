@@ -73,6 +73,13 @@ const SYSTEM_MODULES = [
   { id: 'performance_admin', label: 'Configuración de Premios', category: 'Gerencia General' },
   { id: 'sucursales', label: 'Gestión Sucursales', category: 'Configuración' },
   { id: 'usuarios', label: 'Usuarios/Roles', category: 'Configuración' },
+  { id: 'mant_panel', label: 'Panel de Control', category: 'Mantenimiento' },
+  { id: 'mant_inventario', label: 'Inventario', category: 'Mantenimiento' },
+  { id: 'mant_tareas', label: 'Tareas', category: 'Mantenimiento' },
+  { id: 'mant_preventivo', label: 'Plan Preventivo', category: 'Mantenimiento' },
+  { id: 'mant_valorizacion', label: 'Valorización de Activos', category: 'Mantenimiento' },
+  { id: 'mant_costos', label: 'Costos', category: 'Mantenimiento' },
+  { id: 'mant_config', label: 'Configuración', category: 'Mantenimiento' },
 ];
 
 export default function UsersView({ selectedBranchId, branches, onUsersChanged, isReadOnly = false }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void, isReadOnly?: boolean }) {

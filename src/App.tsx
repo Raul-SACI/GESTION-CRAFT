@@ -1216,10 +1216,6 @@ function AppContent() {
               if (item.id === 'usuarios' || item.id === 'sucursales') {
                 return currentUser.role === 'administrador' || currentUser.role === 'dueño';
               }
-              // Módulos de Mantenimiento: por ahora solo admin/dueño (piloto)
-              if (item.id.startsWith('mant_')) {
-                return currentUser.role === 'administrador' || currentUser.role === 'dueño';
-              }
               if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return true;
               if (!currentUser.permissions || currentUser.permissions.length === 0) return false;
               return currentUser.permissions.includes(item.id);
