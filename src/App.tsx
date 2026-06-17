@@ -96,6 +96,7 @@ const MantCostsView = lazy(() => import('./components/MantCostsView'));
 const MantConfigView = lazy(() => import('./components/MantConfigView'));
 const PublicQRView = lazy(() => import('./components/PublicQRView'));
 const GiftCardView = lazy(() => import('./components/GiftCardView'));
+const GiftCardBranchView = lazy(() => import('./components/GiftCardBranchView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -539,7 +540,7 @@ function AppContent() {
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
-    'mkt_giftcard', 'mkt_cuentas', 'mkt_drive'
+    'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -591,6 +592,7 @@ function AppContent() {
       { id: 'pedidos_internos', label: 'Pedidos Internos', icon: ShoppingCart },
       { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
       { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
+      { id: 'giftcards_sucursal', label: 'Gift Cards', icon: Gift },
     ],
     'Recursos Humanos': [
       { id: 'control_horas', label: 'Control de Horas', icon: ShieldCheck },
@@ -1523,7 +1525,7 @@ function AppContent() {
                 <MantConfigView />
               )}
               {activeTab === 'mkt_giftcard' && (
-                <GiftCardView key="mkt_giftcard" isReadOnly={isCurrentTabReadOnly} />
+                <GiftCardView key="mkt_giftcard" currentUser={{ name: currentUser.name }} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'mkt_cuentas' && (
                 <PasswordManagementView key="mkt_cuentas" section="marketing" isReadOnly={isCurrentTabReadOnly} />
@@ -1647,6 +1649,13 @@ function AppContent() {
               {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'giftcards_sucursal' && (
+                <GiftCardBranchView
+                  key="giftcards_sucursal"
+                  branchName={selectedBranchId === 'all' ? undefined : branches.find(b => b.id === selectedBranchId)?.name}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
+              )}
               {activeTab === 'papeles_sucursal' && (
                 <DocumentsView 
                   key="papeles_sucursal" 

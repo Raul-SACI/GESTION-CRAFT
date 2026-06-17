@@ -12,7 +12,8 @@ import { cn } from '../lib/utils';
 import { GIFTCARD_BG } from './giftCardBg';
 
 interface GiftCardRec {
-  id: string; codigo: string; para: string; regalo: string; de_parte_de: string; fecha_emision: string; created_at?: string;
+  id: string; codigo: string; para: string; regalo: string; de_parte_de: string; fecha_emision: string;
+  emitida_por?: string; medio_pago?: string; utilizada?: boolean; utilizada_fecha?: string | null; utilizada_sucursal?: string | null; created_at?: string;
 }
 
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -23,11 +24,11 @@ const genCodigo = () => {
   return `CRAFT-${part()}-${part()}`;
 };
 
-export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
+export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?: boolean; currentUser?: { name?: string } }) {
   const [records, setRecords] = useState<GiftCardRec[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ para: '', regalo: '', deParteDe: '', fecha: todayISO() });
+  const [form, setForm] = useState({ para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
 
   const loadRecords = async () => {
     setLoading(true);
@@ -64,8 +65,8 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
 
     // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco)
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(42);
-    doc.text(fmtDMY(rec.fecha_emision), 1800, 1655);
+    doc.setFontSize(56);
+    doc.text(fmtDMY(rec.fecha_emision), 1800, 1660);
 
     // CÓDIGO (espacio libre abajo, en blanco)
     doc.setFontSize(32);
@@ -86,6 +87,9 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
         regalo: form.regalo.trim(),
         de_parte_de: form.deParteDe.trim(),
         fecha_emision: form.fecha || todayISO(),
+        emitida_por: currentUser?.name || 'CRAFT',
+        medio_pago: form.medioPago.trim() || null as any,
+        utilizada: false,
       };
       const { error } = await supabase.from('gift_cards').insert(rec);
       if (error) throw error;
@@ -93,7 +97,7 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
       const doc = buildPdf(rec);
       doc.save(`giftcard_${rec.codigo}.pdf`);
       // Limpiar y recargar
-      setForm({ para: '', regalo: '', deParteDe: '', fecha: todayISO() });
+      setForm({ para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
       await loadRecords();
     } catch (e: any) {
       alert('Error al generar la gift card: ' + (e.message || e));
@@ -142,6 +146,10 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
           <div>
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha de emisión</label>
             <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Medio de pago</label>
+            <input value={form.medioPago} onChange={e => setForm({ ...form, medioPago: e.target.value })} placeholder="Ej: Efectivo, Transferencia, Cortesía..." className={inputCls} />
           </div>
           <button onClick={generateAndSave} disabled={saving || isReadOnly}
             className="w-full flex items-center justify-center gap-2 bg-brand-500 text-white py-3 rounded-lg text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60">
@@ -198,7 +206,10 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
                   <th className="px-4 py-3">Para</th>
                   <th className="px-4 py-3">Regalo</th>
                   <th className="px-4 py-3">De parte de</th>
+                  <th className="px-4 py-3">Medio pago</th>
+                  <th className="px-4 py-3">Emitida por</th>
                   <th className="px-4 py-3">Emisión</th>
+                  <th className="px-4 py-3 text-center">Estado</th>
                   <th className="px-4 py-3 text-right">Acciones</th>
                 </tr>
               </thead>
@@ -209,7 +220,14 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
                     <td className="px-4 py-2.5 font-bold text-text-main">{r.para}</td>
                     <td className="px-4 py-2.5 text-text-dim truncate max-w-[200px]">{r.regalo}</td>
                     <td className="px-4 py-2.5 text-text-dim">{r.de_parte_de || '—'}</td>
+                    <td className="px-4 py-2.5 text-text-dim">{r.medio_pago || '—'}</td>
+                    <td className="px-4 py-2.5 text-text-dim">{r.emitida_por || '—'}</td>
                     <td className="px-4 py-2.5 text-text-dim font-mono">{fmtDMY(r.fecha_emision)}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      {r.utilizada
+                        ? <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-text-dim/10 text-text-dim">Usada{r.utilizada_sucursal ? ` · ${r.utilizada_sucursal}` : ''}</span>
+                        : <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500">Vigente</span>}
+                    </td>
                     <td className="px-4 py-2.5 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => redownload(r)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><Download size={14} /></button>
@@ -219,7 +237,7 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
                   </tr>
                 ))}
                 {records.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-[10px] font-black uppercase text-text-dim">Todavía no se emitieron gift cards</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-10 text-center text-[10px] font-black uppercase text-text-dim">Todavía no se emitieron gift cards</td></tr>
                 )}
               </tbody>
             </table>

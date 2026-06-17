@@ -39,6 +39,7 @@ const SYSTEM_MODULES = [
   { id: 'pedidos_internos', label: 'Pedidos Internos (Carga)', category: 'Gestión Sucursal' },
   { id: 'papeles_sucursal', label: 'Papeles Importantes (Sucursal)', category: 'Gestión Sucursal' },
   { id: 'cuentas', label: 'Cuentas y Contraseñas', category: 'Gestión Sucursal' },
+  { id: 'giftcards_sucursal', label: 'Gift Cards (marcar usadas)', category: 'Gestión Sucursal' },
   { id: 'control_horas', label: 'Control de Horas', category: 'Recursos Humanos' },
   { id: 'gestion_sueldos', label: 'Maestro de Personal', category: 'Recursos Humanos' },
   { id: 'presupuesto_horas', label: 'Presupuestador de Horas', category: 'Gestión Líderes Operativos' },
