@@ -92,6 +92,7 @@ const MantTasksView = lazy(() => import('./components/MantTasksView'));
 const MantPreventiveView = lazy(() => import('./components/MantPreventiveView'));
 const MantValorizationView = lazy(() => import('./components/MantValorizationView'));
 const MantCostsView = lazy(() => import('./components/MantCostsView'));
+const MantConfigView = lazy(() => import('./components/MantConfigView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -528,7 +529,7 @@ function AppContent() {
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
-    'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos'
+    'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -632,6 +633,7 @@ function AppContent() {
       { id: 'mant_preventivo', label: 'Plan Preventivo', icon: Calendar },
       { id: 'mant_valorizacion', label: 'Valorización', icon: Landmark },
       { id: 'mant_costos', label: 'Costos', icon: DollarSign },
+      { id: 'mant_config', label: 'Configuración', icon: Settings },
     ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
@@ -1489,6 +1491,9 @@ function AppContent() {
               )}
               {activeTab === 'mant_costos' && (
                 <MantCostsView />
+              )}
+              {activeTab === 'mant_config' && (
+                <MantConfigView />
               )}
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
