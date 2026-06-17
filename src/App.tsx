@@ -631,7 +631,7 @@ function AppContent() {
       { id: 'mant_inventario', label: 'Inventario', icon: Package },
       { id: 'mant_tareas', label: 'Tareas', icon: ClipboardCheck },
       { id: 'mant_preventivo', label: 'Plan Preventivo', icon: Calendar },
-      { id: 'mant_valorizacion', label: 'Valorización', icon: Landmark },
+      { id: 'mant_valorizacion', label: 'Valorización de Activos', icon: Landmark },
       { id: 'mant_costos', label: 'Costos', icon: DollarSign },
       { id: 'mant_config', label: 'Configuración', icon: Settings },
     ],
