@@ -87,6 +87,7 @@ const CajaCentralView = lazy(() => import('./components/CajaCentralView'));
 const PaymentRemindersView = lazy(() => import('./components/PaymentRemindersView'));
 const TasksView = lazy(() => import('./components/TasksView'));
 const MantPanelView = lazy(() => import('./components/MantPanelView'));
+const MantInventoryView = lazy(() => import('./components/MantInventoryView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -523,7 +524,7 @@ function AppContent() {
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
-    'mant_panel'
+    'mant_panel', 'mant_inventario'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -622,6 +623,7 @@ function AppContent() {
     ],
     'Mantenimiento': [
       { id: 'mant_panel', label: 'Panel de Control', icon: BarChart3 },
+      { id: 'mant_inventario', label: 'Inventario', icon: Package },
     ],
     'Configuración': [
       { id: 'sucursales', label: 'Gestión Sucursales', icon: Building2 },
@@ -1464,6 +1466,9 @@ function AppContent() {
               )}
               {activeTab === 'mant_panel' && (
                 <MantPanelView />
+              )}
+              {activeTab === 'mant_inventario' && (
+                <MantInventoryView />
               )}
               {activeTab === 'socios_dashboard' && (
                 <SociosDashboardView branches={branches} />
