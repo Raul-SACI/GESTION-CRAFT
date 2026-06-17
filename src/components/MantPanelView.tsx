@@ -27,15 +27,30 @@ export default function MantPanelView() {
       setLoading(true);
       setError(null);
       try {
+        // Trae TODOS los registros de una tabla paginando de a 1000 (límite de Supabase)
+        const getAll = async (table: string, cols: string) => {
+          let all: any[] = [];
+          let from = 0;
+          const step = 1000;
+          while (true) {
+            const { data, error } = await supabaseMant.from(table).select(cols).range(from, from + step - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              all = all.concat(data);
+              if (data.length < step) break;
+              from += step;
+            } else break;
+          }
+          return all;
+        };
         const [a, t, r] = await Promise.all([
-          supabaseMant.from('activos').select('id, name, branch, inactive, acquisition_cost, acquisition_cost_usd'),
-          supabaseMant.from('tareas').select('id, branch, asset_id, status'),
-          supabaseMant.from('reparaciones').select('id, branch, asset_id, total_cost'),
+          getAll('activos', 'id, name, branch, inactive, acquisition_cost, acquisition_cost_usd'),
+          getAll('tareas', 'id, branch, asset_id, status'),
+          getAll('reparaciones', 'id, branch, asset_id, total_cost'),
         ]);
-        if (a.error) throw a.error;
-        setAssets((a.data as Asset[]) || []);
-        setTasks((t.data as Task[]) || []);
-        setRepairs((r.data as Repair[]) || []);
+        setAssets(a as Asset[]);
+        setTasks(t as Task[]);
+        setRepairs(r as Repair[]);
       } catch (e: any) {
         console.error('Error cargando datos de mantenimiento:', e);
         setError(e.message || 'No se pudieron cargar los datos de mantenimiento.');
