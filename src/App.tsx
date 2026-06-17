@@ -93,6 +93,7 @@ const MantPreventiveView = lazy(() => import('./components/MantPreventiveView'))
 const MantValorizationView = lazy(() => import('./components/MantValorizationView'));
 const MantCostsView = lazy(() => import('./components/MantCostsView'));
 const MantConfigView = lazy(() => import('./components/MantConfigView'));
+const PublicQRView = lazy(() => import('./components/PublicQRView'));
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
@@ -236,6 +237,12 @@ const LoadingState = () => (
 );
 
 function AppContent() {
+  // Detección del QR público: si la URL tiene ?bien=ID, se muestra la vista pública del QR
+  // (escaneo de un bien de mantenimiento) en lugar del login/app normal.
+  const [qrBienId, setQrBienId] = useState<string | null>(() => {
+    try { return new URLSearchParams(window.location.search).get('bien'); } catch { return null; }
+  });
+
   const [activeTab, setActiveTab] = useState('home');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -895,6 +902,22 @@ function AppContent() {
     { id: 'papeles_sucursal', label: 'Papeles Importantes', icon: FileText },
     { id: 'cuentas', label: 'Cuentas y Contraseñas', icon: Key },
   ];
+
+  // Si se escaneó un QR de mantenimiento (?bien=ID), mostrar la vista pública
+  // antes del login/app normal.
+  if (qrBienId) {
+    return (
+      <Suspense fallback={<LoadingState />}>
+        <PublicQRView
+          bienId={qrBienId}
+          onClose={() => {
+            setQrBienId(null);
+            try { window.history.replaceState({}, '', window.location.pathname); } catch { /* noop */ }
+          }}
+        />
+      </Suspense>
+    );
+  }
 
   if (isCurrentProfileLocked) {
     const activeLoginProfileForForm = currentUserProfile || availableProfiles.find(p => p.id === selectedLoginProfileId);
