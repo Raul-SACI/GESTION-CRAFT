@@ -584,12 +584,12 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
     setImporting(false);
   };
 
-  // Descarga la planilla modelo con todas las columnas que el sistema reconoce al importar
+  // Descarga la planilla modelo con todas las columnas del ranking
   const downloadRankingTemplate = () => {
-    const headers = ['Código', 'Nombre', 'Cantidad', 'Rubro de la Carta'];
+    const headers = ['Producto', 'Código', 'Rubro', 'Sucursal', 'Mes', 'Semana', 'Cantidad'];
     const ejemplo = [
-      { 'Código': '15', 'Nombre': 'LATTE', 'Cantidad': 120, 'Rubro de la Carta': 'INFUSIONES & CAFETERIA' },
-      { 'Código': '76', 'Nombre': 'MEDIALUNA DE MANTECA', 'Cantidad': 80, 'Rubro de la Carta': 'DULCES & PASTELERIA' },
+      { 'Producto': 'LATTE', 'Código': '15', 'Rubro': 'INFUSIONES & CAFETERIA', 'Sucursal': 'CRAFT BARRIO SUR', 'Mes': '2026-06', 'Semana': 1, 'Cantidad': 120 },
+      { 'Producto': 'MEDIALUNA DE MANTECA', 'Código': '76', 'Rubro': 'DULCES & PASTELERIA', 'Sucursal': 'CRAFT BARRIO SUR', 'Mes': '2026-06', 'Semana': 1, 'Cantidad': 80 },
     ];
     const ws = XLSX.utils.json_to_sheet(ejemplo, { header: headers });
     const wb = XLSX.utils.book_new();
