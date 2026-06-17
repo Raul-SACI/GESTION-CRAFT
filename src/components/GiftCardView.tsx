@@ -51,24 +51,24 @@ export default function GiftCardView({ isReadOnly }: { isReadOnly?: boolean }) {
     doc.setFont('helvetica', 'bold');
 
     // PARA: (valor a la derecha de la etiqueta, alineado con ella)
-    doc.setFontSize(58);
-    doc.text(doc.splitTextToSize(rec.para || '', 1080), 1500, 515);
+    doc.setFontSize(64);
+    doc.text(doc.splitTextToSize(rec.para || '', 1050), 1520, 520);
 
-    // TU REGALO ES: (valor a la derecha, centrado en la caja)
-    doc.setFontSize(54);
-    doc.text(doc.splitTextToSize(rec.regalo || '', 1100), 1480, 915);
+    // TU REGALO ES: (valor a la derecha de la etiqueta, centrado en la caja)
+    doc.setFontSize(60);
+    doc.text(doc.splitTextToSize(rec.regalo || '', 1080), 1560, 905);
 
     // DE PARTE DE: (valor a la derecha de la etiqueta, alineado)
-    doc.setFontSize(58);
-    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 920), 1770, 1365);
+    doc.setFontSize(64);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 900), 1800, 1360);
 
     // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco)
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(40);
-    doc.text(fmtDMY(rec.fecha_emision), 1790, 1610);
+    doc.setFontSize(42);
+    doc.text(fmtDMY(rec.fecha_emision), 1800, 1655);
 
     // CÓDIGO (espacio libre abajo, en blanco)
-    doc.setFontSize(30);
+    doc.setFontSize(32);
     doc.text(`CÓDIGO: ${rec.codigo}`, 1280, 1880);
 
     return doc;
