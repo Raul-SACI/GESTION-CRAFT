@@ -1169,8 +1169,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              const firstDayLog = itemWeekLogs.find(l => l.date === weekDates[0]);
                              const ei = firstDayLog ? (firstDayLog.ei || 0) : (sortedWeekLogs[0]?.ei || 0);
                              
+                             // EF: StockView lo guarda/lee en el primer día de la semana. Priorizamos ese;
+                             // si no hay, usamos el último día (compatibilidad con cargas viejas).
                              const lastDayLog = itemWeekLogs.find(l => l.date === weekDates[weekDates.length - 1]);
-                             const ef = lastDayLog ? (lastDayLog.ef || 0) : (sortedWeekLogs[sortedWeekLogs.length - 1]?.ef || 0);
+                             const ef = (firstDayLog && firstDayLog.ef) ? firstDayLog.ef
+                                      : (lastDayLog && lastDayLog.ef ? lastDayLog.ef : (sortedWeekLogs[sortedWeekLogs.length - 1]?.ef || 0));
                              
                              const purchases = itemWeekLogs.reduce((sum, l) => sum + (l.purchases || 0), 0);
                              const waste = itemWeekLogs.reduce((sum, l) => sum + (l.waste || 0), 0);
@@ -1240,7 +1243,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                      value={log.ef || ''}
                                      placeholder="0"
                                      disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(weekDates[weekDates.length - 1], id, 'ef', parseFloat(e.target.value) || 0)}
+                                     onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)}
                                      className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
                                    />
                                  </td>
