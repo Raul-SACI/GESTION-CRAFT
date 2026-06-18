@@ -17,10 +17,12 @@ import {
   UtensilsCrossed,
   Layers,
   FileSpreadsheet,
-  Loader2
+  Loader2,
+  ListPlus
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
+import PriceListBuilder from './PriceListBuilder';
 
 interface MenuItem {
   id: string;
@@ -79,6 +81,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
   // Inflación acumulada del año (ene a último mes cargado), leída de monthly_inflation
   const [yearInflation, setYearInflation] = useState<number | null>(null);
+  const [showBuilder, setShowBuilder] = useState(false);
   const [inflationPeriod, setInflationPeriod] = useState<string>('');
 
   const fetchData = async () => {
@@ -296,17 +299,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         </div>
 
         <div className="flex gap-2">
-          <button 
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all"
-            onClick={() => window.print()}
+          <button
+            className="flex items-center gap-2 px-4 py-2 bg-brand-500 text-white rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all"
+            onClick={() => setShowBuilder(true)}
           >
-            <FileSpreadsheet size={14} /> Excel
-          </button>
-          <button 
-            className="flex items-center gap-2 px-4 py-2 bg-brand-500/10 text-brand-500 border border-brand-500/20 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-500/20 transition-all"
-            onClick={() => window.print()}
-          >
-            <FileText size={14} /> PDF
+            <ListPlus size={14} /> Armar nueva lista
           </button>
         </div>
       </div>
@@ -585,6 +582,26 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         )}
       </AnimatePresence>
+
+      {showBuilder && (
+        <PriceListBuilder
+          menuType={activeMenu}
+          menuLabel={menuLabel}
+          isReadOnly={isReadOnly}
+          items={(menus[activeMenu] || []).map(item => {
+            const sugerido = (item.basePrice && item.basePrice > 0 && yearInflation !== null)
+              ? redondeoComercial(item.basePrice * (1 + yearInflation / 100))
+              : item.price;
+            return {
+              id: item.id, category: item.category, name: item.name,
+              precioActual: item.price, precioInicial: item.basePrice,
+              precioSugerido: sugerido,
+            };
+          })}
+          onClose={() => setShowBuilder(false)}
+          onConfirmed={() => fetchData()}
+        />
+      )}
     </motion.div>
   );
 }
