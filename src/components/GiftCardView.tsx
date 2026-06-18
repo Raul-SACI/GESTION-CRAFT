@@ -61,12 +61,12 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
 
     // DE PARTE DE: (valor a la derecha de la etiqueta, alineado)
     doc.setFontSize(64);
-    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 900), 1800, 1360);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 900), 1800, 1320);
 
     // FECHA DE EMISIÓN: (valor a la derecha del texto, en blanco)
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(56);
-    doc.text(fmtDMY(rec.fecha_emision), 1800, 1660);
+    doc.setFontSize(64);
+    doc.text(fmtDMY(rec.fecha_emision), 1800, 1620);
 
     // CÓDIGO (espacio libre abajo, en blanco)
     doc.setFontSize(32);
