@@ -1273,8 +1273,23 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         const cubiertosKey = findCol('CUBIERTOS');
         const ordenesKey = findCol('ORDENES');
         const cobroKey = findCol('COBRO');
-        const comprobanteKey = findCol('COMPROBANTE');
-        const comprobanteVal = row[comprobanteKey] != null ? String(row[comprobanteKey]).trim() : '';
+        // El comprobante viene con encabezado "N° COMP" (puede variar el símbolo: N°, Nº, N).
+        // Buscamos de forma robusta: cualquier columna que contenga "comp", priorizando las
+        // que además empiecen con "n" (N° COMP / NRO COMP), y con respaldos por si cambia.
+        const findComprobanteCol = () => {
+          const keys = allRowKeys.map(k => ({ raw: k, norm: k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') }));
+          // 1) empieza con "n" y contiene "comp"  → "n° comp", "nro comp", "n comp"
+          let f = keys.find(k => /^n.*comp/.test(k.norm));
+          if (f) return f.raw;
+          // 2) contiene "comprobante"
+          f = keys.find(k => k.norm.includes('comprobante'));
+          if (f) return f.raw;
+          // 3) contiene "comp" o "ticket"
+          f = keys.find(k => k.norm.includes('comp') || k.norm.includes('ticket'));
+          return f ? f.raw : null;
+        };
+        const comprobanteKey = findComprobanteCol();
+        const comprobanteVal = comprobanteKey && row[comprobanteKey] != null ? String(row[comprobanteKey]).trim() : '';
 
         tickets.push({
           id: `tk-${Date.now()}-${Math.random().toString(36).substr(2,8)}`,
