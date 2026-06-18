@@ -1623,6 +1623,7 @@ function AppContent() {
                   setItems={setItems}
                   products={products}
                   setProducts={setProducts}
+                  currentUserRole={currentUser.role}
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}

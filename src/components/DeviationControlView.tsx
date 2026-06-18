@@ -90,6 +90,7 @@ export default function DeviationControlView({
   setItems,
   products,
   setProducts,
+  currentUserRole,
   isReadOnly = false
 }: { 
   branches: Branch[], 
@@ -101,6 +102,7 @@ export default function DeviationControlView({
   setItems: React.Dispatch<React.SetStateAction<StockItem[]>>,
   products: Product[],
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>,
+  currentUserRole?: string,
   isReadOnly?: boolean
 }) {
   const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla' | 'diagnostico'>('comparativo');
@@ -121,6 +123,9 @@ export default function DeviationControlView({
   // Daily Logs State
   const [dailyLogs, setDailyLogs] = useState<any[]>([]);
   const [isSavingDaily, setIsSavingDaily] = useState(false);
+  // Cierres administrativos de semana (clave "branch-mes-semana")
+  const [adminClosures, setAdminClosures] = useState<Record<string, boolean>>({});
+  const isAdmin = currentUserRole === 'administrador' || currentUserRole === 'dueño';
 
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
   const reloadItems = async () => {
@@ -324,7 +329,12 @@ export default function DeviationControlView({
     const columnMap: Record<string, string> = {
       purchases: 'compras',
       waste: 'decomisos',
-      theoretical_sales: 'ventas_teorico'
+      theoretical_sales: 'ventas_teorico',
+      ei: 'ei',
+      ef: 'ef',
+      loansReceived: 'prestamos_recibidos',
+      loansSent: 'prestamos_enviados',
+      staff_consumption: 'consumo_personal'
     };
 
     const dbField = columnMap[field];
@@ -356,6 +366,8 @@ export default function DeviationControlView({
         return [...otherLogs, {
           ...data,
           itemId: data.item_id,
+          ei: data.ei,
+          ef: data.ef,
           purchases: data.compras,
           waste: data.decomisos,
           theoretical_sales: data.ventas_teorico,
@@ -365,6 +377,64 @@ export default function DeviationControlView({
         }];
       });
     }
+  };
+
+  // Edita un valor AGREGADO semanal (préstamos, consumo): concentra el valor en el
+  // primer día de la semana y pone 0 en los demás, para que el total semanal sea el valor editado.
+  const updateWeeklyAggregate = async (weekDates: string[], itemId: string, field: string, value: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!weekDates.length) return;
+    // Primer día: el valor; resto: 0
+    await updateDailyLog(weekDates[0], itemId, field, value);
+    for (let i = 1; i < weekDates.length; i++) {
+      const dayLog = dailyLogs.find(l => l.itemId === itemId && l.date === weekDates[i]);
+      const current = field === 'loansReceived' ? (dayLog?.loansReceived || 0)
+                    : field === 'loansSent' ? (dayLog?.loansSent || 0)
+                    : (dayLog?.staff_consumption || 0);
+      if (current !== 0) await updateDailyLog(weekDates[i], itemId, field, 0);
+    }
+  };
+
+  // Carga los cierres administrativos de la sucursal/mes seleccionados
+  useEffect(() => {
+    (async () => {
+      if (!selectedBranchId) { setAdminClosures({}); return; }
+      try {
+        const { data } = await supabase.from('deviation_week_closures')
+          .select('*').eq('branch_id', selectedBranchId).eq('month', selectedMonth);
+        const map: Record<string, boolean> = {};
+        (data || []).forEach((c: any) => { map[`${c.branch_id}-${c.month}-${c.week_number}`] = true; });
+        setAdminClosures(map);
+      } catch (e) { console.warn('Error cargando cierres admin:', e); }
+    })();
+  }, [selectedBranchId, selectedMonth]);
+
+  const isWeekClosedAdmin = (weekNum: number) => !!adminClosures[`${selectedBranchId}-${selectedMonth}-${weekNum}`];
+
+  const closeWeekAdmin = async (weekNum: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!selectedBranchId || selectedBranchId === 'all') { alert('Seleccioná una sucursal concreta para cerrar la semana.'); return; }
+    if (!window.confirm(`¿Cerrar la SEMANA ${weekNum} de ${selectedMonth} para esta sucursal?\n\nLos campos quedarán bloqueados y los desvíos impactarán en el dashboard del encargado.\nSolo un administrador podrá reabrirla.`)) return;
+    try {
+      const { error } = await supabase.from('deviation_week_closures').upsert({
+        id: `${selectedBranchId}-${selectedMonth}-${weekNum}`,
+        branch_id: selectedBranchId, month: selectedMonth, week_number: weekNum,
+        closed_by: currentUserRole || 'admin', closed_at: new Date().toISOString(),
+      }, { onConflict: 'branch_id,month,week_number' });
+      if (error) throw error;
+      setAdminClosures(prev => ({ ...prev, [`${selectedBranchId}-${selectedMonth}-${weekNum}`]: true }));
+    } catch (e: any) { alert('Error al cerrar la semana: ' + (e.message || e)); }
+  };
+
+  const reopenWeekAdmin = async (weekNum: number) => {
+    if (!isAdmin) { alert('Solo un administrador puede reabrir una semana cerrada.'); return; }
+    if (!window.confirm(`¿Reabrir la SEMANA ${weekNum} de ${selectedMonth}? Volverá a quedar editable.`)) return;
+    try {
+      const { error } = await supabase.from('deviation_week_closures').delete()
+        .eq('branch_id', selectedBranchId).eq('month', selectedMonth).eq('week_number', weekNum);
+      if (error) throw error;
+      setAdminClosures(prev => { const n = { ...prev }; delete n[`${selectedBranchId}-${selectedMonth}-${weekNum}`]; return n; });
+    } catch (e: any) { alert('Error al reabrir: ' + (e.message || e)); }
   };
 
   const getWeeks = () => {
@@ -1072,13 +1142,27 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        return (
                          <tr key={dateStr} className="hover:bg-bg-accent/30 transition-colors text-[10px]">
                            <td className="px-4 py-6 font-mono font-bold text-text-dim sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim text-center">
-                              <div className="flex flex-col items-center">
+                              <div className="flex flex-col items-center gap-2">
                                 <span className="text-brand-500 font-black uppercase text-[11px]">{week.label}</span>
                                 <span className="text-[8px] opacity-60 font-black">{week.range}</span>
+                                {isWeekClosedAdmin(week.id) ? (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <span className="text-[8px] font-black uppercase text-red-500 bg-red-500/10 border border-red-500/30 rounded px-2 py-0.5">Cerrada</span>
+                                    {isAdmin && (
+                                      <button onClick={() => reopenWeekAdmin(week.id)} className="text-[7px] font-black uppercase text-text-dim hover:text-amber-500 underline">Reabrir</button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  !isReadOnly && (
+                                    <button onClick={() => closeWeekAdmin(week.id)}
+                                      className="text-[8px] font-black uppercase bg-brand-500 text-white rounded px-2 py-1 hover:bg-brand-600 transition-all">Cerrar semana</button>
+                                  )
+                                )}
                               </div>
                            </td>
                            {validControlledIds.map(id => {
                              const weekDates = getDatesForWeek(week.id);
+                             const weekClosed = isWeekClosedAdmin(week.id);
                              const itemWeekLogs = dailyLogs.filter(l => l.itemId === id && weekDates.includes(l.date));
                              const sortedWeekLogs = [...itemWeekLogs].sort((a, b) => a.date.localeCompare(b.date));
                              
@@ -1108,9 +1192,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              return (
                                <React.Fragment key={id}>
                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                      {log.ei || 0}
-                                   </div>
+                                   <input
+                                     type="number" step="0.001"
+                                     value={log.ei || ''}
+                                     placeholder="0"
+                                     disabled={weekClosed}
+                                     onChange={(e) => updateDailyLog(weekDates[0], id, 'ei', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
+                                   />
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
                                    <input 
@@ -1118,8 +1207,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                      step="0.001"
                                      value={log.purchases || ''}
                                      placeholder="0"
+                                     disabled={weekClosed}
                                      onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
                                    />
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
@@ -1128,8 +1218,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                      step="0.001"
                                      value={log.waste || ''}
                                      placeholder="0"
+                                     disabled={weekClosed}
                                      onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
                                    />
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
@@ -1138,29 +1229,50 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                      step="0.001"
                                      value={log.theoretical_sales || ''}
                                      placeholder="0"
+                                     disabled={weekClosed}
                                      onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500"
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
                                    />
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                      {log.ef || 0}
-                                   </div>
+                                   <input
+                                     type="number" step="0.001"
+                                     value={log.ef || ''}
+                                     placeholder="0"
+                                     disabled={weekClosed}
+                                     onChange={(e) => updateDailyLog(weekDates[weekDates.length - 1], id, 'ef', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
+                                   />
                                  </td>
                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                      {log.loansReceived || 0}
-                                    </div>
+                                   <input
+                                     type="number" step="0.001"
+                                     value={log.loansReceived || ''}
+                                     placeholder="0"
+                                     disabled={weekClosed}
+                                     onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
+                                   />
                                   </td>
                                   <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                    <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                       {log.loansSent || 0}
-                                   </div>
+                                    <input
+                                      type="number" step="0.001"
+                                      value={log.loansSent || ''}
+                                      placeholder="0"
+                                      disabled={weekClosed}
+                                      onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansSent', parseFloat(e.target.value) || 0)}
+                                      className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
+                                    />
                                  </td>
                                  <td className="p-0 border-r border-border-dim bg-bg-accent/20">
-                                   <div className="w-full min-w-[70px] p-2 text-center font-mono text-text-dim opacity-60">
-                                      {log.staff_consumption || 0}
-                                   </div>
+                                   <input
+                                     type="number" step="0.001"
+                                     value={log.staff_consumption || ''}
+                                     placeholder="0"
+                                     disabled={weekClosed}
+                                     onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)}
+                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
+                                   />
                                  </td>
                                </React.Fragment>
                              );
