@@ -1316,6 +1316,34 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         return;
       }
 
+      // Resumen para confirmar antes de subir: mes(es), semana(s), sucursales y rango de fechas.
+      const fechasUnicas = [...new Set(tickets.map(t => t.date))].sort();
+      const mesesSet = [...new Set(tickets.map(t => t.month))].sort();
+      const semanasSet = [...new Set(tickets.map(t => t.week_number))].sort((a, b) => a - b);
+      const branchIdsResumen = [...new Set(tickets.map(t => t.branch_id))];
+      const nombrePorId: Record<string, string> = {};
+      branches.forEach(b => { nombrePorId[b.id] = b.name; });
+      const sucursalesNombres = branchIdsResumen.map(id => nombrePorId[id] || id);
+      const mesesTxt = mesesSet.join(', ');
+      const semanasTxt = semanasSet.map(s => `S${s}`).join(', ');
+      const rangoTxt = fechasUnicas.length === 1
+        ? fechasUnicas[0]
+        : `${fechasUnicas[0]} a ${fechasUnicas[fechasUnicas.length - 1]}`;
+
+      const confirmMsg =
+        `Vas a importar ${tickets.length.toLocaleString()} tickets con estos datos:\n\n` +
+        `• Mes: ${mesesTxt}\n` +
+        `• Semana(s): ${semanasTxt}\n` +
+        `• Sucursal(es): ${sucursalesNombres.join(', ')}\n` +
+        `• Fechas: ${rangoTxt} (${fechasUnicas.length} día/s)\n\n` +
+        `⚠️ Se REEMPLAZARÁN los tickets que ya existan de esas sucursales en esos días.\n\n` +
+        `¿Confirmás la importación?`;
+
+      if (!window.confirm(confirmMsg)) {
+        setLoading(false);
+        return;
+      }
+
       // Borra solo los DÍAS que vienen en este archivo (no el mes completo),
       // para no pisar ventas de otras semanas ya cargadas.
       const fechasArchivo = [...new Set(tickets.map(t => t.date))];
