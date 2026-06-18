@@ -52,16 +52,16 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
     doc.setFont('helvetica', 'bold');
 
     // PARA (valor dentro de la caja blanca, centrado verticalmente)
-    doc.setFontSize(60);
-    doc.text(doc.splitTextToSize(rec.para || '', 1280), 1200, 620);
+    doc.setFontSize(58);
+    doc.text(doc.splitTextToSize(rec.para || '', 1280), 1200, 580);
 
     // TU REGALO ES (valor dentro de la caja blanca)
-    doc.setFontSize(56);
-    doc.text(doc.splitTextToSize(rec.regalo || '', 1280), 1200, 1015);
+    doc.setFontSize(54);
+    doc.text(doc.splitTextToSize(rec.regalo || '', 1280), 1200, 975);
 
     // DE PARTE DE (valor dentro de la caja blanca)
-    doc.setFontSize(60);
-    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 1280), 1200, 1400);
+    doc.setFontSize(58);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 1280), 1200, 1360);
 
     // FECHA DE EMISIÓN (valor a la derecha de la etiqueta, en blanco sobre fondo rojo)
     doc.setTextColor(255, 255, 255);
@@ -162,12 +162,12 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
           <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Vista previa</h3>
           <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '2883/1992' }}>
-            <img src={GIFTCARD_BG} alt="Gift Card CRAFT" className="absolute inset-0 w-full h-full object-cover" />
+            <img src={GIFTCARD_BG} alt="Gift Card CRAFT" className="absolute inset-0 w-full h-full object-contain" />
             {/* Valores superpuestos (en %) sobre las cajas del diseño */}
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '36%', top: '30%', width: '46%', fontSize: 'clamp(8px, 2.4vw, 20px)' }}>{form.para}</span>
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '36%', top: '50%', width: '46%', fontSize: 'clamp(8px, 2.2vw, 18px)' }}>{form.regalo}</span>
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '36%', top: '69%', width: '46%', fontSize: 'clamp(8px, 2.4vw, 20px)' }}>{form.deParteDe}</span>
-            <span className="absolute font-bold text-white" style={{ left: '63%', top: '76%', fontSize: 'clamp(7px, 2vw, 16px)' }}>{fmtDMY(form.fecha)}</span>
+            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '36%', width: '36%', fontSize: 'clamp(8px, 1.8vw, 18px)' }}>{form.para}</span>
+            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '54%', width: '36%', fontSize: 'clamp(8px, 1.7vw, 16px)' }}>{form.regalo}</span>
+            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '71%', width: '36%', fontSize: 'clamp(8px, 1.8vw, 18px)' }}>{form.deParteDe}</span>
+            <span className="absolute font-bold text-white" style={{ left: '70%', top: '83%', fontSize: 'clamp(7px, 1.6vw, 15px)' }}>{fmtDMY(form.fecha)}</span>
           </div>
         </div>
       </div>
