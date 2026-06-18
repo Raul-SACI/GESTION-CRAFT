@@ -349,6 +349,25 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
                   </tr>
                 );
               })}
+              {/* Total del año: suma de todos los meses */}
+              {(() => {
+                let totalOld = 0, totalNew = 0;
+                yoyRows.forEach(r => {
+                  if (r.oldMd) totalOld += adjustOld(r.oldMd.ganancia, r.mm);
+                  if (r.newMd) totalNew += r.newMd.ganancia;
+                });
+                const totalVar = totalOld !== 0 ? ((totalNew - totalOld) / Math.abs(totalOld)) * 100 : null;
+                return (
+                  <tr className="border-t-2 border-border-dim bg-bg-accent/30 text-[11px] font-black">
+                    <td className="px-4 py-2.5 uppercase text-text-main tracking-wider">Total del Año</td>
+                    <td className={cn("px-4 py-2.5 text-right font-mono", totalOld < 0 ? "text-red-400" : "text-text-dim")}>{totalOld !== 0 ? fmt(totalOld) : '—'}</td>
+                    <td className={cn("px-4 py-2.5 text-right font-mono", totalNew < 0 ? "text-red-500" : "text-emerald-500")}>{totalNew !== 0 ? fmt(totalNew) : '—'}</td>
+                    <td className={cn("px-4 py-2.5 text-right font-mono", totalVar === null ? "text-text-dim" : totalVar > 0 ? "text-emerald-500" : "text-red-500")}>
+                      {totalVar !== null ? (totalVar > 0 ? '+' : '') + totalVar.toFixed(1) + '%' : '—'}
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           </table>
         </div>
