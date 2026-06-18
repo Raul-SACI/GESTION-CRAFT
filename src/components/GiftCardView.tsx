@@ -52,26 +52,26 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
     doc.setTextColor(35, 35, 35);
     doc.setFont('helvetica', 'bold');
 
-    // PARA (valor dentro de la caja blanca, centrado verticalmente)
-    doc.setFontSize(58);
-    doc.text(doc.splitTextToSize(rec.para || '', 1280), 1200, 580);
+    // PARA (valor dentro de la caja blanca, centrado)
+    doc.setFontSize(72);
+    doc.text(doc.splitTextToSize(rec.para || '', 1180), 1320, 555);
 
-    // TU REGALO ES (valor dentro de la caja blanca)
-    doc.setFontSize(54);
-    doc.text(doc.splitTextToSize(rec.regalo || '', 1280), 1200, 975);
+    // TU REGALO ES (valor dentro de la caja blanca, centrado)
+    doc.setFontSize(66);
+    doc.text(doc.splitTextToSize(rec.regalo || '', 1180), 1320, 950);
 
-    // DE PARTE DE (valor dentro de la caja blanca)
-    doc.setFontSize(58);
-    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 1280), 1200, 1360);
+    // DE PARTE DE (valor dentro de la caja blanca, centrado)
+    doc.setFontSize(72);
+    doc.text(doc.splitTextToSize(rec.de_parte_de || '', 1180), 1320, 1335);
 
-    // FECHA DE EMISIÓN (valor a la derecha de la etiqueta, en blanco sobre fondo rojo)
+    // FECHA DE EMISIÓN (valor a la derecha de la etiqueta, en blanco)
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(50);
     doc.text(fmtDMY(rec.fecha_emision), 1900, 1610);
 
-    // CÓDIGO (espacio libre abajo, en blanco)
-    doc.setFontSize(34);
-    doc.text(`CÓDIGO: ${rec.codigo}`, 1030, 1880);
+    // CÓDIGO (extremo inferior izquierdo, en blanco)
+    doc.setFontSize(30);
+    doc.text(`CÓDIGO: ${rec.codigo}`, 130, 1920);
 
     return doc;
   };
