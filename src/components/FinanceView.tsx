@@ -405,6 +405,8 @@ export default function FinanceView({
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  // Modal de detalle/edición de un rubro del resumen (ingresos o gastos)
+  const [detailRubro, setDetailRubro] = useState<{ itemId: string; itemName: string; catName: string; type: 'income' | 'expense' } | null>(null);
 
   const [taxEntities, setTaxEntities] = useState<Array<{ value: string; label: string }>>(DEFAULT_TAX_ENTITIES);
 
@@ -1031,7 +1033,7 @@ export default function FinanceView({
 
   // Total por rubro de la semana (cuánta plata necesito para cada gasto)
   const weeklyExpenseByItem = useMemo(() => {
-    const result: Array<{ catName: string; itemName: string; total: number }> = [];
+    const result: Array<{ itemId: string; catName: string; itemName: string; total: number }> = [];
     const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
     categories.forEach(cat => {
       if (cat.type !== 'expense') return;
@@ -1043,7 +1045,7 @@ export default function FinanceView({
             total += Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
           }
         });
-        if (total > 0) result.push({ catName: cat.name, itemName: item.name, total });
+        if (total > 0) result.push({ itemId: item.id, catName: cat.name, itemName: item.name, total });
       });
     });
     return result.sort((a, b) => b.total - a.total);
@@ -1053,7 +1055,7 @@ export default function FinanceView({
 
   // Ingresos previstos de la semana por rubro
   const weeklyIncomeByItem = useMemo(() => {
-    const result: Array<{ catName: string; itemName: string; total: number }> = [];
+    const result: Array<{ itemId: string; catName: string; itemName: string; total: number }> = [];
     const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
     categories.forEach(cat => {
       if (cat.type !== 'income') return;
@@ -1065,7 +1067,7 @@ export default function FinanceView({
             total += Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
           }
         });
-        if (total > 0) result.push({ catName: cat.name, itemName: item.name, total });
+        if (total > 0) result.push({ itemId: item.id, catName: cat.name, itemName: item.name, total });
       });
     });
     return result.sort((a, b) => b.total - a.total);
@@ -1617,13 +1619,16 @@ export default function FinanceView({
                 {weeklyIncomeByItem.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
                     {weeklyIncomeByItem.map((r, i) => (
-                      <div key={i} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                      <button key={i} type="button"
+                        onClick={() => !isReadOnly && setDetailRubro({ itemId: r.itemId, itemName: r.itemName, catName: r.catName, type: 'income' })}
+                        className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2 text-left hover:border-emerald-500/50 transition-all disabled:cursor-default"
+                        disabled={isReadOnly} title={isReadOnly ? '' : 'Clic para ver/editar el detalle'}>
                         <div className="flex flex-col min-w-0">
                           <span className="text-[10px] font-black text-text-main uppercase truncate">{r.itemName}</span>
                           <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{r.catName}</span>
                         </div>
                         <span className="text-[11px] font-mono font-black text-emerald-400 shrink-0">${r.total.toLocaleString('es-AR')}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (
@@ -1663,13 +1668,16 @@ export default function FinanceView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {weeklyExpenseByItem.map((r, i) => (
-                    <div key={i} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                    <button key={i} type="button"
+                      onClick={() => !isReadOnly && setDetailRubro({ itemId: r.itemId, itemName: r.itemName, catName: r.catName, type: 'expense' })}
+                      className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2 text-left hover:border-red-500/50 transition-all disabled:cursor-default"
+                      disabled={isReadOnly} title={isReadOnly ? '' : 'Clic para ver/editar el detalle'}>
                       <div className="flex flex-col min-w-0">
                         <span className="text-[10px] font-black text-text-main uppercase truncate">{r.itemName}</span>
                         <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{r.catName}</span>
                       </div>
                       <span className="text-[11px] font-mono font-black text-red-400 shrink-0">${r.total.toLocaleString('es-AR')}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
 
@@ -4768,6 +4776,91 @@ export default function FinanceView({
           }))}
         />
       )}
+
+      {/* Modal: detalle y edición de un rubro del resumen (solo entries manuales) */}
+      <AnimatePresence>
+        {detailRubro && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setDetailRubro(null)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-lg shadow-2xl max-h-[85vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b border-border-dim flex items-center justify-between">
+                <div>
+                  <h3 className={cn("text-sm font-black uppercase tracking-widest", detailRubro.type === 'income' ? 'text-emerald-400' : 'text-red-400')}>{detailRubro.itemName}</h3>
+                  <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">{detailRubro.catName} · cargas de esta semana</p>
+                </div>
+                <button onClick={() => setDetailRubro(null)} className="text-text-dim hover:text-text-main text-xl">✕</button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-2">
+                {(() => {
+                  const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+                  // Entries manuales de este rubro en la semana (los de pagos programados tienen id "payment-...")
+                  const manualEntries = entries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date));
+                  // Entries de pagos programados (solo lectura)
+                  const autoEntries = allEntries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date) && String(e.id).startsWith('payment-'));
+
+                  if (manualEntries.length === 0 && autoEntries.length === 0) {
+                    return <p className="text-[11px] text-text-dim font-bold uppercase text-center py-6">No hay cargas para este rubro en la semana.</p>;
+                  }
+
+                  const fmtFecha = (iso: string) => { const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; };
+                  const entryTotal = (e: any) => Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+
+                  const updateEntryAmount = (entryId: string, newTotal: number) => {
+                    setEntries(prev => prev.map(e => {
+                      if (e.id !== entryId) return e;
+                      // Concentrar el nuevo monto en la cuenta que ya tenía valor (o la primera)
+                      const accConValor = Object.keys(e.amounts).find(k => (e.amounts[k] as number) !== 0) || Object.keys(e.amounts)[0] || 'efectivo';
+                      const nuevos: Record<string, number> = {};
+                      Object.keys(e.amounts).forEach(k => { nuevos[k] = 0; });
+                      nuevos[accConValor] = newTotal;
+                      return { ...e, amounts: nuevos };
+                    }));
+                  };
+
+                  return (
+                    <>
+                      {manualEntries.map(e => (
+                        <div key={e.id} className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3 flex items-center gap-3">
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>
+                            {e.description && <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{e.description}</span>}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[11px] font-black text-text-dim">$</span>
+                            <input type="number" defaultValue={entryTotal(e)}
+                              onBlur={(ev) => { const v = parseFloat(ev.target.value) || 0; if (v !== entryTotal(e)) updateEntryAmount(e.id, v); }}
+                              className="w-32 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                          </div>
+                        </div>
+                      ))}
+                      {autoEntries.map(e => (
+                        <div key={e.id} className="bg-bg-accent/10 border border-border-dim/30 rounded-lg p-3 flex items-center gap-3 opacity-70">
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>
+                            <span className="text-[8px] font-bold text-amber-500 uppercase truncate">Pago programado · se edita en su módulo</span>
+                          </div>
+                          <span className="text-[12px] font-mono font-black text-text-dim">${entryTotal(e).toLocaleString('es-AR')}</span>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
+              </div>
+
+              <div className="p-4 border-t border-border-dim flex justify-end">
+                <button onClick={() => setDetailRubro(null)}
+                  className="px-5 py-2 bg-brand-500 text-white rounded text-[11px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
+                  Listo
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </motion.div>
   );
