@@ -29,6 +29,7 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
+  const [previewUrl, setPreviewUrl] = useState<string>('');
 
   const loadRecords = async () => {
     setLoading(true);
@@ -74,6 +75,22 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
 
     return doc;
   };
+
+  // Vista previa: regenera la imagen del PDF real cuando cambian los datos (con debounce)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const recPreview: GiftCardRec = {
+          id: 'preview', codigo: 'CRAFT-XXXX-XXXX',
+          para: form.para, regalo: form.regalo, de_parte_de: form.deParteDe,
+          fecha_emision: form.fecha || todayISO(),
+        };
+        const doc = buildPdf(recPreview);
+        setPreviewUrl(doc.output('datauristring'));
+      } catch (e) { console.error('Error generando vista previa:', e); }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [form.para, form.regalo, form.deParteDe, form.fecha]);
 
   const generateAndSave = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
@@ -158,17 +175,23 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
           <p className="text-[9px] text-text-dim font-bold uppercase text-center">Se genera un código único y se guarda el registro</p>
         </div>
 
-        {/* Vista previa */}
+        {/* Vista previa: muestra el PDF real que se va a descargar */}
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
           <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Vista previa</h3>
-          <div className="relative rounded-xl overflow-hidden" style={{ aspectRatio: '2883/1992' }}>
-            <img src={GIFTCARD_BG} alt="Gift Card CRAFT" className="absolute inset-0 w-full h-full object-contain" />
-            {/* Valores superpuestos (en %) sobre las cajas del diseño */}
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '36%', width: '36%', fontSize: 'clamp(8px, 1.8vw, 18px)' }}>{form.para}</span>
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '54%', width: '36%', fontSize: 'clamp(8px, 1.7vw, 16px)' }}>{form.regalo}</span>
-            <span className="absolute font-bold text-neutral-800 truncate" style={{ left: '57%', top: '71%', width: '36%', fontSize: 'clamp(8px, 1.8vw, 18px)' }}>{form.deParteDe}</span>
-            <span className="absolute font-bold text-white" style={{ left: '70%', top: '83%', fontSize: 'clamp(7px, 1.6vw, 15px)' }}>{fmtDMY(form.fecha)}</span>
+          <div className="rounded-xl overflow-hidden bg-bg-accent/30" style={{ aspectRatio: '2883/1992' }}>
+            {previewUrl ? (
+              <iframe
+                title="Vista previa Gift Card"
+                src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
+                className="w-full h-full border-0"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Loader2 size={22} className="animate-spin text-brand-500" />
+              </div>
+            )}
           </div>
+          <p className="text-[9px] text-text-dim font-bold uppercase text-center mt-2">Así se verá el PDF que se descarga</p>
         </div>
       </div>
 
