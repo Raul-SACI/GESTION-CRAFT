@@ -17,7 +17,9 @@ import {
   FolderPlus,
   MoreVertical,
   Search,
-  AlertCircle
+  AlertCircle,
+  Link as LinkIcon,
+  ExternalLink
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -26,10 +28,11 @@ import { motion, AnimatePresence } from 'motion/react';
 interface Document {
   id: string;
   name: string;
-  type: 'file' | 'folder';
+  type: 'file' | 'folder' | 'link';
   parent_id: string | null;
   branch_id?: string | null;
   storage_path: string | null;
+  url?: string | null;
   file_size?: number;
   content_type?: string;
   created_at: string;
@@ -52,6 +55,9 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
   const [uploading, setUploading] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [showNewLinkModal, setShowNewLinkModal] = useState(false);
+  const [newLinkName, setNewLinkName] = useState('');
+  const [newLinkUrl, setNewLinkUrl] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -118,6 +124,41 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
     const target = newStack[newStack.length - 1];
     setNavigationStack(newStack);
     setCurrentFolderId(target.id);
+  };
+
+  const handleCreateLink = async () => {
+    if (!newLinkName.trim() || !newLinkUrl.trim()) {
+      alert('Completá el título y el enlace.');
+      return;
+    }
+    if (isReadOnly) {
+      alert('Modo Solo Lectura activado. No tienes permisos para agregar enlaces.');
+      return;
+    }
+    // Normalizar la URL (agregar https:// si falta)
+    let url = newLinkUrl.trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+
+    try {
+      const { error } = await supabase.from('documents').insert([
+        {
+          name: newLinkName.trim(),
+          type: 'link',
+          parent_id: currentFolderId,
+          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+          category: 'link',
+          url: url
+        }
+      ]);
+      if (error) throw error;
+      setNewLinkName('');
+      setNewLinkUrl('');
+      setShowNewLinkModal(false);
+      fetchDocuments();
+    } catch (err: any) {
+      console.error('Error creating link:', err);
+      alert(`Error al agregar enlace: ${err.message || JSON.stringify(err)}`);
+    }
   };
 
   const handleCreateFolder = async () => {
@@ -277,6 +318,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
 
   const getFileIcon = (doc: Document) => {
     if (doc.type === 'folder') return <Folder className="text-brand-500" size={24} />;
+    if (doc.type === 'link') return <LinkIcon className="text-blue-500" size={24} />;
     
     const type = doc.content_type || '';
     if (type.includes('image')) return <FileImage className="text-blue-500" size={24} />;
@@ -336,6 +378,14 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
             Nueva Carpeta
           </button>
 
+          <button 
+            onClick={() => setShowNewLinkModal(true)}
+            className="flex items-center gap-2 bg-bg-card border border-border-dim px-3 py-1.5 rounded-lg text-[10px] font-black uppercase text-text-main hover:bg-bg-accent transition-all"
+          >
+            <LinkIcon size={14} />
+            Agregar Enlace
+          </button>
+
           <label className={cn(
             "flex items-center gap-2 bg-brand-500 text-black px-4 py-1.5 rounded-lg text-[10px] font-black uppercase cursor-pointer hover:bg-brand-600 transition-all",
             uploading && "opacity-50 pointer-events-none"
@@ -393,7 +443,12 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
                   "group relative glass-card p-4 flex flex-col items-center text-center cursor-pointer hover:border-brand-500/50 transition-all",
                   doc.type === 'folder' ? "bg-brand-500/5" : "bg-bg-card"
                 )}
-                onDoubleClick={() => doc.type === 'folder' ? handleNavigateInto(doc) : (isPreviewable(doc.name) ? handlePreview(doc) : handleDownload(doc))}
+                onDoubleClick={() => {
+                  if (doc.type === 'folder') handleNavigateInto(doc);
+                  else if (doc.type === 'link') { if (doc.url) window.open(doc.url, '_blank', 'noopener,noreferrer'); }
+                  else if (isPreviewable(doc.name)) handlePreview(doc);
+                  else handleDownload(doc);
+                }}
               >
                 <div className="mb-3 transform group-hover:scale-110 transition-transform">
                   {getFileIcon(doc)}
@@ -409,6 +464,15 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
 
                 {/* Hover Actions */}
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                   {doc.type === 'link' && (
+                     <button 
+                       onClick={(e) => { e.stopPropagation(); if (doc.url) window.open(doc.url, '_blank', 'noopener,noreferrer'); }}
+                       className="p-1.5 bg-bg-accent rounded-md text-text-dim hover:text-blue-500 hover:bg-blue-500/10 transition-all"
+                       title="Abrir enlace"
+                     >
+                       <ExternalLink size={12} />
+                     </button>
+                   )}
                    {doc.type === 'file' && isPreviewable(doc.name) && (
                      <button 
                        onClick={(e) => { e.stopPropagation(); handlePreview(doc); }}
@@ -483,6 +547,54 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
                 </button>
                 <button 
                   onClick={() => setShowNewFolderModal(false)}
+                  className="px-6 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* New Link Modal */}
+      <AnimatePresence>
+        {showNewLinkModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-bg-sidebar border border-border-dim p-8 rounded-lg w-full max-w-sm shadow-2xl"
+            >
+              <h3 className="text-xs font-black text-blue-500 uppercase tracking-widest mb-6 border-l-2 border-blue-500 pl-4">Agregar Enlace</h3>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Título</label>
+              <input 
+                type="text"
+                value={newLinkName}
+                onChange={(e) => setNewLinkName(e.target.value)}
+                placeholder="Ej: Carpeta de Canva, Drive de fotos..."
+                className="w-full px-4 py-3 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-bold mb-4"
+                autoFocus
+              />
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Enlace (URL)</label>
+              <input 
+                type="text"
+                value={newLinkUrl}
+                onChange={(e) => setNewLinkUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full px-4 py-3 bg-bg-accent border border-border-dim rounded text-text-main text-xs outline-none focus:border-brand-500 font-bold"
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateLink()}
+              />
+              <div className="mt-8 flex gap-3">
+                <button 
+                  onClick={handleCreateLink}
+                  className="flex-1 bg-blue-500 text-white py-2.5 rounded text-[11px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all"
+                >
+                  Guardar Enlace
+                </button>
+                <button 
+                  onClick={() => setShowNewLinkModal(false)}
                   className="px-6 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                 >
                   Cancelar
