@@ -121,15 +121,33 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
       const lastDay = new Date(y, m, 0).getDate();
       const auto: Array<{ id: string; description: string; detail: string; branchId: string; severity: 'overdue' | 'today' }> = [];
 
+      // Lee TODAS las filas de una tabla en el rango del mes, paginando de a 1000
+      // (Supabase corta las lecturas en 1000 filas; sin paginar se perderían días ya cargados).
+      const fetchAllMonth = async (table: string): Promise<any[]> => {
+        const all: any[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { data, error } = await supabase
+            .from(table).select('branch_id, date')
+            .gte('date', `${month}-01`).lte('date', `${month}-${String(lastDay).padStart(2, '0')}`)
+            .range(from, from + pageSize - 1);
+          if (error || !data || data.length === 0) break;
+          all.push(...data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      };
+
       // Sucursales a chequear (según alcance del usuario)
       const branchesToCheck = isAdmin || currentUser.accessScope === 'all_branches'
         ? operativeBranches
         : operativeBranches.filter(b => b.id === currentUser.branchId);
 
       // 1. Días sin carga de horas (del mes, hasta hoy) por sucursal
-      const { data: hourRows } = await supabase
-        .from('hour_logs').select('branch_id, date')
-        .gte('date', `${month}-01`).lte('date', `${month}-${String(lastDay).padStart(2, '0')}`);
+      const hourRows = await fetchAllMonth('hour_logs');
       const loggedByBranch: Record<string, Set<string>> = {};
       (hourRows || []).forEach((r: any) => {
         if (!loggedByBranch[r.branch_id]) loggedByBranch[r.branch_id] = new Set();
@@ -157,9 +175,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
       // 1.b Días sin carga de decomisos (del mes, hasta hoy) por sucursal.
       // Caso especial: "Almacén y Producción" no trabaja domingos ni feriados,
       // así que esos días no se exigen. El resto de sucursales trabaja todos los días.
-      const { data: wasteRows } = await supabase
-        .from('daily_wastage').select('branch_id, date')
-        .gte('date', `${month}-01`).lte('date', `${month}-${String(lastDay).padStart(2, '0')}`);
+      const wasteRows = await fetchAllMonth('daily_wastage');
       const wasteByBranch: Record<string, Set<string>> = {};
       (wasteRows || []).forEach((r: any) => {
         if (!wasteByBranch[r.branch_id]) wasteByBranch[r.branch_id] = new Set();
