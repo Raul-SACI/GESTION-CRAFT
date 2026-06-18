@@ -497,17 +497,25 @@ function AppContent() {
     // Lista de IDs con acceso (para compatibilidad)
     const allowed = Object.keys(modulesRecord);
 
+    // El alcance viene del rol, PERO si el usuario tiene varias sucursales asignadas
+    // individualmente (branch_ids con 2+), se lo trata como multi_branch sin importar el rol.
+    // Esto permite que un usuario puntual (ej. un cajero) elija entre sus sucursales
+    // sin cambiar el alcance de todos los que comparten su rol.
+    const userBranchIds = (currentUserProfile.branch_ids || []) as string[];
+    const roleScope = (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch' | 'multi_branch';
+    const effectiveScope = (userBranchIds.length >= 2 && roleScope !== 'all_branches') ? 'multi_branch' : roleScope;
+
     return {
       id: currentUserProfile.id,
       name: currentUserProfile.name,
       role: roleId,
       branch: currentUserProfile.branch_name || 'Todas las Sucursales',
       branchId: currentUserProfile.branch_id || null,
-      branchIds: (currentUserProfile.branch_ids || []) as string[],
+      branchIds: userBranchIds,
       permissions: allowed,
       modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
-      accessScope: (roleCfg ? roleCfg.access_scope : 'all_branches') as 'all_branches' | 'single_branch' | 'multi_branch',
+      accessScope: effectiveScope,
       canSeePayments: currentUserProfile.can_see_payments === true
     };
   }, [currentUserProfile, rolesConfigList]);
