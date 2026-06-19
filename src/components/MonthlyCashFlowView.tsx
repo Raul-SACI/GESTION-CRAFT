@@ -247,6 +247,13 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
               </select>
             </div>
           )}
+          {data && !isReadOnly && (
+            <button onClick={eliminarMes}
+              className="flex items-center gap-1.5 bg-red-500/10 text-red-500 border border-red-500/30 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all"
+              title="Eliminar la planilla del mes seleccionado">
+              <Trash2 size={14} /> Eliminar
+            </button>
+          )}
           {/* Selector de mes/año para la importación */}
           <div className="flex items-center gap-1 bg-bg-accent/30 border border-border-dim rounded px-2 py-1">
             <span className="text-[8px] font-black uppercase text-text-dim tracking-widest pl-1">Importar a:</span>
@@ -342,14 +349,6 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
             })}
           </div>
 
-          {/* Acciones */}
-          {!isReadOnly && (
-            <div className="flex justify-end">
-              <button onClick={eliminarMes} className="flex items-center gap-1.5 text-text-dim hover:text-red-500 px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all">
-                <Trash2 size={12} /> Eliminar este mes
-              </button>
-            </div>
-          )}
         </>
       )}
     </motion.div>
