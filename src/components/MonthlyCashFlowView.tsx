@@ -25,9 +25,10 @@ interface MonthData {
 }
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
+const fmt = (n: number) => `$${(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-// Convierte un valor de celda (número o texto "$ 1.234,56" / "-$ 1.234") a número
+// Convierte un valor de celda (número o texto "$ 1.234,56" / "$ 1,234.56" / "-$ 1234") a número.
+// Soporta separadores en formato es-AR (1.234,56) y US (1,234.56) detectando cuál es el decimal.
 function parseMoney(v: any): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === 'number') return v;
@@ -36,8 +37,18 @@ function parseMoney(v: any): number {
   const neg = s.includes('-');
   s = s.replace(/[^\d.,]/g, '');
   if (!s) return 0;
-  // formato es-AR: punto miles, coma decimal
-  s = s.replace(/\./g, '').replace(',', '.');
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma > lastDot) {
+    // decimal = coma (es-AR): quitar puntos de miles, coma -> punto
+    s = s.replace(/\./g, '').replace(',', '.');
+  } else if (lastDot > lastComma) {
+    // decimal = punto (US): quitar comas de miles
+    s = s.replace(/,/g, '');
+  } else {
+    // sin separador decimal claro: quitar ambos como miles
+    s = s.replace(/[.,]/g, '');
+  }
   const n = parseFloat(s);
   if (isNaN(n)) return 0;
   return neg ? -Math.abs(n) : n;
@@ -201,7 +212,14 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const totIngresos = data?.resumenTotales['total ingresos'] || 0;
   const totEgresos = data?.resumenTotales['total egresos'] || 0;
   const totNeto = data?.resumenTotales['neto'] ?? (totIngresos - totEgresos);
-  const saldoInicial = data?.resumenTotales['saldo inicial'] || 0;
+  const saldoInicialResumen = data?.resumenTotales['saldo inicial'] || 0;
+  // Si el resumen no trajo el saldo inicial, lo calculamos sumando el PRIMER día de cada cuenta
+  // (Caja Central, Santander, etc.) de la sección "SALDO INICIAL".
+  const primerDia = data?.dias?.[0];
+  const saldoSeccionCuentas = (data?.secciones || [])
+    .filter(s => s.titulo.toUpperCase().includes('SALDO INICIAL'))
+    .reduce((acc, s) => acc + s.rubros.reduce((a, r) => a + (primerDia != null ? (r.dias[primerDia] || 0) : 0), 0), 0);
+  const saldoInicial = saldoInicialResumen || saldoSeccionCuentas;
   const acumulado = data?.resumenTotales['acumulado'] || 0;
 
   return (
@@ -278,12 +296,15 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
                 <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Saldo Inicial por Cuenta</h3>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 p-4">
-                {s.rubros.map(r => (
-                  <div key={r.nombre} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase text-text-dim truncate">{r.nombre}</span>
-                    <span className="text-[11px] font-mono font-black text-text-main">{fmt(r.total)}</span>
-                  </div>
-                ))}
+                {s.rubros.map(r => {
+                  const valCuenta = primerDia != null ? (r.dias[primerDia] || 0) : r.total;
+                  return (
+                    <div key={r.nombre} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase text-text-dim truncate">{r.nombre}</span>
+                      <span className="text-[11px] font-mono font-black text-text-main">{fmt(valCuenta)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
