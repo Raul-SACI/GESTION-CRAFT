@@ -50,6 +50,10 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [data, setData] = useState<MonthData | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  // Mes/año a usar al importar (selector previo)
+  const now = new Date();
+  const [importMonth, setImportMonth] = useState<number>(now.getMonth() + 1);
+  const [importYear, setImportYear] = useState<number>(now.getFullYear());
 
   useEffect(() => { loadMonths(); }, []);
   useEffect(() => { if (selectedMonth) loadMonth(selectedMonth); }, [selectedMonth]);
@@ -102,16 +106,16 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
       }
       const dias = Object.values(dayCols).sort((a, b) => a - b);
 
-      // Pedir el mes al usuario (no viene en la planilla)
-      const hoy = new Date();
-      const sugerido = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-      const mesInput = window.prompt('¿A qué mes corresponde esta planilla? (formato AAAA-MM, ej. 2026-01)', sugerido);
-      if (!mesInput || !/^\d{4}-\d{2}$/.test(mesInput.trim())) {
-        alert('Mes inválido. Usá el formato AAAA-MM, por ejemplo 2026-01.');
-        setImporting(false);
-        return;
+      // Mes elegido en el selector de la pantalla
+      const month = `${importYear}-${String(importMonth).padStart(2, '0')}`;
+      // Si ya existe ese mes, confirmar reemplazo
+      if (months.includes(month)) {
+        if (!window.confirm(`Ya hay una planilla cargada para ${monthLabel(month)}. ¿Reemplazarla con este archivo?`)) {
+          setImporting(false);
+          e.target.value = '';
+          return;
+        }
       }
-      const month = mesInput.trim();
 
       const cellNum = (r: number, c: number) => parseMoney(grid[r]?.[c]);
       const labelOf = (r: number) => (grid[r]?.[0] != null ? String(grid[r][0]).trim() : '');
@@ -212,7 +216,7 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
             Importá tu planilla mensual y visualizá el resumen
           </p>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center flex-wrap">
           {months.length > 0 && (
             <div className="relative">
               <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
@@ -222,6 +226,18 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
               </select>
             </div>
           )}
+          {/* Selector de mes/año para la importación */}
+          <div className="flex items-center gap-1 bg-bg-accent/30 border border-border-dim rounded px-2 py-1">
+            <span className="text-[8px] font-black uppercase text-text-dim tracking-widest pl-1">Importar a:</span>
+            <select value={importMonth} onChange={e => setImportMonth(parseInt(e.target.value))}
+              className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] font-bold text-text-main outline-none focus:border-brand-500">
+              {MONTH_NAMES.map((nm, i) => <option key={i} value={i + 1}>{nm}</option>)}
+            </select>
+            <select value={importYear} onChange={e => setImportYear(parseInt(e.target.value))}
+              className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] font-bold text-text-main outline-none focus:border-brand-500">
+              {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
           <label className={cn("flex items-center gap-2 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-600 transition-all", importing && "opacity-50 pointer-events-none")}>
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importar Excel
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} disabled={importing || isReadOnly} />
