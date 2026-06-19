@@ -146,6 +146,15 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
         const lower = label.toLowerCase();
         const ag = agText(r);
 
+        // ¿Encabezado de sección? (la celda de totales tiene una etiqueta conocida).
+        // Se chequea PRIMERO para que el header "SALDO INICIAL" de la sección de cuentas
+        // no se confunda con la fila de resumen "Saldo Inicial".
+        if (HEADER_AG.has(ag)) {
+          cur = { titulo: label, rubros: [], total: 0 };
+          secciones.push(cur);
+          continue;
+        }
+
         // Resumen superior (antes de la primera sección)
         const matchResumen = resumenLabels.find(rl => lower.startsWith(rl));
         if (matchResumen && secciones.length === 0) {
@@ -156,12 +165,6 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
           continue;
         }
 
-        // ¿Encabezado de sección? (la celda de totales tiene una etiqueta conocida)
-        if (HEADER_AG.has(ag)) {
-          cur = { titulo: label, rubros: [], total: 0 };
-          secciones.push(cur);
-          continue;
-        }
         // ¿Total de sección?
         if (lower.startsWith('total')) {
           if (cur) cur.total = totalCol >= 0 ? cellNum(r, totalCol) : 0;
