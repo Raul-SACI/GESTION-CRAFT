@@ -6,7 +6,10 @@
  */
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Upload, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { BarChart3, Upload, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight, TrendingUp, LayoutDashboard, AlertTriangle } from 'lucide-react';
+import {
+  ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart
+} from 'recharts';
 import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
@@ -26,6 +29,42 @@ interface MonthData {
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const fmt = (n: number) => `$${(n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtShort = (n: number) => {
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(1)}MM`;
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${Math.round(n)}`;
+};
+const monthShort = (m: string) => { const [y, mm] = m.split('-'); return `${MONTH_NAMES[parseInt(mm) - 1].slice(0, 3)} ${y.slice(2)}`; };
+
+// Suma diaria de una sección (todas sus cuentas/rubros) para un día dado
+const seccionDia = (s: Seccion, dia: number) => s.rubros.reduce((a, r) => a + (r.dias[dia] || 0), 0);
+// ¿La sección es de ingresos?
+const esSeccionIngreso = (s: Seccion) => s.titulo.toLowerCase().startsWith('ingreso') && !s.titulo.toUpperCase().includes('SALDO');
+// ¿Es la sección de saldo inicial (cuentas)?
+const esSaldoInicial = (s: Seccion) => s.titulo.toUpperCase().includes('SALDO INICIAL');
+
+// Totales de ingresos y egresos de un mes por DÉCADA del mes (1-10, 11-20, 21-fin)
+function porDecada(md: MonthData) {
+  const tramos = [
+    { label: '1 a 10', desde: 1, hasta: 10, ingresos: 0, egresos: 0 },
+    { label: '11 a 20', desde: 11, hasta: 20, ingresos: 0, egresos: 0 },
+    { label: '21 a fin', desde: 21, hasta: 31, ingresos: 0, egresos: 0 },
+  ];
+  md.secciones.forEach(s => {
+    if (esSaldoInicial(s)) return;
+    const ingreso = esSeccionIngreso(s);
+    s.rubros.forEach(r => {
+      Object.entries(r.dias).forEach(([d, val]) => {
+        const dia = parseInt(d);
+        const t = tramos.find(t => dia >= t.desde && dia <= t.hasta);
+        if (t) { if (ingreso) t.ingresos += val; else t.egresos += Math.abs(val); }
+      });
+    });
+  });
+  return tramos.map(t => ({ ...t, neto: t.ingresos - t.egresos }));
+}
 
 // Convierte un valor de celda (número o texto "$ 1.234,56" / "$ 1,234.56" / "-$ 1234") a número.
 // Soporta separadores en formato es-AR (1.234,56) y US (1,234.56) detectando cuál es el decimal.
@@ -61,6 +100,8 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [data, setData] = useState<MonthData | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState<'resumen' | 'analisis'>('resumen');
+  const [allData, setAllData] = useState<MonthData[]>([]); // todos los meses, para comparar
   // Mes/año a usar al importar (selector previo)
   const now = new Date();
   const [importMonth, setImportMonth] = useState<number>(now.getMonth() + 1);
@@ -68,6 +109,14 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
 
   useEffect(() => { loadMonths(); }, []);
   useEffect(() => { if (selectedMonth) loadMonth(selectedMonth); }, [selectedMonth]);
+  useEffect(() => { if (activeTab === 'analisis') loadAllData(); }, [activeTab, months.join(',')]);
+
+  const loadAllData = async () => {
+    try {
+      const { data: rows } = await supabase.from('monthly_cashflow').select('data').order('month', { ascending: true });
+      setAllData((rows || []).map((r: any) => r.data as MonthData).filter(Boolean));
+    } catch (e) { console.error('Error cargando análisis:', e); }
+  };
 
   const loadMonths = async () => {
     setLoading(true);
@@ -294,6 +343,21 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
         </div>
       ) : (
         <>
+          {/* Pestañas */}
+          <div className="flex gap-1 bg-bg-accent/40 rounded-lg p-1 w-fit">
+            <button onClick={() => setActiveTab('resumen')}
+              className={cn("flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+                activeTab === 'resumen' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+              <LayoutDashboard size={13} /> Resumen
+            </button>
+            <button onClick={() => setActiveTab('analisis')}
+              className={cn("flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+                activeTab === 'analisis' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+              <TrendingUp size={13} /> Análisis
+            </button>
+          </div>
+
+          {activeTab === 'resumen' && (<>
           {/* Tarjetas de resumen */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {[
@@ -359,9 +423,172 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
               );
             })}
           </div>
+          </>)}
+
+          {activeTab === 'analisis' && (
+            <AnalysisTab allData={allData} currentMonth={data} monthLabel={monthLabel} monthShort={monthShort} />
+          )}
 
         </>
       )}
     </motion.div>
+  );
+}
+
+// ===== Pestaña de Análisis =====
+function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
+  allData: MonthData[]; currentMonth: MonthData;
+  monthLabel: (m: string) => string; monthShort: (m: string) => string;
+}) {
+  if (!allData || allData.length === 0) {
+    return <div className="py-12 flex justify-center"><Loader2 size={22} className="animate-spin text-brand-500" /></div>;
+  }
+
+  // 1) Acumulado día a día del mes actual (para ver cuándo baja la caja)
+  const serieDiaria = (() => {
+    const md = currentMonth;
+    const dias = md.dias || [];
+    // Buscar la fila de resumen "acumulado" día a día si existe; si no, reconstruir
+    const acumPorDia = md.resumen?.['acumulado'] as Record<number, number> | undefined;
+    const saldoPorDia = md.resumen?.['saldo inicial'] as Record<number, number> | undefined;
+    return dias.map(d => ({
+      dia: d,
+      saldo: saldoPorDia?.[d] ?? 0,
+      acumulado: acumPorDia?.[d] ?? 0,
+    }));
+  })();
+
+  // 2) Por década del mes actual
+  const decadas = porDecada(currentMonth);
+
+  // 3) Comparación mes a mes: totales
+  const compMeses = allData.map(md => {
+    const ing = md.resumenTotales?.['total ingresos'] || 0;
+    const egr = md.resumenTotales?.['total egresos'] || 0;
+    return { mes: monthShort(md.month), ingresos: ing, egresos: egr, neto: ing - egr };
+  });
+
+  // 4) Comparación por rubro de EGRESO entre meses (secciones de egreso)
+  const seccionesEgreso = Array.from(new Set(
+    allData.flatMap(md => md.secciones.filter(s => !esSaldoInicial(s) && !esSeccionIngreso(s)).map(s => s.titulo))
+  ));
+  const compRubros = seccionesEgreso.map(titulo => {
+    const row: any = { rubro: titulo };
+    allData.forEach(md => {
+      const s = md.secciones.find(x => x.titulo === titulo);
+      row[monthShort(md.month)] = s ? Math.abs(s.total) : 0;
+    });
+    return row;
+  });
+
+  // KPIs
+  const peorTramo = decadas.reduce((min, t) => t.neto < min.neto ? t : min, decadas[0]);
+  const mejorMes = compMeses.reduce((max, m) => m.neto > max.neto ? m : max, compMeses[0]);
+  const peorMes = compMeses.reduce((min, m) => m.neto < min.neto ? m : min, compMeses[0]);
+
+  const COLORS = ['#e31e24', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+  return (
+    <div className="space-y-6">
+      {/* KPIs de análisis */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+          <div className="flex items-center gap-1.5 mb-1"><AlertTriangle size={12} className="text-amber-500" /><p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim">Tramo más ajustado del mes</p></div>
+          <p className="text-[14px] font-black text-text-main">Días {peorTramo.label}</p>
+          <p className={cn("text-[12px] font-mono font-black", peorTramo.neto < 0 ? "text-red-500" : "text-emerald-500")}>{fmt(peorTramo.neto)}</p>
+        </div>
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+          <div className="flex items-center gap-1.5 mb-1"><ArrowUpRight size={12} className="text-emerald-500" /><p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim">Mejor mes (neto)</p></div>
+          <p className="text-[14px] font-black text-text-main">{mejorMes?.mes || '—'}</p>
+          <p className="text-[12px] font-mono font-black text-emerald-500">{fmt(mejorMes?.neto || 0)}</p>
+        </div>
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+          <div className="flex items-center gap-1.5 mb-1"><ArrowDownRight size={12} className="text-red-500" /><p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim">Peor mes (neto)</p></div>
+          <p className="text-[14px] font-black text-text-main">{peorMes?.mes || '—'}</p>
+          <p className="text-[12px] font-mono font-black text-red-500">{fmt(peorMes?.neto || 0)}</p>
+        </div>
+      </div>
+
+      {/* Saldo / acumulado día a día */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Saldo día a día · {monthLabel(currentMonth.month)}</h3>
+        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Dónde sube y baja la caja durante el mes</p>
+        <div style={{ width: '100%', height: 280 }}>
+          <ResponsiveContainer>
+            <LineChart data={serieDiaria}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#33333322" />
+              <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
+              <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10 }} width={60} />
+              <Tooltip formatter={(v: any) => fmt(v)} labelFormatter={(l) => `Día ${l}`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="saldo" name="Saldo del día" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="acumulado" name="Acumulado" stroke="#e31e24" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Ingresos vs egresos por década */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Ingresos vs Egresos por tramo del mes</h3>
+        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Detectá en qué parte del mes se ajusta la caja</p>
+        <div style={{ width: '100%', height: 280 }}>
+          <ResponsiveContainer>
+            <ComposedChart data={decadas}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#33333322" />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+              <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10 }} width={60} />
+              <Tooltip formatter={(v: any) => fmt(v)} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="egresos" name="Egresos" fill="#e31e24" radius={[4, 4, 0, 0]} />
+              <Line type="monotone" dataKey="neto" name="Neto" stroke="#f59e0b" strokeWidth={2} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Comparación mes a mes: totales */}
+      {compMeses.length > 1 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-4">Comparación mes a mes</h3>
+          <div style={{ width: '100%', height: 300 }}>
+            <ResponsiveContainer>
+              <ComposedChart data={compMeses}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#33333322" />
+                <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10 }} width={60} />
+                <Tooltip formatter={(v: any) => fmt(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="egresos" name="Egresos" fill="#e31e24" radius={[4, 4, 0, 0]} />
+                <Line type="monotone" dataKey="neto" name="Neto" stroke="#f59e0b" strokeWidth={2} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Comparación por rubro de egreso entre meses */}
+      {compMeses.length > 1 && compRubros.length > 0 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-4">Egresos por rubro · comparación entre meses</h3>
+          <div style={{ width: '100%', height: 360 }}>
+            <ResponsiveContainer>
+              <BarChart data={compRubros} layout="vertical" margin={{ left: 40 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#33333322" />
+                <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 9 }} />
+                <YAxis type="category" dataKey="rubro" tick={{ fontSize: 9 }} width={150} />
+                <Tooltip formatter={(v: any) => fmt(v)} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {allData.map((md, i) => (
+                  <Bar key={md.month} dataKey={monthShort(md.month)} fill={COLORS[i % COLORS.length]} radius={[0, 3, 3, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
