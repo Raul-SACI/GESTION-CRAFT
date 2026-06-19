@@ -509,6 +509,39 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
         </div>
       </div>
 
+      {/* Detalle de los 3 tramos del mes (1-10, 11-20, 21-fin) */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Tramos del mes · {monthLabel(currentMonth.month)}</h3>
+        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Cómo se comporta la caja en cada parte del mes</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {decadas.map(t => {
+            const esPeor = t.label === peorTramo.label;
+            return (
+              <div key={t.label} className={cn("rounded-lg border p-4", esPeor ? "border-red-500/40 bg-red-500/5" : "border-border-dim bg-bg-accent/20")}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-text-main">Días {t.label}</p>
+                  {esPeor && <span className="text-[7px] font-black uppercase px-2 py-0.5 rounded bg-red-500/15 text-red-500">Más ajustado</span>}
+                </div>
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Ingresos</span>
+                    <span className="text-[11px] font-mono font-black text-emerald-500">{fmt(t.ingresos)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Egresos</span>
+                    <span className="text-[11px] font-mono font-black text-red-500">{fmt(t.egresos)}</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-1 border-t border-border-dim/40">
+                    <span className="text-[9px] font-black uppercase text-text-main">Neto</span>
+                    <span className={cn("text-[12px] font-mono font-black", t.neto < 0 ? "text-red-500" : "text-emerald-500")}>{fmt(t.neto)}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Saldo / acumulado día a día */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
         <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Saldo día a día · {monthLabel(currentMonth.month)}</h3>
