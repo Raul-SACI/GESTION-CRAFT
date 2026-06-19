@@ -117,16 +117,39 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
       }
       const dias = Object.values(dayCols).sort((a, b) => a - b);
 
-      // Mes elegido en el selector de la pantalla
-      const month = `${importYear}-${String(importMonth).padStart(2, '0')}`;
-      // Si ya existe ese mes, confirmar reemplazo
-      if (months.includes(month)) {
-        if (!window.confirm(`Ya hay una planilla cargada para ${monthLabel(month)}. ¿Reemplazarla con este archivo?`)) {
-          setImporting(false);
-          e.target.value = '';
-          return;
-        }
+      // Pedir el mes al que corresponde la planilla (con un valor sugerido)
+      const sugerido = `${importYear}-${String(importMonth).padStart(2, '0')}`;
+      const mesInput = window.prompt(
+        '¿A qué mes corresponde esta planilla?\n\nEscribilo en formato AAAA-MM (año-mes).\nEjemplos: 2026-01 para Enero 2026, 2026-02 para Febrero 2026.',
+        sugerido
+      );
+      if (!mesInput) { setImporting(false); e.target.value = ''; return; }
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mesInput.trim())) {
+        alert('Mes inválido. Usá el formato AAAA-MM, por ejemplo 2026-02.');
+        setImporting(false); e.target.value = '';
+        return;
       }
+      const month = mesInput.trim();
+
+      // Confirmar antes de guardar: indicar si crea uno nuevo o reemplaza uno existente
+      const yaExiste = months.includes(month);
+      const totIngresosArchivo = (() => {
+        // pequeño preview del total de ingresos para que el usuario verifique que es el archivo correcto
+        for (let r = 1; r < grid.length; r++) {
+          const lab = (grid[r]?.[0] != null ? String(grid[r][0]).trim().toLowerCase() : '');
+          if (lab === 'total ingresos') return totalCol >= 0 ? parseMoney(grid[r][totalCol]) : 0;
+        }
+        return 0;
+      })();
+      const confirmMsg =
+        `Vas a importar la planilla para: ${monthLabel(month)}\n\n` +
+        `Total Ingresos detectado: $${totIngresosArchivo.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
+        `Días detectados: ${dias.length}\n\n` +
+        (yaExiste
+          ? `⚠️ Ya hay una planilla cargada para ${monthLabel(month)}. Se REEMPLAZARÁ por esta.\n\n`
+          : `Se creará una nueva planilla para este mes.\n\n`) +
+        `¿Confirmás?`;
+      if (!window.confirm(confirmMsg)) { setImporting(false); e.target.value = ''; return; }
 
       const cellNum = (r: number, c: number) => parseMoney(grid[r]?.[c]);
       const labelOf = (r: number) => (grid[r]?.[0] != null ? String(grid[r][0]).trim() : '');
@@ -254,18 +277,6 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
               <Trash2 size={14} /> Eliminar
             </button>
           )}
-          {/* Selector de mes/año para la importación */}
-          <div className="flex items-center gap-1 bg-bg-accent/30 border border-border-dim rounded px-2 py-1">
-            <span className="text-[8px] font-black uppercase text-text-dim tracking-widest pl-1">Importar a:</span>
-            <select value={importMonth} onChange={e => setImportMonth(parseInt(e.target.value))}
-              className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] font-bold text-text-main outline-none focus:border-brand-500">
-              {MONTH_NAMES.map((nm, i) => <option key={i} value={i + 1}>{nm}</option>)}
-            </select>
-            <select value={importYear} onChange={e => setImportYear(parseInt(e.target.value))}
-              className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] font-bold text-text-main outline-none focus:border-brand-500">
-              {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </div>
           <label className={cn("flex items-center gap-2 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-600 transition-all", importing && "opacity-50 pointer-events-none")}>
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importar Excel
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} disabled={importing || isReadOnly} />
