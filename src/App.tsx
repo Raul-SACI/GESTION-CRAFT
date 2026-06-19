@@ -1610,7 +1610,7 @@ function AppContent() {
               {activeTab === 'tax_liabilities' && <FinanceView key="tax_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="tax" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'legal_liabilities' && <FinanceView key="legal_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="legal" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cronograma_pagos' && <PaymentScheduleView key="cronograma_pagos" isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'finanzas_mensual' && <MonthlyCashFlowView key="finanzas_mensual" />}
+              {activeTab === 'finanzas_mensual' && <MonthlyCashFlowView key="finanzas_mensual" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'control_desvios' && (
                 <DeviationControlView 
                   key="control_desvios" 
