@@ -125,6 +125,8 @@ export default function DeviationControlView({
   const [isSavingDaily, setIsSavingDaily] = useState(false);
   // Cierres administrativos de semana (clave "branch-mes-semana")
   const [adminClosures, setAdminClosures] = useState<Record<string, boolean>>({});
+  // Semana seleccionada en la Planilla Semanal (0 = ver todas; 1..4 = una sola, vista como el encargado)
+  const [planillaWeek, setPlanillaWeek] = useState<number>(1);
   const isAdmin = currentUserRole === 'administrador' || currentUserRole === 'dueño';
 
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
@@ -1088,198 +1090,120 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
 
         {activeTab === 'planilla' && (
           <motion.div key="planilla" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
+             {/* Selector de semana (una a la vez, como el encargado) */}
+             <div className="bg-bg-sidebar border border-border-dim rounded-lg p-3 flex flex-wrap items-center gap-2">
+               <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-1">Semana a controlar:</span>
+               {[1, 2, 3, 4].map(w => {
+                 const rangos: Record<number, string> = { 1: '1-7', 2: '8-14', 3: '15-21', 4: '22-fin' };
+                 const cerrada = isWeekClosedAdmin(w);
+                 return (
+                   <button key={w} onClick={() => setPlanillaWeek(w)}
+                     className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+                       planillaWeek === w ? "bg-brand-500 text-white" : "bg-bg-accent text-text-dim hover:text-text-main")}>
+                     Semana {w} <span className="opacity-60 text-[8px]">({rangos[w]})</span>
+                     {cerrada && <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="Cerrada"></span>}
+                   </button>
+                 );
+               })}
+             </div>
+
              <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
-               <div className="p-4 bg-bg-accent border-b border-border-dim flex justify-between items-center whitespace-nowrap">
+               <div className="p-4 bg-bg-accent border-b border-border-dim flex justify-between items-center flex-wrap gap-3">
                   <div>
-                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest italic">Planilla de Carga Administrativa (Semanal) - {selectedMonth}</h3>
-                    <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Semanas: S1 (1-7), S2 (8-14), S3 (15-21), S4 (22-Fin)</p>
+                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-widest italic">Planilla Administrativa · Semana {planillaWeek} · {selectedMonth}</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Misma vista que el encargado · podés editar todos los campos</p>
                   </div>
-                  <div className="flex gap-4 items-center">
-                    <div className="flex items-center gap-2">
-                       <span className="w-3 h-3 bg-brand-500/20 border border-brand-500 rounded"></span>
-                       <span className="text-[9px] font-black text-text-dim uppercase">Admin (Editable)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <span className="w-3 h-3 bg-bg-accent/50 border border-border-dim rounded"></span>
-                       <span className="text-[9px] font-black text-text-dim uppercase">Sucursal (Lectura)</span>
-                    </div>
+                  <div className="flex gap-3 items-center">
+                    {isWeekClosedAdmin(planillaWeek) ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black uppercase text-red-500 bg-red-500/10 border border-red-500/30 rounded px-3 py-1.5">Semana Cerrada</span>
+                        {isAdmin && (
+                          <button onClick={() => reopenWeekAdmin(planillaWeek)} className="text-[9px] font-black uppercase text-text-dim hover:text-amber-500 underline">Reabrir</button>
+                        )}
+                      </div>
+                    ) : (
+                      !isReadOnly && (
+                        <button onClick={() => closeWeekAdmin(planillaWeek)}
+                          className="text-[9px] font-black uppercase bg-brand-500 text-white rounded px-3 py-1.5 hover:bg-brand-600 transition-all">Cerrar semana</button>
+                      )
+                    )}
                   </div>
                </div>
-               
+
                <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
                  <table className="w-full border-collapse">
                    <thead className="sticky top-0 z-20 bg-bg-sidebar">
                      <tr className="bg-bg-sidebar border-b border-border-dim text-[9px] font-black uppercase text-text-dim">
-                       <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim w-32 min-w-[120px]">Semana</th>
-                       {validControlledIds.map(id => {
-                         const item = items.find(i => i.id === id);
-                         return (
-                           <th key={id} colSpan={8} className="px-4 py-3 text-center border-r border-border-dim bg-bg-accent/30 min-w-[580px]">
-                             {item?.name}
-                           </th>
-                         );
-                       })}
-                     </tr>
-                     <tr className="bg-bg-sidebar border-b border-border-dim text-[8px] font-black uppercase text-text-dim">
-                        <th className="px-4 py-2 sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim"></th>
-                        {validControlledIds.map(id => (
-                          <React.Fragment key={id}>
-                            <th className="px-2 py-2 text-center opacity-60">EI</th>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">COMPRAS</th>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">DECOMISOS</th>
-                            <th className="px-2 py-2 text-center bg-brand-500/5 text-brand-500">VENTAS</th>
-                            <th className="px-2 py-2 text-center opacity-60">EF</th>
-                            <th className="px-2 py-2 text-center opacity-60">P. Recib</th>
-                             <th className="px-2 py-2 text-center opacity-60">P. Enviad</th>
-                            <th className="px-2 py-2 text-center border-r border-border-dim opacity-60">C.Per</th>
-                          </React.Fragment>
-                        ))}
+                       <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim min-w-[200px]">Insumo</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">EI</th>
+                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Compras</th>
+                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Decomisos</th>
+                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Ventas Teo.</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">EF</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">P. Recib.</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-border-dim">
-                     {getWeeks().map((week) => {
-                       const dateStr = week.date;
+                     {validControlledIds.map(id => {
+                       const item = items.find(i => i.id === id);
+                       const weekDates = getDatesForWeek(planillaWeek);
+                       const weekClosed = isWeekClosedAdmin(planillaWeek);
+                       const dateStr = weekDates[0];
+                       const itemWeekLogs = dailyLogs.filter(l => l.itemId === id && weekDates.includes(l.date));
+                       const sortedWeekLogs = [...itemWeekLogs].sort((a, b) => a.date.localeCompare(b.date));
+                       const firstDayLog = itemWeekLogs.find(l => l.date === weekDates[0]);
+                       const ei = firstDayLog ? (firstDayLog.ei || 0) : (sortedWeekLogs[0]?.ei || 0);
+                       const lastDayLog = itemWeekLogs.find(l => l.date === weekDates[weekDates.length - 1]);
+                       const ef = (firstDayLog && firstDayLog.ef) ? firstDayLog.ef
+                                : (lastDayLog && lastDayLog.ef ? lastDayLog.ef : (sortedWeekLogs[sortedWeekLogs.length - 1]?.ef || 0));
+                       const purchases = itemWeekLogs.reduce((sum, l) => sum + (l.purchases || 0), 0);
+                       const waste = itemWeekLogs.reduce((sum, l) => sum + (l.waste || 0), 0);
+                       const theoretical_sales = itemWeekLogs.reduce((sum, l) => sum + (l.theoretical_sales || 0), 0);
+                       const loansReceived = itemWeekLogs.reduce((sum, l) => sum + (l.loansReceived || 0), 0);
+                       const loansSent = itemWeekLogs.reduce((sum, l) => sum + (l.loansSent || 0), 0);
+                       const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
+                       const inputCls = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60";
+                       const inputBrand = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50";
                        return (
-                         <tr key={dateStr} className="hover:bg-bg-accent/30 transition-colors text-[10px]">
-                           <td className="px-4 py-6 font-mono font-bold text-text-dim sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim text-center">
-                              <div className="flex flex-col items-center gap-2">
-                                <span className="text-brand-500 font-black uppercase text-[11px]">{week.label}</span>
-                                <span className="text-[8px] opacity-60 font-black">{week.range}</span>
-                                {isWeekClosedAdmin(week.id) ? (
-                                  <div className="flex flex-col items-center gap-1">
-                                    <span className="text-[8px] font-black uppercase text-red-500 bg-red-500/10 border border-red-500/30 rounded px-2 py-0.5">Cerrada</span>
-                                    {isAdmin && (
-                                      <button onClick={() => reopenWeekAdmin(week.id)} className="text-[7px] font-black uppercase text-text-dim hover:text-amber-500 underline">Reabrir</button>
-                                    )}
-                                  </div>
-                                ) : (
-                                  !isReadOnly && (
-                                    <button onClick={() => closeWeekAdmin(week.id)}
-                                      className="text-[8px] font-black uppercase bg-brand-500 text-white rounded px-2 py-1 hover:bg-brand-600 transition-all">Cerrar semana</button>
-                                  )
-                                )}
-                              </div>
+                         <tr key={id} className="hover:bg-bg-accent/20 transition-colors text-[11px]">
+                           <td className="px-4 py-3 sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim">
+                             <div className="font-black uppercase text-text-main text-[11px]">{item?.name}</div>
+                             <div className="text-[8px] font-bold text-text-dim uppercase opacity-60">{item?.unit || ''}</div>
                            </td>
-                           {validControlledIds.map(id => {
-                             const weekDates = getDatesForWeek(week.id);
-                             const weekClosed = isWeekClosedAdmin(week.id);
-                             const itemWeekLogs = dailyLogs.filter(l => l.itemId === id && weekDates.includes(l.date));
-                             const sortedWeekLogs = [...itemWeekLogs].sort((a, b) => a.date.localeCompare(b.date));
-                             
-                             const firstDayLog = itemWeekLogs.find(l => l.date === weekDates[0]);
-                             const ei = firstDayLog ? (firstDayLog.ei || 0) : (sortedWeekLogs[0]?.ei || 0);
-                             
-                             // EF: StockView lo guarda/lee en el primer día de la semana. Priorizamos ese;
-                             // si no hay, usamos el último día (compatibilidad con cargas viejas).
-                             const lastDayLog = itemWeekLogs.find(l => l.date === weekDates[weekDates.length - 1]);
-                             const ef = (firstDayLog && firstDayLog.ef) ? firstDayLog.ef
-                                      : (lastDayLog && lastDayLog.ef ? lastDayLog.ef : (sortedWeekLogs[sortedWeekLogs.length - 1]?.ef || 0));
-                             
-                             const purchases = itemWeekLogs.reduce((sum, l) => sum + (l.purchases || 0), 0);
-                             const waste = itemWeekLogs.reduce((sum, l) => sum + (l.waste || 0), 0);
-                             const theoretical_sales = itemWeekLogs.reduce((sum, l) => sum + (l.theoretical_sales || 0), 0);
-                             const loansReceived = itemWeekLogs.reduce((sum, l) => sum + (l.loansReceived || 0), 0);
-                              const loansSent = itemWeekLogs.reduce((sum, l) => sum + (l.loansSent || 0), 0);
-                             const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
-
-                             const log = {
-                               ei,
-                               ef,
-                               purchases,
-                               waste,
-                               theoretical_sales,
-                               loansReceived,
-                                loansSent,
-                               staff_consumption
-                             };
-                             return (
-                               <React.Fragment key={id}>
-                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <input
-                                     type="number" step="0.001"
-                                     value={log.ei || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(weekDates[0], id, 'ei', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
-                                   />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                                   <input 
-                                     type="number"
-                                     step="0.001"
-                                     value={log.purchases || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
-                                   />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                                   <input 
-                                     type="number"
-                                     step="0.001"
-                                     value={log.waste || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
-                                   />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                                   <input 
-                                     type="number"
-                                     step="0.001"
-                                     value={log.theoretical_sales || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50"
-                                   />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <input
-                                     type="number" step="0.001"
-                                     value={log.ef || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
-                                   />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                   <input
-                                     type="number" step="0.001"
-                                     value={log.loansReceived || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
-                                   />
-                                  </td>
-                                  <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                                    <input
-                                      type="number" step="0.001"
-                                      value={log.loansSent || ''}
-                                      placeholder="0"
-                                      disabled={weekClosed}
-                                      onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansSent', parseFloat(e.target.value) || 0)}
-                                      className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
-                                    />
-                                 </td>
-                                 <td className="p-0 border-r border-border-dim bg-bg-accent/20">
-                                   <input
-                                     type="number" step="0.001"
-                                     value={log.staff_consumption || ''}
-                                     placeholder="0"
-                                     disabled={weekClosed}
-                                     onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)}
-                                     className="w-full min-w-[70px] h-full p-2 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60"
-                                   />
-                                 </td>
-                               </React.Fragment>
-                             );
-                           })}
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                             <input type="number" step="0.001" value={ei || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ei', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                             <input type="number" step="0.001" value={purchases || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                             <input type="number" step="0.001" value={waste || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
+                             <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                             <input type="number" step="0.001" value={ef || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                             <input type="number" step="0.001" value={loansReceived || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                             <input type="number" step="0.001" value={loansSent || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansSent', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim bg-bg-accent/20">
+                             <input type="number" step="0.001" value={staff_consumption || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
                          </tr>
                        );
                      })}
