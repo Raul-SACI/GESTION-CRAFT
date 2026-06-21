@@ -472,13 +472,13 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
   const seccionesEgreso = Array.from(new Set(
     allData.flatMap(md => md.secciones.filter(s => !esSaldoInicial(s) && !esSeccionIngreso(s)).map(s => s.titulo))
   ));
-  const compRubros = seccionesEgreso.map(titulo => {
-    const row: any = { rubro: titulo };
-    allData.forEach(md => {
-      const s = md.secciones.find(x => x.titulo === titulo);
-      row[monthShort(md.month)] = s ? Math.abs(s.total) : 0;
-    });
-    return row;
+  // Rubro elegido para ver su evolución mes a mes (por defecto el primero)
+  const [rubroSel, setRubroSel] = useState<string>('');
+  const rubroActivo = rubroSel && seccionesEgreso.includes(rubroSel) ? rubroSel : (seccionesEgreso[0] || '');
+  // Evolución del rubro elegido: un punto por mes
+  const evolucionRubro = allData.map(md => {
+    const s = md.secciones.find(x => x.titulo === rubroActivo);
+    return { mes: monthShort(md.month), monto: s ? Math.abs(s.total) : 0 };
   });
 
   // KPIs
@@ -602,21 +602,29 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
         </div>
       )}
 
-      {/* Comparación por rubro de egreso entre meses */}
-      {compMeses.length > 1 && compRubros.length > 0 && (
+      {/* Evolución de un rubro de egreso elegido, mes a mes */}
+      {seccionesEgreso.length > 0 && (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-4">Egresos por rubro · comparación entre meses</h3>
-          <div style={{ width: '100%', height: 360 }}>
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Evolución de un rubro de egreso</h3>
+          <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Elegí un rubro y mirá cómo cambia mes a mes</p>
+          {/* Botones para elegir el rubro */}
+          <div className="flex flex-wrap gap-1.5 mb-5">
+            {seccionesEgreso.map(r => (
+              <button key={r} onClick={() => setRubroSel(r)}
+                className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  rubroActivo === r ? "bg-brand-500 text-white" : "bg-bg-accent text-text-dim hover:text-text-main")}>
+                {r}
+              </button>
+            ))}
+          </div>
+          <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
-              <BarChart data={compRubros} layout="vertical" margin={{ left: 40 }}>
+              <BarChart data={evolucionRubro} margin={{ left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#33333322" />
-                <XAxis type="number" tickFormatter={fmtShort} tick={{ fontSize: 9 }} />
-                <YAxis type="category" dataKey="rubro" tick={{ fontSize: 9 }} width={150} />
-                <Tooltip formatter={(v: any) => fmt(v)} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                {allData.map((md, i) => (
-                  <Bar key={md.month} dataKey={monthShort(md.month)} fill={COLORS[i % COLORS.length]} radius={[0, 3, 3, 0]} />
-                ))}
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10 }} width={70} />
+                <Tooltip formatter={(v: any) => fmt(v)} labelFormatter={(l) => `${rubroActivo} · ${l}`} />
+                <Bar dataKey="monto" name={rubroActivo} fill="#e31e24" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
