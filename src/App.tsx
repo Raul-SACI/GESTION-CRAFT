@@ -134,7 +134,7 @@ const PedidosYaView = lazy(() => import('./components/PedidosYaView'));
 const EncargadoDashboardView = lazy(() => import('./components/EncargadoDashboardView'));
 
 import { NewsView } from './components/ExtraViews';
-import { Key, ShieldCheck, FileText } from 'lucide-react';
+import { Key, ShieldCheck, FileText, Database, BookOpen } from 'lucide-react';
 
 // --- MOCK DATA ---
 const MOCK_SALES: SalesData[] = [
@@ -633,6 +633,8 @@ function AppContent() {
       { id: 'ventas', label: 'Ventas', icon: TrendingUp },
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
+      { id: 'maestros', label: 'Maestros', icon: Database },
+      { id: 'recetas', label: 'Recetas', icon: BookOpen },
       { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
       { id: 'pedidos_ya', label: 'Pedidos Ya', icon: Star },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
@@ -1614,6 +1616,23 @@ function AppContent() {
               {activeTab === 'control_desvios' && (
                 <DeviationControlView 
                   key="control_desvios" 
+                  branches={branches} 
+                  selectedBranchId={selectedBranchId} 
+                  onBranchChange={setSelectedBranchId}
+                  controlledItemIds={controlledItemIds}
+                  setControlledItemIds={setControlledItemIds}
+                  items={items}
+                  setItems={setItems}
+                  products={products}
+                  setProducts={setProducts}
+                  currentUserRole={currentUser.role}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
+              )}
+              {(activeTab === 'maestros' || activeTab === 'recetas') && (
+                <DeviationControlView 
+                  key={activeTab}
+                  forcedTab={activeTab === 'maestros' ? 'gestion' : 'recetas'}
                   branches={branches} 
                   selectedBranchId={selectedBranchId} 
                   onBranchChange={setSelectedBranchId}

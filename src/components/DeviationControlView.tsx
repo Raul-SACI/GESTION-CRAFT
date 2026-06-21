@@ -91,6 +91,7 @@ export default function DeviationControlView({
   products,
   setProducts,
   currentUserRole,
+  forcedTab,
   isReadOnly = false
 }: { 
   branches: Branch[], 
@@ -103,9 +104,10 @@ export default function DeviationControlView({
   products: Product[],
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>,
   currentUserRole?: string,
+  forcedTab?: 'gestion' | 'recetas',
   isReadOnly?: boolean
 }) {
-  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla' | 'diagnostico'>('comparativo');
+  const [activeTab, setActiveTab] = useState<'selector' | 'recetas' | 'comparativo' | 'gestion' | 'planilla' | 'diagnostico'>(forcedTab || 'comparativo');
   
   // Persistence State
   const [selectedMonth, setSelectedMonth] = useState(() => {
@@ -954,8 +956,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
             <ShieldAlert size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Control de Desvíos</h2>
-            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">Consola de Control de Administración</p>
+            <h2 className="text-xl font-black text-text-main uppercase tracking-tight">{forcedTab === 'gestion' ? 'Maestros' : forcedTab === 'recetas' ? 'Recetas' : 'Control de Desvíos'}</h2>
+            <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">{forcedTab === 'gestion' ? 'Maestro de Insumos y Productos' : forcedTab === 'recetas' ? 'Recetas de Productos' : 'Consola de Control de Administración'}</p>
           </div>
         </div>
 
@@ -969,14 +971,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
            />
         </div>
         
+        {!forcedTab && (
         <div className="flex bg-bg-sidebar p-1 rounded border border-border-dim shadow-sm self-start md:self-center">
           <TabButton active={activeTab === 'comparativo'} onClick={() => setActiveTab('comparativo')} icon={<BarChart3 size={14} />} label="Resultados" />
           <TabButton active={activeTab === 'planilla'} onClick={() => setActiveTab('planilla')} icon={<Table2 size={14} />} label="Planilla Semanal" />
           <TabButton active={activeTab === 'selector'} onClick={() => setActiveTab('selector')} icon={<Settings2 size={14} />} label="Selector de Insumos" />
-          <TabButton active={activeTab === 'recetas'} onClick={() => setActiveTab('recetas')} icon={<BookOpen size={14} />} label="Recetas" />
           <TabButton active={activeTab === 'diagnostico'} onClick={() => setActiveTab('diagnostico')} icon={<AlertTriangle size={14} />} label="Diagnóstico Ventas" />
-          <TabButton active={activeTab === 'gestion'} onClick={() => setActiveTab('gestion')} icon={<Settings2 size={14} />} label="Maestros" />
         </div>
+        )}
       </div>
 
       {onBranchChange && (
