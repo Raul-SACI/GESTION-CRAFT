@@ -444,18 +444,33 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
     return <div className="py-12 flex justify-center"><Loader2 size={22} className="animate-spin text-brand-500" /></div>;
   }
 
-  // 1) Acumulado día a día del mes actual (para ver cuándo baja la caja)
+  // Vista del gráfico de saldo día a día
+  const [vistaGrafico, setVistaGrafico] = useState<'ingvsegr' | 'dispvsegr' | 'acumulado'>('acumulado');
+
+  // 1) Serie día a día del mes actual
   const serieDiaria = (() => {
     const md = currentMonth;
     const dias = md.dias || [];
-    // Buscar la fila de resumen "acumulado" día a día si existe; si no, reconstruir
     const acumPorDia = md.resumen?.['acumulado'] as Record<number, number> | undefined;
-    const saldoPorDia = md.resumen?.['saldo inicial'] as Record<number, number> | undefined;
-    return dias.map(d => ({
-      dia: d,
-      saldo: saldoPorDia?.[d] ?? 0,
-      acumulado: acumPorDia?.[d] ?? 0,
-    }));
+    const saldoInicialTotal = md.resumenTotales?.['saldo inicial'] || 0;
+    let ingAcum = 0;
+    return dias.map(d => {
+      // Ingresos y egresos del día (sumando secciones)
+      let ingDia = 0, egrDia = 0;
+      md.secciones.forEach(s => {
+        if (esSaldoInicial(s)) return;
+        const v = seccionDia(s, d);
+        if (esSeccionIngreso(s)) ingDia += v; else egrDia += Math.abs(v);
+      });
+      ingAcum += ingDia;
+      return {
+        dia: d,
+        ingresos: ingDia,
+        egresos: egrDia,
+        disponible: saldoInicialTotal + ingAcum, // saldo inicial + ingresos acumulados
+        acumulado: acumPorDia?.[d] ?? 0,
+      };
+    });
   })();
 
   // 2) Por década del mes actual
@@ -544,8 +559,25 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
 
       {/* Saldo / acumulado día a día */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Saldo día a día · {monthLabel(currentMonth.month)}</h3>
-        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Dónde sube y baja la caja durante el mes</p>
+        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Movimiento día a día · {monthLabel(currentMonth.month)}</h3>
+        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-3 opacity-70">Elegí qué comparar a lo largo del mes</p>
+        {/* Selector de vista */}
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {[
+            { id: 'acumulado', label: 'Solo Acumulado' },
+            { id: 'ingvsegr', label: 'Ingresos vs Egresos' },
+            { id: 'dispvsegr', label: 'Disponible vs Egresos' },
+          ].map(o => (
+            <button key={o.id} onClick={() => setVistaGrafico(o.id as any)}
+              className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                vistaGrafico === o.id ? "bg-brand-500 text-white" : "bg-bg-accent text-text-dim hover:text-text-main")}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+        {vistaGrafico === 'dispvsegr' && (
+          <p className="text-[8px] text-text-dim font-bold uppercase tracking-widest mb-2 opacity-60">Disponible = Saldo inicial + ingresos acumulados</p>
+        )}
         <div style={{ width: '100%', height: 280 }}>
           <ResponsiveContainer>
             <LineChart data={serieDiaria}>
@@ -554,8 +586,17 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
               <YAxis tickFormatter={fmtShort} tick={{ fontSize: 10 }} width={60} />
               <Tooltip formatter={(v: any) => fmt(v)} labelFormatter={(l) => `Día ${l}`} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="saldo" name="Saldo del día" stroke="#3b82f6" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="acumulado" name="Acumulado" stroke="#e31e24" strokeWidth={2} dot={false} />
+              {vistaGrafico === 'acumulado' && (
+                <Line type="monotone" dataKey="acumulado" name="Acumulado" stroke="#e31e24" strokeWidth={2} dot={false} />
+              )}
+              {vistaGrafico === 'ingvsegr' && (<>
+                <Line type="monotone" dataKey="ingresos" name="Ingresos del día" stroke="#10b981" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="egresos" name="Egresos del día" stroke="#e31e24" strokeWidth={2} dot={false} />
+              </>)}
+              {vistaGrafico === 'dispvsegr' && (<>
+                <Line type="monotone" dataKey="disponible" name="Disponible (saldo+ingresos)" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="egresos" name="Egresos del día" stroke="#e31e24" strokeWidth={2} dot={false} />
+              </>)}
             </LineChart>
           </ResponsiveContainer>
         </div>
