@@ -1143,6 +1143,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Recib.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
+                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600 border-l border-border-dim">Desvío</th>
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-border-dim">
@@ -1166,6 +1167,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
                        const inputCls = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60";
                        const inputBrand = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50";
+                       // Desvío: igual que Control de Stock → CMV real - ventas teóricas
+                       const cmvReal = ei + purchases + loansReceived - loansSent - waste - staff_consumption - ef;
+                       const desvio = cmvReal - theoretical_sales;
                        return (
                          <tr key={id} className="hover:bg-bg-accent/20 transition-colors text-[11px]">
                            <td className="px-4 py-3 sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim">
@@ -1203,6 +1207,12 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                            <td className="p-0 border-r border-border-dim bg-bg-accent/20">
                              <input type="number" step="0.001" value={staff_consumption || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="px-3 py-3 text-center border-l border-border-dim bg-amber-500/5">
+                             <span className={cn("text-[12px] font-mono font-black px-2 py-1 rounded",
+                               Math.abs(desvio) < 2 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>
+                               {desvio > 0 ? '+' : ''}{desvio.toFixed(1)}
+                             </span>
                            </td>
                          </tr>
                        );
