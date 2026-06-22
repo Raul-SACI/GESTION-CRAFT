@@ -161,6 +161,13 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
     () => [...aggregated].sort((a, b) => a.total - b.total).slice(0, 10),
     [aggregated]
   );
+  // Ranking completo ordenado de mayor a menor
+  const rankingCompleto = useMemo(
+    () => [...aggregated].sort((a, b) => b.total - a.total),
+    [aggregated]
+  );
+  // Toggle de la tabla destacada: 10 más vendidos o 10 menos vendidos
+  const [destacado, setDestacado] = useState<'top' | 'bottom'>('top');
 
   const monthLabel = (m: string) => {
     if (!m) return '—';
@@ -177,9 +184,9 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
           : <TrendingDown size={16} className="text-red-500" />}
         <h4 className="text-[11px] font-black uppercase tracking-widest text-text-main">{title}</h4>
       </div>
-      <div className="overflow-x-auto rounded-lg border border-border-dim">
+      <div className="overflow-x-auto overflow-y-auto max-h-[500px] rounded-lg border border-border-dim">
         <table className="w-full border-collapse text-[10px]">
-          <thead>
+          <thead className="sticky top-0">
             <tr className="bg-bg-card text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
               <th className="px-3 py-2 text-center">#</th>
               <th className="px-3 py-2">Producto</th>
@@ -264,8 +271,58 @@ export default function MonthlyRankingTop({ branches, fixedBranchId }: MonthlyRa
         </div>
       ) : (
         <div className="flex flex-col lg:flex-row gap-6">
-          <RankTable title="10 Más Vendidos" data={top10} variant="top" />
-          <RankTable title="10 Menos Vendidos" data={bottom10} variant="bottom" />
+          {/* Tabla 1: ranking completo */}
+          <RankTable title={`Ranking Completo (${rankingCompleto.length})`} data={rankingCompleto} variant="top" />
+
+          {/* Tabla 2: destacado con toggle */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                {destacado === 'top'
+                  ? <TrendingUp size={16} className="text-emerald-500" />
+                  : <TrendingDown size={16} className="text-red-500" />}
+                <h4 className="text-[11px] font-black uppercase tracking-widest text-text-main">
+                  {destacado === 'top' ? '10 Más Vendidos' : '10 Menos Vendidos'}
+                </h4>
+              </div>
+              <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
+                <button onClick={() => setDestacado('top')}
+                  className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                    destacado === 'top' ? "bg-emerald-500 text-white" : "text-text-dim hover:text-text-main")}>
+                  10 Más
+                </button>
+                <button onClick={() => setDestacado('bottom')}
+                  className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                    destacado === 'bottom' ? "bg-red-500 text-white" : "text-text-dim hover:text-text-main")}>
+                  10 Menos
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-border-dim">
+              <table className="w-full border-collapse text-[10px]">
+                <thead>
+                  <tr className="bg-bg-card text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+                    <th className="px-3 py-2 text-center">#</th>
+                    <th className="px-3 py-2">Producto</th>
+                    <th className="px-3 py-2">Rubro</th>
+                    <th className="px-3 py-2 text-right">Cantidad</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/40">
+                  {(destacado === 'top' ? top10 : bottom10).length === 0 ? (
+                    <tr><td colSpan={4} className="px-3 py-8 text-center text-text-dim italic opacity-50 uppercase">Sin datos</td></tr>
+                  ) : (destacado === 'top' ? top10 : bottom10).map((p, i) => (
+                    <tr key={(p.product_code || '') + p.product_name} className="hover:bg-bg-accent/40">
+                      <td className="px-3 py-2 text-center font-black text-text-dim">{i + 1}</td>
+                      <td className="px-3 py-2 font-black text-text-main uppercase">{p.product_name}</td>
+                      <td className="px-3 py-2 text-text-dim uppercase text-[9px]">{p.category || '—'}</td>
+                      <td className={cn("px-3 py-2 text-right font-black text-sm", destacado === 'top' ? "text-emerald-500" : "text-red-500")}>{p.total.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>
