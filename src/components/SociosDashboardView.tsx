@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -39,6 +39,8 @@ interface BranchSales {
   budgetHours: number;
   workedHours: number;
   hoursByPosition: Record<string, { budget: number; worked: number }>;
+  // Desglose por semana (1-4): net, gross, tickets
+  semanas: Record<number, { net: number; gross: number; tickets: number }>;
 }
 
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -59,6 +61,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   const [selectedMonth, setSelectedMonth] = useState<string>(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<BranchSales[]>([]);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   // Desglose de horas por puesto, por sucursal: { branchId: { puesto: { budget, worked } } }
   const [hoursByPosition, setHoursByPosition] = useState<Record<string, Record<string, { budget: number; worked: number }>>>({});
   const [expandedHoursBranch, setExpandedHoursBranch] = useState<string | null>(null);
@@ -123,7 +126,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
           pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0,
-          hoursByPosition: {}
+          hoursByPosition: {},
+          semanas: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } }
         };
       });
 
@@ -135,6 +139,12 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         a.netCurrent += Number(t.net_sales) || 0;
         a.grossCurrent += Number(t.gross_sales) || 0;
         a.ticketsCurrent += Number(t.orders) || 0;
+        // Desglose por semana según el día del mes (1-7=S1, 8-14=S2, 15-21=S3, 22+=S4)
+        const diaMes = parseInt(String(t.date).slice(8, 10));
+        const wk = diaMes <= 7 ? 1 : diaMes <= 14 ? 2 : diaMes <= 21 ? 3 : 4;
+        a.semanas[wk].net += Number(t.net_sales) || 0;
+        a.semanas[wk].gross += Number(t.gross_sales) || 0;
+        a.semanas[wk].tickets += Number(t.orders) || 0;
         if (!daysWithData[t.branch_id]) daysWithData[t.branch_id] = new Set();
         daysWithData[t.branch_id].add(t.date);
         if (!dayNumsWithData[t.branch_id]) dayNumsWithData[t.branch_id] = new Set();
@@ -412,8 +422,14 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       ? <span className="text-text-dim">—</span>
                       : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>;
                     return (
-                      <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
-                        <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
+                      <React.Fragment key={d.branchId}>
+                      <tr className="text-[11px] font-medium hover:bg-bg-accent/30 cursor-pointer" onClick={() => setExpandedRows(p => ({ ...p, [d.branchId]: !p[d.branchId] }))}>
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">
+                          <span className="inline-flex items-center gap-1.5">
+                            {expandedRows[d.branchId] ? <ChevronDown size={13} className="text-brand-500" /> : <ChevronRight size={13} className="text-text-dim" />}
+                            {d.branchName}
+                          </span>
+                        </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.netCurrent)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pn)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.grossCurrent)}</td>
@@ -423,6 +439,24 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{Math.round(d.ticketsProjection).toLocaleString('es-AR')}</td>
                       </tr>
+                      {expandedRows[d.branchId] && [1, 2, 3, 4].map(wk => {
+                        const s = d.semanas[wk];
+                        const rangos: Record<number, string> = { 1: '1-7', 2: '8-14', 3: '15-21', 4: '22-fin' };
+                        return (
+                          <tr key={`${d.branchId}-w${wk}`} className="text-[10px] bg-bg-accent/20 text-text-dim">
+                            <td className="pl-9 pr-3 py-1.5 font-bold uppercase">Semana {wk} <span className="opacity-50">({rangos[wk]})</span></td>
+                            <td className="px-3 py-1.5 text-right font-mono">{fmt(s.net)}</td>
+                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5 text-right font-mono">{fmt(s.gross)}</td>
+                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5 text-right font-mono">{s.tickets.toLocaleString('es-AR')}</td>
+                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5"></td>
+                          </tr>
+                        );
+                      })}
+                      </React.Fragment>
                     );
                   })}
                   {shown.length > 1 && (
