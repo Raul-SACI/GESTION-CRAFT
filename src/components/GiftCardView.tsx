@@ -10,9 +10,11 @@ import jsPDF from 'jspdf';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
 import { GIFTCARD_BG } from './giftCardBg';
+import { GIFTCARD_CUMPLE_BG } from './giftCardCumpleBg';
 
 interface GiftCardRec {
   id: string; codigo: string; para: string; regalo: string; de_parte_de: string; fecha_emision: string;
+  tipo?: string;
   emitida_por?: string; medio_pago?: string; utilizada?: boolean; utilizada_fecha?: string | null; utilizada_sucursal?: string | null; created_at?: string;
 }
 
@@ -28,7 +30,7 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
   const [records, setRecords] = useState<GiftCardRec[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
+  const [form, setForm] = useState({ tipo: 'clasica', para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
   const [previewUrl, setPreviewUrl] = useState<string>('');
 
   const loadRecords = async () => {
@@ -44,6 +46,11 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
 
   // Genera el PDF de la gift card escribiendo sobre el diseño oficial de CRAFT
   const buildPdf = (rec: GiftCardRec) => {
+    if (rec.tipo === 'cumpleanos') return buildPdfCumple(rec);
+    return buildPdfClasica(rec);
+  };
+
+  const buildPdfClasica = (rec: GiftCardRec) => {
     // Página en px con el tamaño exacto del diseño original (2883x1992)
     const IW = 2883, IH = 1992;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [IW, IH] });
@@ -76,12 +83,42 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
     return doc;
   };
 
+  // PDF de la Gift Card de CUMPLEAÑOS (diseño rojo, solo Para + Fecha; el regalo va impreso)
+  const buildPdfCumple = (rec: GiftCardRec) => {
+    // Tamaño exacto del diseño de cumpleaños (2690x1859)
+    const IW = 2690, IH = 1859;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'px', format: [IW, IH] });
+    doc.addImage(GIFTCARD_CUMPLE_BG, 'JPEG', 0, 0, IW, IH);
+
+    doc.setFont('helvetica', 'bold');
+
+    // PARA: nombre dentro de la caja blanca. Caja: x 1458–2451, centro y ~1178.
+    // Texto oscuro porque el fondo de la caja es blanco. Centrado en la caja.
+    doc.setTextColor(35, 35, 35);
+    doc.setFontSize(64);
+    const cajaCx = 1954;
+    const para = rec.para || '';
+    doc.text(para, cajaCx, 1215, { align: 'center', maxWidth: 950 });
+
+    // FECHA DE EMISIÓN: el rótulo está impreso (~y 1336–1367, x desde ~1458).
+    // La fecha va a la derecha del rótulo, en blanco.
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(46);
+    doc.text(fmtDMY(rec.fecha_emision), 2050, 1372);
+
+    // CÓDIGO chico en blanco, esquina inferior derecha del panel (debajo del texto legal)
+    doc.setFontSize(26);
+    doc.text(`CÓDIGO: ${rec.codigo}`, 1458, 1800);
+
+    return doc;
+  };
+
   // Vista previa: regenera la imagen del PDF real cuando cambian los datos (con debounce)
   useEffect(() => {
     const t = setTimeout(() => {
       try {
         const recPreview: GiftCardRec = {
-          id: 'preview', codigo: 'CRAFT-XXXX-XXXX',
+          id: 'preview', codigo: 'CRAFT-XXXX-XXXX', tipo: form.tipo,
           para: form.para, regalo: form.regalo, de_parte_de: form.deParteDe,
           fecha_emision: form.fecha || todayISO(),
         };
@@ -90,19 +127,22 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
       } catch (e) { console.error('Error generando vista previa:', e); }
     }, 350);
     return () => clearTimeout(t);
-  }, [form.para, form.regalo, form.deParteDe, form.fecha]);
+  }, [form.tipo, form.para, form.regalo, form.deParteDe, form.fecha]);
 
   const generateAndSave = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
-    if (!form.para.trim() || !form.regalo.trim()) { alert('Completá al menos "Para" y "Tu regalo es".'); return; }
+    const esCumple = form.tipo === 'cumpleanos';
+    if (!form.para.trim()) { alert('Completá el campo "Para".'); return; }
+    if (!esCumple && !form.regalo.trim()) { alert('Completá al menos "Para" y "Tu regalo es".'); return; }
     setSaving(true);
     try {
       const rec: GiftCardRec = {
         id: Math.random().toString(36).slice(2, 12),
         codigo: genCodigo(),
+        tipo: form.tipo,
         para: form.para.trim(),
-        regalo: form.regalo.trim(),
-        de_parte_de: form.deParteDe.trim(),
+        regalo: esCumple ? 'Pizza muzza de regalo' : form.regalo.trim(),
+        de_parte_de: esCumple ? '' : form.deParteDe.trim(),
         fecha_emision: form.fecha || todayISO(),
         emitida_por: currentUser?.name || 'CRAFT',
         medio_pago: form.medioPago.trim() || null as any,
@@ -112,9 +152,9 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
       if (error) throw error;
       // Descargar PDF
       const doc = buildPdf(rec);
-      doc.save(`giftcard_${rec.codigo}.pdf`);
-      // Limpiar y recargar
-      setForm({ para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
+      doc.save(`giftcard_${esCumple ? 'cumple_' : ''}${rec.codigo}.pdf`);
+      // Limpiar y recargar (conservando el tipo elegido)
+      setForm({ tipo: form.tipo, para: '', regalo: '', deParteDe: '', fecha: todayISO(), medioPago: '' });
       await loadRecords();
     } catch (e: any) {
       alert('Error al generar la gift card: ' + (e.message || e));
@@ -148,18 +188,43 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
             <Gift size={16} className="text-brand-500" />
             <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Nueva Gift Card</h3>
           </div>
+          {/* Selector de tipo de gift card */}
+          <div>
+            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Tipo de Gift Card</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setForm({ ...form, tipo: 'clasica' })}
+                className={cn("py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all",
+                  form.tipo === 'clasica' ? "bg-brand-500 text-white border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500")}>
+                Clásica
+              </button>
+              <button type="button" onClick={() => setForm({ ...form, tipo: 'cumpleanos' })}
+                className={cn("py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all",
+                  form.tipo === 'cumpleanos' ? "bg-brand-500 text-white border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500")}>
+                Cumpleaños
+              </button>
+            </div>
+          </div>
           <div>
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Para</label>
             <input value={form.para} onChange={e => setForm({ ...form, para: e.target.value })} placeholder="Nombre del destinatario" className={inputCls} />
           </div>
-          <div>
-            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Tu regalo es</label>
-            <textarea value={form.regalo} onChange={e => setForm({ ...form, regalo: e.target.value })} placeholder="Ej: Un café + medialuna / $5.000 en consumición" className={cn(inputCls, "min-h-[70px]")} />
-          </div>
-          <div>
-            <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">De parte de</label>
-            <input value={form.deParteDe} onChange={e => setForm({ ...form, deParteDe: e.target.value })} placeholder="Quién regala" className={inputCls} />
-          </div>
+          {form.tipo === 'cumpleanos' ? (
+            <div className="bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-2.5">
+              <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-0.5">Regalo (fijo en el diseño)</p>
+              <p className="text-[11px] font-bold text-text-main">🍕 Pizza muzza de regalo</p>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Tu regalo es</label>
+                <textarea value={form.regalo} onChange={e => setForm({ ...form, regalo: e.target.value })} placeholder="Ej: Un café + medialuna / $5.000 en consumición" className={cn(inputCls, "min-h-[70px]")} />
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">De parte de</label>
+                <input value={form.deParteDe} onChange={e => setForm({ ...form, deParteDe: e.target.value })} placeholder="Quién regala" className={inputCls} />
+              </div>
+            </>
+          )}
           <div>
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha de emisión</label>
             <input type="date" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} className={inputCls} />
@@ -210,6 +275,7 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
               <thead>
                 <tr className="bg-bg-accent/40 border-b border-border-dim text-[10px] font-black uppercase text-text-dim tracking-widest">
                   <th className="px-4 py-3">Código</th>
+                  <th className="px-4 py-3">Tipo</th>
                   <th className="px-4 py-3">Para</th>
                   <th className="px-4 py-3">Regalo</th>
                   <th className="px-4 py-3">De parte de</th>
@@ -224,6 +290,11 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
                 {records.map(r => (
                   <tr key={r.id} className="border-b border-border-dim/30 hover:bg-bg-accent/20 transition-colors text-[11px]">
                     <td className="px-4 py-2.5 font-mono font-black text-brand-500">{r.codigo}</td>
+                    <td className="px-4 py-2.5">
+                      {r.tipo === 'cumpleanos'
+                        ? <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-brand-500/10 text-brand-500">Cumpleaños</span>
+                        : <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-text-dim/10 text-text-dim">Clásica</span>}
+                    </td>
                     <td className="px-4 py-2.5 font-bold text-text-main">{r.para}</td>
                     <td className="px-4 py-2.5 text-text-dim truncate max-w-[200px]">{r.regalo}</td>
                     <td className="px-4 py-2.5 text-text-dim">{r.de_parte_de || '—'}</td>
@@ -244,7 +315,7 @@ export default function GiftCardView({ isReadOnly, currentUser }: { isReadOnly?:
                   </tr>
                 ))}
                 {records.length === 0 && (
-                  <tr><td colSpan={9} className="px-4 py-10 text-center text-[10px] font-black uppercase text-text-dim">Todavía no se emitieron gift cards</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-10 text-center text-[10px] font-black uppercase text-text-dim">Todavía no se emitieron gift cards</td></tr>
                 )}
               </tbody>
             </table>
