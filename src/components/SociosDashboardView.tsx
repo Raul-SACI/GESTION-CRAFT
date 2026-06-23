@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3, ChevronDown, ChevronRight
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3, ChevronDown, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -15,6 +15,29 @@ import MonthlyRankingTop from './MonthlyRankingTop';
 import ProfitLossKPIs from './ProfitLossKPIs';
 import LiabilitiesConsolidatedSection from './LiabilitiesConsolidatedSection';
 import OrdersSummary from './OrdersSummary';
+
+// Normaliza un nombre/rol de puesto a un identificador genérico, para cruzar
+// el presupuesto, las horas del encargado y las validadas por RRHH (idéntica a la del Dashboard de Gestión Sucursal).
+function normalizeRole(value: string): string {
+  const n = (value || '').toLowerCase().trim();
+  if (n.includes('encargado')) return 'encargado';
+  if (n.includes('lider de cocina') || n.includes('líder de cocina') || n.includes('jefe de cocina') || n.includes('jefe cocina') || n.includes('jefe_cocina')) return 'jefe_cocina';
+  if (n.includes('segundo')) return 'segundo_cocina';
+  if (n.includes('cocinero') || n === 'cocina') return 'cocinero';
+  if (n.includes('cajero') || n.includes('caja')) return 'caja';
+  if (n.includes('barra') || n.includes('bartender')) return 'barra';
+  if (n.includes('runner')) return 'runners';
+  if (n.includes('bachero') || n.includes('bacha')) return 'bacha';
+  if (n.includes('mozo')) return 'mozos';
+  return n;
+}
+
+// Nombre lindo para mostrar a partir del rol normalizado
+const ROLE_LABELS: Record<string, string> = {
+  encargado: 'Encargado', jefe_cocina: 'Jefe de Cocina', segundo_cocina: 'Segundo de Cocina',
+  cocinero: 'Cocinero', caja: 'Caja', barra: 'Barra', runners: 'Runners', bacha: 'Bacha', mozos: 'Mozos',
+};
+const prettyRole = (role: string): string => ROLE_LABELS[role] || role.toUpperCase();
 
 interface SociosDashboardViewProps {
   branches: Branch[];
@@ -64,6 +87,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
   // Desglose de horas por puesto, por sucursal: { branchId: { puesto: { budget, worked } } }
   const [hoursByPosition, setHoursByPosition] = useState<Record<string, Record<string, { budget: number; worked: number }>>>({});
+  // Semanas (1-4) validadas por RRHH, por sucursal: { branchId: [1,2] }
+  const [validatedWeeksByBranch, setValidatedWeeksByBranch] = useState<Record<string, number[]>>({});
   const [expandedHoursBranch, setExpandedHoursBranch] = useState<string | null>(null);
   // Metadata de carga del mes actual: hasta qué día hay datos y cuántos días
   const [loadInfo, setLoadInfo] = useState<{ lastDate: string | null; daysLoaded: number; daysPrevMonth: number }>({ lastDate: null, daysLoaded: 0, daysPrevMonth: 30 });
@@ -104,14 +129,15 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         return all;
       };
 
-      const [currTickets, prevTickets, pyRows, cmvSummary, cmvDetails, budgetRows, hourLogRows] = await Promise.all([
+      const [currTickets, prevTickets, pyRows, cmvSummary, cmvDetails, budgetRows, hourLogRows, rrhhRows] = await Promise.all([
         fetchTickets(monthStart, monthEnd),
         fetchTickets(pStart, pEnd),
         supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth),
         supabase.from('cmv_monthly').select('*').eq('month', selectedMonth),
         supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth),
         supabase.from('hour_budgets').select('branch_id, total_hours, status, position_name').eq('month', selectedMonth).eq('status', 'approved'),
-        supabase.from('hour_logs').select('branch_id, hours_actual, position').eq('month', selectedMonth)
+        supabase.from('hour_logs').select('branch_id, hours_actual, position, position_id, week_number').eq('month', selectedMonth),
+        supabase.from('hr_hour_logs').select('branch_id, hours_rrhh, position_name, position_id, week_number').eq('month', selectedMonth)
       ]);
 
       const agg: Record<string, BranchSales> = {};
@@ -218,25 +244,58 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         agg[bid].cmv = c.has ? (c.initial + c.purchases + c.movements - c.final) : null;
       });
 
-      // Presupuesto de horas (solo aprobados) y horas reales cargadas, por sucursal
-      // y además desglosado por puesto de trabajo
+      // Presupuesto de horas (solo aprobados) y horas reales, por sucursal y por puesto.
+      // Las horas reales se deciden POR SEMANA: si RRHH validó esa semana (hay filas en
+      // hr_hour_logs para esa sucursal+semana), se usan las horas de RRHH; si no, las del encargado.
       const byPos: Record<string, Record<string, { budget: number; worked: number }>> = {};
-      const ensurePos = (bid: string, pos: string) => {
+      const ensurePos = (bid: string, role: string) => {
         if (!byPos[bid]) byPos[bid] = {};
-        if (!byPos[bid][pos]) byPos[bid][pos] = { budget: 0, worked: 0 };
-        return byPos[bid][pos];
+        if (!byPos[bid][role]) byPos[bid][role] = { budget: 0, worked: 0 };
+        return byPos[bid][role];
       };
+      // Presupuesto por puesto (normalizado)
       (budgetRows.data || []).forEach((r: any) => {
         if (agg[r.branch_id]) agg[r.branch_id].budgetHours += Number(r.total_hours) || 0;
-        const pos = (r.position_name || 'SIN PUESTO').toString().toUpperCase();
-        ensurePos(r.branch_id, pos).budget += Number(r.total_hours) || 0;
+        const role = normalizeRole(r.position_name || 'SIN PUESTO');
+        ensurePos(r.branch_id, role).budget += Number(r.total_hours) || 0;
       });
+
+      // Detectar qué semanas validó RRHH por sucursal
+      const validatedWeeks: Record<string, Set<number>> = {};
+      (rrhhRows.data || []).forEach((r: any) => {
+        const bid = r.branch_id;
+        const w = Number(r.week_number);
+        if (!validatedWeeks[bid]) validatedWeeks[bid] = new Set();
+        validatedWeeks[bid].add(w);
+      });
+
+      // Horas del encargado: solo cuentan en semanas NO validadas por RRHH
       (hourLogRows.data || []).forEach((r: any) => {
-        if (agg[r.branch_id]) agg[r.branch_id].workedHours += Number(r.hours_actual) || 0;
-        const pos = (r.position || 'SIN PUESTO').toString().toUpperCase();
-        ensurePos(r.branch_id, pos).worked += Number(r.hours_actual) || 0;
+        const bid = r.branch_id;
+        const w = Number(r.week_number);
+        if (validatedWeeks[bid] && validatedWeeks[bid].has(w)) return; // esa semana la cubre RRHH
+        const hrs = Number(r.hours_actual) || 0;
+        if (agg[bid]) agg[bid].workedHours += hrs;
+        const role = normalizeRole(r.position || r.position_id || 'SIN PUESTO');
+        ensurePos(bid, role).worked += hrs;
       });
+
+      // Horas de RRHH: cuentan en las semanas validadas
+      (rrhhRows.data || []).forEach((r: any) => {
+        const bid = r.branch_id;
+        const hrs = Number(r.hours_rrhh) || 0;
+        if (agg[bid]) agg[bid].workedHours += hrs;
+        const role = normalizeRole(r.position_name || r.position_id || 'SIN PUESTO');
+        ensurePos(bid, role).worked += hrs;
+      });
+
       setHoursByPosition(byPos);
+      // Guardar semanas validadas por sucursal (ordenadas) para el indicador
+      const vwByBranch: Record<string, number[]> = {};
+      Object.keys(validatedWeeks).forEach(bid => {
+        vwByBranch[bid] = Array.from(validatedWeeks[bid]).sort((a, b) => a - b);
+      });
+      setValidatedWeeksByBranch(vwByBranch);
 
       setData(Object.values(agg));
       setLoading(false);
@@ -646,6 +705,24 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       {isExpanded && (
                         <tr className="bg-bg-accent/20">
                           <td colSpan={4} className="px-3 py-3">
+                            {/* Indicador de validación RRHH para esta sucursal */}
+                            {(() => {
+                              const vw = validatedWeeksByBranch[d.branchId] || [];
+                              const pend = [1, 2, 3, 4].filter(w => !vw.includes(w));
+                              return (
+                                <div className="flex items-center gap-2 flex-wrap bg-bg-main/30 border border-border-dim/40 rounded-md px-3 py-1.5 mb-3">
+                                  <CheckCircle2 size={11} className={vw.length > 0 ? "text-emerald-500 shrink-0" : "text-text-dim shrink-0"} />
+                                  {vw.length === 0 ? (
+                                    <span className="text-[8px] font-bold uppercase tracking-wider text-text-dim">Sin semanas validadas por RRHH · horas provisorias del encargado</span>
+                                  ) : (
+                                    <span className="text-[8px] font-bold uppercase tracking-wider text-text-dim">
+                                      <span className="text-emerald-500 font-black">Validado RRHH:</span> {vw.map(w => `S${w}`).join(', ')}
+                                      {pend.length > 0 && <> · <span className="text-amber-500 font-black">Provisorio:</span> {pend.map(w => `S${w}`).join(', ')}</>}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                             {posEntries.length === 0 ? (
                               <p className="text-[10px] text-text-dim italic uppercase text-center py-2">Sin desglose por puesto para esta sucursal.</p>
                             ) : (
@@ -665,7 +742,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                                     const proj = projectFn(v.worked);
                                     return (
                                       <tr key={pos} className="text-[10px] border-b border-border-dim/20">
-                                        <td className="px-2 py-1.5 font-bold uppercase text-text-main">{pos}</td>
+                                        <td className="px-2 py-1.5 font-bold uppercase text-text-main">{prettyRole(pos)}</td>
                                         <td className="px-2 py-1.5 text-right font-mono text-text-main">{v.budget > 0 ? Math.round(v.budget).toLocaleString('es-AR') + ' hs' : '—'}</td>
                                         <td className="px-2 py-1.5 text-right font-mono text-text-dim">{Math.round(v.worked).toLocaleString('es-AR')} hs</td>
                                         <td className="px-2 py-1.5 text-right font-mono text-amber-500">{Math.round(proj).toLocaleString('es-AR')} hs</td>
