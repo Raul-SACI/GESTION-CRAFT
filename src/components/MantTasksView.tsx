@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, Plus, Trash2, Pencil, X, ClipboardList } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, X, ClipboardList, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
@@ -39,6 +39,9 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
   const [fBranch, setFBranch] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [editing, setEditing] = useState<Partial<Task> | null>(null);
+  // Vista: lista (tablero) o almanaque (calendario)
+  const [vista, setVista] = useState<'lista' | 'calendario'>('lista');
+  const [calMonth, setCalMonth] = useState<string>(() => todayISO().slice(0, 7));
 
   const loadAll = async () => {
     setLoading(true);
@@ -146,14 +149,95 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
           {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
         </select>
         <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">{filtered.length} tarea(s)</span>
+        <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
+          <button onClick={() => setVista('lista')}
+            className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+              vista === 'lista' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+            <ClipboardList size={12} /> Tablero
+          </button>
+          <button onClick={() => setVista('calendario')}
+            className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+              vista === 'calendario' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+            <CalendarDays size={12} /> Almanaque
+          </button>
+        </div>
         <button onClick={() => setEditing(emptyTask(branches[0] || ''))}
           className="ml-auto bg-brand-500 text-white px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2">
           <Plus size={14} /> Nueva tarea
         </button>
       </div>
 
+      {/* Vista calendario */}
+      {vista === 'calendario' && (() => {
+        const [cy, cm] = calMonth.split('-').map(Number);
+        const primerDia = new Date(cy, cm - 1, 1);
+        const diasEnMes = new Date(cy, cm, 0).getDate();
+        const offset = (primerDia.getDay() + 6) % 7; // lunes=0
+        const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        const celdas: (number | null)[] = [];
+        for (let i = 0; i < offset; i++) celdas.push(null);
+        for (let d = 1; d <= diasEnMes; d++) celdas.push(d);
+        const tareasDia = (d: number) => {
+          const ds = `${cy}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          return filtered.filter(t => t.scheduled_date === ds);
+        };
+        const cambiarMes = (delta: number) => {
+          const nd = new Date(cy, cm - 1 + delta, 1);
+          setCalMonth(`${nd.getFullYear()}-${String(nd.getMonth()+1).padStart(2,'0')}`);
+        };
+        const hoy = todayISO();
+        return (
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => cambiarMes(-1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronLeft size={18} /></button>
+              <h3 className="text-[12px] font-black uppercase text-text-main tracking-widest">{MESES[cm-1]} {cy}</h3>
+              <button onClick={() => cambiarMes(1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronRight size={18} /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d => (
+                <div key={d} className="text-center text-[8px] font-black uppercase text-text-dim tracking-widest py-1">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {celdas.map((d, i) => {
+                if (d === null) return <div key={`e${i}`} className="min-h-[90px]" />;
+                const ds = `${cy}-${String(cm).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const tdia = tareasDia(d);
+                const esHoy = ds === hoy;
+                return (
+                  <div key={d} className={cn("min-h-[90px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden",
+                    esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10")}>
+                    <span className={cn("text-[10px] font-black", esHoy ? "text-brand-500" : "text-text-dim")}>{d}</span>
+                    <div className="flex flex-col gap-0.5 overflow-y-auto">
+                      {tdia.slice(0, 4).map(t => (
+                        <button key={t.id} onClick={() => setEditing(t)}
+                          className="text-left text-[8px] font-bold uppercase truncate px-1 py-0.5 rounded hover:opacity-80 transition-opacity"
+                          style={{ backgroundColor: ST_BORDER[t.status] + '22', color: ST_BORDER[t.status] }}
+                          title={t.description}>
+                          {t.description || t.task_type}
+                        </button>
+                      ))}
+                      {tdia.length > 4 && <span className="text-[8px] font-bold text-text-dim px-1">+{tdia.length - 4} más</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Referencia de colores */}
+            <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-border-dim/40">
+              {STATUSES.map(s => (
+                <div key={s} className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: ST_BORDER[s] }} />
+                  <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">{ST_LBL[s]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Lista agrupada por estado */}
-      {STATUSES.map(status => {
+      {vista === 'lista' && STATUSES.map(status => {
         const ts = filtered.filter(t => t.status === status);
         if (!ts.length) return null;
         return (
