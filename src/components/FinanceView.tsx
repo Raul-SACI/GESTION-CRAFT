@@ -36,6 +36,7 @@ import {
   ChevronDown,
   ChevronRight,
   Trash2,
+  Pencil,
   Upload,
   Download,
   FileSpreadsheet,
@@ -403,6 +404,8 @@ export default function FinanceView({
   };
 
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
+  // Edición de una cuota de la cartera (banco, importe, vencimiento)
+  const [editingPay, setEditingPay] = useState<{ id: string; bank: string; amount: number; dueDate: string } | null>(null);
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   // Modal de detalle/edición de un rubro del resumen (ingresos o gastos)
@@ -1262,9 +1265,25 @@ export default function FinanceView({
     savePayments(payments.filter(p => p.id !== id));
   };
 
+  const handleSaveEditPay = () => {
+    if (isReadOnly || !editingPay) return;
+    if (!editingPay.bank.trim()) { alert('Ingresá el banco.'); return; }
+    if (!editingPay.dueDate) { alert('Ingresá la fecha de vencimiento.'); return; }
+    const updated = payments.map(p => p.id === editingPay.id
+      ? { ...p, bank: editingPay.bank.trim(), amount: editingPay.amount || 0, dueDate: editingPay.dueDate }
+      : p);
+    savePayments(updated);
+    setEditingPay(null);
+  };
+
   const searchedPayments = useMemo(() => {
     if (!searchQuery) return filteredPayments;
     const q = searchQuery.toLowerCase();
+    // Fecha formateada (dd/mm/aaaa) para poder buscar por fecha tal como se ve
+    const fmtFechaBusq = (iso?: string) => {
+      if (!iso) return '';
+      try { return new Date(iso + 'T12:00:00').toLocaleDateString('es-AR'); } catch { return iso; }
+    };
     return filteredPayments.filter(p => {
       return (
         p.description?.toLowerCase().includes(q) ||
@@ -1273,7 +1292,16 @@ export default function FinanceView({
         p.rate?.toString().toLowerCase().includes(q) ||
         p.entity?.toLowerCase().includes(q) ||
         p.taxType?.toLowerCase().includes(q) ||
-        p.paymentPlanNumber?.toLowerCase().includes(q)
+        p.paymentPlanNumber?.toLowerCase().includes(q) ||
+        // Monto (importe de cuota o solicitado): busca el número con o sin separadores
+        p.amount?.toString().includes(q.replace(/[$.,\s]/g, '')) ||
+        p.amount?.toLocaleString('es-AR').toLowerCase().includes(q) ||
+        p.requestedAmount?.toString().includes(q.replace(/[$.,\s]/g, '')) ||
+        // Fechas: vencimiento y solicitud, en formato dd/mm/aaaa y en ISO
+        p.dueDate?.includes(q) ||
+        fmtFechaBusq(p.dueDate).includes(q) ||
+        p.requestDate?.includes(q) ||
+        fmtFechaBusq(p.requestDate).includes(q)
       );
     });
   }, [filteredPayments, searchQuery]);
@@ -2513,7 +2541,7 @@ export default function FinanceView({
                   type="text" 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={mode === 'bank' ? "BUSCAR POR BANCO, DESTINO..." : mode === 'tax' ? "BUSCAR POR ENTIDAD, IMPUESTO..." : mode === 'legal' ? "BUSCAR POR JUICIO, CARÁTULA..." : "BUSCAR OBLIGACIONES..."}
+                  placeholder={mode === 'bank' ? "BUSCAR POR BANCO, MONTO, FECHA, DESTINO..." : mode === 'tax' ? "BUSCAR POR ENTIDAD, IMPUESTO, MONTO, FECHA..." : mode === 'legal' ? "BUSCAR POR JUICIO, CARÁTULA, MONTO, FECHA..." : "BUSCAR OBLIGACIONES..."}
                   className="w-full bg-bg-accent border border-border-dim rounded pl-10 pr-4 py-2.5 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-black"
                 />
               </div>
@@ -2765,13 +2793,22 @@ export default function FinanceView({
                                 </button>
                               </td>
                               <td className="px-5 py-3.5 text-center">
-                                <button
-                                  onClick={() => handleDeletePayment(pay.id)}
-                                  className="text-text-dim hover:text-red-500 transition-colors p-1"
-                                  title="Eliminar cuota"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    onClick={() => setEditingPay({ id: pay.id, bank: pay.bank || '', amount: pay.amount || 0, dueDate: pay.dueDate || '' })}
+                                    className="text-text-dim hover:text-brand-500 transition-colors p-1"
+                                    title="Editar cuota"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePayment(pay.id)}
+                                    className="text-text-dim hover:text-red-500 transition-colors p-1"
+                                    title="Eliminar cuota"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -3789,6 +3826,51 @@ export default function FinanceView({
          MODAL: CARGA DE PRÉSTAMOS BANCARIOS EN LOTE (CUOTAS)
          ========================================================================= */}
       <AnimatePresence>
+        {editingPay && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditingPay(null)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+              className="relative bg-bg-card border border-border-dim rounded-2xl shadow-2xl w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Editar Cuota</h3>
+                  <p className="text-[9px] font-bold uppercase text-text-dim mt-0.5">Banco · Importe · Vencimiento</p>
+                </div>
+                <button onClick={() => setEditingPay(null)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Banco</label>
+                  <input type="text" value={editingPay.bank}
+                    onChange={e => setEditingPay({ ...editingPay, bank: e.target.value })}
+                    className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500 uppercase" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Importe de la cuota</label>
+                  <div className="flex items-center gap-1 mt-1">
+                    <span className="text-[13px] font-black text-text-dim">$</span>
+                    <input type="number" value={editingPay.amount || ''}
+                      onChange={e => setEditingPay({ ...editingPay, amount: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Vencimiento</label>
+                  <input type="date" value={editingPay.dueDate}
+                    onChange={e => setEditingPay({ ...editingPay, dueDate: e.target.value })}
+                    className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <button onClick={() => setEditingPay(null)}
+                  className="px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">Cancelar</button>
+                <button onClick={handleSaveEditPay}
+                  className="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all">Guardar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
         {showBankLoteModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
