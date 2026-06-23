@@ -133,7 +133,7 @@ export default function MantPreventiveView() {
           <button onClick={() => setVista('calendario')}
             className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
               vista === 'calendario' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
-            <CalendarDays size={12} /> Almanaque
+            <CalendarDays size={12} /> Calendario
           </button>
         </div>
         <button onClick={() => setEditing(emptyMaint(branches[0] || ''))}
