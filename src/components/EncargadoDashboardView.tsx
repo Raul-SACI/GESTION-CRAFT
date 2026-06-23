@@ -100,6 +100,8 @@ export default function EncargadoDashboardView({
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
   const [weeklyHoursLogs, setWeeklyHoursLogs] = useState<Record<string, any[]>>({});
+  // Semanas (1-4) cuyas horas ya fueron validadas/guardadas por RRHH (tabla hr_hour_logs)
+  const [rrhhValidatedWeeks, setRrhhValidatedWeeks] = useState<number[]>([]);
   
   // Reputación State
   const [googleRating, setGoogleRating] = useState(0);
@@ -284,7 +286,7 @@ export default function EncargadoDashboardView({
         setHourBudgetRows([]);
       }
 
-      // Cargar horas reales RRHH desde Supabase (hour_logs = horas cargadas por el encargado)
+      // Cargar horas cargadas por el ENCARGADO (hour_logs = sin validar)
       const { data: hoursData } = await supabase
         .from('hour_logs')
         .select('*')
@@ -298,7 +300,42 @@ export default function EncargadoDashboardView({
           if (weeklyLogs[key]) weeklyLogs[key].push(r);
         });
       }
+
+      // Cargar horas VALIDADAS por RRHH (hr_hour_logs). La presencia de filas
+      // para una semana indica que RRHH ya la guardó/validó. En ese caso,
+      // esa semana completa se reemplaza por las horas de RRHH (hours_rrhh).
+      const { data: rrhhData } = await supabase
+        .from('hr_hour_logs')
+        .select('week_number, position_id, position_name, hours_rrhh')
+        .eq('branch_id', branchKey)
+        .eq('month', month);
+
+      const validatedWeeks: number[] = [];
+      if (rrhhData && rrhhData.length > 0) {
+        // Agrupar las filas de RRHH por semana
+        const rrhhByWeek: Record<number, any[]> = {};
+        rrhhData.forEach((r: any) => {
+          const w = Number(r.week_number);
+          if (!rrhhByWeek[w]) rrhhByWeek[w] = [];
+          rrhhByWeek[w].push(r);
+        });
+        // Para cada semana con datos de RRHH: marcarla como validada y
+        // reemplazar esa semana en weeklyLogs con el formato que espera el dashboard.
+        for (let w = 1; w <= 4; w++) {
+          if (rrhhByWeek[w] && rrhhByWeek[w].length > 0) {
+            validatedWeeks.push(w);
+            weeklyLogs[`w${w}`] = rrhhByWeek[w].map((r: any) => ({
+              week_number: w,
+              position: r.position_name,
+              position_id: r.position_id,
+              hours_actual: Number(r.hours_rrhh) || 0, // el dashboard suma hours_actual
+            }));
+          }
+        }
+      }
+
       setWeeklyHoursLogs(weeklyLogs);
+      setRrhhValidatedWeeks(validatedWeeks.sort((a, b) => a - b));
 
     } catch (err) {
       console.error('Error fetching hours from Supabase:', err);
@@ -1050,6 +1087,23 @@ export default function EncargadoDashboardView({
                 </span>
                 <span className="block text-[8px] text-text-dim uppercase font-bold">Consumido (${totalHourRemaining > 0 ? `le quedan ${totalHourRemaining} hs` : `exceso de ${Math.abs(totalHourRemaining)} hs`})</span>
               </div>
+            </div>
+
+            {/* Indicador de validación RRHH: qué semanas ya dejó asentadas RRHH */}
+            <div className="flex items-center gap-2 flex-wrap bg-bg-accent/30 border border-border-dim/40 rounded-md px-3 py-2 mb-4">
+              <CheckCircle2 size={12} className={rrhhValidatedWeeks.length > 0 ? "text-emerald-500 shrink-0" : "text-text-dim shrink-0"} />
+              {rrhhValidatedWeeks.length === 0 ? (
+                <span className="text-[8px] font-bold uppercase tracking-wider text-text-dim">
+                  Sin semanas validadas por RRHH · Mostrando horas cargadas por el encargado (provisorias)
+                </span>
+              ) : (
+                <span className="text-[8px] font-bold uppercase tracking-wider text-text-dim">
+                  <span className="text-emerald-500 font-black">Validado RRHH:</span> {rrhhValidatedWeeks.map(w => `S${w}`).join(', ')}
+                  {[1, 2, 3, 4].filter(w => !rrhhValidatedWeeks.includes(w)).length > 0 && (
+                    <> · <span className="text-amber-500 font-black">Provisorio (encargado):</span> {[1, 2, 3, 4].filter(w => !rrhhValidatedWeeks.includes(w)).map(w => `S${w}`).join(', ')}</>
+                  )}
+                </span>
+              )}
             </div>
 
             <div className="space-y-4">
