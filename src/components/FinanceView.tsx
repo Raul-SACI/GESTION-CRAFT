@@ -4826,8 +4826,10 @@ export default function FinanceView({
                       {manualEntries.map(e => (
                         <div key={e.id} className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3 flex items-center gap-3">
                           <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>
-                            {e.description && <span className="text-[8px] font-bold text-text-dim uppercase truncate opacity-70">{e.description}</span>}
+                            {e.description
+                              ? (<><span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>
+                                 <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span></>)
+                              : (<span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>)}
                           </div>
                           <div className="flex items-center gap-1">
                             <span className="text-[11px] font-black text-text-dim">$</span>
@@ -4838,12 +4840,13 @@ export default function FinanceView({
                         </div>
                       ))}
                       {autoEntries.map(e => (
-                        <div key={e.id} className="bg-bg-accent/10 border border-border-dim/30 rounded-lg p-3 flex items-center gap-3 opacity-70">
+                        <div key={e.id} className="bg-bg-accent/10 border border-border-dim/30 rounded-lg p-3 flex items-center gap-3 opacity-90">
                           <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>
+                            {e.description && <span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>}
+                            <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span>
                             <span className="text-[8px] font-bold text-amber-500 uppercase truncate">Pago programado · se edita en su módulo</span>
                           </div>
-                          <span className="text-[12px] font-mono font-black text-text-dim">${entryTotal(e).toLocaleString('es-AR')}</span>
+                          <span className="text-[12px] font-mono font-black text-text-dim shrink-0">${entryTotal(e).toLocaleString('es-AR')}</span>
                         </div>
                       ))}
                     </>
