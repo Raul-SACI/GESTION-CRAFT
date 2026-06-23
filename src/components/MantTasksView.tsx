@@ -13,10 +13,19 @@ interface Task {
   id: string; task_type: string; asset_id: string | null; branch: string; description: string;
   priority: string; scheduled_date: string; status: string; created_by: string; created_at: string;
   responsible: string; external_entity: string; supervisor: string;
+  source_plan_id?: string | null; source_date?: string | null;
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
+// Suma (o resta, con n negativo) días a una fecha ISO 'YYYY-MM-DD' usando fecha local (sin toISOString para no correr el día por zona horaria)
+const addDaysTo = (iso: string, n: number): string => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+};
 
 const STATUSES = ['sin_asignar', 'pendiente', 'en proceso', 'resuelto'] as const;
 const ST_LBL: Record<string, string> = { sin_asignar: 'Pendientes de Asignar', pendiente: 'Pendiente', 'en proceso': 'En proceso', resuelto: 'Resuelto' };
@@ -56,11 +65,87 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
         }
         return all;
       };
-      const [t, a] = await Promise.all([
+      const [t, a, planes, descartadas] = await Promise.all([
         getAll('tareas', '*'),
         getAll('activos', 'id, name, branch'),
+        getAll('mantenimientos', '*'),
+        getAll('tareas_descartadas', '*'),
       ]);
-      setTasks(t as Task[]);
+
+      // --- Generación automática de tareas desde los planes preventivos ---
+      // Por cada plan, se proyectan las fechas (next_date ± intervalo) dentro del año en curso.
+      // Se crea la tarea solo si no existe ya (mismo plan + misma fecha) y no fue descartada.
+      let tareasActuales = t as Task[];
+      try {
+        const yearNow = new Date().getFullYear();
+        const yearStart = `${yearNow}-01-01`;
+        const yearEnd = `${yearNow}-12-31`;
+
+        // Claves ya existentes (plan+fecha) entre las tareas y entre las descartadas
+        const existentes = new Set<string>();
+        tareasActuales.forEach(tk => { if (tk.source_plan_id && tk.source_date) existentes.add(`${tk.source_plan_id}|${tk.source_date}`); });
+        (descartadas as any[]).forEach(d => { if (d.source_plan_id && d.source_date) existentes.add(`${d.source_plan_id}|${d.source_date}`); });
+
+        const nuevas: any[] = [];
+        for (const p of (planes as any[])) {
+          const intervalo = Number(p.interval_days);
+          if (!p.next_date || !intervalo || intervalo <= 0) continue;
+
+          // Reunir todas las ocurrencias del año: desde next_date hacia atrás y hacia adelante
+          const fechas: string[] = [];
+          // hacia atrás (incluida next_date)
+          let f = p.next_date;
+          let guard = 0;
+          while (f >= yearStart && guard < 400) {
+            if (f <= yearEnd) fechas.push(f);
+            f = addDaysTo(f, -intervalo);
+            guard++;
+          }
+          // hacia adelante
+          f = addDaysTo(p.next_date, intervalo);
+          guard = 0;
+          while (f <= yearEnd && guard < 400) {
+            if (f >= yearStart) fechas.push(f);
+            f = addDaysTo(f, intervalo);
+            guard++;
+          }
+
+          for (const fecha of fechas) {
+            const clave = `${p.id}|${fecha}`;
+            if (existentes.has(clave)) continue;
+            existentes.add(clave); // evita duplicar dentro de la misma corrida
+            const tipo = p.maint_type || 'Mantenimiento';
+            const desc = p.description ? `${tipo} — ${p.description}` : tipo;
+            nuevas.push({
+              id: uid(),
+              task_type: 'preventivo',
+              asset_id: p.asset_id || null,
+              branch: p.branch || '',
+              description: `Preventivo: ${desc}`,
+              priority: 'normal',
+              scheduled_date: fecha,
+              status: 'pendiente',
+              created_by: 'Plan Preventivo',
+              responsible: 'interno',
+              external_entity: '',
+              supervisor: '',
+              source_plan_id: p.id,
+              source_date: fecha,
+            });
+          }
+        }
+
+        if (nuevas.length > 0) {
+          const { error: insErr } = await supabaseMant.from('tareas').insert(nuevas);
+          if (insErr) throw insErr;
+          tareasActuales = tareasActuales.concat(nuevas as Task[]);
+        }
+      } catch (genErr: any) {
+        // Si la generación falla, no rompemos la carga de tareas: solo lo registramos.
+        console.error('Error generando tareas desde planes preventivos:', genErr);
+      }
+
+      setTasks(tareasActuales);
       setAssets(a as Asset[]);
       const { data: cfg } = await supabaseMant.from('configuracion').select('*').eq('id', 'branches').maybeSingle();
       if (cfg && cfg.data) setBranches(cfg.data);
@@ -120,6 +205,14 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
   const deleteTask = async (t: Task) => {
     if (!window.confirm('¿Eliminar esta tarea? Esta acción no se puede deshacer.')) return;
     try {
+      // Si la tarea fue generada por un plan preventivo, la registramos como descartada
+      // para que no vuelva a generarse esa misma fecha al recargar.
+      if (t.source_plan_id && t.source_date) {
+        const { error: descErr } = await supabaseMant.from('tareas_descartadas').insert({
+          id: uid(), source_plan_id: t.source_plan_id, source_date: t.source_date,
+        });
+        if (descErr) throw descErr;
+      }
       const { error } = await supabaseMant.from('tareas').delete().eq('id', t.id);
       if (error) throw error;
       await loadAll();
