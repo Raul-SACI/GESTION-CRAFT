@@ -4928,34 +4928,42 @@ export default function FinanceView({
                     return usados.map(a => a.name).join(' + ');
                   };
 
-                  const updateEntryAmount = (entryId: string, newTotal: number) => {
+                  // Edita el monto de UNA cuenta puntual de una carga, respetando el resto del reparto
+                  const updateEntryAccount = (entryId: string, accountId: string, value: number) => {
                     setEntries(prev => prev.map(e => {
                       if (e.id !== entryId) return e;
-                      // Concentrar el nuevo monto en la cuenta que ya tenía valor (o la primera)
-                      const accConValor = Object.keys(e.amounts).find(k => (e.amounts[k] as number) !== 0) || Object.keys(e.amounts)[0] || 'efectivo';
-                      const nuevos: Record<string, number> = {};
-                      Object.keys(e.amounts).forEach(k => { nuevos[k] = 0; });
-                      nuevos[accConValor] = newTotal;
-                      return { ...e, amounts: nuevos };
+                      return { ...e, amounts: { ...e.amounts, [accountId]: value } };
                     }));
                   };
 
                   return (
                     <>
                       {manualEntries.map(e => (
-                        <div key={e.id} className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3 flex items-center gap-3">
-                          <div className="flex flex-col min-w-0 flex-1">
-                            {e.description
-                              ? (<><span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>
-                                 <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span></>)
-                              : (<span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>)}
-                            {mediosDeEntry(e) && <span className="text-[8px] font-bold text-brand-500 uppercase tracking-wide">{mediosDeEntry(e)}</span>}
+                        <div key={e.id} className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3">
+                          <div className="flex items-center justify-between gap-3 mb-2">
+                            <div className="flex flex-col min-w-0 flex-1">
+                              {e.description
+                                ? (<><span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>
+                                   <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span></>)
+                                : (<span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>)}
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-[8px] font-bold text-text-dim uppercase block">Total</span>
+                              <span className="text-[13px] font-mono font-black text-text-main">${entryTotal(e).toLocaleString('es-AR')}</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[11px] font-black text-text-dim">$</span>
-                            <input type="number" defaultValue={entryTotal(e)}
-                              onBlur={(ev) => { const v = parseFloat(ev.target.value) || 0; if (v !== entryTotal(e)) updateEntryAmount(e.id, v); }}
-                              className="w-32 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 border-t border-border-dim/40 pt-2">
+                            {ACCOUNTS.map(a => (
+                              <div key={a.id} className="flex items-center justify-between gap-2 bg-bg-card/40 rounded px-2 py-1">
+                                <span className={cn("text-[8px] font-black uppercase tracking-wide truncate", a.color)}>{a.name}</span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="text-[10px] font-black text-text-dim">$</span>
+                                  <input type="number" defaultValue={Number(e.amounts?.[a.id]) || 0}
+                                    onBlur={(ev) => { const v = parseFloat(ev.target.value) || 0; if (v !== (Number(e.amounts?.[a.id]) || 0)) updateEntryAccount(e.id, a.id, v); }}
+                                    className="w-24 bg-bg-card border border-border-dim rounded px-1.5 py-1 text-[11px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       ))}
