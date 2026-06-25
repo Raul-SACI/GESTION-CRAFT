@@ -1742,9 +1742,9 @@ export default function FinanceView({
                   {(() => {
                     const saldoFinal = totalStartBalance + totalWeeklyIncome - totalWeeklyExpense;
                     return (
-                      <div className={cn("rounded-lg p-3 border-2", saldoFinal >= 0 ? "bg-brand-500/10 border-brand-500/40" : "bg-red-500/20 border-red-500/50")}>
+                      <div className={cn("rounded-lg p-3 border-2", saldoFinal >= 0 ? "bg-emerald-500/10 border-emerald-500/40" : "bg-red-500/20 border-red-500/50")}>
                         <span className="text-[8px] font-black uppercase text-text-dim tracking-widest block opacity-70">= Saldo Final Proyectado</span>
-                        <p className={cn("text-base font-mono font-black mt-1", saldoFinal >= 0 ? "text-brand-500" : "text-red-500")}>${saldoFinal.toLocaleString('es-AR')}</p>
+                        <p className={cn("text-base font-mono font-black mt-1", saldoFinal >= 0 ? "text-emerald-500" : "text-red-500")}>${saldoFinal.toLocaleString('es-AR')}</p>
                       </div>
                     );
                   })()}
