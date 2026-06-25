@@ -358,6 +358,34 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
     }
   };
 
+  // Mapa de ID de pregunta -> { texto, sección } desde las plantillas, para traducir
+  // las respuestas guardadas (que usan el ID) a texto legible.
+  const questionMap = React.useMemo(() => {
+    const map: Record<string, { text: string; category: string }> = {};
+    templates.forEach((t: any) => {
+      (t.questions || []).forEach((q: any) => {
+        if (q && q.id) map[q.id] = { text: q.text || '(sin texto)', category: q.category || t.category || '' };
+      });
+    });
+    return map;
+  }, [templates]);
+
+  // Devuelve las preguntas marcadas en rojo de una respuesta
+  const getRedQuestions = (r: any): { text: string; category: string }[] => {
+    const ans = r?.scores?.answers || {};
+    const reds: { text: string; category: string }[] = [];
+    Object.keys(ans).forEach(qId => {
+      if (ans[qId]?.color === 'red') {
+        const info = questionMap[qId];
+        reds.push({
+          text: info?.text || '(pregunta no encontrada — pudo editarse o eliminarse)',
+          category: info?.category || '',
+        });
+      }
+    });
+    return reds;
+  };
+
   // Compile alerts based on live DB answers
   const liveAlerts = dbResponses
     .filter(r => (r.scores?.flags?.red || 0) > 0)
@@ -369,12 +397,13 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
         branch: bObj ? bObj.name : 'Sucursal Especial',
         issue: `${r.scores.flags.red} Banderas Rojas en ${cObj ? cObj.name : 'Supervisión'}`,
         action: 'Revisión y Plan de Acción Inmediato',
-        time: `${r.date}`
+        time: `${r.date}`,
+        redQuestions: getRedQuestions(r),
       };
     });
 
   const alertsToDisplay = liveAlerts.length > 0 ? liveAlerts : [
-    { branch: 'Sucursal General', issue: 'Cumplimiento Sano de Banderas', action: 'Ninguna acción urgente', time: 'Recién' }
+    { branch: 'Sucursal General', issue: 'Cumplimiento Sano de Banderas', action: 'Ninguna acción urgente', time: 'Recién', redQuestions: [] as { text: string; category: string }[] }
   ];
 
   return (
@@ -676,6 +705,19 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                                           <span className="text-[8px] font-bold text-text-dim uppercase">{alert.time}</span>
                                       </div>
                                       <p className="text-[11px] font-bold text-red-500 uppercase mt-1">{alert.issue}</p>
+                                      {alert.redQuestions && alert.redQuestions.length > 0 && (
+                                        <ul className="mt-2 space-y-1 border-t border-border-dim/40 pt-2">
+                                          {alert.redQuestions.map((q, qi) => (
+                                            <li key={qi} className="flex items-start gap-1.5 text-[10px]">
+                                              <span className="text-red-500 mt-0.5 shrink-0">●</span>
+                                              <span className="text-text-main font-semibold leading-tight">
+                                                {q.category && <span className="text-text-dim font-bold uppercase text-[7px] mr-1.5 bg-bg-accent px-1 py-0.5 rounded">{q.category}</span>}
+                                                {q.text}
+                                              </span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
                                       <p className="text-[9px] font-medium text-text-dim italic mt-2">Medida: {alert.action}</p>
                                   </div>
                               ))}
