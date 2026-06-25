@@ -4879,6 +4879,36 @@ export default function FinanceView({
               <div className="p-5 overflow-y-auto space-y-2">
                 {(() => {
                   const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+                  const manualE = entries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date));
+                  const autoE = allEntries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date) && String(e.id).startsWith('payment-'));
+                  const todas = [...manualE, ...autoE];
+                  if (todas.length === 0) return null;
+                  // Sumar por medio de pago (cuenta) recorriendo el objeto amounts de cada carga
+                  const porMedio: Record<string, number> = {};
+                  todas.forEach(e => {
+                    Object.keys(e.amounts || {}).forEach(acc => {
+                      const v = Number(e.amounts[acc]) || 0;
+                      if (v !== 0) porMedio[acc] = (porMedio[acc] || 0) + v;
+                    });
+                  });
+                  const medios = ACCOUNTS.filter(a => (porMedio[a.id] || 0) !== 0);
+                  if (medios.length === 0) return null;
+                  return (
+                    <div className="bg-bg-accent/40 border border-border-dim/50 rounded-lg p-3 mb-1">
+                      <p className="text-[8px] font-black uppercase text-text-dim tracking-widest mb-2">Total por medio de pago</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                        {medios.map(a => (
+                          <div key={a.id} className="flex items-center justify-between gap-2">
+                            <span className={cn("text-[9px] font-black uppercase tracking-wide", a.color)}>{a.name}</span>
+                            <span className="text-[11px] font-mono font-black text-text-main">${(porMedio[a.id]).toLocaleString('es-AR')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
                   // Entries manuales de este rubro en la semana (los de pagos programados tienen id "payment-...")
                   const manualEntries = entries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date));
                   // Entries de pagos programados (solo lectura)
@@ -4890,6 +4920,13 @@ export default function FinanceView({
 
                   const fmtFecha = (iso: string) => { const [y,m,d] = iso.split('-'); return `${d}/${m}/${y}`; };
                   const entryTotal = (e: any) => Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
+
+                  // Devuelve el/los medio(s) de pago con monto de una carga, con su nombre lindo
+                  const mediosDeEntry = (e: any): string => {
+                    const usados = ACCOUNTS.filter(a => (Number(e.amounts?.[a.id]) || 0) !== 0);
+                    if (usados.length === 0) return '';
+                    return usados.map(a => a.name).join(' + ');
+                  };
 
                   const updateEntryAmount = (entryId: string, newTotal: number) => {
                     setEntries(prev => prev.map(e => {
@@ -4912,6 +4949,7 @@ export default function FinanceView({
                               ? (<><span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>
                                  <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span></>)
                               : (<span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>)}
+                            {mediosDeEntry(e) && <span className="text-[8px] font-bold text-brand-500 uppercase tracking-wide">{mediosDeEntry(e)}</span>}
                           </div>
                           <div className="flex items-center gap-1">
                             <span className="text-[11px] font-black text-text-dim">$</span>
@@ -4926,6 +4964,7 @@ export default function FinanceView({
                           <div className="flex flex-col min-w-0 flex-1">
                             {e.description && <span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>}
                             <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span>
+                            {mediosDeEntry(e) && <span className="text-[8px] font-bold text-brand-500 uppercase tracking-wide">{mediosDeEntry(e)}</span>}
                             <span className="text-[8px] font-bold text-amber-500 uppercase truncate">Pago programado · se edita en su módulo</span>
                           </div>
                           <span className="text-[12px] font-mono font-black text-text-dim shrink-0">${entryTotal(e).toLocaleString('es-AR')}</span>
