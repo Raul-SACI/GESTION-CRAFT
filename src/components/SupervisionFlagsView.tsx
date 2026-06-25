@@ -800,6 +800,7 @@ export default function SupervisionFlagsView({
                 <SupervisionHistoryList 
                   responses={allResponses} 
                   branches={branches}
+                  templates={templates}
                   canDelete={currentUserRole === 'administrador' || currentUserRole === 'dueño'}
                   onDelete={handleDeleteResponse}
                 />
@@ -1276,11 +1277,40 @@ function SupervisionScheduleEditor({
 }
 
 // Lista de supervisiones realizadas: fecha, sucursal, puntaje y banderas.
-function SupervisionHistoryList({ responses, branches, canDelete, onDelete }: { responses: any[], branches: Branch[], canDelete?: boolean, onDelete?: (id: string, label: string) => void }) {
+function SupervisionHistoryList({ responses, branches, templates, canDelete, onDelete }: { responses: any[], branches: Branch[], templates?: any[], canDelete?: boolean, onDelete?: (id: string, label: string) => void }) {
   const [filterBranch, setFilterBranch] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id || 'Desconocida';
+
+  // Mapa de ID de pregunta -> { texto, sección } a partir de todas las plantillas,
+  // para traducir las respuestas guardadas (que usan el ID) a algo legible.
+  const questionMap = React.useMemo(() => {
+    const map: Record<string, { text: string; category: string }> = {};
+    (templates || []).forEach((t: any) => {
+      (t.questions || []).forEach((q: any) => {
+        if (q && q.id) map[q.id] = { text: q.text || '(sin texto)', category: q.category || t.category || '' };
+      });
+    });
+    return map;
+  }, [templates]);
+
+  // Dada una respuesta, devuelve la lista de preguntas marcadas en rojo
+  const getRedQuestions = (r: any) => {
+    const answers = r?.scores?.answers || {};
+    const reds: { text: string; category: string }[] = [];
+    Object.keys(answers).forEach(qId => {
+      if (answers[qId]?.color === 'red') {
+        const info = questionMap[qId];
+        reds.push({
+          text: info?.text || '(pregunta no encontrada — pudo editarse o eliminarse)',
+          category: info?.category || '',
+        });
+      }
+    });
+    return reds;
+  };
 
   const monthsAvailable = React.useMemo(() => {
     const ms = Array.from(new Set(responses.map(r => (r.date || '').substring(0, 7)).filter(Boolean))).sort().reverse();
@@ -1346,9 +1376,22 @@ function SupervisionHistoryList({ responses, branches, canDelete, onDelete }: { 
             ) : filtered.map(r => {
               const flags = r.scores?.flags || {};
               const score = Number(r.total_score) || 0;
+              const redCount = flags.red || 0;
+              const isExpanded = expandedId === r.id;
+              const redQuestions = isExpanded ? getRedQuestions(r) : [];
+              const colCount = canDelete ? 7 : 6;
               return (
-                <tr key={r.id} className="hover:bg-bg-accent/40">
-                  <td className="px-4 py-3 font-mono text-text-dim">{r.date}</td>
+                <React.Fragment key={r.id}>
+                <tr
+                  className={cn("hover:bg-bg-accent/40", redCount > 0 && "cursor-pointer")}
+                  onClick={() => { if (redCount > 0) setExpandedId(isExpanded ? null : r.id); }}
+                >
+                  <td className="px-4 py-3 font-mono text-text-dim">
+                    {redCount > 0 && (
+                      <span className="inline-block mr-1 text-text-dim">{isExpanded ? '▾' : '▸'}</span>
+                    )}
+                    {r.date}
+                  </td>
                   <td className="px-4 py-3 font-black text-text-main uppercase">{branchName(r.branch_id)}</td>
                   <td className="px-4 py-3 text-center">
                     <span className={cn(
@@ -1356,14 +1399,17 @@ function SupervisionHistoryList({ responses, branches, canDelete, onDelete }: { 
                       score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500"
                     )}>{score.toFixed(1)}/10</span>
                   </td>
-                  <td className="px-4 py-3 text-center font-black text-red-500">{flags.red || 0}</td>
+                  <td className="px-4 py-3 text-center font-black text-red-500">
+                    {redCount}
+                    {redCount > 0 && <span className="ml-1 text-[8px] text-text-dim font-bold uppercase">ver</span>}
+                  </td>
                   <td className="px-4 py-3 text-center font-black text-yellow-500">{flags.yellow || 0}</td>
                   <td className="px-4 py-3 text-center font-black text-emerald-500">{flags.green || 0}</td>
                   {canDelete && (
                     <td className="px-4 py-3 text-center">
                       <button
                         type="button"
-                        onClick={() => onDelete && onDelete(r.id, `${branchName(r.branch_id)} · ${r.date}`)}
+                        onClick={(e) => { e.stopPropagation(); onDelete && onDelete(r.id, `${branchName(r.branch_id)} · ${r.date}`); }}
                         className="text-text-dim hover:text-red-500 transition-colors p-1"
                         title="Eliminar supervisión"
                       >
@@ -1372,6 +1418,31 @@ function SupervisionHistoryList({ responses, branches, canDelete, onDelete }: { 
                     </td>
                   )}
                 </tr>
+                {isExpanded && (
+                  <tr className="bg-red-500/5">
+                    <td colSpan={colCount} className="px-4 py-3">
+                      <div className="text-[9px] font-black uppercase tracking-widest text-red-500 mb-2 flex items-center gap-1.5">
+                        <Flag size={11} /> Preguntas marcadas en rojo ({redQuestions.length})
+                      </div>
+                      {redQuestions.length === 0 ? (
+                        <p className="text-[10px] text-text-dim italic">No se pudo recuperar el detalle de las preguntas de esta supervisión.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {redQuestions.map((q, i) => (
+                            <li key={i} className="flex items-start gap-2 text-[11px]">
+                              <span className="text-red-500 mt-0.5 shrink-0">●</span>
+                              <span className="text-text-main font-semibold">
+                                {q.category && <span className="text-text-dim font-bold uppercase text-[8px] mr-2 bg-bg-accent px-1.5 py-0.5 rounded">{q.category}</span>}
+                                {q.text}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>
