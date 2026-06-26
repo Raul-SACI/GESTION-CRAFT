@@ -45,6 +45,11 @@ const esSeccionIngreso = (s: Seccion) => s.titulo.toLowerCase().startsWith('ingr
 // ¿Es la sección de saldo inicial (cuentas)?
 const esSaldoInicial = (s: Seccion) => s.titulo.toUpperCase().includes('SALDO INICIAL');
 
+// ¿Es la sección de Inversiones? (el título suele ser "Inversiones y Cuotas Prestamo")
+const esSeccionInversiones = (s: Seccion) => s.titulo.toLowerCase().includes('inversion');
+// Devuelve la sección de inversiones de un mes (o null)
+const inversionesDeMes = (md: MonthData): Seccion | null => md.secciones.find(esSeccionInversiones) || null;
+
 // Totales de ingresos y egresos de un mes por DÉCADA del mes (1-10, 11-20, 21-fin)
 function porDecada(md: MonthData) {
   const tramos = [
@@ -551,6 +556,33 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
   const mejorMes = compMeses.reduce((max, m) => m.neto > max.neto ? m : max, compMeses[0]);
   const peorMes = compMeses.reduce((min, m) => m.neto < min.neto ? m : min, compMeses[0]);
 
+  // Análisis de Inversiones del mes actual: total + cada cuenta con su monto,
+  // % sobre el total de inversiones y % sobre el total de ingresos del mes.
+  const inversionesMesActual = (() => {
+    const sec = inversionesDeMes(currentMonth);
+    if (!sec) return null;
+    const totalInv = Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0);
+    const ingresosMes = currentMonth.resumenTotales?.['total ingresos'] || 0;
+    const cuentas = sec.rubros
+      .map(r => {
+        const monto = Math.abs(r.total);
+        return {
+          nombre: r.nombre,
+          monto,
+          pctSobreInv: totalInv > 0 ? (monto / totalInv) * 100 : 0,
+          pctSobreIng: ingresosMes > 0 ? (monto / ingresosMes) * 100 : 0,
+        };
+      })
+      .filter(c => c.monto !== 0)
+      .sort((a, b) => b.monto - a.monto);
+    return { titulo: sec.titulo, totalInv, ingresosMes, pctInvSobreIng: ingresosMes > 0 ? (totalInv / ingresosMes) * 100 : 0, cuentas };
+  })();
+
+  // Para el consolidado: todas las cuentas de inversiones que existen en cualquier mes
+  const cuentasInvConsolidado = Array.from(new Set(
+    allData.flatMap(md => { const s = inversionesDeMes(md); return s ? s.rubros.map(r => r.nombre) : []; })
+  ));
+
   // Modo Consolidado: ver todos los meses en columnas, lado a lado
   const [consolidado, setConsolidado] = useState(false);
   const datosConsolidados = allData.map(md => {
@@ -593,6 +625,7 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
 
       {consolidado ? (
         /* ===== Vista Consolidada: todos los meses en columnas ===== */
+        <>
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 overflow-x-auto">
           <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Comparativa de meses</h3>
           <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Todos los meses cargados, lado a lado</p>
@@ -647,6 +680,57 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
             </tbody>
           </table>
         </div>
+
+        {/* Consolidado de Inversiones: cada cuenta mes a mes */}
+        {cuentasInvConsolidado.length > 0 && (
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 overflow-x-auto">
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Inversiones por cuenta · meses</h3>
+            <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Cada cuenta de inversiones, mes a mes</p>
+            <table className="w-full text-[11px] border-collapse">
+              <thead>
+                <tr className="border-b-2 border-border-dim">
+                  <th className="text-left py-2 px-2 text-[8px] font-black uppercase tracking-widest text-text-dim sticky left-0 bg-bg-sidebar">Cuenta</th>
+                  {datosConsolidados.map(m => (
+                    <th key={m.month} className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-text-main whitespace-nowrap">{m.mesLabel}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/50">
+                {cuentasInvConsolidado.map(nombreCuenta => (
+                  <tr key={nombreCuenta} className="hover:bg-bg-accent/20">
+                    <td className="py-2 px-2 font-bold text-text-main sticky left-0 bg-bg-sidebar whitespace-nowrap">{nombreCuenta}</td>
+                    {allData.map(md => {
+                      const sec = inversionesDeMes(md);
+                      const r = sec?.rubros.find(x => x.nombre === nombreCuenta);
+                      const monto = r ? Math.abs(r.total) : 0;
+                      return <td key={md.month} className={cn("py-2 px-3 text-right font-mono font-bold whitespace-nowrap", monto > 0 ? "text-brand-500" : "text-text-dim/40")}>{monto > 0 ? fmt(monto) : '—'}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border-dim font-black">
+                  <td className="py-2 px-2 uppercase text-[9px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Total Inversiones</td>
+                  {allData.map(md => {
+                    const sec = inversionesDeMes(md);
+                    const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
+                    return <td key={md.month} className="py-2 px-3 text-right font-mono text-brand-500 whitespace-nowrap">{fmt(tot)}</td>;
+                  })}
+                </tr>
+                <tr className="font-bold">
+                  <td className="py-2 px-2 uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar">% sobre Ingresos</td>
+                  {datosConsolidados.map(m => {
+                    const sec = inversionesDeMes(allData.find(md => md.month === m.month)!);
+                    const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
+                    const pct = m.ingresos > 0 ? (tot / m.ingresos) * 100 : 0;
+                    return <td key={m.month} className="py-2 px-3 text-right font-mono text-text-dim whitespace-nowrap">{pct.toFixed(1)}%</td>;
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        </>
       ) : (
       <>
       {/* KPIs de análisis */}
@@ -813,6 +897,55 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Análisis de Inversiones del mes */}
+      {inversionesMesActual && inversionesMesActual.cuentas.length > 0 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Análisis de Inversiones · {monthLabel(currentMonth.month)}</h3>
+          <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">{inversionesMesActual.titulo} · detalle por cuenta</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <div className="bg-bg-accent/30 rounded-lg p-4">
+              <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Total Invertido en el mes</p>
+              <p className="text-[18px] font-mono font-black text-brand-500">{fmt(inversionesMesActual.totalInv)}</p>
+            </div>
+            <div className="bg-bg-accent/30 rounded-lg p-4">
+              <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">% sobre Ingresos del mes</p>
+              <p className="text-[18px] font-mono font-black text-text-main">{inversionesMesActual.pctInvSobreIng.toFixed(1)}%</p>
+              <p className="text-[9px] font-bold text-text-dim mt-0.5">de {fmt(inversionesMesActual.ingresosMes)} de ingresos</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] border-collapse">
+              <thead>
+                <tr className="border-b-2 border-border-dim">
+                  <th className="text-left py-2 px-2 text-[8px] font-black uppercase tracking-widest text-text-dim">Cuenta</th>
+                  <th className="text-right py-2 px-3 text-[8px] font-black uppercase tracking-widest text-text-dim whitespace-nowrap">Monto</th>
+                  <th className="text-right py-2 px-3 text-[8px] font-black uppercase tracking-widest text-text-dim whitespace-nowrap">% s/ Inversiones</th>
+                  <th className="text-right py-2 px-3 text-[8px] font-black uppercase tracking-widest text-text-dim whitespace-nowrap">% s/ Ingresos</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/50">
+                {inversionesMesActual.cuentas.map(c => (
+                  <tr key={c.nombre} className="hover:bg-bg-accent/20">
+                    <td className="py-2 px-2 font-bold text-text-main">{c.nombre}</td>
+                    <td className="py-2 px-3 text-right font-mono font-black text-brand-500 whitespace-nowrap">{fmt(c.monto)}</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-text-main whitespace-nowrap">{c.pctSobreInv.toFixed(1)}%</td>
+                    <td className="py-2 px-3 text-right font-mono font-bold text-text-dim whitespace-nowrap">{c.pctSobreIng.toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border-dim font-black">
+                  <td className="py-2 px-2 uppercase text-[9px] tracking-widest text-text-main">Total</td>
+                  <td className="py-2 px-3 text-right font-mono text-brand-500 whitespace-nowrap">{fmt(inversionesMesActual.totalInv)}</td>
+                  <td className="py-2 px-3 text-right font-mono text-text-main whitespace-nowrap">100%</td>
+                  <td className="py-2 px-3 text-right font-mono text-text-dim whitespace-nowrap">{inversionesMesActual.pctInvSobreIng.toFixed(1)}%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Comparación mes a mes: totales */}
       {compMeses.length > 1 && (
