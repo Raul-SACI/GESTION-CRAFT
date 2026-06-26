@@ -2923,6 +2923,10 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                  <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden">
                     <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
                        <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
+                       <div className="bg-yellow-300 text-black text-[10px] font-mono font-bold px-2 py-1 rounded border border-black my-1">
+                         DIAG → branch:[{rkFilterBranch}] period:[{rkFilterPeriod}] | total:{rankings.length} filtradas:{filteredRankings.length}
+                         {filteredRankings.length > 0 && <> | primera fila branch_id:[{filteredRankings[0]?.branch_id}] week:[{String(filteredRankings[0]?.week_number)}]</>}
+                       </div>
                        <div className="flex items-center gap-3">
                           {rkSelected.size > 0 && !isReadOnly && (
                             <button onClick={deleteSelectedRankings}
