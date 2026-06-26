@@ -405,7 +405,11 @@ export default function FinanceView({
 
   const [showBankLoteModal, setShowBankLoteModal] = useState(false);
   // Edición de una cuota de la cartera (banco, importe, vencimiento)
-  const [editingPay, setEditingPay] = useState<{ id: string; bank: string; amount: number; dueDate: string } | null>(null);
+  const [editingPay, setEditingPay] = useState<{
+    id: string; bank: string; amount: number; dueDate: string;
+    entity?: string; taxType?: string; description?: string; totalAmount?: number;
+    paymentPlanNumber?: string; installmentNumber?: string; isFiscalLegal?: boolean;
+  } | null>(null);
   const [showTaxLoteModal, setShowTaxLoteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   // Modal de detalle/edición de un rubro del resumen (ingresos o gastos)
@@ -1267,8 +1271,26 @@ export default function FinanceView({
 
   const handleSaveEditPay = () => {
     if (isReadOnly || !editingPay) return;
-    if (!editingPay.bank.trim()) { alert('Ingresá el banco.'); return; }
     if (!editingPay.dueDate) { alert('Ingresá la fecha de vencimiento.'); return; }
+    if (editingPay.isFiscalLegal) {
+      if (!editingPay.entity?.trim()) { alert('Ingresá la entidad.'); return; }
+      const updated = payments.map(p => p.id === editingPay.id
+        ? {
+            ...p,
+            entity: editingPay.entity?.trim() || '',
+            taxType: editingPay.taxType?.trim() || '',
+            totalAmount: editingPay.totalAmount || 0,
+            paymentPlanNumber: editingPay.paymentPlanNumber?.trim() || '',
+            installmentNumber: editingPay.installmentNumber?.trim() || '',
+            amount: editingPay.amount || 0,
+            dueDate: editingPay.dueDate,
+          }
+        : p);
+      savePayments(updated);
+      setEditingPay(null);
+      return;
+    }
+    if (!editingPay.bank.trim()) { alert('Ingresá el banco.'); return; }
     const updated = payments.map(p => p.id === editingPay.id
       ? { ...p, bank: editingPay.bank.trim(), amount: editingPay.amount || 0, dueDate: editingPay.dueDate }
       : p);
@@ -2995,13 +3017,27 @@ export default function FinanceView({
                                 </button>
                               </td>
                               <td className="px-5 py-3.5 text-center">
-                                <button
-                                  onClick={() => handleDeletePayment(pay.id)}
-                                  className="text-text-dim hover:text-red-500 transition-colors p-1"
-                                  title="Eliminar cuota fiscal"
-                                >
-                                  <Trash2 size={13} />
-                                </button>
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    onClick={() => setEditingPay({
+                                      id: pay.id, bank: pay.bank || '', amount: pay.amount || 0, dueDate: pay.dueDate || '',
+                                      entity: pay.entity || '', taxType: pay.taxType || '', description: pay.description || '',
+                                      totalAmount: pay.totalAmount || 0, paymentPlanNumber: pay.paymentPlanNumber || '',
+                                      installmentNumber: pay.installmentNumber || '', isFiscalLegal: true,
+                                    })}
+                                    className="text-text-dim hover:text-brand-500 transition-colors p-1"
+                                    title={mode === 'legal' ? 'Editar cuota legal' : 'Editar cuota fiscal'}
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePayment(pay.id)}
+                                    className="text-text-dim hover:text-red-500 transition-colors p-1"
+                                    title="Eliminar cuota fiscal"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -3833,12 +3869,67 @@ export default function FinanceView({
               className="relative bg-bg-card border border-border-dim rounded-2xl shadow-2xl w-full max-w-md p-6">
               <div className="flex items-center justify-between mb-5">
                 <div>
-                  <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Editar Cuota</h3>
-                  <p className="text-[9px] font-bold uppercase text-text-dim mt-0.5">Banco · Importe · Vencimiento</p>
+                  <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">{editingPay.isFiscalLegal ? (mode === 'legal' ? 'Editar Cuota Legal' : 'Editar Cuota Fiscal') : 'Editar Cuota'}</h3>
+                  <p className="text-[9px] font-bold uppercase text-text-dim mt-0.5">{editingPay.isFiscalLegal ? 'Editá todos los campos de la fila' : 'Banco · Importe · Vencimiento'}</p>
                 </div>
                 <button onClick={() => setEditingPay(null)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
               </div>
-              <div className="space-y-4">
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                {editingPay.isFiscalLegal ? (
+                  <>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Entidad</label>
+                      <input type="text" value={editingPay.entity || ''}
+                        onChange={e => setEditingPay({ ...editingPay, entity: e.target.value })}
+                        className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500 uppercase" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">{mode === 'legal' ? 'Juicio / Carátula' : 'Impuesto (Tasa)'}</label>
+                      <input type="text" value={editingPay.taxType || ''}
+                        onChange={e => setEditingPay({ ...editingPay, taxType: e.target.value })}
+                        className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500 uppercase" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">{mode === 'legal' ? 'Monto Total Juicio' : 'Importe Total Plan'}</label>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[13px] font-black text-text-dim">$</span>
+                        <input type="number" value={editingPay.totalAmount || ''}
+                          onChange={e => setEditingPay({ ...editingPay, totalAmount: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">{mode === 'legal' ? 'Expediente' : 'N° de Plan'}</label>
+                        <input type="text" value={editingPay.paymentPlanNumber || ''}
+                          onChange={e => setEditingPay({ ...editingPay, paymentPlanNumber: e.target.value })}
+                          className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500 uppercase" />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">N° de Cuota</label>
+                        <input type="text" value={editingPay.installmentNumber || ''}
+                          onChange={e => setEditingPay({ ...editingPay, installmentNumber: e.target.value })}
+                          className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500 uppercase" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Importe de la cuota</label>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-[13px] font-black text-text-dim">$</span>
+                        <input type="number" value={editingPay.amount || ''}
+                          onChange={e => setEditingPay({ ...editingPay, amount: parseFloat(e.target.value) || 0 })}
+                          className="w-full bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Vencimiento Pago</label>
+                      <input type="date" value={editingPay.dueDate}
+                        onChange={e => setEditingPay({ ...editingPay, dueDate: e.target.value })}
+                        className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
+                    </div>
+                  </>
+                ) : (
+                  <>
                 <div>
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Banco</label>
                   <input type="text" value={editingPay.bank}
@@ -3860,6 +3951,8 @@ export default function FinanceView({
                     onChange={e => setEditingPay({ ...editingPay, dueDate: e.target.value })}
                     className="w-full mt-1 bg-bg-accent/30 border border-border-dim rounded px-3 py-2.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
+                  </>
+                )}
               </div>
               <div className="flex justify-end gap-2 mt-6">
                 <button onClick={() => setEditingPay(null)}
