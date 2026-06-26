@@ -73,11 +73,24 @@ function porDecada(md: MonthData) {
 
 // Punto de equilibrio de caja de un mes: día en que los ingresos acumulados
 // alcanzan a cubrir los egresos totales del mes. Devuelve null si no hay egresos.
-function puntoEquilibrioDeMes(md: MonthData) {
-  const egresosTotales = md.resumenTotales?.['total egresos'] || 0;
-  const ingresosTotales = md.resumenTotales?.['total ingresos'] || 0;
-  if (egresosTotales <= 0) return null;
+// `excluidas` es un Set de nombres de cuenta (rubros) a NO considerar en el cálculo.
+function puntoEquilibrioDeMes(md: MonthData, excluidas?: Set<string>) {
+  const exc = excluidas || new Set<string>();
   const dias = md.dias || [];
+  // Egresos e ingresos totales recalculados sumando solo las cuentas NO excluidas
+  let egresosTotales = 0;
+  let ingresosTotales = 0;
+  md.secciones.forEach(s => {
+    if (esSaldoInicial(s)) return;
+    const ingreso = esSeccionIngreso(s);
+    s.rubros.forEach(r => {
+      if (exc.has(r.nombre)) return;
+      const totalRubro = Object.values(r.dias).reduce((a, v) => a + v, 0);
+      if (ingreso) ingresosTotales += totalRubro;
+      else egresosTotales += Math.abs(totalRubro);
+    });
+  });
+  if (egresosTotales <= 0) return null;
   let ingAcum = 0;
   let diaCubierto: number | null = null;
   for (const d of dias) {
@@ -85,7 +98,7 @@ function puntoEquilibrioDeMes(md: MonthData) {
     md.secciones.forEach(s => {
       if (esSaldoInicial(s)) return;
       if (esSeccionIngreso(s)) {
-        s.rubros.forEach(r => { ingDia += (r.dias[d] || 0); });
+        s.rubros.forEach(r => { if (!exc.has(r.nombre)) ingDia += (r.dias[d] || 0); });
       }
     });
     ingAcum += ingDia;
@@ -501,31 +514,36 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
     });
   })();
 
-  // 1b) Punto de equilibrio del mes: día en que los ingresos acumulados del mes
-  // alcanzan a cubrir los egresos TOTALES del mes. Responde "con cuántos ingresos
-  // se cubrieron los gastos del mes y en qué día se llegó".
+  // Cuentas que se pueden marcar/desmarcar para el punto de equilibrio.
+  // Son todas las cuentas (rubros) de las secciones de ingreso y egreso (no Saldo Inicial),
+  // de todos los meses cargados. Por defecto todas INCLUIDAS (set de excluidas vacío).
+  const cuentasMarcables = Array.from(new Set(
+    allData.flatMap(md => md.secciones
+      .filter(s => !esSaldoInicial(s))
+      .flatMap(s => s.rubros.map(r => r.nombre))
+    )
+  ));
+  const [cuentasExcluidas, setCuentasExcluidas] = useState<Set<string>>(new Set());
+  const [mostrarSelectorPE, setMostrarSelectorPE] = useState(false);
+  const toggleCuenta = (nombre: string) => {
+    setCuentasExcluidas(prev => {
+      const n = new Set(prev);
+      if (n.has(nombre)) n.delete(nombre); else n.add(nombre);
+      return n;
+    });
+  };
+
+  // 1b) Punto de equilibrio del mes (respeta las cuentas excluidas)
   const puntoEquilibrio = (() => {
-    const egresosTotales = currentMonth.resumenTotales?.['total egresos'] || 0;
-    const ingresosTotales = currentMonth.resumenTotales?.['total ingresos'] || 0;
-    if (egresosTotales <= 0) return null;
-    let ingAcum = 0;
-    let diaCubierto: number | null = null;
-    let ingresosAlCubrir = 0;
-    for (const punto of serieDiaria) {
-      ingAcum += punto.ingresos;
-      if (ingAcum >= egresosTotales) {
-        diaCubierto = punto.dia;
-        ingresosAlCubrir = ingAcum;
-        break;
-      }
-    }
-    const alcanzado = diaCubierto !== null;
-    // % del mes que representa ese día (si el mes tiene N días con datos)
-    const totalDias = serieDiaria.length || 1;
-    const pctDelMes = alcanzado ? Math.round((diaCubierto! / totalDias) * 100) : 100;
-    // Cuánto faltó si no se alcanzó
-    const faltante = alcanzado ? 0 : Math.max(0, egresosTotales - ingresosTotales);
-    return { alcanzado, dia: diaCubierto, ingresosAlCubrir, egresosTotales, ingresosTotales, pctDelMes, faltante };
+    const pe = puntoEquilibrioDeMes(currentMonth, cuentasExcluidas);
+    if (!pe) return null;
+    const totalDias = (currentMonth.dias || []).length || 1;
+    const pctDelMes = pe.alcanzado ? Math.round((pe.dia! / totalDias) * 100) : 100;
+    const faltante = pe.alcanzado ? 0 : Math.max(0, pe.egresosTotales - pe.ingresosTotales);
+    return {
+      alcanzado: pe.alcanzado, dia: pe.dia, ingresosAlCubrir: pe.egresosTotales,
+      egresosTotales: pe.egresosTotales, ingresosTotales: pe.ingresosTotales, pctDelMes, faltante,
+    };
   })();
 
   // 2) Por década del mes actual
@@ -590,7 +608,7 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
     const egr = md.resumenTotales?.['total egresos'] || 0;
     const acum = md.resumenTotales?.['acumulado'] || 0;
     const tramos = porDecada(md);
-    const pe = puntoEquilibrioDeMes(md);
+    const pe = puntoEquilibrioDeMes(md, cuentasExcluidas);
     return {
       month: md.month,
       mesLabel: monthLabel(md.month),
@@ -622,6 +640,43 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
           </button>
         </div>
       )}
+
+      {/* Selector de cuentas para el Punto de Equilibrio */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+        <button onClick={() => setMostrarSelectorPE(!mostrarSelectorPE)} className="w-full flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <Target size={13} className="text-brand-500" />
+            <span className="text-[10px] font-black uppercase text-text-main tracking-widest">Cuentas incluidas en el Punto de Equilibrio</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {cuentasExcluidas.size > 0 && <span className="text-[8px] font-black uppercase text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">{cuentasExcluidas.size} excluida{cuentasExcluidas.size > 1 ? 's' : ''}</span>}
+            <span className="text-text-dim text-[12px]">{mostrarSelectorPE ? '▾' : '▸'}</span>
+          </div>
+        </button>
+        {mostrarSelectorPE && (
+          <div className="mt-3 pt-3 border-t border-border-dim/40">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest opacity-70">Desmarcá las cuentas que no querés contar (ej: dividendos, cuotas de préstamos)</p>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => setCuentasExcluidas(new Set())} className="text-[8px] font-black uppercase tracking-widest text-emerald-500 hover:underline">Marcar todas</button>
+                <button onClick={() => setCuentasExcluidas(new Set(cuentasMarcables))} className="text-[8px] font-black uppercase tracking-widest text-red-500 hover:underline">Desmarcar todas</button>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-1.5 max-h-64 overflow-y-auto">
+              {cuentasMarcables.map(nombre => {
+                const incluida = !cuentasExcluidas.has(nombre);
+                return (
+                  <button key={nombre} onClick={() => toggleCuenta(nombre)}
+                    className={cn("flex items-center gap-2 px-2.5 py-1.5 rounded text-left transition-all border", incluida ? "bg-bg-accent/30 border-border-dim/50" : "bg-bg-card/30 border-border-dim/30 opacity-50")}>
+                    <span className={cn("w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center text-[9px] font-black", incluida ? "bg-emerald-500 text-white" : "bg-transparent border border-text-dim/40")}>{incluida ? '✓' : ''}</span>
+                    <span className={cn("text-[9px] font-bold truncate", incluida ? "text-text-main" : "text-text-dim line-through")}>{nombre}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {consolidado ? (
         /* ===== Vista Consolidada: todos los meses en columnas ===== */
