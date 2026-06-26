@@ -16,6 +16,7 @@ import {
 interface Props {
   scope?: string;
   compact?: boolean; // versión para dashboard
+  selectedMonth?: string; // mes elegido en la pantalla (para el Punto de Equilibrio)
 }
 
 type LinesMap = Record<string, number>; // key -> realPesos
@@ -57,7 +58,7 @@ function calcularPuntoEquilibrio(lines: Record<string, number>) {
   return { ventas, variables, fijos, ratioContribucion, pe, cubre: ventas >= pe };
 }
 
-export default function ProfitLossKPIs({ scope = 'consolidated', compact = false }: Props) {
+export default function ProfitLossKPIs({ scope = 'consolidated', compact = false, selectedMonth }: Props) {
   const [allMonths, setAllMonths] = useState<MonthData[]>([]);
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({}); // month -> % mensual
   const [editingInflation, setEditingInflation] = useState(false);
@@ -117,10 +118,14 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   const current = allMonths[allMonths.length - 1];
   const prevMonth = allMonths[allMonths.length - 2];
 
-  // Punto de equilibrio económico del mes actual, sobre Proyectado y sobre Real
-  const peProyectado = current ? calcularPuntoEquilibrio(current.linesProj) : null;
-  const realTieneDatos = current ? Object.values(current.lines).some(v => v !== 0) : false;
-  const peReal = current && realTieneDatos ? calcularPuntoEquilibrio(current.lines) : null;
+  // Punto de equilibrio económico: usa el MES SELECCIONADO en pantalla.
+  // El resto de KPIs sigue usando 'current'.
+  const mesPESeleccionado = selectedMonth ? allMonths.find(m => m.month === selectedMonth) : current;
+  const mesPESinDatos = !!selectedMonth && !mesPESeleccionado;
+  const mesPE = mesPESeleccionado || null;
+  const peProyectado = mesPE ? calcularPuntoEquilibrio(mesPE.linesProj) : null;
+  const realTieneDatos = mesPE ? Object.values(mesPE.lines).some(v => v !== 0) : false;
+  const peReal = mesPE && realTieneDatos ? calcularPuntoEquilibrio(mesPE.lines) : null;
   const sameMonthLastYear = useMemo(() => {
     if (!current) return undefined;
     const [y, mm] = current.month.split('-');
@@ -250,10 +255,18 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
 
   return (
     <div className="space-y-6">
+      {/* Aviso si el mes elegido no tiene Estado de Resultado cargado */}
+      {mesPESinDatos && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+          <p className="text-[10px] font-black uppercase text-amber-600 tracking-widest">Punto de Equilibrio · sin datos para el mes elegido</p>
+          <p className="text-[9px] font-bold text-text-dim mt-1">No hay un Estado de Resultado cargado para ese mes. Cargalo en la pestaña "Estado de Resultados" para ver su punto de equilibrio.</p>
+        </div>
+      )}
+
       {/* Punto de Equilibrio Económico (Estado de Resultado) */}
-      {current && (peProyectado || peReal) && (
+      {mesPE && (peProyectado || peReal) && (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Punto de Equilibrio Económico · {monthLabel(current.month)}</h3>
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Punto de Equilibrio Económico · {monthLabel(mesPE.month)}</h3>
           <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Ventas necesarias para cubrir costos fijos y variables</p>
           <div className={cn("grid gap-3", peReal ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
             {[{ titulo: 'Proyectado', pe: peProyectado }, { titulo: 'Real', pe: peReal }].filter(x => x.pe).map(({ titulo, pe }) => (

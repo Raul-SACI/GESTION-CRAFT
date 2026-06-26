@@ -337,7 +337,7 @@ export default function ProfitLossView({
       </div>
 
       {tab === 'kpis' ? (
-        <ProfitLossKPIs scope={scope} />
+        <ProfitLossKPIs scope={scope} selectedMonth={selectedMonth} />
       ) : tab === 'project' && scope === 'consolidated' ? (
         <ProfitLossProjector scope={scope} targetMonth={selectedMonth} isReadOnly={isReadOnly} onProjectionGenerated={fetchData} />
       ) : tab === 'yearly' ? (
