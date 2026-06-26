@@ -2924,7 +2924,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                     <div className="bg-bg-accent p-4 border-b border-border-dim flex justify-between items-center">
                        <h3 className="text-[10px] font-black uppercase tracking-widest text-text-main">Ranking de Artículos por Sucursal</h3>
                        <div className="bg-yellow-300 text-black text-[10px] font-mono font-bold px-2 py-1 rounded border border-black my-1">
-                         DIAG → branch:[{rkFilterBranch}] period:[{rkFilterPeriod}] | total:{rankings.length} filtradas:{filteredRankings.length}
+                         DIAG v4 → branch:[{rkFilterBranch}] period:[{rkFilterPeriod}] | total:{rankings.length} filtradas:{filteredRankings.length}
                          {filteredRankings.length > 0 && <> | primera fila branch_id:[{filteredRankings[0]?.branch_id}] week:[{String(filteredRankings[0]?.week_number)}]</>}
                          <br/>PRIMERAS 3 MAPEADAS: {filteredRankings.slice(0, 3).map((r, i) => `#${i+1} ${r.product_name}/${r.branch_id}/S${r.week_number}`).join(' || ')}
                        </div>
@@ -3015,7 +3015,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                 <th className="px-2 py-2"></th>
                              </tr>
                           </thead>
-                          <tbody className="divide-y divide-border-dim">
+                          <tbody key={`rk-${rkFilterBranch}-${rkFilterPeriod}-${rkFilterProduct}-${rkFilterCode}-${rkFilterCategories.join(',')}`} className="divide-y divide-border-dim">
                              {loading && rankings.length === 0 ? (
                                <tr>
                                   <td colSpan={9} className="px-6 py-20 text-center text-brand-500 uppercase font-black tracking-widest">
