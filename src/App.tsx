@@ -19,6 +19,7 @@ import {
   Trophy,
   Bell,
   Search,
+  X,
   ChevronRight,
   RefreshCw,
   Flag,
@@ -582,6 +583,7 @@ function AppContent() {
 
   // Sidebar Customization State
   const [isReorderingMode, setIsReorderingMode] = useState(false);
+  const [moduleSearch, setModuleSearch] = useState('');
   const [menuConfig, setMenuConfig] = useState<Record<string, MenuItem[]>>({
     'Agenda Personal': [
       { id: 'tareas', label: 'Tareas Pendientes', icon: ClipboardCheck },
@@ -623,6 +625,7 @@ function AppContent() {
       { id: 'tax_liabilities', label: 'Pasivos Fiscales', icon: Calculator },
       { id: 'legal_liabilities', label: 'Pasivos Legales', icon: Scale },
       { id: 'cronograma_pagos', label: 'Cronograma de Pagos', icon: Calendar },
+      { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', icon: BarChart3 },
     ],
     'Tesorería': [
@@ -642,7 +645,6 @@ function AppContent() {
     'Gerencia General': [
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
       { id: 'control_agendas', label: 'Agenda Supervisores', icon: ClipboardList },
-      { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
       { id: 'p&l', label: 'Estado de Resultado', icon: BarChart3 },
       { id: 'ordenes', label: 'Tickets / Órdenes', icon: Ticket },
@@ -776,6 +778,21 @@ function AppContent() {
         }
         if (!merged['Agenda Personal'].find(it => it.id === 'notas_personales')) {
           merged['Agenda Personal'].push({ id: 'notas_personales', label: 'Notas Personales', icon: iconMap['notas_personales'] || StickyNote });
+        }
+
+        // 'finanzas_estimado' (Flujo de Caja Estimado) ahora vive en 'Finanzas'.
+        // Quitarlo de cualquier otra sección de un orden guardado viejo y asegurarlo en Finanzas.
+        Object.keys(merged).forEach(section => {
+          if (section !== 'Finanzas') {
+            merged[section] = merged[section].filter(it => it.id !== 'finanzas_estimado');
+          }
+        });
+        if (merged['Finanzas'] && !merged['Finanzas'].find(it => it.id === 'finanzas_estimado')) {
+          // Insertar antes de "Flujo de Caja Mensual" si existe, si no al final
+          const idxMensual = merged['Finanzas'].findIndex(it => it.id === 'finanzas_mensual');
+          const item = { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: iconMap['finanzas_estimado'] || TrendingUp };
+          if (idxMensual >= 0) merged['Finanzas'].splice(idxMensual, 0, item);
+          else merged['Finanzas'].push(item);
         }
 
         setMenuConfig(merged);
@@ -1252,9 +1269,29 @@ function AppContent() {
             )}
           </div>
 
+          {/* Buscador de módulos */}
+          {!isSidebarCollapsed && (
+            <div className="px-4 mb-3">
+              <div className="relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-sidebar-dim" />
+                <input
+                  value={moduleSearch}
+                  onChange={(e) => setModuleSearch(e.target.value)}
+                  placeholder="Buscar módulo..."
+                  className="w-full bg-bg-accent/40 border border-sidebar-border rounded-md pl-8 pr-7 py-1.5 text-[11px] text-sidebar-text placeholder:text-sidebar-dim outline-none focus:border-brand-500/50 transition-all"
+                />
+                {moduleSearch && (
+                  <button onClick={() => setModuleSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-sidebar-dim hover:text-brand-500" title="Limpiar">
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {Object.entries(menuConfig).map(([sectionName, items]) => {
             const typedItems = items as MenuItem[];
-            const filteredItems = typedItems.filter(item => {
+            const permittedItems = typedItems.filter(item => {
               // Usuarios/Roles solo visible para administrador
               if (item.id === 'usuarios' || item.id === 'sucursales') {
                 return currentUser.role === 'administrador' || currentUser.role === 'dueño';
@@ -1263,6 +1300,13 @@ function AppContent() {
               if (!currentUser.permissions || currentUser.permissions.length === 0) return false;
               return currentUser.permissions.includes(item.id);
             });
+
+            // Filtro del buscador de módulos (por nombre, sin acentos)
+            const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const q = norm(moduleSearch.trim());
+            const filteredItems = q
+              ? permittedItems.filter(item => norm(item.label).includes(q))
+              : permittedItems;
 
             if (filteredItems.length === 0) return null;
 
