@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Upload, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight, TrendingUp, LayoutDashboard, AlertTriangle } from 'lucide-react';
+import { BarChart3, Upload, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight, TrendingUp, LayoutDashboard, AlertTriangle, Target } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart
 } from 'recharts';
@@ -473,6 +473,33 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
     });
   })();
 
+  // 1b) Punto de equilibrio del mes: día en que los ingresos acumulados del mes
+  // alcanzan a cubrir los egresos TOTALES del mes. Responde "con cuántos ingresos
+  // se cubrieron los gastos del mes y en qué día se llegó".
+  const puntoEquilibrio = (() => {
+    const egresosTotales = currentMonth.resumenTotales?.['total egresos'] || 0;
+    const ingresosTotales = currentMonth.resumenTotales?.['total ingresos'] || 0;
+    if (egresosTotales <= 0) return null;
+    let ingAcum = 0;
+    let diaCubierto: number | null = null;
+    let ingresosAlCubrir = 0;
+    for (const punto of serieDiaria) {
+      ingAcum += punto.ingresos;
+      if (ingAcum >= egresosTotales) {
+        diaCubierto = punto.dia;
+        ingresosAlCubrir = ingAcum;
+        break;
+      }
+    }
+    const alcanzado = diaCubierto !== null;
+    // % del mes que representa ese día (si el mes tiene N días con datos)
+    const totalDias = serieDiaria.length || 1;
+    const pctDelMes = alcanzado ? Math.round((diaCubierto! / totalDias) * 100) : 100;
+    // Cuánto faltó si no se alcanzó
+    const faltante = alcanzado ? 0 : Math.max(0, egresosTotales - ingresosTotales);
+    return { alcanzado, dia: diaCubierto, ingresosAlCubrir, egresosTotales, ingresosTotales, pctDelMes, faltante };
+  })();
+
   // 2) Por década del mes actual
   const decadas = porDecada(currentMonth);
 
@@ -523,6 +550,54 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
           <p className="text-[12px] font-mono font-black text-red-500">{fmt(peorMes?.neto || 0)}</p>
         </div>
       </div>
+
+      {/* Punto de Equilibrio del mes */}
+      {puntoEquilibrio && (
+        <div className={cn("rounded-xl p-5 border-2", puntoEquilibrio.alcanzado ? "border-emerald-500/40 bg-emerald-500/5" : "border-red-500/40 bg-red-500/5")}>
+          <div className="flex items-center gap-1.5 mb-1">
+            <Target size={13} className={puntoEquilibrio.alcanzado ? "text-emerald-500" : "text-red-500"} />
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Punto de Equilibrio · {monthLabel(currentMonth.month)}</h3>
+          </div>
+          <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Cuándo los ingresos del mes cubrieron los egresos totales</p>
+          {puntoEquilibrio.alcanzado ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Se cubrió el día</p>
+                <p className="text-[20px] font-black text-emerald-500">Día {puntoEquilibrio.dia}</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">≈ {puntoEquilibrio.pctDelMes}% del mes transcurrido</p>
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Ingresos para cubrir</p>
+                <p className="text-[15px] font-mono font-black text-text-main">{fmt(puntoEquilibrio.egresosTotales)}</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">= total de egresos del mes</p>
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Ingresos del mes</p>
+                <p className="text-[15px] font-mono font-black text-emerald-500">{fmt(puntoEquilibrio.ingresosTotales)}</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">{fmt(puntoEquilibrio.ingresosTotales - puntoEquilibrio.egresosTotales)} por encima del equilibrio</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Estado</p>
+                <p className="text-[16px] font-black text-red-500">No se alcanzó</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">los ingresos no cubrieron los egresos</p>
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Egresos del mes</p>
+                <p className="text-[15px] font-mono font-black text-text-main">{fmt(puntoEquilibrio.egresosTotales)}</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">ingresos: {fmt(puntoEquilibrio.ingresosTotales)}</p>
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">Faltaron</p>
+                <p className="text-[15px] font-mono font-black text-red-500">{fmt(puntoEquilibrio.faltante)}</p>
+                <p className="text-[9px] font-bold text-text-dim mt-0.5">de ingresos para llegar al equilibrio</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Detalle de los 3 tramos del mes (1-10, 11-20, 21-fin) */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
