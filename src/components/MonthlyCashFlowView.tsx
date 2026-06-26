@@ -66,6 +66,29 @@ function porDecada(md: MonthData) {
   return tramos.map(t => ({ ...t, neto: t.ingresos - t.egresos }));
 }
 
+// Punto de equilibrio de caja de un mes: día en que los ingresos acumulados
+// alcanzan a cubrir los egresos totales del mes. Devuelve null si no hay egresos.
+function puntoEquilibrioDeMes(md: MonthData) {
+  const egresosTotales = md.resumenTotales?.['total egresos'] || 0;
+  const ingresosTotales = md.resumenTotales?.['total ingresos'] || 0;
+  if (egresosTotales <= 0) return null;
+  const dias = md.dias || [];
+  let ingAcum = 0;
+  let diaCubierto: number | null = null;
+  for (const d of dias) {
+    let ingDia = 0;
+    md.secciones.forEach(s => {
+      if (esSaldoInicial(s)) return;
+      if (esSeccionIngreso(s)) {
+        s.rubros.forEach(r => { ingDia += (r.dias[d] || 0); });
+      }
+    });
+    ingAcum += ingDia;
+    if (ingAcum >= egresosTotales) { diaCubierto = d; break; }
+  }
+  return { alcanzado: diaCubierto !== null, dia: diaCubierto, egresosTotales, ingresosTotales };
+}
+
 // Convierte un valor de celda (número o texto "$ 1.234,56" / "$ 1,234.56" / "-$ 1234") a número.
 // Soporta separadores en formato es-AR (1.234,56) y US (1,234.56) detectando cuál es el decimal.
 function parseMoney(v: any): number {
@@ -528,10 +551,104 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
   const mejorMes = compMeses.reduce((max, m) => m.neto > max.neto ? m : max, compMeses[0]);
   const peorMes = compMeses.reduce((min, m) => m.neto < min.neto ? m : min, compMeses[0]);
 
+  // Modo Consolidado: ver todos los meses en columnas, lado a lado
+  const [consolidado, setConsolidado] = useState(false);
+  const datosConsolidados = allData.map(md => {
+    const ing = md.resumenTotales?.['total ingresos'] || 0;
+    const egr = md.resumenTotales?.['total egresos'] || 0;
+    const acum = md.resumenTotales?.['acumulado'] || 0;
+    const tramos = porDecada(md);
+    const pe = puntoEquilibrioDeMes(md);
+    return {
+      month: md.month,
+      mesLabel: monthLabel(md.month),
+      ingresos: ing,
+      egresos: egr,
+      neto: ing - egr,
+      acumulado: acum,
+      tramos,
+      pe,
+    };
+  });
+
   const COLORS = ['#e31e24', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
   return (
     <div className="space-y-6">
+      {/* Toggle: análisis por mes vs consolidado (todos los meses en columnas) */}
+      {allData.length > 1 && (
+        <div className="flex gap-1 bg-bg-accent/40 rounded-lg p-1 w-fit">
+          <button onClick={() => setConsolidado(false)}
+            className={cn("flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+              !consolidado ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+            <Calendar size={13} /> Por Mes
+          </button>
+          <button onClick={() => setConsolidado(true)}
+            className={cn("flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+              consolidado ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+            <BarChart3 size={13} /> Consolidado
+          </button>
+        </div>
+      )}
+
+      {consolidado ? (
+        /* ===== Vista Consolidada: todos los meses en columnas ===== */
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 overflow-x-auto">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Comparativa de meses</h3>
+          <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Todos los meses cargados, lado a lado</p>
+          <table className="w-full text-[11px] border-collapse">
+            <thead>
+              <tr className="border-b-2 border-border-dim">
+                <th className="text-left py-2 px-2 text-[8px] font-black uppercase tracking-widest text-text-dim sticky left-0 bg-bg-sidebar">Indicador</th>
+                {datosConsolidados.map(m => (
+                  <th key={m.month} className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-text-main whitespace-nowrap">{m.mesLabel}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-dim/50">
+              <tr>
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-emerald-500 sticky left-0 bg-bg-sidebar">Total Ingresos</td>
+                {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-emerald-500 whitespace-nowrap">{fmt(m.ingresos)}</td>)}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-red-500 sticky left-0 bg-bg-sidebar">Total Egresos</td>
+                {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-red-500 whitespace-nowrap">{fmt(m.egresos)}</td>)}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Neto del Mes</td>
+                {datosConsolidados.map(m => <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-black whitespace-nowrap", m.neto >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(m.neto)}</td>)}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-brand-500 sticky left-0 bg-bg-sidebar">Acumulado</td>
+                {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-brand-500 whitespace-nowrap">{fmt(m.acumulado)}</td>)}
+              </tr>
+              <tr className="bg-bg-accent/20">
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Punto de Equilibrio</td>
+                {datosConsolidados.map(m => (
+                  <td key={m.month} className="py-2 px-3 text-right font-black whitespace-nowrap">
+                    {m.pe?.alcanzado
+                      ? <span className="text-emerald-500">Día {m.pe.dia}</span>
+                      : <span className="text-red-500 text-[9px]">No alcanzado</span>}
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 1 a 10 (neto)</td>
+                {datosConsolidados.map(m => { const t = m.tramos[0]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 11 a 20 (neto)</td>
+                {datosConsolidados.map(m => { const t = m.tramos[1]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+              </tr>
+              <tr>
+                <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 21 a fin (neto)</td>
+                {datosConsolidados.map(m => { const t = m.tramos[2]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : (
+      <>
       {/* KPIs de análisis */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
@@ -745,6 +862,8 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
             </ResponsiveContainer>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
