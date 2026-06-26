@@ -10,7 +10,7 @@ import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import {
   PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS, OPERATIVA_COMPONENTS,
-  OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS
+  OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS, VARIABLE_COST_KEYS
 } from './plStructure';
 
 interface Props {
@@ -19,7 +19,7 @@ interface Props {
 }
 
 type LinesMap = Record<string, number>; // key -> realPesos
-interface MonthData { month: string; ventas: number; ganancia: number; lines: Record<string, number>; }
+interface MonthData { month: string; ventas: number; ganancia: number; lines: Record<string, number>; linesProj: Record<string, number>; }
 
 const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const fmt = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-AR');
@@ -32,6 +32,30 @@ const DEFAULT_EXPENSE_KEYS = ['cmv', 'sueldos_rel', 'alquileres_expensas', 'gast
 // Todos los conceptos analizables (líneas input + subtotales), con su label
 const ANALYZABLE = PL_STRUCTURE.filter(d => d.type === 'input' || d.type === 'subtotal').map(d => ({ key: d.key, label: d.label }));
 const labelOf = (key: string) => ANALYZABLE.find(a => a.key === key)?.label || key;
+
+// Calcula el punto de equilibrio económico a partir de un mapa de líneas (key -> monto en pesos).
+// Convención de signos del EERR: ventas positivas, egresos negativos.
+// PE = Costos Fijos / Margen de Contribución, donde Margen = 1 - (Variables / Ventas).
+function calcularPuntoEquilibrio(lines: Record<string, number>) {
+  const ventas = SUBTOTAL_COMPONENTS.ventas_netas.reduce((s, k) => s + (lines[k] || 0), 0);
+  if (ventas <= 0) return null;
+  // Costos variables (en valor absoluto, porque vienen como egresos negativos)
+  const variables = VARIABLE_COST_KEYS.reduce((s, k) => s + Math.abs(lines[k] || 0), 0);
+  // Todos los egresos operativos (en valor absoluto): todo lo que está en los subtotales de egreso
+  const keysEgreso = [
+    ...SUBTOTAL_COMPONENTS.sueldos_rel, ...SUBTOTAL_COMPONENTS.alquileres_rel,
+    ...SUBTOTAL_COMPONENTS.servicios_contrat, ...SUBTOTAL_COMPONENTS.gastos_comercial,
+    ...SUBTOTAL_COMPONENTS.impuestos, ...SUBTOTAL_COMPONENTS.otros_egresos,
+    'cmv', 'comisiones_socios', 'honorarios_socios',
+  ];
+  const egresosTotales = keysEgreso.reduce((s, k) => s + Math.abs(lines[k] || 0), 0);
+  // Fijos = egresos totales - variables
+  const fijos = Math.max(0, egresosTotales - variables);
+  const ratioContribucion = 1 - (variables / ventas); // margen de contribución sobre ventas
+  if (ratioContribucion <= 0) return { ventas, variables, fijos, ratioContribucion, pe: null, cubre: false };
+  const pe = fijos / ratioContribucion; // ventas necesarias para no perder
+  return { ventas, variables, fijos, ratioContribucion, pe, cubre: ventas >= pe };
+}
 
 export default function ProfitLossKPIs({ scope = 'consolidated', compact = false }: Props) {
   const [allMonths, setAllMonths] = useState<MonthData[]>([]);
@@ -51,7 +75,8 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
         const parsed: MonthData[] = (data || []).map((r: any) => {
           const arr = typeof r.lines === 'string' ? JSON.parse(r.lines) : r.lines;
           const m: LinesMap = {};
-          (arr || []).forEach((l: any) => { m[l.key] = l.realPesos || 0; });
+          const mProj: LinesMap = {};
+          (arr || []).forEach((l: any) => { m[l.key] = l.realPesos || 0; mProj[l.key] = l.projPesos || 0; });
           const sum = (keys: string[]) => keys.reduce((s, k) => s + (m[k] || 0), 0);
           const ventas = sum(SUBTOTAL_COMPONENTS.ventas_netas);
           const bruta = ventas + (m['cmv'] || 0);
@@ -74,8 +99,8 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
           fullLines['ganancia_operativa'] = operativa;
           fullLines['ganancia_operativa_neta'] = operativaNeta;
           fullLines['ganancia_final'] = ganancia;
-          return { month: r.month, ventas, ganancia, lines: fullLines };
-        }).filter(md => md.ventas !== 0 || md.ganancia !== 0);
+          return { month: r.month, ventas, ganancia, lines: fullLines, linesProj: mProj };
+        }).filter(md => md.ventas !== 0 || md.ganancia !== 0 || Object.keys(md.linesProj).length > 0);
         setAllMonths(parsed);
         // Cargar inflación mensual
         const { data: infl } = await supabase.from('monthly_inflation').select('*');
@@ -91,6 +116,11 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   // Último mes con datos = mes "actual" para las tarjetas
   const current = allMonths[allMonths.length - 1];
   const prevMonth = allMonths[allMonths.length - 2];
+
+  // Punto de equilibrio económico del mes actual, sobre Proyectado y sobre Real
+  const peProyectado = current ? calcularPuntoEquilibrio(current.linesProj) : null;
+  const realTieneDatos = current ? Object.values(current.lines).some(v => v !== 0) : false;
+  const peReal = current && realTieneDatos ? calcularPuntoEquilibrio(current.lines) : null;
   const sameMonthLastYear = useMemo(() => {
     if (!current) return undefined;
     const [y, mm] = current.month.split('-');
@@ -220,6 +250,52 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
 
   return (
     <div className="space-y-6">
+      {/* Punto de Equilibrio Económico (Estado de Resultado) */}
+      {current && (peProyectado || peReal) && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-1">Punto de Equilibrio Económico · {monthLabel(current.month)}</h3>
+          <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest mb-4 opacity-70">Ventas necesarias para cubrir costos fijos y variables</p>
+          <div className={cn("grid gap-3", peReal ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1")}>
+            {[{ titulo: 'Proyectado', pe: peProyectado }, { titulo: 'Real', pe: peReal }].filter(x => x.pe).map(({ titulo, pe }) => (
+              <div key={titulo} className="border border-border-dim rounded-lg p-4">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-brand-500 mb-3">{titulo}</p>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Punto de equilibrio</span>
+                    <span className="text-[16px] font-mono font-black text-text-main">{pe!.pe !== null ? fmt(pe!.pe) : 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Ventas del mes</span>
+                    <span className={cn("text-[12px] font-mono font-black", pe!.cubre ? "text-emerald-500" : "text-red-500")}>{fmt(pe!.ventas)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline border-t border-border-dim/40 pt-2">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Margen de contribución</span>
+                    <span className="text-[12px] font-mono font-black text-text-main">{(pe!.ratioContribucion * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Costos fijos</span>
+                    <span className="text-[11px] font-mono font-bold text-text-dim">{fmt(pe!.fijos)}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[9px] font-bold uppercase text-text-dim">Costos variables</span>
+                    <span className="text-[11px] font-mono font-bold text-text-dim">{fmt(pe!.variables)}</span>
+                  </div>
+                  <div className={cn("mt-2 rounded px-3 py-2 text-center", pe!.cubre ? "bg-emerald-500/10" : "bg-red-500/10")}>
+                    {pe!.pe !== null ? (
+                      pe!.cubre
+                        ? <span className="text-[10px] font-black uppercase text-emerald-500">Cubierto · {fmt(pe!.ventas - pe!.pe)} por encima</span>
+                        : <span className="text-[10px] font-black uppercase text-red-500">Faltan {fmt(pe!.pe - pe!.ventas)} de ventas</span>
+                    ) : (
+                      <span className="text-[10px] font-black uppercase text-red-500">Margen negativo: las ventas no cubren ni los costos variables</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Aviso y carga de inflación */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
         <div className="flex items-center justify-between flex-wrap gap-2">

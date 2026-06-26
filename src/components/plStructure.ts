@@ -109,6 +109,19 @@ export const OPERATIVA_COMPONENTS = ['ganancia_bruta', 'sueldos_rel', 'alquilere
 export const OPERATIVA_NETA_COMPONENTS = ['ganancia_operativa', 'comisiones_socios'];
 export const FINAL_COMPONENTS = ['ganancia_operativa_neta', 'honorarios_socios'];
 
+// Costos VARIABLES para el punto de equilibrio económico (suben con las ventas).
+// El resto de los egresos se consideran fijos.
+// Incluye: CMV, Comisiones Pedidos Ya, Comisiones y gastos TC, toda la sección
+// Impuestos, y Desperdicios (EG 8).
+export const VARIABLE_COST_KEYS = [
+  'cmv',
+  'comisiones_py',
+  'comisiones_tc',
+  'imp_deb_cred', 'imp_internos', 'imp_sellos', 'imp_cheque', 'imp_automotor',
+  'imp_inmobiliario', 'imp_autonomos', 'imp_municipales', 'imp_planes', 'ingresos_brutos',
+  'compras_sucursal', // Desperdicios (EG 8)
+];
+
 export function normalizeLabel(s: string): string {
   return (s || '').toLowerCase().trim()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')

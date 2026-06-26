@@ -677,6 +677,10 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
                 <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 21 a fin (neto)</td>
                 {datosConsolidados.map(m => { const t = m.tramos[2]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
               </tr>
+              <tr className="border-t border-border-dim bg-bg-accent/10">
+                <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Suma de Tramos (= Neto)</td>
+                {datosConsolidados.map(m => { const sumaTramos = m.tramos.reduce((a, t) => a + t.neto, 0); return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-black whitespace-nowrap", sumaTramos >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(sumaTramos)}</td>; })}
+              </tr>
             </tbody>
           </table>
         </div>
