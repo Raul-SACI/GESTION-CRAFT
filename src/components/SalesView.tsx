@@ -2926,6 +2926,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                        <div className="bg-yellow-300 text-black text-[10px] font-mono font-bold px-2 py-1 rounded border border-black my-1">
                          DIAG → branch:[{rkFilterBranch}] period:[{rkFilterPeriod}] | total:{rankings.length} filtradas:{filteredRankings.length}
                          {filteredRankings.length > 0 && <> | primera fila branch_id:[{filteredRankings[0]?.branch_id}] week:[{String(filteredRankings[0]?.week_number)}]</>}
+                         <br/>PRIMERAS 3 MAPEADAS: {filteredRankings.slice(0, 3).map((r, i) => `#${i+1} ${r.product_name}/${r.branch_id}/S${r.week_number}`).join(' || ')}
                        </div>
                        <div className="flex items-center gap-3">
                           {rkSelected.size > 0 && !isReadOnly && (
