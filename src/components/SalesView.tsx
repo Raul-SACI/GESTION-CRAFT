@@ -3034,7 +3034,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                </tr>
                              ) : (
                                filteredRankings.map((r, idx) => (
-                                 <tr key={r.id || idx} className={cn("hover:bg-bg-accent/50 transition-colors group", rkSelected.has(r.id) && "bg-brand-500/5")}>
+                                 <tr key={`${r.id || 'noid'}-${r.branch_id || 'nb'}-${r.product_code || 'nc'}-${r.month || 'nm'}-${r.week_number ?? 'nw'}`} className={cn("hover:bg-bg-accent/50 transition-colors group", rkSelected.has(r.id) && "bg-brand-500/5")}>
                                     <td className="px-3 py-4 text-center">
                                        <input type="checkbox" checked={rkSelected.has(r.id)} onChange={() => toggleRkOne(r.id)}
                                          className="w-3.5 h-3.5 accent-brand-500 cursor-pointer" />
