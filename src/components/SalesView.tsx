@@ -366,11 +366,11 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
           .order('week_number', { ascending: false })
           .order('quantity', { ascending: false })
           .range(rankingPage * rankingPageSize, (rankingPage + 1) * rankingPageSize - 1);
-          
-        if (localBranchId !== 'all') {
-          rankingQuery = rankingQuery.eq('branch_id', localBranchId);
-        }
-        
+
+        // El Ranking de Artículos tiene su PROPIO filtro de sucursal (rkFilterBranch),
+        // independiente del filtro de Control Diario (localBranchId). Por eso acá se
+        // traen SIEMPRE todas las sucursales y el filtrado por sucursal se hace en pantalla.
+
         const { data: rankingData, error: rankingError } = await rankingQuery;
         if (rankingError) throw rankingError;
         
