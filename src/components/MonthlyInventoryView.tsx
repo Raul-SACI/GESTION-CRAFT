@@ -1,35 +1,46 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { ClipboardCheck, Search, Calendar, Loader2, Check } from 'lucide-react';
+import { ClipboardCheck, Search, Calendar, Loader2, Check, Save, Lock, Unlock, FileText, FileSpreadsheet, Trash2, Plus } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface Branch { id: string; name: string; }
 interface MasterItem { id: string; name: string; unit: string; category: string | null; code: string | null; }
+interface InvRow { item_id: string; item_name: string; unit: string; cantidad: number; }
 interface Props {
   branches: Branch[];
   selectedBranchId: string;
   userRole?: string;
-  fixedBranchId?: string;      // si viene, la sucursal queda fija (ej. Centro de Producción)
+  fixedBranchId?: string;
   isReadOnly?: boolean;
 }
 
+const monthLabel = (m: string) => {
+  const [y, mm] = m.split('-');
+  const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return `${meses[parseInt(mm,10)-1]} ${y}`;
+};
+
 export default function MonthlyInventoryView({ branches, selectedBranchId, userRole, fixedBranchId, isReadOnly = false }: Props) {
   const isAdmin = userRole === 'administrador' || userRole === 'dueño';
-  const initialBranch = fixedBranchId || selectedBranchId;
-  const [branchId, setBranchId] = useState(initialBranch);
+  const [branchId, setBranchId] = useState(fixedBranchId || selectedBranchId);
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [items, setItems] = useState<MasterItem[]>([]);
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [rows, setRows] = useState<InvRow[]>([]);           // insumos ya inventariados
+  const [status, setStatus] = useState<'borrador' | 'cerrado'>('borrador');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
   const [search, setSearch] = useState('');
+  const [pendingQty, setPendingQty] = useState<Record<string, string>>({});
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  // Mantener branch fijo si corresponde
-  useEffect(() => {
-    if (fixedBranchId) setBranchId(fixedBranchId);
-  }, [fixedBranchId]);
+  const locked = status === 'cerrado' || isReadOnly;
 
-  // Cargar el Maestro de Insumos
+  useEffect(() => { if (fixedBranchId) setBranchId(fixedBranchId); }, [fixedBranchId]);
+
+  // Maestro de insumos
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from('stock_items').select('id, name, unit, category, code').order('name');
@@ -37,53 +48,120 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     })();
   }, []);
 
-  // Cargar el inventario guardado de la sucursal+mes
+  // Cargar inventario + estado de la sucursal+mes
   useEffect(() => {
     if (!branchId || !month) return;
     setLoading(true);
-    setSavedIds(new Set());
     (async () => {
-      const { data } = await supabase
-        .from('monthly_inventory')
-        .select('item_id, cantidad')
-        .match({ branch_id: branchId, month });
-      const q: Record<string, number> = {};
-      (data || []).forEach((r: any) => { q[r.item_id] = r.cantidad; });
-      setQuantities(q);
+      const [{ data: invData }, { data: statusData }] = await Promise.all([
+        supabase.from('monthly_inventory').select('item_id, item_name, unit, cantidad').match({ branch_id: branchId, month }),
+        supabase.from('monthly_inventory_status').select('status').match({ branch_id: branchId, month }).maybeSingle(),
+      ]);
+      const loaded: InvRow[] = (invData || [])
+        .filter((r: any) => r.cantidad && r.cantidad !== 0)
+        .map((r: any) => ({ item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad }));
+      setRows(loaded);
+      setStatus((statusData?.status as any) || 'borrador');
       setLoading(false);
     })();
   }, [branchId, month]);
 
-  const saveItem = async (item: MasterItem, value: number) => {
-    if (isReadOnly) return;
-    setSavingId(item.id);
-    const { error } = await supabase
-      .from('monthly_inventory')
-      .upsert({
-        branch_id: branchId,
-        month,
-        item_id: item.id,
-        item_name: item.name,
-        unit: item.unit,
-        cantidad: value,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'branch_id,month,item_id' });
-    setSavingId(null);
-    if (!error) {
-      setSavedIds(prev => new Set(prev).add(item.id));
-      setTimeout(() => setSavedIds(prev => { const n = new Set(prev); n.delete(item.id); return n; }), 1500);
-    }
+  const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Sugerencias del buscador (solo si hay texto). Excluye los ya agregados.
+  const suggestions = useMemo(() => {
+    const q = norm(search.trim());
+    if (!q) return [];
+    const yaIds = new Set(rows.map(r => r.item_id));
+    return items
+      .filter(i => !yaIds.has(i.id))
+      .filter(i => norm(i.name).includes(q) || norm(i.code || '').includes(q) || norm(i.category || '').includes(q))
+      .slice(0, 8);
+  }, [items, search, rows]);
+
+  const addItem = (item: MasterItem) => {
+    if (locked) return;
+    const qty = parseFloat(pendingQty[item.id] || '0') || 0;
+    setRows(prev => [{ item_id: item.id, item_name: item.name, unit: item.unit, cantidad: qty }, ...prev]);
+    setPendingQty(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+    setSearch('');
+    searchRef.current?.focus();
   };
 
-  const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const filteredItems = useMemo(() => {
-    const q = norm(search.trim());
-    if (!q) return items;
-    return items.filter(i => norm(i.name).includes(q) || norm(i.code || '').includes(q) || norm(i.category || '').includes(q));
-  }, [items, search]);
+  const updateRowQty = (itemId: string, value: number) => {
+    setRows(prev => prev.map(r => r.item_id === itemId ? { ...r, cantidad: value } : r));
+  };
+  const removeRow = (itemId: string) => setRows(prev => prev.filter(r => r.item_id !== itemId));
+
+  // Guardar borrador: reemplaza las filas guardadas de ese mes/sucursal por las actuales
+  const saveDraft = async (silent = false) => {
+    if (locked) return;
+    setSaving(true);
+    // Borrar lo anterior y reinsertar (simple y consistente)
+    await supabase.from('monthly_inventory').delete().match({ branch_id: branchId, month });
+    if (rows.length > 0) {
+      await supabase.from('monthly_inventory').insert(
+        rows.map(r => ({ branch_id: branchId, month, item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad, updated_at: new Date().toISOString() }))
+      );
+    }
+    await supabase.from('monthly_inventory_status').upsert(
+      { branch_id: branchId, month, status: 'borrador', updated_at: new Date().toISOString() },
+      { onConflict: 'branch_id,month' }
+    );
+    setSaving(false);
+    if (!silent) { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); }
+  };
+
+  const closeInventory = async () => {
+    if (locked) return;
+    if (rows.length === 0) { alert('Cargá al menos un insumo antes de cerrar el inventario.'); return; }
+    if (!confirm('¿Cerrar el inventario? Quedará bloqueado para edición. Solo un administrador podrá reabrirlo.')) return;
+    await saveDraft(true);
+    await supabase.from('monthly_inventory_status').upsert(
+      { branch_id: branchId, month, status: 'cerrado', closed_at: new Date().toISOString(), closed_by: userRole || '', updated_at: new Date().toISOString() },
+      { onConflict: 'branch_id,month' }
+    );
+    setStatus('cerrado');
+  };
+
+  const reopenInventory = async () => {
+    if (!isAdmin) return;
+    if (!confirm('¿Reabrir el inventario para edición?')) return;
+    await supabase.from('monthly_inventory_status').upsert(
+      { branch_id: branchId, month, status: 'borrador', updated_at: new Date().toISOString() },
+      { onConflict: 'branch_id,month' }
+    );
+    setStatus('borrador');
+  };
 
   const branchName = branches.find(b => b.id === branchId)?.name || branchId;
-  const cargados = Object.values(quantities).filter(v => v && v !== 0).length;
+
+  const exportExcel = () => {
+    const data = rows.map(r => ({ 'Código': '', 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{ wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 10 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
+    XLSX.writeFile(wb, `Inventario_${branchName.replace(/\s+/g,'_')}_${month}.xlsx`);
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text('Inventario Mensual', 14, 18);
+    doc.setFontSize(10);
+    doc.text(`Sucursal: ${branchName}`, 14, 26);
+    doc.text(`Mes: ${monthLabel(month)}`, 14, 32);
+    doc.text(`Fecha de cierre: ${new Date().toLocaleDateString('es-AR')}`, 14, 38);
+    autoTable(doc, {
+      startY: 44,
+      head: [['Insumo', 'Cantidad', 'Unidad']],
+      body: rows.map(r => [r.item_name, String(r.cantidad), r.unit]),
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [237, 28, 36] },
+    });
+    doc.save(`Inventario_${branchName.replace(/\s+/g,'_')}_${month}.pdf`);
+  };
 
   return (
     <div className="space-y-6">
@@ -97,7 +175,6 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Selector de sucursal: solo admin puede cambiarla y si no está fija */}
           {!fixedBranchId && isAdmin && (
             <select value={branchId} onChange={e => setBranchId(e.target.value)}
               className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-2 text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer">
@@ -112,66 +189,127 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
         </div>
       </div>
 
-      {/* Resumen */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Insumos en el Maestro</p>
-          <p className="text-2xl font-mono font-black text-text-main mt-1">{items.length}</p>
+      {/* Estado + acciones */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-bg-sidebar border border-border-dim rounded-xl p-4">
+        <div className="flex items-center gap-2">
+          {status === 'cerrado'
+            ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-red-500"><Lock size={13} /> Inventario Cerrado</span>
+            : <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-amber-500"><Unlock size={13} /> Borrador</span>}
+          <span className="text-[10px] font-bold text-text-dim">· {rows.length} insumo{rows.length !== 1 ? 's' : ''} cargado{rows.length !== 1 ? 's' : ''}</span>
         </div>
-        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
-          <p className="text-[9px] text-text-dim uppercase font-black tracking-widest">Insumos con cantidad cargada</p>
-          <p className="text-2xl font-mono font-black text-emerald-500 mt-1">{cargados}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {status === 'borrador' && !isReadOnly && (
+            <>
+              <button onClick={() => saveDraft(false)} disabled={saving}
+                className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all disabled:opacity-60">
+                {saving ? <Loader2 size={13} className="animate-spin" /> : savedFlash ? <Check size={13} className="text-emerald-500" /> : <Save size={13} />}
+                {savedFlash ? 'Guardado' : 'Guardar Borrador'}
+              </button>
+              <button onClick={closeInventory} disabled={saving}
+                className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg disabled:opacity-60">
+                <Lock size={13} /> Cerrar Inventario
+              </button>
+            </>
+          )}
+          {status === 'cerrado' && (
+            <>
+              <button onClick={exportPDF}
+                className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
+                <FileText size={13} /> PDF
+              </button>
+              <button onClick={exportExcel}
+                className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
+                <FileSpreadsheet size={13} /> Excel
+              </button>
+              {isAdmin && (
+                <button onClick={reopenInventory}
+                  className="flex items-center gap-2 bg-bg-accent border border-amber-500/40 text-amber-500 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-amber-500 transition-all">
+                  <Unlock size={13} /> Reabrir
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Buscador */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar insumo por nombre, código o categoría..."
-          className="w-full bg-bg-sidebar border border-border-dim rounded-lg pl-9 pr-3 py-2.5 text-[12px] text-text-main placeholder:text-text-dim outline-none focus:border-brand-500/50" />
-      </div>
-
-      {/* Lista de insumos */}
-      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
-        {loading ? (
-          <div className="p-10 text-center text-text-dim"><Loader2 size={20} className="animate-spin mx-auto" /></div>
-        ) : filteredItems.length === 0 ? (
-          <div className="p-10 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">No hay insumos que coincidan</div>
-        ) : (
-          <div className="divide-y divide-border-dim/40">
-            {filteredItems.map(item => {
-              const val = quantities[item.id] ?? '';
-              const saving = savingId === item.id;
-              const saved = savedIds.has(item.id);
-              return (
-                <div key={item.id} className="flex items-center gap-4 px-5 py-3 hover:bg-bg-accent/30 transition-colors">
+      {/* Buscador con sugerencias (solo en borrador) */}
+      {!locked && (
+        <div className="relative">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
+          <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar insumo por nombre, código o categoría..."
+            className="w-full bg-bg-sidebar border border-border-dim rounded-lg pl-9 pr-3 py-2.5 text-[12px] text-text-main placeholder:text-text-dim outline-none focus:border-brand-500/50" />
+          {suggestions.length > 0 && (
+            <div className="absolute z-30 mt-1 w-full bg-bg-sidebar border border-border-dim rounded-lg shadow-2xl max-h-80 overflow-y-auto divide-y divide-border-dim/40">
+              {suggestions.map(item => (
+                <div key={item.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-accent/40">
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-black text-text-main truncate">{item.name}</p>
-                    <p className="text-[8px] text-text-dim uppercase font-bold tracking-widest truncate">
-                      {item.code ? `${item.code} · ` : ''}{item.category || 'Sin categoría'}
-                    </p>
+                    <p className="text-[8px] text-text-dim uppercase font-bold tracking-widest truncate">{item.code ? `${item.code} · ` : ''}{item.category || 'Sin categoría'} · {item.unit || '—'}</p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <input
-                      type="number"
-                      value={val}
-                      disabled={isReadOnly}
-                      onChange={e => setQuantities(prev => ({ ...prev, [item.id]: parseFloat(e.target.value) || 0 }))}
-                      onBlur={e => saveItem(item, parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-28 bg-bg-accent/40 border border-border-dim rounded px-3 py-2 text-[13px] font-mono font-black text-text-main text-right outline-none focus:border-brand-500"
-                    />
-                    <span className="w-12 text-[10px] font-black uppercase text-text-dim tracking-widest">{item.unit || '—'}</span>
-                    <span className="w-5">
-                      {saving ? <Loader2 size={14} className="animate-spin text-text-dim" /> : saved ? <Check size={14} className="text-emerald-500" /> : null}
-                    </span>
-                  </div>
+                  <input
+                    type="number" autoFocus={false}
+                    value={pendingQty[item.id] || ''}
+                    onChange={e => setPendingQty(prev => ({ ...prev, [item.id]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') addItem(item); }}
+                    placeholder="Cant."
+                    className="w-24 bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5 text-[12px] font-mono font-black text-text-main text-right outline-none focus:border-brand-500"
+                  />
+                  <span className="w-10 text-[9px] font-black uppercase text-text-dim">{item.unit || '—'}</span>
+                  <button onClick={() => addItem(item)} className="bg-brand-500 text-black p-1.5 rounded hover:bg-brand-600" title="Agregar">
+                    <Plus size={14} />
+                  </button>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Lista de inventariados */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-dim/40 flex items-center justify-between">
+          <p className="text-[10px] font-black uppercase text-text-main tracking-widest">Insumos inventariados</p>
+          <p className="text-[10px] font-bold text-text-dim">{rows.length}</p>
+        </div>
+        {loading ? (
+          <div className="p-10 text-center text-text-dim"><Loader2 size={20} className="animate-spin mx-auto" /></div>
+        ) : rows.length === 0 ? (
+          <div className="p-10 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">
+            {locked ? 'No hay insumos en este inventario' : 'Buscá un insumo arriba y agregalo con su cantidad'}
+          </div>
+        ) : (
+          <div className="divide-y divide-border-dim/40">
+            {rows.map(r => (
+              <div key={r.item_id} className="flex items-center gap-4 px-5 py-3 hover:bg-bg-accent/20 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-black text-text-main truncate">{r.item_name}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    type="number"
+                    value={r.cantidad}
+                    disabled={locked}
+                    onChange={e => updateRowQty(r.item_id, parseFloat(e.target.value) || 0)}
+                    className="w-28 bg-bg-accent/40 border border-border-dim rounded px-3 py-2 text-[13px] font-mono font-black text-text-main text-right outline-none focus:border-brand-500 disabled:opacity-70"
+                  />
+                  <span className="w-12 text-[10px] font-black uppercase text-text-dim tracking-widest">{r.unit || '—'}</span>
+                  {!locked && (
+                    <button onClick={() => removeRow(r.item_id)} className="text-text-dim hover:text-red-500 p-1" title="Quitar">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
+
+      {!locked && rows.length > 0 && (
+        <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest text-center">
+          Recordá guardar el borrador o cerrar el inventario para no perder los cambios
+        </p>
+      )}
     </div>
   );
 }
