@@ -697,11 +697,13 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 <th className="px-4 py-4 text-center tracking-widest bg-orange-500/5">{isAlmacen ? 'Consumo (EG 9)' : 'Consumo Pers.'}</th>
                 {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Recupero EGR</th>}
                 {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Ventas Pers. (EG C)</th>}
+                {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos (EG 8)</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
-                <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">{isAlmacen ? 'Decomisos (EG 8)' : 'Decomisos'}</th>
+                {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>}
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest border-l border-border-dim/20">DESVÍO</th>
+                {isAlmacen && <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest">DESVÍO %</th>}
                 <th className="px-6 py-4 text-right sticky right-0 bg-bg-accent z-20 border-l border-border-dim/20 w-40">Cierre</th>
               </tr>
             </thead>
@@ -822,6 +824,16 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       />
                     )}
 
+                    {/* Decomisos (Read-only) - en Almacén va ANTES de EF */}
+                    {isAlmacen && (
+                      <StockInputCell 
+                        value={data.decomisos} 
+                        onChange={val => updateItemData(item.id, 'decomisos', val)}
+                        disabled={true}
+                        className="bg-red-500/5"
+                      />
+                    )}
+
                     {/* EF (Encargado) */}
                     <StockInputCell 
                       value={data.ef} 
@@ -838,12 +850,14 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       />
                     )}
 
-                    {/* Decomisos (Read-only in this view) */}
-                    <StockInputCell 
-                      value={data.decomisos} 
-                      onChange={val => updateItemData(item.id, 'decomisos', val)}
-                      disabled={true}
-                    />
+                    {/* Decomisos (Read-only) - en sucursales va DESPUÉS de EF */}
+                    {!isAlmacen && (
+                      <StockInputCell 
+                        value={data.decomisos} 
+                        onChange={val => updateItemData(item.id, 'decomisos', val)}
+                        disabled={true}
+                      />
+                    )}
                     
                     {/* CMV REAL Result - oculto en Centro de Producción (no vende) */}
                     {!isAlmacen && (
@@ -861,6 +875,26 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                          {desvio > 0 ? '+' : ''}{desvio.toFixed(1)}
                        </span>
                     </td>
+
+                    {/* DESVÍO % = desvío en unidades / Existencia Final (solo Centro de Producción) */}
+                    {isAlmacen && (() => {
+                      const efActual = data.ef || 0;
+                      const desvioPct = efActual !== 0 ? (desvio / efActual) * 100 : null;
+                      return (
+                        <td className="px-4 py-4 text-left">
+                          {desvioPct === null ? (
+                            <span className="text-text-dim font-mono font-black px-2 py-0.5">—</span>
+                          ) : (
+                            <span className={cn(
+                              "px-2 py-0.5 rounded font-mono font-black",
+                              Math.abs(desvioPct) < 5 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                            )}>
+                              {desvioPct > 0 ? '+' : ''}{desvioPct.toFixed(1)}%
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })()}
 
                     {/* Week Closure Action */}
                     <td className="px-6 py-4 text-right sticky right-0 bg-bg-sidebar group-hover:bg-bg-accent/50 z-10 border-l border-border-dim/20 font-bold">
