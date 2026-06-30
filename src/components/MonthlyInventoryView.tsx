@@ -95,32 +95,44 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
 
   // Guardar borrador: reemplaza las filas guardadas de ese mes/sucursal por las actuales
   const saveDraft = async (silent = false) => {
-    if (locked) return;
+    if (locked) return false;
     setSaving(true);
-    // Borrar lo anterior y reinsertar (simple y consistente)
-    await supabase.from('monthly_inventory').delete().match({ branch_id: branchId, month });
-    if (rows.length > 0) {
-      await supabase.from('monthly_inventory').insert(
-        rows.map(r => ({ branch_id: branchId, month, item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad, updated_at: new Date().toISOString() }))
+    try {
+      // Borrar lo anterior y reinsertar (simple y consistente)
+      const del = await supabase.from('monthly_inventory').delete().match({ branch_id: branchId, month });
+      if (del.error) throw del.error;
+      if (rows.length > 0) {
+        const ins = await supabase.from('monthly_inventory').insert(
+          rows.map(r => ({ branch_id: branchId, month, item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad, updated_at: new Date().toISOString() }))
+        );
+        if (ins.error) throw ins.error;
+      }
+      const st = await supabase.from('monthly_inventory_status').upsert(
+        { branch_id: branchId, month, status: 'borrador', updated_at: new Date().toISOString() },
+        { onConflict: 'branch_id,month' }
       );
+      if (st.error) throw st.error;
+      setSaving(false);
+      if (!silent) { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); }
+      return true;
+    } catch (e: any) {
+      setSaving(false);
+      alert('No se pudo guardar el inventario.\n\nDetalle: ' + (e?.message || e?.hint || JSON.stringify(e)));
+      return false;
     }
-    await supabase.from('monthly_inventory_status').upsert(
-      { branch_id: branchId, month, status: 'borrador', updated_at: new Date().toISOString() },
-      { onConflict: 'branch_id,month' }
-    );
-    setSaving(false);
-    if (!silent) { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); }
   };
 
   const closeInventory = async () => {
     if (locked) return;
     if (rows.length === 0) { alert('Cargá al menos un insumo antes de cerrar el inventario.'); return; }
     if (!confirm('¿Cerrar el inventario? Quedará bloqueado para edición. Solo un administrador podrá reabrirlo.')) return;
-    await saveDraft(true);
-    await supabase.from('monthly_inventory_status').upsert(
+    const ok = await saveDraft(true);
+    if (!ok) return;
+    const st = await supabase.from('monthly_inventory_status').upsert(
       { branch_id: branchId, month, status: 'cerrado', closed_at: new Date().toISOString(), closed_by: userRole || '', updated_at: new Date().toISOString() },
       { onConflict: 'branch_id,month' }
     );
+    if (st.error) { alert('No se pudo cerrar: ' + st.error.message); return; }
     setStatus('cerrado');
   };
 
