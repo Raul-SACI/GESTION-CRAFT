@@ -105,6 +105,7 @@ const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
+const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
 const UsersView = lazy(() => import('./components/UsersView'));
 const EmployeesView = lazy(() => import('./components/EmployeesView'));
 const BranchManagementView = lazy(() => import('./components/BranchManagementView'));
@@ -539,7 +540,7 @@ function AppContent() {
   const VIEW_ONLY_TABS = [
     'dashboard', 'socios_dashboard', 'performance_admin',
     'papeles_sucursal', 'novedades',
-    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas',
+    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas', 'inventario_mensual', 'inventario_mensual_prod',
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
     'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
@@ -595,6 +596,7 @@ function AppContent() {
     'Gestión Sucursal': [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'stock', label: 'Control Stock', icon: Package },
+      { id: 'inventario_mensual', label: 'Inventario Mensual', icon: ClipboardCheck },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
       { id: 'horas', label: 'Carga de Horas', icon: Clock },
       { id: 'novedades', label: 'Novedades', icon: ClipboardList },
@@ -617,6 +619,7 @@ function AppContent() {
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
       { id: 'produccion_stock_control', label: 'Control de Stock', icon: ClipboardCheck },
+      { id: 'inventario_mensual_prod', label: 'Inventario Mensual', icon: ClipboardCheck },
       { id: 'pedidos_recepcion', label: 'Pedidos Internos', icon: ShoppingCart },
       { id: 'decomisos_deposito', label: 'Decomisos Depósito', icon: Trash2 },
     ],
@@ -690,6 +693,8 @@ function AppContent() {
           tareas: ClipboardCheck,
           notas_personales: StickyNote,
           stock: Package,
+          inventario_mensual: ClipboardCheck,
+          inventario_mensual_prod: ClipboardCheck,
           vajilla: Utensils,
           horas: Clock,
           novedades: ClipboardList,
@@ -1644,6 +1649,25 @@ function AppContent() {
                   userRole={currentUser.role} 
                   controlledItemIds={controlledItemIds}
                   items={items}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
+              )}
+              {activeTab === 'inventario_mensual' && (
+                <MonthlyInventoryView
+                  key="inventario_mensual"
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  userRole={currentUser.role}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
+              )}
+              {activeTab === 'inventario_mensual_prod' && (
+                <MonthlyInventoryView
+                  key="inventario_mensual_prod"
+                  branches={branches}
+                  selectedBranchId="n4ncoary3"
+                  fixedBranchId="n4ncoary3"
+                  userRole={currentUser.role}
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
