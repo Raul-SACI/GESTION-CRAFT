@@ -923,6 +923,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {!isAlmacen && (
         <div className="p-6 bg-bg-accent border border-border-dim rounded shadow-lg">
           <div className="flex items-center gap-4 text-text-dim">
             <Info size={20} className="text-brand-500" />
@@ -934,6 +935,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
             </div>
           </div>
         </div>
+        )}
 
         <div className="bg-brand-500/5 border border-brand-500/20 p-6 rounded-lg flex items-center justify-between">
           <div>
