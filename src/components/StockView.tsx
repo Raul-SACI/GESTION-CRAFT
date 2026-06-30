@@ -502,14 +502,16 @@ export default function StockView({
   const calculateCMVReal = (itemId: string) => {
     if (viewMode === 'dia') {
       const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
-      return data.ei + data.compras + data.prestamosRecibidos - data.prestamosEnviados - data.decomisos - data.consumoPersonal - data.ef;
+      const extra = isAlmacen ? (data.produccion || 0) - (data.recupero || 0) - (data.ventasPersonal || 0) : 0;
+      return data.ei + data.compras + data.prestamosRecibidos - data.prestamosEnviados - data.decomisos - data.consumoPersonal - data.ef + extra;
     } else if (viewMode === 'semana') {
       // Modelo semanal: todo el registro vive en el primer día de la semana
       const dates = getDatesInRange('semana', selectedDate);
       const wk = dailyData[dates[0]]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
       // Decomisos del período (vienen de otros módulos, repartidos por día)
       const totals = getPeriodTotals(itemId, dates);
-      return wk.ei + wk.compras + wk.prestamosRecibidos - wk.prestamosEnviados - totals.decomisos - wk.consumoPersonal - wk.ef;
+      const extra = isAlmacen ? (wk.produccion || 0) - (wk.recupero || 0) - (wk.ventasPersonal || 0) : 0;
+      return wk.ei + wk.compras + wk.prestamosRecibidos - wk.prestamosEnviados - totals.decomisos - wk.consumoPersonal - wk.ef + extra;
     } else {
       const dates = getDatesInRange(viewMode, selectedDate);
       const totals = dates.reduce((acc, d) => {
@@ -536,7 +538,8 @@ export default function StockView({
         const v = dailyData[`${monthStr}-${weekStarts[i]}`]?.[itemId]?.ef;
         if (v) { ef = v; break; }
       }
-      return ei + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - ef;
+      const extra = isAlmacen ? (totals.produccion || 0) - (totals.recupero || 0) - (totals.ventasPersonal || 0) : 0;
+      return ei + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - ef + extra;
     }
   };
 
@@ -697,7 +700,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">{isAlmacen ? 'Decomisos (EG 8)' : 'Decomisos'}</th>
-                <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>
+                {!isAlmacen && <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>}
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest border-l border-border-dim/20">DESVÍO</th>
                 <th className="px-6 py-4 text-right sticky right-0 bg-bg-accent z-20 border-l border-border-dim/20 w-40">Cierre</th>
               </tr>
@@ -733,7 +736,9 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 }
                 
                 const cmvReal = calculateCMVReal(item.id);
-                const desvio = cmvReal - data.ventasTeorico;
+                // En Centro de Producción NO hay ventas: el desvío es directamente el resultado de la fórmula.
+                // En sucursales, el desvío es CMV real menos ventas teóricas (como siempre).
+                const desvio = isAlmacen ? cmvReal : cmvReal - data.ventasTeorico;
                 const isSummary = viewMode === 'mes';
                 const isItemLocked = isCurrentWeekClosed(item.id);
                 // La EI solo es editable en la Semana 1 (o vista día). En semanas 2/3/4 viene del EF anterior.
@@ -840,10 +845,12 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       disabled={true}
                     />
                     
-                    {/* CMV REAL Result */}
-                    <td className="px-4 py-4 bg-brand-500/5 border-x border-brand-500/10 text-center font-mono font-black text-text-main">
-                      {cmvReal.toFixed(1)}
-                    </td>
+                    {/* CMV REAL Result - oculto en Centro de Producción (no vende) */}
+                    {!isAlmacen && (
+                      <td className="px-4 py-4 bg-brand-500/5 border-x border-brand-500/10 text-center font-mono font-black text-text-main">
+                        {cmvReal.toFixed(1)}
+                      </td>
+                    )}
 
                     {/* DESVÍO Result */}
                     <td className="px-4 py-4 text-left border-l border-border-dim/20">
