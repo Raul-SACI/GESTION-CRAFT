@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   Factory, Loader2, Calendar, TrendingUp, TrendingDown, Package,
-  FileUp, CheckCircle2, Search
+  FileUp, FileDown, CheckCircle2, Search
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
@@ -110,6 +110,17 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
     const [y, m] = selectedMonth.split('-').map(Number);
     return new Date(y, m, 0).getDate();
   }, [selectedMonth]);
+
+  // Exporta una planilla modelo VACÍA con los encabezados que espera la importación
+  const handleExportTemplate = () => {
+    const headers = ['Fecha', 'Código', 'Descripción', 'U.M.', 'Cantidad'];
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    // Anchos de columna para que sea legible
+    ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 40 }, { wch: 10 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Producción');
+    XLSX.writeFile(wb, 'Planilla_Modelo_Produccion.xlsx');
+  };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -259,6 +270,12 @@ export default function ProductionCenterView({ isReadOnly = false }: { isReadOnl
           {!isReadOnly && (
             <>
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} className="hidden" />
+              <button
+                onClick={handleExportTemplate}
+                className="flex items-center gap-2 bg-bg-sidebar border border-border-dim text-text-main px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all"
+              >
+                <FileDown size={14} /> Planilla Modelo
+              </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing}
