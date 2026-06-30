@@ -79,6 +79,9 @@ export default function StockView({
     ventasTeorico: number;
     decomisos: number;
     compras: number;
+    produccion: number;
+    recupero: number;
+    ventasPersonal: number;
   }>>>({});
 
   const [localControlledItemIds, setLocalControlledItemIds] = useState<string[]>(controlledItemIds);
@@ -156,7 +159,10 @@ export default function StockView({
             ef: log.ef,
             ventasTeorico: log.ventas_teorico,
             decomisos: log.decomisos,
-            compras: log.compras
+            compras: log.compras,
+            produccion: log.produccion || 0,
+            recupero: log.recupero || 0,
+            ventasPersonal: log.ventas_personal || 0
           };
         });
 
@@ -178,7 +184,10 @@ export default function StockView({
               ef: 0,
               ventasTeorico: 0,
               decomisos: 0,
-              compras: 0
+              compras: 0,
+              produccion: 0,
+              recupero: 0,
+              ventasPersonal: 0
             };
           });
         }
@@ -242,7 +251,7 @@ export default function StockView({
               const existing = merged[date][itemId];
               const rounded = Math.round(wastageQty * 1000) / 1000;
               if (!existing) {
-                merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: rounded, compras: 0 };
+                merged[date][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: rounded, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
                 upsertPromises.push(
                   supabase.from('inventory_logs').upsert(
                     { branch_id: selectedBranchId, item_id: itemId, date, decomisos: rounded },
@@ -319,7 +328,7 @@ export default function StockView({
               const vt = Math.round(theoreticalByItem[itemId] * 1000) / 1000;
               const existing = merged[firstDay][itemId];
               if (!existing) {
-                merged[firstDay][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: vt, decomisos: 0, compras: 0 };
+                merged[firstDay][itemId] = { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: vt, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
               } else if ((existing.ventasTeorico || 0) !== vt) {
                 merged[firstDay][itemId] = { ...existing, ventasTeorico: vt };
               } else {
@@ -396,7 +405,7 @@ export default function StockView({
     // Optimistic update
     setDailyData(prev => {
       const currentDayData = {
-        ...(prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+        ...(prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 }),
         [field]: value
       };
 
@@ -413,7 +422,7 @@ export default function StockView({
         newState[nextDayStr] = {
           ...(newState[nextDayStr] || {}),
           [id]: {
-            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 }),
+            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 }),
             ei: value
           }
         };
@@ -431,7 +440,10 @@ export default function StockView({
       ef: 'ef',
       ventasTeorico: 'ventas_teorico',
       decomisos: 'decomisos',
-      compras: 'compras'
+      compras: 'compras',
+      produccion: 'produccion',
+      recupero: 'recupero',
+      ventasPersonal: 'ventas_personal'
     };
 
     const dbField = columnMap[field];
@@ -489,12 +501,12 @@ export default function StockView({
 
   const calculateCMVReal = (itemId: string) => {
     if (viewMode === 'dia') {
-      const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+      const data = dailyData[selectedDate]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
       return data.ei + data.compras + data.prestamosRecibidos - data.prestamosEnviados - data.decomisos - data.consumoPersonal - data.ef;
     } else if (viewMode === 'semana') {
       // Modelo semanal: todo el registro vive en el primer día de la semana
       const dates = getDatesInRange('semana', selectedDate);
-      const wk = dailyData[dates[0]]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+      const wk = dailyData[dates[0]]?.[itemId] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
       // Decomisos del período (vienen de otros módulos, repartidos por día)
       const totals = getPeriodTotals(itemId, dates);
       return wk.ei + wk.compras + wk.prestamosRecibidos - wk.prestamosEnviados - totals.decomisos - wk.consumoPersonal - wk.ef;
@@ -509,9 +521,12 @@ export default function StockView({
           acc.consumoPersonal += data.consumoPersonal;
           acc.decomisos += data.decomisos;
           acc.ventasTeorico += data.ventasTeorico;
+          acc.produccion += data.produccion || 0;
+          acc.recupero += data.recupero || 0;
+          acc.ventasPersonal += data.ventasPersonal || 0;
         }
         return acc;
-      }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
+      }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0, produccion: 0, recupero: 0, ventasPersonal: 0 });
 
       const monthStr = selectedDate.substring(0, 7);
       const ei = dailyData[`${monthStr}-01`]?.[itemId]?.ei || 0;
@@ -538,9 +553,12 @@ export default function StockView({
         acc.consumoPersonal += data.consumoPersonal;
         acc.decomisos += data.decomisos;
         acc.ventasTeorico += data.ventasTeorico;
+        acc.produccion += data.produccion || 0;
+        acc.recupero += data.recupero || 0;
+        acc.ventasPersonal += data.ventasPersonal || 0;
       }
       return acc;
-    }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0 });
+    }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0, produccion: 0, recupero: 0, ventasPersonal: 0 });
   };
 
   const isCurrentWeekClosed = (itemId: string) => {
@@ -670,9 +688,12 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 <th className="px-6 py-4 w-64 sticky left-0 bg-bg-accent z-10 tracking-widest uppercase">Insumo</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EI</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-emerald-500/5">Compras</th>
+                {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-emerald-500/5">Producción</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">P. Recibidos</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">P. Enviados</th>
                 <th className="px-4 py-4 text-center tracking-widest bg-orange-500/5">Consumo Pers.</th>
+                {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Recupero</th>}
+                {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Ventas Pers.</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>
@@ -686,12 +707,12 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 let data;
                 let weekTargetDate = selectedDate;
                 if (viewMode === 'dia') {
-                  data = dailyData[selectedDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+                  data = dailyData[selectedDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
                 } else if (viewMode === 'semana') {
                   // Modelo semanal: toda la carga de la semana vive en el primer día de la semana
                   const dates = getDatesInRange('semana', selectedDate);
                   weekTargetDate = dates[0];
-                  const wk = dailyData[weekTargetDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0 };
+                  const wk = dailyData[weekTargetDate]?.[item.id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 };
                   // Decomisos y ventas teóricas se acumulan de todo el período (vienen de otros módulos)
                   const totals = getPeriodTotals(item.id, dates);
                   data = { ...wk, decomisos: totals.decomisos, ventasTeorico: totals.ventasTeorico };
@@ -743,6 +764,16 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       className="bg-emerald-500/5"
                     />
 
+                    {/* Producción (ingreso) - solo Centro de Producción */}
+                    {isAlmacen && (
+                      <StockInputCell 
+                        value={data.produccion} 
+                        onChange={val => updateItemData(item.id, 'produccion', val, weekTargetDate)}
+                        disabled={isSummary || isItemLocked} 
+                        className="bg-emerald-500/5"
+                      />
+                    )}
+
                     {/* Préstamos Recibidos */}
                     <StockInputCell 
                       value={data.prestamosRecibidos} 
@@ -765,6 +796,26 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       onChange={val => updateItemData(item.id, 'consumoPersonal', val, weekTargetDate)}
                       disabled={isSummary || isItemLocked}
                     />
+
+                    {/* Recupero (egreso) - solo Centro de Producción */}
+                    {isAlmacen && (
+                      <StockInputCell 
+                        value={data.recupero} 
+                        onChange={val => updateItemData(item.id, 'recupero', val, weekTargetDate)}
+                        disabled={isSummary || isItemLocked}
+                        className="bg-red-500/5"
+                      />
+                    )}
+
+                    {/* Ventas al Personal (egreso) - solo Centro de Producción */}
+                    {isAlmacen && (
+                      <StockInputCell 
+                        value={data.ventasPersonal} 
+                        onChange={val => updateItemData(item.id, 'ventasPersonal', val, weekTargetDate)}
+                        disabled={isSummary || isItemLocked}
+                        className="bg-red-500/5"
+                      />
+                    )}
 
                     {/* EF (Encargado) */}
                     <StockInputCell 
