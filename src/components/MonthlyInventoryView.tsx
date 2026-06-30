@@ -24,7 +24,14 @@ const monthLabel = (m: string) => {
 
 export default function MonthlyInventoryView({ branches, selectedBranchId, userRole, fixedBranchId, isReadOnly = false }: Props) {
   const isAdmin = userRole === 'administrador' || userRole === 'dueño';
-  const [branchId, setBranchId] = useState(fixedBranchId || selectedBranchId);
+  // Sucursales reales (excluye la opción 'all'/'todas')
+  const realBranches = branches.filter(b => b.id && b.id !== 'all');
+  const resolveInitialBranch = () => {
+    if (fixedBranchId) return fixedBranchId;
+    if (selectedBranchId && selectedBranchId !== 'all') return selectedBranchId;
+    return realBranches[0]?.id || '';
+  };
+  const [branchId, setBranchId] = useState(resolveInitialBranch());
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [items, setItems] = useState<MasterItem[]>([]);
   const [rows, setRows] = useState<InvRow[]>([]);           // insumos ya inventariados
@@ -39,6 +46,10 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const locked = status === 'cerrado' || isReadOnly;
 
   useEffect(() => { if (fixedBranchId) setBranchId(fixedBranchId); }, [fixedBranchId]);
+  // Si la app cambia a una sucursal real, seguirla (salvo branch fijo)
+  useEffect(() => {
+    if (!fixedBranchId && selectedBranchId && selectedBranchId !== 'all') setBranchId(selectedBranchId);
+  }, [selectedBranchId, fixedBranchId]);
 
   // Maestro de insumos
   useEffect(() => {
@@ -91,11 +102,25 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const updateRowQty = (itemId: string, value: number) => {
     setRows(prev => prev.map(r => r.item_id === itemId ? { ...r, cantidad: value } : r));
   };
-  const removeRow = (itemId: string) => setRows(prev => prev.filter(r => r.item_id !== itemId));
+  const removeRow = async (itemId: string) => {
+    if (locked) return;
+    // Quitar de la pantalla
+    setRows(prev => prev.filter(r => r.item_id !== itemId));
+    // Borrar de la base al instante (solo esa fila), si la sucursal es válida
+    if (branchId && branchId !== 'all') {
+      const { error } = await supabase.from('monthly_inventory')
+        .delete().match({ branch_id: branchId, month, item_id: itemId });
+      if (error) alert('No se pudo eliminar de la base: ' + error.message);
+    }
+  };
 
   // Guardar borrador: reemplaza las filas guardadas de ese mes/sucursal por las actuales
   const saveDraft = async (silent = false) => {
     if (locked) return false;
+    if (!branchId || branchId === 'all') {
+      alert('Elegí una sucursal válida antes de guardar el inventario.');
+      return false;
+    }
     setSaving(true);
     try {
       // Borrar lo anterior y reinsertar (simple y consistente)
@@ -190,7 +215,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
           {!fixedBranchId && isAdmin && (
             <select value={branchId} onChange={e => setBranchId(e.target.value)}
               className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-2 text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer">
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {realBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-1.5 flex items-center gap-2 font-mono">
