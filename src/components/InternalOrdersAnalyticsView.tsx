@@ -92,11 +92,17 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   }, [fOrders, fItems]);
 
   // Ranking artículos más pedidos
+  // Ranking artículos MÁS RECIBIDOS (cantidad realmente recibida, tal cual se cargó)
   const topPedidos = useMemo(() => {
     const map: Record<string, number> = {};
-    fItems.forEach(it => { map[it.item_name] = (map[it.item_name] || 0) + (Number(it.quantity) || 0); });
+    fItems.forEach(it => {
+      const order = fOrders.find(o => o.id === it.order_id);
+      if (order?.status !== 'recibido') return; // solo cuenta lo efectivamente recibido
+      const rec = it.received === false ? 0 : (it.received_qty != null ? Number(it.received_qty) : Number(it.quantity));
+      if (rec > 0) map[it.item_name] = (map[it.item_name] || 0) + rec;
+    });
     return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 10);
-  }, [fItems]);
+  }, [fItems, fOrders]);
 
   // Ranking artículos con más faltantes (pedido - recibido, sobre recibidos)
   const topFaltantes = useMemo(() => {
@@ -227,7 +233,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
           {/* Rankings */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 10 más pedidos</h3>
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 10 más recibidos</h3>
               {topPedidos.length === 0 ? <p className="text-[10px] text-text-dim">Sin datos</p> : (
                 <div className="space-y-1.5">
                   {topPedidos.map((r, i) => (

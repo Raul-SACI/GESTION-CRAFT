@@ -361,6 +361,10 @@ export default function InternalOrdersView({
   const handleSave = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés cargar pedidos.'); return; }
     if (!selectedBranchId || selectedBranchId === 'all') { alert('Seleccioná una sucursal para cargar el pedido.'); return; }
+    if (activeOrders.length > 0) {
+      alert(`No podés generar un pedido nuevo mientras tengas ${activeOrders.length} pedido(s) sin recibir.\n\nPrimero marcá como RECIBIDOS los pedidos pendientes de esta sucursal y volvé a intentar.`);
+      return;
+    }
     if (isSaturday) { alert('Los sábados no se cargan pedidos (el domingo no se trabaja en Almacén).'); return; }
     if (lines.length === 0) { alert('Agregá al menos un insumo al pedido.'); return; }
     if (lines.some(l => !l.quantity || l.quantity <= 0)) { alert('Todas las cantidades deben ser mayores a cero.'); return; }
@@ -446,6 +450,21 @@ export default function InternalOrdersView({
           {branchName} · Pedido del {fmtDMY(todayISO)} para entregar el {fmtDMY(deliveryISO)}
         </p>
       </div>
+
+      {/* Bloqueo: hay pedidos sin recibir */}
+      {activeOrders.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+            <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">
+              Tenés {activeOrders.length} pedido(s) sin recibir
+            </p>
+          </div>
+          <p className="text-[10px] font-bold text-text-dim mt-1">
+            Para generar un pedido nuevo, primero marcá como RECIBIDOS los pedidos pendientes de esta sucursal (en "Pedidos en curso").
+          </p>
+        </div>
+      )}
 
       {/* Alerta de faltantes en pedidos recibidos */}
       {Object.keys(shortfalls).length > 0 && (
