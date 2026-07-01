@@ -212,22 +212,21 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     if (!targetMonth) { alert('Elegí el mes destino.'); return; }
     if (targetMonth === month) { alert('El mes destino es el mismo que el actual.'); return; }
     try {
-      // 1) Verificar que el mes destino NO tenga ya un inventario en esta sucursal
+      // 1) Verificar que el mes destino NO tenga ya insumos cargados en esta sucursal.
+      //    (Un registro de estado vacío/huérfano NO cuenta como inventario real.)
       const { data: existing, error: chkErr } = await supabase
         .from('monthly_inventory')
         .select('item_id')
         .match({ branch_id: branchId, month: targetMonth })
         .limit(1);
       if (chkErr) throw chkErr;
-      const { data: existingStatus } = await supabase
-        .from('monthly_inventory_status')
-        .select('status')
-        .match({ branch_id: branchId, month: targetMonth })
-        .maybeSingle();
-      if ((existing && existing.length > 0) || existingStatus) {
-        alert(`El mes destino (${monthLabel(targetMonth)}) ya tiene un inventario cargado para esta sucursal.\n\nPara evitar pisar datos, el movimiento se cancela. Si querés reemplazarlo, primero borralo o elegí otro mes.`);
+      if (existing && existing.length > 0) {
+        alert(`El mes destino (${monthLabel(targetMonth)}) ya tiene insumos cargados para esta sucursal.\n\nPara evitar pisar datos, el movimiento se cancela. Si querés reemplazarlo, primero borralo o elegí otro mes.`);
         return;
       }
+      // Si hubiera un registro de estado huérfano en el destino (sin insumos), lo limpiamos
+      // para que no genere conflicto al mover el estado.
+      await supabase.from('monthly_inventory_status').delete().match({ branch_id: branchId, month: targetMonth });
       // 2) Mover las filas del inventario
       const up1 = await supabase.from('monthly_inventory')
         .update({ month: targetMonth, updated_at: new Date().toISOString() })
