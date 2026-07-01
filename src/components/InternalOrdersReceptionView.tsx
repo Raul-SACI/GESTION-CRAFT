@@ -8,12 +8,13 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck, PackageCheck, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, FileDown, Loader2, Eye, X, Inbox, Package, Truck, PackageCheck, AlertTriangle, BarChart3 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import InternalOrdersAnalyticsView from './InternalOrdersAnalyticsView';
 
 interface SavedOrder {
   id: string;
@@ -56,6 +57,7 @@ const fmtDMY = (iso: string) => {
 
 export default function InternalOrdersReceptionView({ branches }: { branches: Branch[] }) {
   const [orders, setOrders] = useState<SavedOrder[]>([]);
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [shortfalls, setShortfalls] = useState<Record<string, { name: string; detail: string }[]>>({});
   const [loading, setLoading] = useState(true);
   const [branchFilter, setBranchFilter] = useState<string>('all');
@@ -201,11 +203,21 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
 
   return (
     <div className="space-y-5">
+      {showAnalytics ? (
+        <InternalOrdersAnalyticsView branches={branches} onBack={() => setShowAnalytics(false)} />
+      ) : (
+      <>
       {/* Encabezado */}
       <div className="bg-bg-card border border-border-dim rounded-xl p-5 shadow-sm">
-        <div className="flex items-center gap-3 mb-1">
-          <Inbox size={20} className="text-brand-500" />
-          <h2 className="text-base font-black uppercase text-text-main tracking-wide">Recepción de Pedidos Internos</h2>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <div className="flex items-center gap-3">
+            <Inbox size={20} className="text-brand-500" />
+            <h2 className="text-base font-black uppercase text-text-main tracking-wide">Recepción de Pedidos Internos</h2>
+          </div>
+          <button onClick={() => setShowAnalytics(true)}
+            className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg">
+            <BarChart3 size={14} /> Análisis de Pedidos
+          </button>
         </div>
         <p className="text-[10px] text-text-dim font-bold uppercase">Pedidos entrantes de todas las sucursales para preparar y enviar</p>
       </div>
@@ -408,6 +420,8 @@ export default function InternalOrdersReceptionView({ branches }: { branches: Br
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
