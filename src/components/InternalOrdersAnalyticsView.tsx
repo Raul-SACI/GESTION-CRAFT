@@ -173,6 +173,21 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
     return Object.entries(map).map(([dia, valor]) => ({ dia, valor })).sort((a, b) => parseInt(a.dia, 10) - parseInt(b.dia, 10));
   }, [fOrders, fItems, selectedItem, dayMode]);
 
+  // Totales del insumo elegido: pedidas y recibidas (recibidas solo sobre pedidos recibidos)
+  const totalesInsumo = useMemo(() => {
+    if (!selectedItem) return { pedidas: 0, recibidas: 0 };
+    let pedidas = 0, recibidas = 0;
+    fItems.forEach(it => {
+      if (it.item_name !== selectedItem) return;
+      pedidas += Number(it.quantity) || 0;
+      const order = fOrders.find(o => o.id === it.order_id);
+      if (order?.status === 'recibido') {
+        recibidas += it.received === false ? 0 : (it.received_qty != null ? Number(it.received_qty) : Number(it.quantity));
+      }
+    });
+    return { pedidas, recibidas };
+  }, [fItems, fOrders, selectedItem]);
+
   // Desglose por sucursal / tipo / estado
   const porSucursal = useMemo(() => {
     const map: Record<string, number> = {};
@@ -250,21 +265,6 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
             </div>
           </div>
 
-          {/* Pedidos vs recibidos (unidades) */}
-          <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Unidades pedidas vs recibidas</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-bg-accent/30 rounded-lg p-4">
-                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Pedidas</p>
-                <p className="text-xl font-mono font-black text-text-main">{fmt(kpis.pedidas)}</p>
-              </div>
-              <div className="bg-bg-accent/30 rounded-lg p-4">
-                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Recibidas (sobre recibidos)</p>
-                <p className="text-xl font-mono font-black text-emerald-500">{fmt(kpis.recibidasU)}</p>
-              </div>
-            </div>
-          </div>
-
           {/* Evolución por día de un insumo elegido */}
           <div className="bg-bg-card border border-border-dim rounded-xl p-5">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -291,18 +291,33 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
             </div>
             {!selectedItem ? (
               <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">Elegí un insumo para ver su evolución diaria</div>
-            ) : porDia.length === 0 ? (
-              <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">Sin {dayMode} de "{selectedItem}" en el período</div>
             ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={porDia}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
-                  <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  <Bar dataKey="valor" name={dayMode === 'pedidas' ? 'Pedidas' : 'Recibidas'} fill="#e31e24" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <>
+                {/* Totales del insumo elegido */}
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-bg-accent/30 rounded-lg p-4">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Pedidas ({selectedItem})</p>
+                    <p className="text-xl font-mono font-black text-text-main">{fmt(totalesInsumo.pedidas)}</p>
+                  </div>
+                  <div className="bg-bg-accent/30 rounded-lg p-4">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Recibidas (sobre recibidos)</p>
+                    <p className="text-xl font-mono font-black text-emerald-500">{fmt(totalesInsumo.recibidas)}</p>
+                  </div>
+                </div>
+                {porDia.length === 0 ? (
+                  <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">Sin {dayMode} de "{selectedItem}" en el período</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={porDia}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
+                      <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip />
+                      <Bar dataKey="valor" name={dayMode === 'pedidas' ? 'Pedidas' : 'Recibidas'} fill="#e31e24" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </>
             )}
           </div>
 
