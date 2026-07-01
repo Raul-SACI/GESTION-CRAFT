@@ -33,21 +33,45 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       const start = `${month}-01`;
       const [y, m] = month.split('-').map(Number);
       const end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-      // Pedidos del mes (por fecha de pedido)
-      const { data: ordersData } = await supabase
-        .from('internal_orders')
-        .select('id, branch_id, order_type, order_date, delivery_date, status')
-        .gte('order_date', start).lte('order_date', end);
-      const ords = (ordersData || []) as OrderRow[];
+      // Pedidos del mes (por fecha de pedido) - paginado por robustez
+      const ords: OrderRow[] = [];
+      let fromO = 0;
+      const PAGE_O = 1000;
+      while (true) {
+        const { data: ordersData, error } = await supabase
+          .from('internal_orders')
+          .select('id, branch_id, order_type, order_date, delivery_date, status')
+          .gte('order_date', start).lte('order_date', end)
+          .range(fromO, fromO + PAGE_O - 1);
+        if (error || !ordersData || ordersData.length === 0) break;
+        ords.push(...(ordersData as OrderRow[]));
+        if (ordersData.length < PAGE_O) break;
+        fromO += PAGE_O;
+      }
       setOrders(ords);
-      // Items de esos pedidos
+      // Items de esos pedidos (paginado para superar el límite de 1000 filas de Supabase)
       if (ords.length > 0) {
         const ids = ords.map(o => o.id);
-        const { data: itemsData } = await supabase
-          .from('internal_order_items')
-          .select('order_id, item_name, category, quantity, received, received_qty')
-          .in('order_id', ids);
-        setItems((itemsData || []) as ItemRow[]);
+        const allItems: ItemRow[] = [];
+        const CHUNK = 200; // pedir por lotes de order_ids para no armar un IN gigante
+        for (let c = 0; c < ids.length; c += CHUNK) {
+          const idsChunk = ids.slice(c, c + CHUNK);
+          let from = 0;
+          const PAGE = 1000;
+          // paginar dentro de cada lote por si un lote supera 1000 items
+          while (true) {
+            const { data: itemsData, error } = await supabase
+              .from('internal_order_items')
+              .select('order_id, item_name, category, quantity, received, received_qty')
+              .in('order_id', idsChunk)
+              .range(from, from + PAGE - 1);
+            if (error || !itemsData || itemsData.length === 0) break;
+            allItems.push(...(itemsData as ItemRow[]));
+            if (itemsData.length < PAGE) break;
+            from += PAGE;
+          }
+        }
+        setItems(allItems);
       } else {
         setItems([]);
       }
@@ -146,7 +170,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       }
       map[d] = (map[d] || 0) + val;
     });
-    return Object.entries(map).map(([dia, valor]) => ({ dia, valor })).sort((a, b) => a.dia.localeCompare(b.dia));
+    return Object.entries(map).map(([dia, valor]) => ({ dia, valor })).sort((a, b) => parseInt(a.dia, 10) - parseInt(b.dia, 10));
   }, [fOrders, fItems, selectedItem, dayMode]);
 
   // Desglose por sucursal / tipo / estado
