@@ -22,6 +22,8 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<string>('');
+  const [dayMode, setDayMode] = useState<'pedidas' | 'recibidas'>('pedidas');
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
@@ -117,19 +119,35 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
     return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 20);
   }, [fItems, fOrders]);
 
-  // Evolución por día: UNIDADES pedidas por día (suma de cantidades de los artículos)
+  // Lista de insumos que aparecen en los pedidos filtrados (para el selector)
+  const itemNames = useMemo(() => {
+    return Array.from(new Set(fItems.map(i => i.item_name))).sort((a: string, b: string) => a.localeCompare(b));
+  }, [fItems]);
+
+  // Serie por día del insumo elegido (pedidas o recibidas según el modo)
   const porDia = useMemo(() => {
+    if (!selectedItem) return [];
     const fechaDe: Record<string, string> = {};
     fOrders.forEach(o => { fechaDe[o.id] = o.order_date; });
     const map: Record<string, number> = {};
     fItems.forEach(it => {
+      if (it.item_name !== selectedItem) return;
       const fecha = fechaDe[it.order_id];
       if (!fecha) return;
       const d = fecha.split('-')[2];
-      map[d] = (map[d] || 0) + (Number(it.quantity) || 0);
+      let val = 0;
+      if (dayMode === 'pedidas') {
+        val = Number(it.quantity) || 0;
+      } else {
+        const order = fOrders.find(o => o.id === it.order_id);
+        if (order?.status === 'recibido') {
+          val = it.received === false ? 0 : (it.received_qty != null ? Number(it.received_qty) : Number(it.quantity));
+        }
+      }
+      map[d] = (map[d] || 0) + val;
     });
-    return Object.entries(map).map(([dia, unidades]) => ({ dia, unidades })).sort((a, b) => a.dia.localeCompare(b.dia));
-  }, [fOrders, fItems]);
+    return Object.entries(map).map(([dia, valor]) => ({ dia, valor })).sort((a, b) => a.dia.localeCompare(b.dia));
+  }, [fOrders, fItems, selectedItem, dayMode]);
 
   // Desglose por sucursal / tipo / estado
   const porSucursal = useMemo(() => {
@@ -223,18 +241,45 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
             </div>
           </div>
 
-          {/* Evolución por día */}
+          {/* Evolución por día de un insumo elegido */}
           <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Unidades pedidas por día del mes</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={porDia}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
-                <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="unidades" fill="#e31e24" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Evolución por día de un insumo</h3>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Toggle pedidas / recibidas */}
+                <div className="flex gap-1 bg-bg-accent/40 rounded-lg p-1">
+                  <button onClick={() => setDayMode('pedidas')}
+                    className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${dayMode === 'pedidas' ? 'bg-brand-500 text-black' : 'text-text-dim'}`}>
+                    Pedidas
+                  </button>
+                  <button onClick={() => setDayMode('recibidas')}
+                    className={`px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all ${dayMode === 'recibidas' ? 'bg-brand-500 text-black' : 'text-text-dim'}`}>
+                    Recibidas
+                  </button>
+                </div>
+                {/* Selector de insumo */}
+                <select value={selectedItem} onChange={e => setSelectedItem(e.target.value)}
+                  className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-2 text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer max-w-[220px]">
+                  <option value="">Elegí un insumo...</option>
+                  {itemNames.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+            </div>
+            {!selectedItem ? (
+              <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">Elegí un insumo para ver su evolución diaria</div>
+            ) : porDia.length === 0 ? (
+              <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">Sin {dayMode} de "{selectedItem}" en el período</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={porDia}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
+                  <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Bar dataKey="valor" name={dayMode === 'pedidas' ? 'Pedidas' : 'Recibidas'} fill="#e31e24" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Rankings */}
