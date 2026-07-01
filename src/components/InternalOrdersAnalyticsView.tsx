@@ -170,8 +170,17 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       }
       map[d] = (map[d] || 0) + val;
     });
-    return Object.entries(map).map(([dia, valor]) => ({ dia, valor })).sort((a, b) => parseInt(a.dia, 10) - parseInt(b.dia, 10));
-  }, [fOrders, fItems, selectedItem, dayMode]);
+    const [yy, mm] = month.split('-').map(Number);
+    const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    return Object.entries(map)
+      .map(([dia, valor]) => {
+        const nd = parseInt(dia, 10);
+        const fecha = new Date(yy, mm - 1, nd);
+        const label = `${dia}/${String(mm).padStart(2, '0')} ${diasSemana[fecha.getDay()]}`;
+        return { dia, valor, label };
+      })
+      .sort((a, b) => parseInt(a.dia, 10) - parseInt(b.dia, 10));
+  }, [fOrders, fItems, selectedItem, dayMode, month]);
 
   // Totales del insumo elegido: pedidas y recibidas (recibidas solo sobre pedidos recibidos)
   const totalesInsumo = useMemo(() => {
@@ -310,7 +319,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={porDia}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
-                      <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
+                      <XAxis dataKey="label" tick={{ fontSize: 9 }} interval={0} angle={-35} textAnchor="end" height={50} />
                       <YAxis tick={{ fontSize: 10 }} />
                       <Tooltip />
                       <Bar dataKey="valor" name={dayMode === 'pedidas' ? 'Pedidas' : 'Recibidas'} fill="#e31e24" radius={[4, 4, 0, 0]} />
