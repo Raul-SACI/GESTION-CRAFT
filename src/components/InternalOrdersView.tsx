@@ -13,12 +13,13 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History, Eye, X, PackageCheck } from 'lucide-react';
+import { ShoppingCart, FileDown, Plus, Trash2, Save, Loader2, Search, AlertTriangle, History, Eye, X, PackageCheck, BarChart3 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch, StockItem } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import InternalOrdersAnalyticsView from './InternalOrdersAnalyticsView';
 
 interface OrderLine {
   itemId: string;
@@ -78,6 +79,7 @@ export default function InternalOrdersView({
   isReadOnly?: boolean;
 }) {
   const [orderType, setOrderType] = useState<'compras' | 'produccion'>('compras');
+  const [showAnalytics, setShowAnalytics] = useState(false);
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [itemSearch, setItemSearch] = useState('');
@@ -424,11 +426,21 @@ export default function InternalOrdersView({
 
   return (
     <div className="space-y-5">
+      {showAnalytics ? (
+        <InternalOrdersAnalyticsView branches={branches} onBack={() => setShowAnalytics(false)} />
+      ) : (
+      <>
       {/* Encabezado */}
       <div className="bg-bg-card border border-border-dim rounded-xl p-5 shadow-sm">
-        <div className="flex items-center gap-3 mb-1">
-          <ShoppingCart size={20} className="text-brand-500" />
-          <h2 className="text-base font-black uppercase text-text-main tracking-wide">Pedidos Internos</h2>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <div className="flex items-center gap-3">
+            <ShoppingCart size={20} className="text-brand-500" />
+            <h2 className="text-base font-black uppercase text-text-main tracking-wide">Pedidos Internos</h2>
+          </div>
+          <button onClick={() => setShowAnalytics(true)}
+            className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg">
+            <BarChart3 size={14} /> Análisis de Pedidos
+          </button>
         </div>
         <p className="text-[10px] text-text-dim font-bold uppercase">
           {branchName} · Pedido del {fmtDMY(todayISO)} para entregar el {fmtDMY(deliveryISO)}
@@ -794,6 +806,8 @@ export default function InternalOrdersView({
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
