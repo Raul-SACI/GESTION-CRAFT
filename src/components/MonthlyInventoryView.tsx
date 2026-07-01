@@ -257,7 +257,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {!fixedBranchId && isAdmin && (
+          {!fixedBranchId && (isAdmin || canValorizar) && (
             <select value={branchId} onChange={e => setBranchId(e.target.value)}
               className="bg-bg-sidebar border border-border-dim rounded-lg px-3 py-2 text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer">
               {realBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}

@@ -541,7 +541,7 @@ function AppContent() {
   const VIEW_ONLY_TABS = [
     'dashboard', 'socios_dashboard', 'performance_admin',
     'papeles_sucursal', 'novedades',
-    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas', 'inventario_mensual', 'inventario_mensual_prod',
+    'stock', 'vajilla', 'horas', 'decomisos', 'cuentas', 'inventario_mensual', 'inventario_mensual_prod', 'pedidos_internos',
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
     'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
