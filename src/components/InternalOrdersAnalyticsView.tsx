@@ -101,7 +101,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       const rec = it.received === false ? 0 : (it.received_qty != null ? Number(it.received_qty) : Number(it.quantity));
       if (rec > 0) map[it.item_name] = (map[it.item_name] || 0) + rec;
     });
-    return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 10);
+    return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 20);
   }, [fItems, fOrders]);
 
   // Ranking artículos con más faltantes (pedido - recibido, sobre recibidos)
@@ -114,15 +114,22 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       const falta = (Number(it.quantity) || 0) - rec;
       if (falta > 0) map[it.item_name] = (map[it.item_name] || 0) + falta;
     });
-    return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 10);
+    return Object.entries(map).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty).slice(0, 20);
   }, [fItems, fOrders]);
 
-  // Evolución por día (cantidad de pedidos por día de pedido)
+  // Evolución por día: UNIDADES pedidas por día (suma de cantidades de los artículos)
   const porDia = useMemo(() => {
+    const fechaDe: Record<string, string> = {};
+    fOrders.forEach(o => { fechaDe[o.id] = o.order_date; });
     const map: Record<string, number> = {};
-    fOrders.forEach(o => { const d = o.order_date.split('-')[2]; map[d] = (map[d] || 0) + 1; });
-    return Object.entries(map).map(([dia, pedidos]) => ({ dia, pedidos })).sort((a, b) => a.dia.localeCompare(b.dia));
-  }, [fOrders]);
+    fItems.forEach(it => {
+      const fecha = fechaDe[it.order_id];
+      if (!fecha) return;
+      const d = fecha.split('-')[2];
+      map[d] = (map[d] || 0) + (Number(it.quantity) || 0);
+    });
+    return Object.entries(map).map(([dia, unidades]) => ({ dia, unidades })).sort((a, b) => a.dia.localeCompare(b.dia));
+  }, [fOrders, fItems]);
 
   // Desglose por sucursal / tipo / estado
   const porSucursal = useMemo(() => {
@@ -218,14 +225,14 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
 
           {/* Evolución por día */}
           <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Pedidos por día del mes</h3>
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Unidades pedidas por día del mes</h3>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={porDia}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
                 <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="pedidos" fill="#e31e24" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="unidades" fill="#e31e24" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -233,7 +240,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
           {/* Rankings */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 10 más recibidos</h3>
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 20 más recibidos</h3>
               {topPedidos.length === 0 ? <p className="text-[10px] text-text-dim">Sin datos</p> : (
                 <div className="space-y-1.5">
                   {topPedidos.map((r, i) => (
@@ -246,7 +253,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
               )}
             </div>
             <div className="bg-bg-card border border-border-dim rounded-xl p-5">
-              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 10 con más faltantes</h3>
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Top 20 con más faltantes</h3>
               {topFaltantes.length === 0 ? <p className="text-[10px] text-text-dim">Sin faltantes registrados</p> : (
                 <div className="space-y-1.5">
                   {topFaltantes.map((r, i) => (
