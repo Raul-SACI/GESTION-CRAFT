@@ -6,8 +6,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 interface Branch { id: string; name: string; }
-interface MasterItem { id: string; name: string; unit: string; category: string | null; code: string | null; }
-interface InvRow { item_id: string; item_name: string; unit: string; cantidad: number; code?: string | null; }
+interface MasterItem { id: string; name: string; unit: string; category: string | null; code: string | null; cost?: number; }
+interface InvRow { item_id: string; item_name: string; unit: string; cantidad: number; code?: string | null; precio_unitario?: number; total?: number; }
 interface Props {
   branches: Branch[];
   selectedBranchId: string;
@@ -35,7 +35,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [items, setItems] = useState<MasterItem[]>([]);
   const [rows, setRows] = useState<InvRow[]>([]);           // insumos ya inventariados
-  const [status, setStatus] = useState<'borrador' | 'cerrado'>('borrador');
+  const [status, setStatus] = useState<'borrador' | 'enviado_valorizar' | 'cerrado'>('borrador');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -43,7 +43,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const [pendingQty, setPendingQty] = useState<Record<string, string>>({});
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const locked = status === 'cerrado' || isReadOnly;
+  const locked = status !== 'borrador' || isReadOnly;
 
   useEffect(() => { if (fixedBranchId) setBranchId(fixedBranchId); }, [fixedBranchId]);
   // Si la app cambia a una sucursal real, seguirla (salvo branch fijo)
@@ -54,7 +54,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   // Maestro de insumos
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('stock_items').select('id, name, unit, category, code').order('name');
+      const { data } = await supabase.from('stock_items').select('id, name, unit, category, code, cost').order('name');
       if (data) setItems(data as MasterItem[]);
     })();
   }, []);
@@ -65,12 +65,12 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     setLoading(true);
     (async () => {
       const [{ data: invData }, { data: statusData }] = await Promise.all([
-        supabase.from('monthly_inventory').select('item_id, item_name, unit, cantidad').match({ branch_id: branchId, month }),
+        supabase.from('monthly_inventory').select('item_id, item_name, unit, cantidad, precio_unitario, total').match({ branch_id: branchId, month }),
         supabase.from('monthly_inventory_status').select('status').match({ branch_id: branchId, month }).maybeSingle(),
       ]);
       const loaded: InvRow[] = (invData || [])
         .filter((r: any) => r.cantidad && r.cantidad !== 0)
-        .map((r: any) => ({ item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad }));
+        .map((r: any) => ({ item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad, precio_unitario: r.precio_unitario || 0, total: r.total || 0 }));
       setRows(loaded);
       setStatus((statusData?.status as any) || 'borrador');
       setLoading(false);
@@ -147,23 +147,55 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     }
   };
 
-  const closeInventory = async () => {
+  // Paso 1: el encargado envía el inventario para que el admin lo valorice
+  const enviarValorizar = async () => {
     if (locked) return;
-    if (rows.length === 0) { alert('Cargá al menos un insumo antes de cerrar el inventario.'); return; }
-    if (!confirm('¿Cerrar el inventario? Quedará bloqueado para edición. Solo un administrador podrá reabrirlo.')) return;
+    if (rows.length === 0) { alert('Cargá al menos un insumo antes de enviar el inventario.'); return; }
+    if (!confirm('¿Enviar el inventario para valorizar? Quedará bloqueado para carga de cantidades. El administrador cargará los costos y lo cerrará de forma definitiva.')) return;
     const ok = await saveDraft(true);
     if (!ok) return;
     const st = await supabase.from('monthly_inventory_status').upsert(
-      { branch_id: branchId, month, status: 'cerrado', closed_at: new Date().toISOString(), closed_by: userRole || '', updated_at: new Date().toISOString() },
+      { branch_id: branchId, month, status: 'enviado_valorizar', updated_at: new Date().toISOString() },
       { onConflict: 'branch_id,month' }
     );
-    if (st.error) { alert('No se pudo cerrar: ' + st.error.message); return; }
-    setStatus('cerrado');
+    if (st.error) { alert('No se pudo enviar: ' + st.error.message); return; }
+    setStatus('enviado_valorizar');
+  };
+
+  // Paso 2: SOLO ADMIN. Toma el costo del Maestro, calcula el total y cierra definitivo.
+  const cerrarValorizar = async () => {
+    if (!isAdmin) return;
+    if (!confirm('¿Cerrar y valorizar el inventario de forma definitiva? Se tomarán los costos actuales del Maestro de Insumos para calcular los totales.')) return;
+    // Calcular precio y total por insumo desde el Maestro
+    const valorizadas = rows.map(r => {
+      const cost = items.find(i => i.id === r.item_id)?.cost || 0;
+      return { ...r, precio_unitario: cost, total: (r.cantidad || 0) * cost };
+    });
+    // Reescribir las filas con precio y total
+    try {
+      const del = await supabase.from('monthly_inventory').delete().match({ branch_id: branchId, month });
+      if (del.error) throw del.error;
+      if (valorizadas.length > 0) {
+        const ins = await supabase.from('monthly_inventory').insert(
+          valorizadas.map(r => ({ branch_id: branchId, month, item_id: r.item_id, item_name: r.item_name, unit: r.unit, cantidad: r.cantidad, precio_unitario: r.precio_unitario, total: r.total, updated_at: new Date().toISOString() }))
+        );
+        if (ins.error) throw ins.error;
+      }
+      const st = await supabase.from('monthly_inventory_status').upsert(
+        { branch_id: branchId, month, status: 'cerrado', closed_at: new Date().toISOString(), closed_by: userRole || '', updated_at: new Date().toISOString() },
+        { onConflict: 'branch_id,month' }
+      );
+      if (st.error) throw st.error;
+      setRows(valorizadas);
+      setStatus('cerrado');
+    } catch (e: any) {
+      alert('No se pudo cerrar y valorizar.\n\nDetalle: ' + (e?.message || JSON.stringify(e)));
+    }
   };
 
   const reopenInventory = async () => {
     if (!isAdmin) return;
-    if (!confirm('¿Reabrir el inventario para edición?')) return;
+    if (!confirm('¿Reabrir el inventario para edición? Volverá a estado borrador.')) return;
     await supabase.from('monthly_inventory_status').upsert(
       { branch_id: branchId, month, status: 'borrador', updated_at: new Date().toISOString() },
       { onConflict: 'branch_id,month' }
@@ -174,11 +206,18 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const branchName = branches.find(b => b.id === branchId)?.name || branchId;
   // Devuelve el código del insumo (desde la fila o, si no, del Maestro por item_id)
   const codeOf = (r: InvRow) => r.code || items.find(i => i.id === r.item_id)?.code || '';
+  const valorizado = status === 'cerrado';
+  const totalGeneral = rows.reduce((a, r) => a + (r.total || 0), 0);
+  const fmtMoney = (n: number) => n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const exportExcel = () => {
-    const data = rows.map(r => ({ 'Código': codeOf(r), 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit }));
+    const data = rows.map(r => valorizado
+      ? { 'Código': codeOf(r), 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit, 'Precio Unitario': r.precio_unitario || 0, 'Total': r.total || 0 }
+      : { 'Código': codeOf(r), 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit });
     const ws = XLSX.utils.json_to_sheet(data);
-    ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }];
+    ws['!cols'] = valorizado
+      ? [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 16 }]
+      : [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
     XLSX.writeFile(wb, `Inventario_${branchName.replace(/\s+/g,'_')}_${month}.xlsx`);
@@ -191,11 +230,14 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     doc.setFontSize(10);
     doc.text(`Sucursal: ${branchName}`, 14, 26);
     doc.text(`Mes: ${monthLabel(month)}`, 14, 32);
-    doc.text(`Fecha de cierre: ${new Date().toLocaleDateString('es-AR')}`, 14, 38);
+    doc.text(`Fecha: ${new Date().toLocaleDateString('es-AR')}`, 14, 38);
+    if (valorizado) doc.text(`TOTAL VALORIZADO: $${fmtMoney(totalGeneral)}`, 14, 44);
     autoTable(doc, {
-      startY: 44,
-      head: [['Código', 'Insumo', 'Cantidad', 'Unidad']],
-      body: rows.map(r => [codeOf(r), r.item_name, String(r.cantidad), r.unit]),
+      startY: valorizado ? 50 : 44,
+      head: [valorizado ? ['Código', 'Insumo', 'Cantidad', 'Unidad', 'P. Unitario', 'Total'] : ['Código', 'Insumo', 'Cantidad', 'Unidad']],
+      body: rows.map(r => valorizado
+        ? [codeOf(r), r.item_name, String(r.cantidad), r.unit, `$${fmtMoney(r.precio_unitario || 0)}`, `$${fmtMoney(r.total || 0)}`]
+        : [codeOf(r), r.item_name, String(r.cantidad), r.unit]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [237, 28, 36] },
     });
@@ -230,13 +272,17 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
 
       {/* Estado + acciones */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-bg-sidebar border border-border-dim rounded-xl p-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {status === 'cerrado'
-            ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-red-500"><Lock size={13} /> Inventario Cerrado</span>
+            ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-500"><Lock size={13} /> Cerrado y Valorizado</span>
+            : status === 'enviado_valorizar'
+            ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-blue-500"><Lock size={13} /> Enviado para Valorizar</span>
             : <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-amber-500"><Unlock size={13} /> Borrador</span>}
-          <span className="text-[10px] font-bold text-text-dim">· {rows.length} insumo{rows.length !== 1 ? 's' : ''} cargado{rows.length !== 1 ? 's' : ''}</span>
+          <span className="text-[10px] font-bold text-text-dim">· {rows.length} insumo{rows.length !== 1 ? 's' : ''}</span>
+          {valorizado && <span className="text-[10px] font-black text-emerald-500">· TOTAL: ${fmtMoney(totalGeneral)}</span>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Borrador: guardar y enviar para valorizar */}
           {status === 'borrador' && !isReadOnly && (
             <>
               <button onClick={() => saveDraft(false)} disabled={saving}
@@ -244,13 +290,14 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
                 {saving ? <Loader2 size={13} className="animate-spin" /> : savedFlash ? <Check size={13} className="text-emerald-500" /> : <Save size={13} />}
                 {savedFlash ? 'Guardado' : 'Guardar Borrador'}
               </button>
-              <button onClick={closeInventory} disabled={saving}
+              <button onClick={enviarValorizar} disabled={saving}
                 className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg disabled:opacity-60">
-                <Lock size={13} /> Cerrar Inventario
+                <Lock size={13} /> Enviar para Valorizar
               </button>
             </>
           )}
-          {status === 'cerrado' && (
+          {/* Enviado para valorizar: exportar (sin precios), y el admin cierra/valoriza */}
+          {(status === 'enviado_valorizar' || status === 'cerrado') && (
             <>
               <button onClick={exportPDF}
                 className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
@@ -260,6 +307,12 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
                 className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
                 <FileSpreadsheet size={13} /> Excel
               </button>
+              {status === 'enviado_valorizar' && isAdmin && (
+                <button onClick={cerrarValorizar}
+                  className="flex items-center gap-2 bg-emerald-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg">
+                  <Lock size={13} /> Cerrar y Valorizar
+                </button>
+              )}
               {isAdmin && (
                 <button onClick={reopenInventory}
                   className="flex items-center gap-2 bg-bg-accent border border-amber-500/40 text-amber-500 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-amber-500 transition-all">
@@ -322,6 +375,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
               <div key={r.item_id} className="flex items-center gap-4 px-5 py-3 hover:bg-bg-accent/20 transition-colors">
                 <div className="flex-1 min-w-0">
                   <p className="text-[12px] font-black text-text-main truncate">{r.item_name}</p>
+                  <p className="text-[8px] text-text-dim uppercase font-bold tracking-widest">{codeOf(r)}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <input
@@ -329,9 +383,15 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
                     value={r.cantidad}
                     disabled={locked}
                     onChange={e => updateRowQty(r.item_id, parseFloat(e.target.value) || 0)}
-                    className="w-28 bg-bg-accent/40 border border-border-dim rounded px-3 py-2 text-[13px] font-mono font-black text-text-main text-right outline-none focus:border-brand-500 disabled:opacity-70"
+                    className="w-24 bg-bg-accent/40 border border-border-dim rounded px-3 py-2 text-[13px] font-mono font-black text-text-main text-right outline-none focus:border-brand-500 disabled:opacity-70"
                   />
-                  <span className="w-12 text-[10px] font-black uppercase text-text-dim tracking-widest">{r.unit || '—'}</span>
+                  <span className="w-10 text-[10px] font-black uppercase text-text-dim tracking-widest">{r.unit || '—'}</span>
+                  {valorizado && (
+                    <>
+                      <span className="w-24 text-[11px] font-mono font-bold text-text-dim text-right">${fmtMoney(r.precio_unitario || 0)}</span>
+                      <span className="w-28 text-[12px] font-mono font-black text-emerald-500 text-right">${fmtMoney(r.total || 0)}</span>
+                    </>
+                  )}
                   {!locked && (
                     <button onClick={() => removeRow(r.item_id)} className="text-text-dim hover:text-red-500 p-1" title="Quitar">
                       <Trash2 size={14} />
