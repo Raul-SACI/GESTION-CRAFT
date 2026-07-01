@@ -110,6 +110,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
     branchIds: [] as string[],
     password: '',
     canSeePayments: false,
+    canValorizarInventory: false,
   });
 
   // Form states for creating/editing Roles
@@ -205,7 +206,8 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           branchIds: u.branch_ids || [],
           permissions: u.permissions || [],
           password: u.password || '',
-          canSeePayments: u.can_see_payments === true
+          canSeePayments: u.can_see_payments === true,
+          canValorizarInventory: u.can_valorizar_inventory === true
         })));
       }
 
@@ -276,6 +278,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
           branch_id: finalBranchId,
           branch_ids: finalBranchIds,
           can_see_payments: userForm.canSeePayments,
+          can_valorizar_inventory: userForm.canValorizarInventory,
         };
         const { error } = await supabase.from('profiles').update(payload).eq('id', userForm.id);
         if (error) throw error;
@@ -320,7 +323,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       }
 
       setIsAddingUser(false);
-      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
+      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false, canValorizarInventory: false });
       await fetchData();
       onUsersChanged?.();
     } catch (e: any) {
@@ -339,7 +342,8 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
       branch: user.branch || 'Todas las Sucursales',
       branchIds: user.branchIds || [],
       password: user.password || '',
-      canSeePayments: user.canSeePayments === true
+      canSeePayments: user.canSeePayments === true,
+      canValorizarInventory: user.canValorizarInventory === true
     });
     setIsAddingUser(true);
   };
@@ -523,7 +527,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                   </span>
                   <button
                     onClick={() => {
-                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
+                      setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false, canValorizarInventory: false });
                       setIsAddingUser(true);
                     }}
                     className="bg-brand-500 hover:bg-brand-600 text-black px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2"
@@ -766,9 +770,29 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                         )} />
                       </div>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setUserForm({ ...userForm, canValorizarInventory: !userForm.canValorizarInventory })}
+                      className={cn(
+                        "w-full px-4 py-3 rounded border text-left flex items-center justify-between transition-all mt-2",
+                        userForm.canValorizarInventory ? "bg-brand-500/10 border-brand-500/40" : "bg-bg-accent border-border-dim"
+                      )}
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-black uppercase text-text-main">Cerrar y Valorizar Inventarios</span>
+                        <span className="text-[9px] font-bold text-text-dim uppercase opacity-70">Permite tomar los costos del Maestro y cerrar el inventario mensual de forma definitiva</span>
+                      </div>
+                      <div className={cn(
+                        "w-10 h-5 rounded-full relative transition-all shrink-0",
+                        userForm.canValorizarInventory ? "bg-brand-500" : "bg-border-dim"
+                      )}>
+                        <div className={cn(
+                          "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all",
+                          userForm.canValorizarInventory ? "left-[22px]" : "left-0.5"
+                        )} />
+                      </div>
+                    </button>
                   </div>
-
-                  {/* Information block based on active role */}
                   {selectedRoleConfig && (
                     <div className="bg-bg-accent border border-border-dim p-4 rounded-lg space-y-2 mt-4 text-[10px]">
                       <div className="flex items-center gap-1.5 text-text-main font-bold uppercase">
@@ -795,7 +819,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
                     <button 
                       onClick={() => {
                         setIsAddingUser(false);
-                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false });
+                        setUserForm({ id: '', name: '', email: '', role: roles[0]?.id || '', branch: 'Todas las Sucursales', branchIds: [], password: '', canSeePayments: false, canValorizarInventory: false });
                       }}
                       className="px-4 py-2.5 rounded border border-border-dim text-text-dim text-[11px] font-black uppercase tracking-widest hover:bg-bg-accent transition-all"
                     >

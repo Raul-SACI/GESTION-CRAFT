@@ -25,6 +25,7 @@ export interface User {
   permissions?: string[];
   password?: string;
   canSeePayments?: boolean;
+  canValorizarInventory?: boolean;
 }
 
 export interface Branch {

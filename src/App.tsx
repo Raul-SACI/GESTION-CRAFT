@@ -518,7 +518,8 @@ function AppContent() {
       modulePermissions: modulesRecord,
       isReadOnly: roleCfg ? Boolean(roleCfg.is_read_only) : false,
       accessScope: effectiveScope,
-      canSeePayments: currentUserProfile.can_see_payments === true
+      canSeePayments: currentUserProfile.can_see_payments === true,
+      canValorizarInventory: currentUserProfile.can_valorizar_inventory === true
     };
   }, [currentUserProfile, rolesConfigList]);
 
@@ -1658,6 +1659,7 @@ function AppContent() {
                   branches={branches}
                   selectedBranchId={selectedBranchId}
                   userRole={currentUser.role}
+                  canValorizar={currentUser.canValorizarInventory}
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}
@@ -1668,6 +1670,7 @@ function AppContent() {
                   selectedBranchId="n4ncoary3"
                   fixedBranchId="n4ncoary3"
                   userRole={currentUser.role}
+                  canValorizar={currentUser.canValorizarInventory}
                   isReadOnly={isCurrentTabReadOnly}
                 />
               )}

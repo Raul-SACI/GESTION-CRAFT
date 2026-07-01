@@ -14,6 +14,7 @@ interface Props {
   userRole?: string;
   fixedBranchId?: string;
   isReadOnly?: boolean;
+  canValorizar?: boolean;
 }
 
 const monthLabel = (m: string) => {
@@ -22,7 +23,7 @@ const monthLabel = (m: string) => {
   return `${meses[parseInt(mm,10)-1]} ${y}`;
 };
 
-export default function MonthlyInventoryView({ branches, selectedBranchId, userRole, fixedBranchId, isReadOnly = false }: Props) {
+export default function MonthlyInventoryView({ branches, selectedBranchId, userRole, fixedBranchId, isReadOnly = false, canValorizar = false }: Props) {
   const isAdmin = userRole === 'administrador' || userRole === 'dueño';
   // Sucursales reales (excluye la opción 'all'/'todas')
   const realBranches = branches.filter(b => b.id && b.id !== 'all');
@@ -164,7 +165,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
 
   // Paso 2: SOLO ADMIN. Toma el costo del Maestro, calcula el total y cierra definitivo.
   const cerrarValorizar = async () => {
-    if (!isAdmin) return;
+    if (!canValorizar) return;
     if (!confirm('¿Cerrar y valorizar el inventario de forma definitiva? Se tomarán los costos actuales del Maestro de Insumos para calcular los totales.')) return;
     // Calcular precio y total por insumo desde el Maestro
     const valorizadas = rows.map(r => {
@@ -307,7 +308,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
                 className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all">
                 <FileSpreadsheet size={13} /> Excel
               </button>
-              {status === 'enviado_valorizar' && isAdmin && (
+              {status === 'enviado_valorizar' && canValorizar && (
                 <button onClick={cerrarValorizar}
                   className="flex items-center gap-2 bg-emerald-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg">
                   <Lock size={13} /> Cerrar y Valorizar
