@@ -7,7 +7,7 @@ import autoTable from 'jspdf-autotable';
 
 interface Branch { id: string; name: string; }
 interface MasterItem { id: string; name: string; unit: string; category: string | null; code: string | null; }
-interface InvRow { item_id: string; item_name: string; unit: string; cantidad: number; }
+interface InvRow { item_id: string; item_name: string; unit: string; cantidad: number; code?: string | null; }
 interface Props {
   branches: Branch[];
   selectedBranchId: string;
@@ -93,7 +93,7 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const addItem = (item: MasterItem) => {
     if (locked) return;
     const qty = parseFloat(pendingQty[item.id] || '0') || 0;
-    setRows(prev => [{ item_id: item.id, item_name: item.name, unit: item.unit, cantidad: qty }, ...prev]);
+    setRows(prev => [{ item_id: item.id, item_name: item.name, unit: item.unit, cantidad: qty, code: item.code }, ...prev]);
     setPendingQty(prev => { const n = { ...prev }; delete n[item.id]; return n; });
     setSearch('');
     searchRef.current?.focus();
@@ -172,11 +172,13 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   };
 
   const branchName = branches.find(b => b.id === branchId)?.name || branchId;
+  // Devuelve el código del insumo (desde la fila o, si no, del Maestro por item_id)
+  const codeOf = (r: InvRow) => r.code || items.find(i => i.id === r.item_id)?.code || '';
 
   const exportExcel = () => {
-    const data = rows.map(r => ({ 'Código': '', 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit }));
+    const data = rows.map(r => ({ 'Código': codeOf(r), 'Insumo': r.item_name, 'Cantidad': r.cantidad, 'Unidad': r.unit }));
     const ws = XLSX.utils.json_to_sheet(data);
-    ws['!cols'] = [{ wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 10 }];
+    ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 12 }, { wch: 10 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Inventario');
     XLSX.writeFile(wb, `Inventario_${branchName.replace(/\s+/g,'_')}_${month}.xlsx`);
@@ -192,8 +194,8 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     doc.text(`Fecha de cierre: ${new Date().toLocaleDateString('es-AR')}`, 14, 38);
     autoTable(doc, {
       startY: 44,
-      head: [['Insumo', 'Cantidad', 'Unidad']],
-      body: rows.map(r => [r.item_name, String(r.cantidad), r.unit]),
+      head: [['Código', 'Insumo', 'Cantidad', 'Unidad']],
+      body: rows.map(r => [codeOf(r), r.item_name, String(r.cantidad), r.unit]),
       styles: { fontSize: 8 },
       headStyles: { fillColor: [237, 28, 36] },
     });
