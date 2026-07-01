@@ -42,6 +42,8 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
   const [savedFlash, setSavedFlash] = useState(false);
   const [search, setSearch] = useState('');
   const [pendingQty, setPendingQty] = useState<Record<string, string>>({});
+  const [showMoveMonth, setShowMoveMonth] = useState(false);
+  const [targetMonth, setTargetMonth] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
   const locked = status !== 'borrador' || isReadOnly;
@@ -204,6 +206,46 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     setStatus('borrador');
   };
 
+  // Mover TODO el inventario (filas + estado) del mes actual a otro mes. Solo admin.
+  const moveMonth = async () => {
+    if (!isAdmin) return;
+    if (!targetMonth) { alert('Elegí el mes destino.'); return; }
+    if (targetMonth === month) { alert('El mes destino es el mismo que el actual.'); return; }
+    try {
+      // 1) Verificar que el mes destino NO tenga ya un inventario en esta sucursal
+      const { data: existing, error: chkErr } = await supabase
+        .from('monthly_inventory')
+        .select('item_id')
+        .match({ branch_id: branchId, month: targetMonth })
+        .limit(1);
+      if (chkErr) throw chkErr;
+      const { data: existingStatus } = await supabase
+        .from('monthly_inventory_status')
+        .select('status')
+        .match({ branch_id: branchId, month: targetMonth })
+        .maybeSingle();
+      if ((existing && existing.length > 0) || existingStatus) {
+        alert(`El mes destino (${monthLabel(targetMonth)}) ya tiene un inventario cargado para esta sucursal.\n\nPara evitar pisar datos, el movimiento se cancela. Si querés reemplazarlo, primero borralo o elegí otro mes.`);
+        return;
+      }
+      // 2) Mover las filas del inventario
+      const up1 = await supabase.from('monthly_inventory')
+        .update({ month: targetMonth, updated_at: new Date().toISOString() })
+        .match({ branch_id: branchId, month });
+      if (up1.error) throw up1.error;
+      // 3) Mover el registro de estado
+      const up2 = await supabase.from('monthly_inventory_status')
+        .update({ month: targetMonth, updated_at: new Date().toISOString() })
+        .match({ branch_id: branchId, month });
+      if (up2.error) throw up2.error;
+      alert(`Inventario movido de ${monthLabel(month)} a ${monthLabel(targetMonth)}.`);
+      setShowMoveMonth(false);
+      setMonth(targetMonth); // ir al mes destino para verlo
+    } catch (e: any) {
+      alert('No se pudo cambiar el mes.\n\nDetalle: ' + (e?.message || JSON.stringify(e)));
+    }
+  };
+
   const branchName = branches.find(b => b.id === branchId)?.name || branchId;
   // Devuelve el código del insumo (desde la fila o, si no, del Maestro por item_id)
   const codeOf = (r: InvRow) => r.code || items.find(i => i.id === r.item_id)?.code || '';
@@ -268,6 +310,13 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
             <input type="month" value={month} onChange={e => setMonth(e.target.value)}
               className="bg-transparent border-none text-[10px] font-extrabold uppercase text-text-main outline-none cursor-pointer" />
           </div>
+          {isAdmin && (
+            <button onClick={() => { setTargetMonth(''); setShowMoveMonth(true); }}
+              className="flex items-center gap-1.5 bg-bg-sidebar border border-amber-500/40 text-amber-500 rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest hover:border-amber-500 transition-all"
+              title="Mover este inventario a otro mes">
+              <Calendar size={13} /> Cambiar mes
+            </button>
+          )}
         </div>
       </div>
 
@@ -409,6 +458,31 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
         <p className="text-[9px] text-text-dim font-bold uppercase tracking-widest text-center">
           Recordá guardar el borrador o cerrar el inventario para no perder los cambios
         </p>
+      )}
+
+      {/* Modal cambiar mes (solo admin) */}
+      {showMoveMonth && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowMoveMonth(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl p-6 w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[13px] font-black uppercase text-text-main tracking-widest mb-1">Cambiar mes del inventario</h3>
+            <p className="text-[10px] font-bold text-text-dim mb-4">
+              Mover el inventario de <span className="text-brand-500">{monthLabel(month)}</span> ({branchName}) a otro mes. No se puede si el mes destino ya tiene inventario.
+            </p>
+            <label className="text-[9px] font-black uppercase tracking-widest text-text-dim block mb-1">Mes destino</label>
+            <input type="month" value={targetMonth} onChange={e => setTargetMonth(e.target.value)}
+              className="w-full bg-bg-sidebar border border-border-dim rounded-lg px-3 py-2.5 text-[12px] font-mono font-black text-text-main outline-none focus:border-brand-500 mb-4" />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowMoveMonth(false)}
+                className="px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest bg-bg-accent border border-border-dim text-text-main hover:border-brand-500/50">
+                Cancelar
+              </button>
+              <button onClick={moveMonth}
+                className="px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest bg-amber-500 text-white hover:bg-amber-600">
+                Mover inventario
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
