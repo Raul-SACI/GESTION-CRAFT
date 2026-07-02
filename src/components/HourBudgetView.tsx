@@ -262,6 +262,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   // Escenario editable: por sector, lista de fichas { label, count }
   const [simScenario, setSimScenario] = useState<Record<string, Array<{ label: string; count: number }>>>({ cocina: [], bacha: [], barra: [], caja: [], salon: [] });
   const [simLoadedKey, setSimLoadedKey] = useState<string>(''); // para saber si ya precargamos este día/turno
+  const [dragLabel, setDragLabel] = useState<string | null>(null); // puesto que se está arrastrando
 
 
   // Sync with selected branch changes
@@ -1282,6 +1283,17 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     return { roomStaff, activeDayName };
   }, [filteredRows, simShift, simDateStr, activeMonthDays]);
 
+  // Puestos disponibles para arrastrar (labels únicos del roster + su sector sugerido)
+  const availablePositions = useMemo(() => {
+    const seen = new Map<string, string>(); // label -> room
+    filteredRows.forEach(row => {
+      if (!seen.has(row.roleLabel)) {
+        seen.set(row.roleLabel, getRoomForRole(row.roleId, row.roleLabel) || 'salon');
+      }
+    });
+    return Array.from(seen.entries()).map(([label, room]) => ({ label, room })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [filteredRows]);
+
   // Al cambiar día/turno de simulación, precargar el escenario con la dotación real (si no fue editado aún)
   useEffect(() => {
     if (!simDateStr) return;
@@ -1295,6 +1307,29 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     setSimScenario(fresh);
     setSimLoadedKey(key);
   }, [simDateStr, simShift, simRealData, simLoadedKey]);
+
+  // Suma +1 de un puesto en un sector (o lo crea si no existe)
+  const simAddPosition = (room: string, label: string) => {
+    setSimScenario(prev => {
+      const next = { ...prev, [room]: [...(prev[room] || [])] };
+      const existing = next[room].find(s => s.label === label);
+      if (existing) next[room] = next[room].map(s => s.label === label ? { ...s, count: s.count + 1 } : s);
+      else next[room] = [...next[room], { label, count: 1 }];
+      return next;
+    });
+  };
+  // Cambia el conteo de un puesto (delta +1 / -1); si llega a 0, lo quita
+  const simChangeCount = (room: string, label: string, delta: number) => {
+    setSimScenario(prev => {
+      const arr = (prev[room] || []).map(s => s.label === label ? { ...s, count: s.count + delta } : s).filter(s => s.count > 0);
+      return { ...prev, [room]: arr };
+    });
+  };
+  const simRemovePosition = (room: string, label: string) => {
+    setSimScenario(prev => ({ ...prev, [room]: (prev[room] || []).filter(s => s.label !== label) }));
+  };
+  const simResetToReal = () => { setSimLoadedKey(''); };
+  const simTotalPeople = (Object.values(simScenario) as Array<Array<{ label: string; count: number }>>).reduce((a, arr) => a + arr.reduce((b, s) => b + s.count, 0), 0);
 
   return (
     <motion.div 
@@ -2508,26 +2543,67 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                   </div>
                 </div>
 
-                {/* Escenario por sector (Parte 1: solo visualización de lo precargado) */}
+                {/* Panel de puestos para arrastrar + total */}
+                <div className="bg-[#121212] border border-border-dim rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h4 className="text-[10px] font-black uppercase text-white tracking-widest">Puestos disponibles — arrastralos a un sector</h4>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-1 rounded">Total: {simTotalPeople}p</span>
+                      <button onClick={simResetToReal}
+                        className="text-[9px] font-black uppercase tracking-widest bg-[#1A1A1A] border border-amber-500/40 text-amber-500 px-2.5 py-1 rounded hover:border-amber-500">
+                        Reiniciar a real
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {availablePositions.map(p => (
+                      <div key={p.label}
+                        draggable
+                        onDragStart={() => setDragLabel(p.label)}
+                        onDragEnd={() => setDragLabel(null)}
+                        className="cursor-grab active:cursor-grabbing bg-[#1A1A1A] border border-border-dim rounded-lg px-3 py-2 text-[10px] font-black uppercase text-zinc-200 hover:border-brand-500/60 select-none">
+                        {p.label}
+                      </div>
+                    ))}
+                    {availablePositions.length === 0 && (
+                      <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest">No hay puestos definidos en el roster</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sectores (zonas de drop) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {(['cocina','salon','barra','caja','bacha'] as const).map(room => {
                     const staff = simScenario[room] || [];
                     const total = staff.reduce((a, s) => a + s.count, 0);
                     const roomLabel = { cocina: 'Cocina', salon: 'Salón', barra: 'Barra', caja: 'Caja', bacha: 'Bachas' }[room];
                     return (
-                      <div key={room} className="bg-[#121212] border border-border-dim rounded-xl p-4">
+                      <div key={room}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={() => { if (dragLabel) { simAddPosition(room, dragLabel); setDragLabel(null); } }}
+                        className={cn("bg-[#121212] border rounded-xl p-4 transition-all", dragLabel ? "border-brand-500/60 border-dashed" : "border-border-dim")}>
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="text-[11px] font-black uppercase text-white tracking-widest">{roomLabel}</h4>
                           <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-0.5 rounded">{total}p</span>
                         </div>
                         {staff.length === 0 ? (
-                          <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest py-3 text-center">Sin personal</p>
+                          <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest py-6 text-center border border-dashed border-border-dim/40 rounded-lg">
+                            {dragLabel ? 'Soltá acá' : 'Sin personal · arrastrá un puesto'}
+                          </p>
                         ) : (
                           <div className="space-y-1.5">
                             {staff.map((s, i) => (
-                              <div key={i} className="flex items-center justify-between bg-[#1A1A1A] border border-border-dim/50 rounded px-3 py-1.5">
-                                <span className="text-[10px] font-bold text-zinc-200">{s.label}</span>
-                                <span className="text-[10px] font-mono font-black text-brand-500">{s.count}</span>
+                              <div key={i} className="flex items-center justify-between bg-[#1A1A1A] border border-border-dim/50 rounded px-3 py-1.5 gap-2">
+                                <span className="text-[10px] font-bold text-zinc-200 flex-1 truncate">{s.label}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button onClick={() => simChangeCount(room, s.label, -1)}
+                                    className="w-5 h-5 rounded bg-[#252525] text-zinc-300 text-[11px] font-black hover:bg-red-500/20 hover:text-red-400 flex items-center justify-center">−</button>
+                                  <span className="text-[11px] font-mono font-black text-brand-500 w-5 text-center">{s.count}</span>
+                                  <button onClick={() => simChangeCount(room, s.label, 1)}
+                                    className="w-5 h-5 rounded bg-[#252525] text-zinc-300 text-[11px] font-black hover:bg-emerald-500/20 hover:text-emerald-400 flex items-center justify-center">+</button>
+                                  <button onClick={() => simRemovePosition(room, s.label)}
+                                    className="ml-1 text-text-dim hover:text-red-500" title="Quitar"><Trash2 size={12} /></button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -2538,8 +2614,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                 </div>
 
                 <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-3 text-[9px] text-zinc-300 leading-relaxed">
-                  <p className="font-black text-white uppercase mb-1">Simulación</p>
-                  Este escenario arranca con la dotación real del día seleccionado. Próximamente vas a poder arrastrar personas y puestos entre sectores y guardar el escenario.
+                  <p className="font-black text-white uppercase mb-1">Cómo usar la simulación</p>
+                  Arrastrá un puesto desde arriba hacia el sector donde lo necesitás, o usá los botones + / − para ajustar cantidades. "Reiniciar a real" vuelve a la dotación real del día. Esto es un escenario hipotético: no afecta los datos reales. (Guardar el escenario llega en la próxima parte.)
                 </div>
               </motion.div>
             )}
