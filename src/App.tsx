@@ -106,6 +106,7 @@ const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
+const SalonConfigView = lazy(() => import('./components/SalonConfigView'));
 const UsersView = lazy(() => import('./components/UsersView'));
 const EmployeesView = lazy(() => import('./components/EmployeesView'));
 const BranchManagementView = lazy(() => import('./components/BranchManagementView'));
@@ -545,7 +546,7 @@ function AppContent() {
     'gestion_sueldos', 'consumo', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
     'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
-    'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios',
+    'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios', 'config_salones',
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
@@ -613,6 +614,7 @@ function AppContent() {
     ],
     'Gestión Líderes Operativos': [
       { id: 'presupuesto_horas', label: 'Presupuestador de horas', icon: Calendar },
+      { id: 'config_salones', label: 'Configuración de Salones', icon: MapPin },
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
@@ -705,6 +707,7 @@ function AppContent() {
           control_horas: ShieldCheck,
           gestion_sueldos: Users,
           presupuesto_horas: Calendar,
+          config_salones: MapPin,
           agenda: ClipboardList,
           supervisiones_operativas: Flag,
           registro_supervision: ClipboardCheck,
@@ -1641,6 +1644,7 @@ function AppContent() {
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'config_salones' && <SalonConfigView key="config_salones" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
                 <StockView 
