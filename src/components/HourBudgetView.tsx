@@ -1341,16 +1341,16 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
 
   // Cargar el plano del salón (zonas + elementos) al abrirlo
   useEffect(() => {
-    if (!showSalonPlan || !selectedBranchId || selectedBranchId === 'all') return;
+    if (!showSalonPlan || !localBranchId || localBranchId === 'all') return;
     (async () => {
       const [{ data: zData }, { data: eData }] = await Promise.all([
-        supabase.from('salon_zones').select('*').eq('branch_id', selectedBranchId).order('created_at'),
-        supabase.from('salon_elements').select('*').eq('branch_id', selectedBranchId).order('created_at'),
+        supabase.from('salon_zones').select('*').eq('branch_id', localBranchId).order('created_at'),
+        supabase.from('salon_elements').select('*').eq('branch_id', localBranchId).order('created_at'),
       ]);
       setSalonZones((zData || []).map((z: any) => ({ id: z.id, name: z.name, x: Number(z.x), y: Number(z.y), width: Number(z.width), height: Number(z.height), color: z.color || '#3b82f6' })));
       setSalonElements((eData || []).map((el: any) => ({ id: el.id, type: el.type, x: Number(el.x), y: Number(el.y), rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, color: el.color || undefined, label: el.label || '' })));
     })();
-  }, [showSalonPlan, selectedBranchId]);
+  }, [showSalonPlan, localBranchId]);
 
   // Puestos del salón "sin ubicar" = los del escenario salon menos los ya asignados a zonas
   const salonAssignedCounts = useMemo(() => {
