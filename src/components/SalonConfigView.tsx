@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { MapPin, Plus, Trash2, Loader2, Save, Check } from 'lucide-react';
+import { MapPin, Plus, Trash2, Loader2, Save, Check, Copy } from 'lucide-react';
 
 interface Branch { id: string; name: string; }
 interface Zone {
@@ -121,6 +121,19 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
   const removeElement = (id: string) => {
     setElements(prev => prev.filter(el => el.id !== id));
     if (selectedElement === id) setSelectedElement(null);
+  };
+  const duplicateElement = (id: string) => {
+    if (isReadOnly) return;
+    const el = elements.find(x => x.id === id);
+    if (!el) return;
+    const copy: SalonElement = {
+      ...el,
+      id: `tmp_${Date.now()}`,
+      x: Math.min(CANVAS_W, el.x + 30),
+      y: Math.min(CANVAS_H, el.y + 30),
+    };
+    setElements(prev => [...prev, copy]);
+    setSelectedElement(copy.id);
   };
 
   const onElemPointerDown = (e: React.PointerEvent, id: string, mode: 'move' | 'rotate' | 'scale') => {
@@ -435,6 +448,12 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                   </div>
                 </div>
                 <p className="text-[9px] font-bold text-text-dim">Arrastrá el elemento para moverlo, la manija <span className="text-blue-400">azul</span> para rotarlo, y la <span className="text-emerald-400">verde</span> (esquina) para cambiar el tamaño.</p>
+                {!isReadOnly && (
+                  <button onClick={() => duplicateElement(selEl.id)}
+                    className="w-full flex items-center justify-center gap-2 bg-blue-500/10 border border-blue-500/30 text-blue-400 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-blue-500/20">
+                    <Copy size={13} /> Duplicar elemento
+                  </button>
+                )}
                 {!isReadOnly && (
                   <button onClick={() => removeElement(selEl.id)}
                     className="w-full flex items-center justify-center gap-2 bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20">
