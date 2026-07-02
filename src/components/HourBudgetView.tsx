@@ -2462,10 +2462,10 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                 <div className="space-y-4 border-b border-border-dim/60 pb-4">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="space-y-1">
-                      <h3 className="text-xs font-black uppercase text-text-main flex items-center gap-2">
+                      <h3 className="text-xs font-black uppercase text-white flex items-center gap-2">
                         <MapPin size={14} className="text-brand-500" /> Simulación de Planta (Escenario Hipotético)
                       </h3>
-                      <p className="text-[8.5px] text-[#8C959F] uppercase font-bold tracking-tight">
+                      <p className="text-[8.5px] text-zinc-400 uppercase font-bold tracking-tight">
                         Armá un escenario de dotación para planificar cuánta gente necesitás. Arranca con la dotación real del día; no afecta los datos reales.
                       </p>
                     </div>
@@ -2517,7 +2517,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                     return (
                       <div key={room} className="bg-[#121212] border border-border-dim rounded-xl p-4">
                         <div className="flex items-center justify-between mb-3">
-                          <h4 className="text-[11px] font-black uppercase text-text-main tracking-widest">{roomLabel}</h4>
+                          <h4 className="text-[11px] font-black uppercase text-white tracking-widest">{roomLabel}</h4>
                           <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-0.5 rounded">{total}p</span>
                         </div>
                         {staff.length === 0 ? (
@@ -2526,7 +2526,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                           <div className="space-y-1.5">
                             {staff.map((s, i) => (
                               <div key={i} className="flex items-center justify-between bg-[#1A1A1A] border border-border-dim/50 rounded px-3 py-1.5">
-                                <span className="text-[10px] font-bold text-text-main">{s.label}</span>
+                                <span className="text-[10px] font-bold text-zinc-200">{s.label}</span>
                                 <span className="text-[10px] font-mono font-black text-brand-500">{s.count}</span>
                               </div>
                             ))}
@@ -2537,8 +2537,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                   })}
                 </div>
 
-                <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-3 text-[9px] text-[#8C959F] leading-relaxed">
-                  <p className="font-bold text-text-main uppercase mb-1">Simulación</p>
+                <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-3 text-[9px] text-zinc-300 leading-relaxed">
+                  <p className="font-black text-white uppercase mb-1">Simulación</p>
                   Este escenario arranca con la dotación real del día seleccionado. Próximamente vas a poder arrastrar personas y puestos entre sectores y guardar el escenario.
                 </div>
               </motion.div>
