@@ -23,6 +23,8 @@ import {
   Copy,
   Flag,
   X,
+  Loader2,
+  Check,
   CheckSquare,
   Download,
   Upload
@@ -271,6 +273,12 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   // Asignación de puestos por zona del salón: { zoneId: [{label, count}] }
   const [salonZoneStaff, setSalonZoneStaff] = useState<Record<string, Array<{ label: string; count: number }>>>({});
   const [dragSalonLabel, setDragSalonLabel] = useState<string | null>(null);
+  // --- Plano de salón en Visualizar (real, se guarda por día/turno) ---
+  const [showSalonPlanReal, setShowSalonPlanReal] = useState(false);
+  const [realZoneStaff, setRealZoneStaff] = useState<Record<string, Array<{ label: string; count: number }>>>({});
+  const [dragRealLabel, setDragRealLabel] = useState<string | null>(null);
+  const [savingReal, setSavingReal] = useState(false);
+  const [savedRealFlash, setSavedRealFlash] = useState(false);
 
 
   // Sync with selected branch changes
@@ -1351,6 +1359,72 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
       setSalonElements((eData || []).map((el: any) => ({ id: el.id, type: el.type, x: Number(el.x), y: Number(el.y), rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, color: el.color || undefined, label: el.label || '' })));
     })();
   }, [showSalonPlan, localBranchId]);
+
+  // Cargar el plano del salón + asignaciones guardadas para Visualizar (por día/turno)
+  useEffect(() => {
+    if (!showSalonPlanReal || !localBranchId || localBranchId === 'all') return;
+    (async () => {
+      const [{ data: zData }, { data: eData }, { data: aData }] = await Promise.all([
+        supabase.from('salon_zones').select('*').eq('branch_id', localBranchId).order('created_at'),
+        supabase.from('salon_elements').select('*').eq('branch_id', localBranchId).order('created_at'),
+        supabase.from('salon_zone_assignments').select('zone_id, label, count').match({ branch_id: localBranchId, date: mapDateStr, shift: mapShift }),
+      ]);
+      setSalonZones((zData || []).map((z: any) => ({ id: z.id, name: z.name, x: Number(z.x), y: Number(z.y), width: Number(z.width), height: Number(z.height), color: z.color || '#3b82f6' })));
+      setSalonElements((eData || []).map((el: any) => ({ id: el.id, type: el.type, x: Number(el.x), y: Number(el.y), rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, color: el.color || undefined, label: el.label || '' })));
+      const byZone: Record<string, Array<{ label: string; count: number }>> = {};
+      (aData || []).forEach((a: any) => {
+        if (!byZone[a.zone_id]) byZone[a.zone_id] = [];
+        byZone[a.zone_id].push({ label: a.label, count: Number(a.count) });
+      });
+      setRealZoneStaff(byZone);
+    })();
+  }, [showSalonPlanReal, localBranchId, mapDateStr, mapShift]);
+
+  // Pool real del salón sin ubicar (dotación real menos lo asignado a zonas)
+  const realSalonAssigned = useMemo(() => {
+    const m: Record<string, number> = {};
+    (Object.values(realZoneStaff) as Array<Array<{ label: string; count: number }>>).forEach(arr => arr.forEach(s => { m[s.label] = (m[s.label] || 0) + s.count; }));
+    return m;
+  }, [realZoneStaff]);
+  const realSalonUnassigned = useMemo(() => {
+    const real = mapData.roomStaff['salon'] || [];
+    return real.map((s: any) => ({ label: s.label, count: s.count - (realSalonAssigned[s.label] || 0) })).filter((s: any) => s.count > 0);
+  }, [mapData.roomStaff, realSalonAssigned]);
+
+  const assignToRealZone = (zoneId: string, label: string) => {
+    setRealZoneStaff(prev => {
+      const arr = [...(prev[zoneId] || [])];
+      const ex = arr.find(s => s.label === label);
+      if (ex) return { ...prev, [zoneId]: arr.map(s => s.label === label ? { ...s, count: s.count + 1 } : s) };
+      return { ...prev, [zoneId]: [...arr, { label, count: 1 }] };
+    });
+  };
+  const removeFromRealZone = (zoneId: string, label: string) => {
+    setRealZoneStaff(prev => ({ ...prev, [zoneId]: (prev[zoneId] || []).map(s => s.label === label ? { ...s, count: s.count - 1 } : s).filter(s => s.count > 0) }));
+  };
+
+  const saveRealAssignments = async () => {
+    setSavingReal(true);
+    try {
+      await supabase.from('salon_zone_assignments').delete().match({ branch_id: localBranchId, date: mapDateStr, shift: mapShift });
+      const rows: any[] = [];
+      Object.entries(realZoneStaff).forEach(([zoneId, arr]) => {
+        (arr as Array<{ label: string; count: number }>).forEach(s => {
+          if (s.count > 0) rows.push({ branch_id: localBranchId, date: mapDateStr, shift: mapShift, zone_id: zoneId, label: s.label, count: s.count, updated_at: new Date().toISOString() });
+        });
+      });
+      if (rows.length > 0) {
+        const ins = await supabase.from('salon_zone_assignments').insert(rows);
+        if (ins.error) throw ins.error;
+      }
+      setSavingReal(false);
+      setSavedRealFlash(true);
+      setTimeout(() => setSavedRealFlash(false), 1500);
+    } catch (err: any) {
+      setSavingReal(false);
+      alert('No se pudo guardar la distribución.\n\nDetalle: ' + (err?.message || JSON.stringify(err)));
+    }
+  };
 
   // Puestos del salón "sin ubicar" = los del escenario salon menos los ya asignados a zonas
   const salonAssignedCounts = useMemo(() => {
@@ -2468,6 +2542,13 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                       </span>
                     </div>
 
+                    {selectedRoom === 'salon' && (
+                      <button onClick={() => setShowSalonPlanReal(true)}
+                        className="w-full flex items-center justify-center gap-2 bg-blue-500/20 text-blue-300 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-blue-500/30 transition-all">
+                        <MapPin size={13} /> Ver plano del salón
+                      </button>
+                    )}
+
                     {mapData.isHoliday && (
                       <div className="bg-red-500/10 border border-red-500/20 text-red-400 font-bold p-2.5 rounded text-[8.5px] uppercase flex items-center gap-2">
                         <span>🚩 Feriado Activado (Hora Doble para este Día)</span>
@@ -2525,6 +2606,110 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                     </div>
                   </div>
                 </div>
+
+                {/* Modal: Plano del salón (Visualizar - real, se guarda) */}
+                {showSalonPlanReal && (
+                  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowSalonPlanReal(false)}>
+                    <div className="bg-[#0f0f0f] border border-border-dim rounded-xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-sm font-black uppercase text-white tracking-widest">Plano del Salón · {mapShift}</h3>
+                          <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest">Día {mapDateStr} · distribuí el personal real por zona</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={saveRealAssignments} disabled={savingReal}
+                            className="flex items-center gap-2 bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 disabled:opacity-60">
+                            {savingReal ? <Loader2 size={13} className="animate-spin" /> : savedRealFlash ? <Check size={13} className="text-emerald-700" /> : <Save size={13} />}
+                            {savedRealFlash ? 'Guardado' : 'Guardar'}
+                          </button>
+                          <button onClick={() => setShowSalonPlanReal(false)} className="text-text-dim hover:text-white"><X size={18} /></button>
+                        </div>
+                      </div>
+
+                      {salonZones.length === 0 ? (
+                        <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">
+                          Esta sucursal no tiene un salón configurado. Configuralo en "Configuración de Salones".
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bg-[#141414] border border-border-dim rounded-lg p-3 mb-3">
+                            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Personal del salón sin ubicar</p>
+                            <div className="flex flex-wrap gap-2">
+                              {realSalonUnassigned.length === 0 ? (
+                                <span className="text-[9px] font-bold uppercase text-emerald-400 tracking-widest">Todo el personal está ubicado ✓</span>
+                              ) : realSalonUnassigned.map((s: any) => (
+                                <div key={s.label} draggable
+                                  onDragStart={() => setDragRealLabel(s.label)}
+                                  onDragEnd={() => setDragRealLabel(null)}
+                                  className="cursor-grab active:cursor-grabbing bg-[#1A1A1A] border border-border-dim rounded-lg px-3 py-1.5 text-[10px] font-black uppercase text-zinc-200 hover:border-brand-500/60 select-none flex items-center gap-1.5">
+                                  <User size={12} className="text-orange-500 fill-orange-500/40" /> {s.label} <span className="text-brand-500">×{s.count}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <svg viewBox="0 0 1000 600" className="w-full rounded-lg" style={{ background: '#141414' }}>
+                            {salonZones.map(z => {
+                              const zoneStaff = realZoneStaff[z.id] || [];
+                              const zoneTotal = zoneStaff.reduce((a, s) => a + s.count, 0);
+                              return (
+                                <g key={z.id}
+                                  onDragOver={(e: any) => e.preventDefault()}
+                                  onDrop={() => { if (dragRealLabel) { assignToRealZone(z.id, dragRealLabel); setDragRealLabel(null); } }}>
+                                  <rect x={z.x} y={z.y} width={z.width} height={z.height} rx={10}
+                                    fill={`${z.color}22`} stroke={z.color} strokeWidth={dragRealLabel ? 3 : 2}
+                                    strokeDasharray={dragRealLabel ? '6 4' : undefined} />
+                                  <text x={z.x + 12} y={z.y + 24} fill={z.color} fontSize={15} fontWeight="900" style={{ textTransform: 'uppercase' }}>{z.name}</text>
+                                  {zoneTotal > 0 && (
+                                    <text x={z.x + z.width - 12} y={z.y + 24} fill="#fff" fontSize={14} fontWeight="900" textAnchor="end">{zoneTotal}p</text>
+                                  )}
+                                  {zoneStaff.map((s, idx) => (
+                                    <g key={s.label} transform={`translate(${z.x + 14}, ${z.y + 44 + idx * 22})`}
+                                      onClick={() => removeFromRealZone(z.id, s.label)} style={{ cursor: 'pointer' }}>
+                                      <rect x={0} y={-13} width={Math.min(z.width - 28, 200)} height={19} rx={4} fill="#00000055" />
+                                      <text x={6} y={1} fill="#fff" fontSize={11} fontWeight="700">{s.label} ×{s.count}</text>
+                                    </g>
+                                  ))}
+                                </g>
+                              );
+                            })}
+                            {salonElements.map(el => {
+                              const fill = el.color || ((el.type === 'silla' || el.type === 'sillon') ? '#8b5a2b' : '#a97142');
+                              return (
+                                <g key={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rotation}) scale(${el.scale || 1})`} style={{ pointerEvents: 'none' }}>
+                                  {el.type === 'mesa_redonda' && <circle cx={0} cy={0} r={24} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'mesa_cuadrada' && <rect x={-24} y={-24} width={48} height={48} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'mesa_rect' && <rect x={-40} y={-22} width={80} height={44} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'silla' && (
+                                    <g>
+                                      <rect x={-11} y={-15} width={22} height={7} rx={3} fill="#d4a373" opacity={0.85} />
+                                      <rect x={-11} y={-7} width={22} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                      <rect x={-10} y={9} width={4} height={4} rx={1} fill="#d4a373" opacity={0.6} />
+                                      <rect x={6} y={9} width={4} height={4} rx={1} fill="#d4a373" opacity={0.6} />
+                                    </g>
+                                  )}
+                                  {el.type === 'sillon' && (
+                                    <g>
+                                      <rect x={-24} y={-16} width={48} height={9} rx={4} fill="#d4a373" opacity={0.85} />
+                                      <rect x={-24} y={-8} width={6} height={18} rx={3} fill="#d4a373" opacity={0.7} />
+                                      <rect x={18} y={-8} width={6} height={18} rx={3} fill="#d4a373" opacity={0.7} />
+                                      <rect x={-18} y={-6} width={17} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                      <rect x={1} y={-6} width={17} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                    </g>
+                                  )}
+                                  {el.label && el.type !== 'silla' && el.type !== 'sillon' && (
+                                    <text x={0} y={4} textAnchor="middle" fill="#fff" fontSize={11} fontWeight="900">{el.label}</text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
+                          <p className="text-[9px] text-text-dim mt-2">Tocá un puesto asignado para quitarlo. Acordate de <span className="text-brand-500 font-bold">Guardar</span> la distribución de este día.</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
