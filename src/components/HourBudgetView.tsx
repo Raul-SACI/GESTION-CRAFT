@@ -22,6 +22,7 @@ import {
   Building2,
   Copy,
   Flag,
+  X,
   CheckSquare,
   Download,
   Upload
@@ -263,6 +264,13 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   const [simScenario, setSimScenario] = useState<Record<string, Array<{ label: string; count: number }>>>({ cocina: [], bacha: [], barra: [], caja: [], salon: [] });
   const [simLoadedKey, setSimLoadedKey] = useState<string>(''); // para saber si ya precargamos este día/turno
   const [dragLabel, setDragLabel] = useState<string | null>(null); // puesto que se está arrastrando
+  // --- Plano de salón en la simulación ---
+  const [showSalonPlan, setShowSalonPlan] = useState(false);
+  const [salonZones, setSalonZones] = useState<Array<{ id: string; name: string; x: number; y: number; width: number; height: number; color: string }>>([]);
+  const [salonElements, setSalonElements] = useState<Array<{ id: string; type: string; x: number; y: number; rotation: number; scale: number; color?: string; label?: string }>>([]);
+  // Asignación de puestos por zona del salón: { zoneId: [{label, count}] }
+  const [salonZoneStaff, setSalonZoneStaff] = useState<Record<string, Array<{ label: string; count: number }>>>({});
+  const [dragSalonLabel, setDragSalonLabel] = useState<string | null>(null);
 
 
   // Sync with selected branch changes
@@ -1330,6 +1338,41 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   };
   const simResetToReal = () => { setSimLoadedKey(''); };
   const simTotalPeople = (Object.values(simScenario) as Array<Array<{ label: string; count: number }>>).reduce((a, arr) => a + arr.reduce((b, s) => b + s.count, 0), 0);
+
+  // Cargar el plano del salón (zonas + elementos) al abrirlo
+  useEffect(() => {
+    if (!showSalonPlan || !selectedBranchId || selectedBranchId === 'all') return;
+    (async () => {
+      const [{ data: zData }, { data: eData }] = await Promise.all([
+        supabase.from('salon_zones').select('*').eq('branch_id', selectedBranchId).order('created_at'),
+        supabase.from('salon_elements').select('*').eq('branch_id', selectedBranchId).order('created_at'),
+      ]);
+      setSalonZones((zData || []).map((z: any) => ({ id: z.id, name: z.name, x: Number(z.x), y: Number(z.y), width: Number(z.width), height: Number(z.height), color: z.color || '#3b82f6' })));
+      setSalonElements((eData || []).map((el: any) => ({ id: el.id, type: el.type, x: Number(el.x), y: Number(el.y), rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, color: el.color || undefined, label: el.label || '' })));
+    })();
+  }, [showSalonPlan, selectedBranchId]);
+
+  // Puestos del salón "sin ubicar" = los del escenario salon menos los ya asignados a zonas
+  const salonAssignedCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    (Object.values(salonZoneStaff) as Array<Array<{ label: string; count: number }>>).forEach(arr => arr.forEach(s => { m[s.label] = (m[s.label] || 0) + s.count; }));
+    return m;
+  }, [salonZoneStaff]);
+  const salonUnassigned = useMemo(() => {
+    return (simScenario.salon || []).map(s => ({ label: s.label, count: s.count - (salonAssignedCounts[s.label] || 0) })).filter(s => s.count > 0);
+  }, [simScenario.salon, salonAssignedCounts]);
+
+  const assignToZone = (zoneId: string, label: string) => {
+    setSalonZoneStaff(prev => {
+      const arr = [...(prev[zoneId] || [])];
+      const ex = arr.find(s => s.label === label);
+      if (ex) return { ...prev, [zoneId]: arr.map(s => s.label === label ? { ...s, count: s.count + 1 } : s) };
+      return { ...prev, [zoneId]: [...arr, { label, count: 1 }] };
+    });
+  };
+  const removeFromZone = (zoneId: string, label: string) => {
+    setSalonZoneStaff(prev => ({ ...prev, [zoneId]: (prev[zoneId] || []).map(s => s.label === label ? { ...s, count: s.count - 1 } : s).filter(s => s.count > 0) }));
+  };
 
   return (
     <motion.div 
@@ -2584,7 +2627,15 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                         className={cn("bg-[#121212] border rounded-xl p-4 transition-all", dragLabel ? "border-brand-500/60 border-dashed" : "border-border-dim")}>
                         <div className="flex items-center justify-between mb-3">
                           <h4 className="text-[11px] font-black uppercase text-white tracking-widest">{roomLabel}</h4>
-                          <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-0.5 rounded">{total}p</span>
+                          <div className="flex items-center gap-2">
+                            {room === 'salon' && (
+                              <button onClick={() => setShowSalonPlan(true)}
+                                className="text-[8px] font-black uppercase tracking-widest bg-blue-500/20 text-blue-300 px-2 py-1 rounded hover:bg-blue-500/30">
+                                Ver plano
+                              </button>
+                            )}
+                            <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-0.5 rounded">{total}p</span>
+                          </div>
                         </div>
                         {staff.length === 0 ? (
                           <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest py-6 text-center border border-dashed border-border-dim/40 rounded-lg">
@@ -2625,6 +2676,92 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                   <p className="font-black text-white uppercase mb-1">Cómo usar la simulación</p>
                   Arrastrá un puesto desde arriba hacia el sector donde lo necesitás, o usá los botones + / − para ajustar cantidades. "Reiniciar a real" vuelve a la dotación real del día. Esto es un escenario hipotético: no afecta los datos reales. (Guardar el escenario llega en la próxima parte.)
                 </div>
+
+                {/* Modal: Plano del salón */}
+                {showSalonPlan && (
+                  <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setShowSalonPlan(false)}>
+                    <div className="bg-[#0f0f0f] border border-border-dim rounded-xl p-4 w-full max-w-5xl max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-sm font-black uppercase text-white tracking-widest">Plano del Salón</h3>
+                          <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest">Arrastrá los puestos sin ubicar a cada zona</p>
+                        </div>
+                        <button onClick={() => setShowSalonPlan(false)} className="text-text-dim hover:text-white"><X size={18} /></button>
+                      </div>
+
+                      {salonZones.length === 0 ? (
+                        <div className="py-16 text-center text-[11px] font-bold uppercase text-text-dim tracking-widest">
+                          Esta sucursal no tiene un salón configurado. Configuralo en "Configuración de Salones".
+                        </div>
+                      ) : (
+                        <>
+                          {/* Puestos sin ubicar */}
+                          <div className="bg-[#141414] border border-border-dim rounded-lg p-3 mb-3">
+                            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Personal del salón sin ubicar</p>
+                            <div className="flex flex-wrap gap-2">
+                              {salonUnassigned.length === 0 ? (
+                                <span className="text-[9px] font-bold uppercase text-emerald-400 tracking-widest">Todo el personal está ubicado ✓</span>
+                              ) : salonUnassigned.map(s => (
+                                <div key={s.label} draggable
+                                  onDragStart={() => setDragSalonLabel(s.label)}
+                                  onDragEnd={() => setDragSalonLabel(null)}
+                                  className="cursor-grab active:cursor-grabbing bg-[#1A1A1A] border border-border-dim rounded-lg px-3 py-1.5 text-[10px] font-black uppercase text-zinc-200 hover:border-brand-500/60 select-none flex items-center gap-1.5">
+                                  <User size={12} className="text-orange-500 fill-orange-500/40" /> {s.label} <span className="text-brand-500">×{s.count}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Plano SVG */}
+                          <svg viewBox="0 0 1000 600" className="w-full rounded-lg" style={{ background: '#141414' }}>
+                            {salonZones.map(z => {
+                              const zoneStaff = salonZoneStaff[z.id] || [];
+                              const zoneTotal = zoneStaff.reduce((a, s) => a + s.count, 0);
+                              return (
+                                <g key={z.id}
+                                  onDragOver={(e: any) => e.preventDefault()}
+                                  onDrop={() => { if (dragSalonLabel) { assignToZone(z.id, dragSalonLabel); setDragSalonLabel(null); } }}>
+                                  <rect x={z.x} y={z.y} width={z.width} height={z.height} rx={10}
+                                    fill={`${z.color}22`} stroke={z.color} strokeWidth={dragSalonLabel ? 3 : 2}
+                                    strokeDasharray={dragSalonLabel ? '6 4' : undefined} />
+                                  <text x={z.x + 12} y={z.y + 24} fill={z.color} fontSize={15} fontWeight="900" style={{ textTransform: 'uppercase' }}>{z.name}</text>
+                                  {zoneTotal > 0 && (
+                                    <text x={z.x + z.width - 12} y={z.y + 24} fill="#fff" fontSize={14} fontWeight="900" textAnchor="end">{zoneTotal}p</text>
+                                  )}
+                                  {/* Personal asignado a la zona */}
+                                  {zoneStaff.map((s, idx) => (
+                                    <g key={s.label} transform={`translate(${z.x + 14}, ${z.y + 44 + idx * 22})`}
+                                      onClick={() => removeFromZone(z.id, s.label)} style={{ cursor: 'pointer' }}>
+                                      <rect x={0} y={-13} width={Math.min(z.width - 28, 200)} height={19} rx={4} fill="#00000055" />
+                                      <text x={6} y={1} fill="#fff" fontSize={11} fontWeight="700">{s.label} ×{s.count}</text>
+                                    </g>
+                                  ))}
+                                </g>
+                              );
+                            })}
+                            {/* Elementos (mesas/sillas/sillones) - solo visual */}
+                            {salonElements.map(el => {
+                              const fill = el.color || ((el.type === 'silla' || el.type === 'sillon') ? '#8b5a2b' : '#a97142');
+                              return (
+                                <g key={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rotation}) scale(${el.scale || 1})`} style={{ pointerEvents: 'none' }}>
+                                  {el.type === 'mesa_redonda' && <circle cx={0} cy={0} r={24} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'mesa_cuadrada' && <rect x={-24} y={-24} width={48} height={48} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'mesa_rect' && <rect x={-40} y={-22} width={80} height={44} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'silla' && <rect x={-11} y={-11} width={22} height={22} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'sillon' && <rect x={-24} y={-14} width={48} height={28} rx={5} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.label && el.type !== 'silla' && el.type !== 'sillon' && (
+                                    <text x={0} y={4} textAnchor="middle" fill="#fff" fontSize={11} fontWeight="900">{el.label}</text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                          </svg>
+                          <p className="text-[9px] text-text-dim mt-2">Tocá un puesto asignado dentro de una zona para quitarlo (vuelve a "sin ubicar").</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
