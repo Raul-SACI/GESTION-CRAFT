@@ -10,13 +10,14 @@ interface Zone {
   width: number; height: number;
   color: string;
 }
-type ElementType = 'mesa_redonda' | 'mesa_cuadrada' | 'mesa_rect' | 'silla';
+type ElementType = 'mesa_redonda' | 'mesa_cuadrada' | 'mesa_rect' | 'silla' | 'sillon';
 interface SalonElement {
   id: string;
   type: ElementType;
   x: number; y: number;
   rotation: number;
   scale: number;
+  color?: string;
   label?: string;
 }
 interface Props {
@@ -28,12 +29,15 @@ interface Props {
 const CANVAS_W = 1000;
 const CANVAS_H = 600;
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+// Colores para mesas/sillas (maderas + variantes)
+const ELEM_COLORS = ['#a97142', '#8b5a2b', '#c98a5e', '#6b4423', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#64748b', '#1f2937'];
 // Medio-tamaño de cada elemento (para centrar y calcular la manija)
 const ELEM_SIZE: Record<ElementType, { w: number; h: number }> = {
   mesa_redonda: { w: 48, h: 48 },
   mesa_cuadrada: { w: 48, h: 48 },
   mesa_rect: { w: 80, h: 44 },
   silla: { w: 24, h: 24 },
+  sillon: { w: 48, h: 28 },
 };
 
 export default function SalonConfigView({ branches, selectedBranchId, isReadOnly = false }: Props) {
@@ -67,7 +71,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       })));
       setElements((eData || []).map((el: any) => ({
         id: el.id, type: el.type, x: Number(el.x), y: Number(el.y),
-        rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, label: el.label || '',
+        rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, color: el.color || undefined, label: el.label || '',
       })));
       setLoading(false);
     })();
@@ -207,7 +211,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       if (delE.error) throw delE.error;
       if (elements.length > 0) {
         const insE = await supabase.from('salon_elements').insert(
-          elements.map(el => ({ branch_id: branchId, type: el.type, x: el.x, y: el.y, rotation: el.rotation, scale: el.scale, label: el.label || null }))
+          elements.map(el => ({ branch_id: branchId, type: el.type, x: el.x, y: el.y, rotation: el.rotation, scale: el.scale, color: el.color || null, label: el.label || null }))
         );
         if (insE.error) throw insE.error;
       }
@@ -227,7 +231,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
   // Dibuja el interior de un elemento (mesa/silla) — centrado en (0,0), luego se traslada/rota
   const renderElementShape = (el: SalonElement, isSel: boolean) => {
     const stroke = isSel ? '#fff' : '#d4a373';
-    const fill = el.type === 'silla' ? '#8b5a2b' : '#a97142';
+    const fill = el.color || ((el.type === 'silla' || el.type === 'sillon') ? '#8b5a2b' : '#a97142');
     const sw = isSel ? 2.5 : 1.5;
     switch (el.type) {
       case 'mesa_redonda':
@@ -248,10 +252,23 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
             <rect x={6} y={9} width={4} height={4} rx={1} fill={stroke} opacity={0.6} />
           </g>
         );
+      case 'sillon':
+        return (
+          <g>
+            {/* respaldo corrido */}
+            <rect x={-24} y={-16} width={48} height={9} rx={4} fill={stroke} opacity={0.85} />
+            {/* apoyabrazos */}
+            <rect x={-24} y={-8} width={6} height={18} rx={3} fill={stroke} opacity={0.7} />
+            <rect x={18} y={-8} width={6} height={18} rx={3} fill={stroke} opacity={0.7} />
+            {/* dos asientos juntos */}
+            <rect x={-18} y={-6} width={17} height={16} rx={3} fill={fill} stroke={stroke} strokeWidth={sw} />
+            <rect x={1} y={-6} width={17} height={16} rx={3} fill={fill} stroke={stroke} strokeWidth={sw} />
+          </g>
+        );
     }
   };
   const elemTypeLabel: Record<ElementType, string> = {
-    mesa_redonda: 'Mesa redonda', mesa_cuadrada: 'Mesa cuadrada', mesa_rect: 'Mesa rectangular', silla: 'Silla',
+    mesa_redonda: 'Mesa redonda', mesa_cuadrada: 'Mesa cuadrada', mesa_rect: 'Mesa rectangular', silla: 'Silla', sillon: 'Sillón',
   };
 
   return (
@@ -295,7 +312,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
             {!isReadOnly && (
               <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-border-dim/40">
                 <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-1">Agregar:</span>
-                {(['mesa_redonda','mesa_cuadrada','mesa_rect','silla'] as ElementType[]).map(t => (
+                {(['mesa_redonda','mesa_cuadrada','mesa_rect','silla','sillon'] as ElementType[]).map(t => (
                   <button key={t} onClick={() => addElement(t)}
                     className="flex items-center gap-1.5 bg-[#1A1A1A] border border-border-dim text-zinc-200 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:border-brand-500/60">
                     <Plus size={12} /> {elemTypeLabel[t]}
@@ -359,7 +376,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                       onPointerDown={e => onElemPointerDown(e, el.id, 'move')}
                       onClick={e => { e.stopPropagation(); setSelectedElement(el.id); setSelectedZone(null); }}>
                       {renderElementShape(el, isSel)}
-                      {el.label && el.type !== 'silla' && (
+                      {el.label && el.type !== 'silla' && el.type !== 'sillon' && (
                         <text x={0} y={4} textAnchor="middle" fill="#fff" fontSize={12} fontWeight="900" style={{ pointerEvents: 'none' }}>{el.label}</text>
                       )}
                     </g>
@@ -395,7 +412,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
             {selEl && (
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
                 <p className="text-[10px] font-black uppercase text-text-main tracking-widest">{elemTypeLabel[selEl.type]}</p>
-                {selEl.type !== 'silla' && (
+                {selEl.type !== 'silla' && selEl.type !== 'sillon' && (
                   <div>
                     <label className="text-[9px] font-black uppercase text-text-dim">N° / etiqueta (opcional)</label>
                     <input value={selEl.label || ''} disabled={isReadOnly}
@@ -404,6 +421,19 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                       className="w-full mt-1 bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
                   </div>
                 )}
+                <div>
+                  <label className="text-[9px] font-black uppercase text-text-dim">Color</label>
+                  <div className="flex gap-1.5 mt-1 flex-wrap">
+                    {ELEM_COLORS.map(c => {
+                      const current = selEl.color || (selEl.type === 'silla' ? '#8b5a2b' : '#a97142');
+                      return (
+                        <button key={c} onClick={() => updateElement(selEl.id, { color: c })}
+                          className="w-6 h-6 rounded-full border-2 transition-all"
+                          style={{ background: c, borderColor: current === c ? '#fff' : 'transparent' }} />
+                      );
+                    })}
+                  </div>
+                </div>
                 <p className="text-[9px] font-bold text-text-dim">Arrastrá el elemento para moverlo, la manija <span className="text-blue-400">azul</span> para rotarlo, y la <span className="text-emerald-400">verde</span> (esquina) para cambiar el tamaño.</p>
                 {!isReadOnly && (
                   <button onClick={() => removeElement(selEl.id)}
