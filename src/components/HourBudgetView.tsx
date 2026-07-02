@@ -2561,8 +2561,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                         draggable
                         onDragStart={() => setDragLabel(p.label)}
                         onDragEnd={() => setDragLabel(null)}
-                        className="cursor-grab active:cursor-grabbing bg-[#1A1A1A] border border-border-dim rounded-lg px-3 py-2 text-[10px] font-black uppercase text-zinc-200 hover:border-brand-500/60 select-none">
-                        {p.label}
+                        className="cursor-grab active:cursor-grabbing bg-[#1A1A1A] border border-border-dim rounded-lg px-3 py-2 text-[10px] font-black uppercase text-zinc-200 hover:border-brand-500/60 select-none flex items-center gap-1.5">
+                        <User size={12} className="text-orange-500 fill-orange-500/40" /> {p.label}
                       </div>
                     ))}
                     {availablePositions.length === 0 && (
@@ -2594,7 +2594,15 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                           <div className="space-y-1.5">
                             {staff.map((s, i) => (
                               <div key={i} className="flex items-center justify-between bg-[#1A1A1A] border border-border-dim/50 rounded px-3 py-1.5 gap-2">
-                                <span className="text-[10px] font-bold text-zinc-200 flex-1 truncate">{s.label}</span>
+                                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                  <div className="flex items-center -space-x-1 shrink-0">
+                                    {Array.from({ length: Math.min(s.count, 5) }).map((_, k) => (
+                                      <User key={k} size={12} className="text-orange-500 fill-orange-500/40" />
+                                    ))}
+                                    {s.count > 5 && <span className="text-[9px] font-black text-orange-400 ml-1">+{s.count - 5}</span>}
+                                  </div>
+                                  <span className="text-[10px] font-bold text-zinc-200 truncate">{s.label}</span>
+                                </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
                                   <button onClick={() => simChangeCount(room, s.label, -1)}
                                     className="w-5 h-5 rounded bg-[#252525] text-zinc-300 text-[11px] font-black hover:bg-red-500/20 hover:text-red-400 flex items-center justify-center">−</button>
