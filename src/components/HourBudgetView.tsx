@@ -266,6 +266,9 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   const [simScenario, setSimScenario] = useState<Record<string, Array<{ label: string; count: number }>>>({ cocina: [], bacha: [], barra: [], caja: [], salon: [] });
   const [simLoadedKey, setSimLoadedKey] = useState<string>(''); // para saber si ya precargamos este día/turno
   const [dragLabel, setDragLabel] = useState<string | null>(null); // puesto que se está arrastrando
+  // --- Escenarios guardados (plantillas) ---
+  const [savedScenarios, setSavedScenarios] = useState<Array<{ id: string; name: string; data: any }>>([]);
+  const [scenariosLoaded, setScenariosLoaded] = useState(false);
   // --- Plano de salón en la simulación ---
   const [showSalonPlan, setShowSalonPlan] = useState(false);
   const [salonZones, setSalonZones] = useState<Array<{ id: string; name: string; x: number; y: number; width: number; height: number; color: string }>>([]);
@@ -1346,6 +1349,47 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   };
   const simResetToReal = () => { setSimLoadedKey(''); };
   const simTotalPeople = (Object.values(simScenario) as Array<Array<{ label: string; count: number }>>).reduce((a, arr) => a + arr.reduce((b, s) => b + s.count, 0), 0);
+
+  // Cargar la lista de escenarios guardados de la sucursal
+  const loadScenarios = async () => {
+    if (!localBranchId || localBranchId === 'all') return;
+    const { data } = await supabase.from('simulation_scenarios').select('id, name, data').eq('branch_id', localBranchId).order('updated_at', { ascending: false });
+    setSavedScenarios((data || []) as any);
+    setScenariosLoaded(true);
+  };
+  useEffect(() => {
+    if (currentTab === 'simulate' && !scenariosLoaded) loadScenarios();
+  }, [currentTab, localBranchId]);
+  useEffect(() => { setScenariosLoaded(false); }, [localBranchId]);
+
+  const saveScenario = async () => {
+    if (!localBranchId || localBranchId === 'all') { alert('Elegí una sucursal.'); return; }
+    const name = prompt('Nombre del escenario (ej. "Sábado a full"):');
+    if (!name || !name.trim()) return;
+    const payload = { scenario: simScenario, salonZones: salonZoneStaff };
+    const { error } = await supabase.from('simulation_scenarios').insert({ branch_id: localBranchId, name: name.trim(), data: payload });
+    if (error) { alert('No se pudo guardar: ' + error.message); return; }
+    await loadScenarios();
+    alert(`Escenario "${name.trim()}" guardado.`);
+  };
+
+  const applyScenario = (sc: { name: string; data: any }) => {
+    if (!confirm(`¿Cargar el escenario "${sc.name}"? Reemplaza lo que tengas armado ahora en este día/turno.`)) return;
+    const fresh: Record<string, Array<{ label: string; count: number }>> = { cocina: [], bacha: [], barra: [], caja: [], salon: [] };
+    const data = sc.data?.scenario || {};
+    Object.keys(fresh).forEach(room => {
+      fresh[room] = Array.isArray(data[room]) ? data[room].map((s: any) => ({ label: s.label, count: s.count })) : [];
+    });
+    setSimScenario(fresh);
+    setSalonZoneStaff(sc.data?.salonZones || {});
+    setSimLoadedKey(`${simDateStr}_${simShift}`); // evitar que la precarga real lo pise
+  };
+
+  const deleteScenario = async (id: string, name: string) => {
+    if (!confirm(`¿Eliminar el escenario "${name}"?`)) return;
+    await supabase.from('simulation_scenarios').delete().eq('id', id);
+    await loadScenarios();
+  };
 
   // Cargar el plano del salón (zonas + elementos) al abrirlo
   useEffect(() => {
@@ -2777,12 +2821,37 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                     <h4 className="text-[10px] font-black uppercase text-white tracking-widest">Puestos disponibles — arrastralos a un sector</h4>
                     <div className="flex items-center gap-2">
                       <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-1 rounded">Total: {simTotalPeople}p</span>
+                      <button onClick={saveScenario}
+                        className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest bg-brand-500 text-black px-2.5 py-1 rounded hover:bg-brand-600">
+                        <Save size={12} /> Guardar escenario
+                      </button>
                       <button onClick={simResetToReal}
                         className="text-[9px] font-black uppercase tracking-widest bg-[#1A1A1A] border border-amber-500/40 text-amber-500 px-2.5 py-1 rounded hover:border-amber-500">
                         Reiniciar a real
                       </button>
                     </div>
                   </div>
+
+                  {/* Escenarios guardados */}
+                  {savedScenarios.length > 0 && (
+                    <div className="mb-3 pb-3 border-b border-border-dim/40">
+                      <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Escenarios guardados</p>
+                      <div className="flex flex-wrap gap-2">
+                        {savedScenarios.map(sc => (
+                          <div key={sc.id} className="flex items-center gap-1 bg-[#1A1A1A] border border-border-dim rounded-lg overflow-hidden">
+                            <button onClick={() => applyScenario(sc)}
+                              className="px-3 py-1.5 text-[10px] font-black uppercase text-zinc-200 hover:text-brand-500" title="Cargar este escenario">
+                              {sc.name}
+                            </button>
+                            <button onClick={() => deleteScenario(sc.id, sc.name)}
+                              className="px-2 py-1.5 text-text-dim hover:text-red-500 border-l border-border-dim" title="Eliminar">
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {availablePositions.map(p => (
                       <div key={p.label}
@@ -2859,7 +2928,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
 
                 <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-3 text-[9px] text-zinc-300 leading-relaxed">
                   <p className="font-black text-white uppercase mb-1">Cómo usar la simulación</p>
-                  Arrastrá un puesto desde arriba hacia el sector donde lo necesitás, o usá los botones + / − para ajustar cantidades. "Reiniciar a real" vuelve a la dotación real del día. Esto es un escenario hipotético: no afecta los datos reales. (Guardar el escenario llega en la próxima parte.)
+                  Arrastrá un puesto desde arriba hacia el sector donde lo necesitás, o usá los botones + / − para ajustar cantidades. "Reiniciar a real" vuelve a la dotación real del día. Guardá tus escenarios con nombre para reutilizarlos como plantillas en cualquier día. Esto es hipotético: no afecta los datos reales.
                 </div>
 
                 {/* Modal: Plano del salón */}
