@@ -10,6 +10,14 @@ interface Zone {
   width: number; height: number;
   color: string;
 }
+type ElementType = 'mesa_redonda' | 'mesa_cuadrada' | 'mesa_rect' | 'silla';
+interface SalonElement {
+  id: string;
+  type: ElementType;
+  x: number; y: number;
+  rotation: number;
+  label?: string;
+}
 interface Props {
   branches: Branch[];
   selectedBranchId: string;
@@ -19,28 +27,46 @@ interface Props {
 const CANVAS_W = 1000;
 const CANVAS_H = 600;
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+// Medio-tamaño de cada elemento (para centrar y calcular la manija)
+const ELEM_SIZE: Record<ElementType, { w: number; h: number }> = {
+  mesa_redonda: { w: 48, h: 48 },
+  mesa_cuadrada: { w: 48, h: 48 },
+  mesa_rect: { w: 80, h: 44 },
+  silla: { w: 24, h: 24 },
+};
 
 export default function SalonConfigView({ branches, selectedBranchId, isReadOnly = false }: Props) {
   const realBranches = branches.filter(b => b.id && b.id !== 'all');
   const [branchId, setBranchId] = useState(selectedBranchId && selectedBranchId !== 'all' ? selectedBranchId : (realBranches[0]?.id || ''));
   const [zones, setZones] = useState<Zone[]>([]);
+  const [elements, setElements] = useState<SalonElement[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
+  const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragState = useRef<{ id: string; mode: 'move' | 'resize'; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
+  const elemDrag = useRef<{ id: string; mode: 'move' | 'rotate'; startX: number; startY: number; origX: number; origY: number; origRot: number } | null>(null);
 
   // Cargar zonas de la sucursal
   useEffect(() => {
     if (!branchId) return;
     setLoading(true);
     setSelectedZone(null);
+    setSelectedElement(null);
     (async () => {
-      const { data } = await supabase.from('salon_zones').select('*').eq('branch_id', branchId).order('created_at');
-      setZones((data || []).map((z: any) => ({
+      const [{ data: zData }, { data: eData }] = await Promise.all([
+        supabase.from('salon_zones').select('*').eq('branch_id', branchId).order('created_at'),
+        supabase.from('salon_elements').select('*').eq('branch_id', branchId).order('created_at'),
+      ]);
+      setZones((zData || []).map((z: any) => ({
         id: z.id, name: z.name, x: Number(z.x), y: Number(z.y),
         width: Number(z.width), height: Number(z.height), color: z.color || '#3b82f6',
+      })));
+      setElements((eData || []).map((el: any) => ({
+        id: el.id, type: el.type, x: Number(el.x), y: Number(el.y),
+        rotation: Number(el.rotation) || 0, label: el.label || '',
       })));
       setLoading(false);
     })();
@@ -76,6 +102,34 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
     if (selectedZone === id) setSelectedZone(null);
   };
 
+  // --- Elementos (mesas/sillas) ---
+  const addElement = (type: ElementType) => {
+    if (isReadOnly) return;
+    const nel: SalonElement = { id: `tmp_${Date.now()}`, type, x: CANVAS_W / 2, y: CANVAS_H / 2, rotation: 0, label: '' };
+    setElements(prev => [...prev, nel]);
+    setSelectedElement(nel.id);
+    setSelectedZone(null);
+  };
+  const updateElement = (id: string, patch: Partial<SalonElement>) => {
+    setElements(prev => prev.map(el => el.id === id ? { ...el, ...patch } : el));
+  };
+  const removeElement = (id: string) => {
+    setElements(prev => prev.filter(el => el.id !== id));
+    if (selectedElement === id) setSelectedElement(null);
+  };
+
+  const onElemPointerDown = (e: React.PointerEvent, id: string, mode: 'move' | 'rotate') => {
+    if (isReadOnly) return;
+    e.stopPropagation();
+    setSelectedElement(id);
+    setSelectedZone(null);
+    const el = elements.find(x => x.id === id);
+    if (!el) return;
+    const p = toSvgCoords(e.clientX, e.clientY);
+    elemDrag.current = { id, mode, startX: p.x, startY: p.y, origX: el.x, origY: el.y, origRot: el.rotation };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  };
+
   // Drag & resize handlers
   const onPointerDown = (e: React.PointerEvent, id: string, mode: 'move' | 'resize') => {
     if (isReadOnly) return;
@@ -88,6 +142,25 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    // Elementos (mesas/sillas)
+    const ed = elemDrag.current;
+    if (ed) {
+      const p = toSvgCoords(e.clientX, e.clientY);
+      if (ed.mode === 'move') {
+        const nx = Math.max(0, Math.min(CANVAS_W, ed.origX + (p.x - ed.startX)));
+        const ny = Math.max(0, Math.min(CANVAS_H, ed.origY + (p.y - ed.startY)));
+        updateElement(ed.id, { x: nx, y: ny });
+      } else {
+        // Rotación libre: ángulo entre el centro del elemento y el puntero
+        const el = elements.find(x => x.id === ed.id);
+        if (el) {
+          const ang = Math.atan2(p.y - el.y, p.x - el.x) * (180 / Math.PI) + 90;
+          updateElement(ed.id, { rotation: Math.round(ang) });
+        }
+      }
+      return;
+    }
+    // Zonas
     const ds = dragState.current;
     if (!ds) return;
     const p = toSvgCoords(e.clientX, e.clientY);
@@ -103,20 +176,29 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       updateZone(ds.id, { width: nw, height: nh });
     }
   };
-  const onPointerUp = () => { dragState.current = null; };
+  const onPointerUp = () => { dragState.current = null; elemDrag.current = null; };
 
   const saveAll = async () => {
     if (isReadOnly) return;
     setSaving(true);
     try {
-      // Estrategia simple: borrar las de la sucursal e insertar las actuales
-      const del = await supabase.from('salon_zones').delete().eq('branch_id', branchId);
-      if (del.error) throw del.error;
+      // Zonas: borrar e insertar
+      const delZ = await supabase.from('salon_zones').delete().eq('branch_id', branchId);
+      if (delZ.error) throw delZ.error;
       if (zones.length > 0) {
-        const ins = await supabase.from('salon_zones').insert(
+        const insZ = await supabase.from('salon_zones').insert(
           zones.map(z => ({ branch_id: branchId, name: z.name, x: z.x, y: z.y, width: z.width, height: z.height, color: z.color }))
         );
-        if (ins.error) throw ins.error;
+        if (insZ.error) throw insZ.error;
+      }
+      // Elementos: borrar e insertar
+      const delE = await supabase.from('salon_elements').delete().eq('branch_id', branchId);
+      if (delE.error) throw delE.error;
+      if (elements.length > 0) {
+        const insE = await supabase.from('salon_elements').insert(
+          elements.map(el => ({ branch_id: branchId, type: el.type, x: el.x, y: el.y, rotation: el.rotation, label: el.label || null }))
+        );
+        if (insE.error) throw insE.error;
       }
       setSaving(false);
       setSavedFlash(true);
@@ -129,6 +211,32 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
 
   const branchName = branches.find(b => b.id === branchId)?.name || branchId;
   const sel = zones.find(z => z.id === selectedZone) || null;
+  const selEl = elements.find(e => e.id === selectedElement) || null;
+
+  // Dibuja el interior de un elemento (mesa/silla) — centrado en (0,0), luego se traslada/rota
+  const renderElementShape = (el: SalonElement, isSel: boolean) => {
+    const stroke = isSel ? '#fff' : '#d4a373';
+    const fill = el.type === 'silla' ? '#8b5a2b' : '#a97142';
+    const sw = isSel ? 2.5 : 1.5;
+    switch (el.type) {
+      case 'mesa_redonda':
+        return <circle cx={0} cy={0} r={24} fill={fill} stroke={stroke} strokeWidth={sw} />;
+      case 'mesa_cuadrada':
+        return <rect x={-24} y={-24} width={48} height={48} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />;
+      case 'mesa_rect':
+        return <rect x={-40} y={-22} width={80} height={44} rx={4} fill={fill} stroke={stroke} strokeWidth={sw} />;
+      case 'silla':
+        return (
+          <g>
+            <rect x={-12} y={-12} width={24} height={24} rx={3} fill={fill} stroke={stroke} strokeWidth={sw} />
+            <rect x={-12} y={-14} width={24} height={6} rx={2} fill={stroke} opacity={0.5} />
+          </g>
+        );
+    }
+  };
+  const elemTypeLabel: Record<ElementType, string> = {
+    mesa_redonda: 'Mesa redonda', mesa_cuadrada: 'Mesa cuadrada', mesa_rect: 'Mesa rectangular', silla: 'Silla',
+  };
 
   return (
     <div className="space-y-5">
@@ -168,6 +276,17 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_260px] gap-4">
           {/* Lienzo */}
           <div className="bg-[#0f0f0f] border border-border-dim rounded-xl p-3 overflow-auto">
+            {!isReadOnly && (
+              <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-border-dim/40">
+                <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-1">Agregar:</span>
+                {(['mesa_redonda','mesa_cuadrada','mesa_rect','silla'] as ElementType[]).map(t => (
+                  <button key={t} onClick={() => addElement(t)}
+                    className="flex items-center gap-1.5 bg-[#1A1A1A] border border-border-dim text-zinc-200 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:border-brand-500/60">
+                    <Plus size={12} /> {elemTypeLabel[t]}
+                  </button>
+                ))}
+              </div>
+            )}
             <svg
               ref={svgRef}
               viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
@@ -176,7 +295,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerLeave={onPointerUp}
-              onClick={() => setSelectedZone(null)}
+              onClick={() => { setSelectedZone(null); setSelectedElement(null); }}
             >
               {/* Grid de fondo */}
               {Array.from({ length: Math.floor(CANVAS_W / 50) }).map((_, i) => (
@@ -210,7 +329,35 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                 );
               })}
 
-              {zones.length === 0 && (
+              {/* Elementos (mesas/sillas) */}
+              {elements.map(el => {
+                const isSel = el.id === selectedElement;
+                const size = ELEM_SIZE[el.type];
+                const handleY = -(size.h / 2) - 22; // manija de rotación arriba del elemento
+                return (
+                  <g key={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rotation})`}>
+                    <g style={{ cursor: isReadOnly ? 'default' : 'move' }}
+                      onPointerDown={e => onElemPointerDown(e, el.id, 'move')}
+                      onClick={e => { e.stopPropagation(); setSelectedElement(el.id); setSelectedZone(null); }}>
+                      {renderElementShape(el, isSel)}
+                      {el.label && el.type !== 'silla' && (
+                        <text x={0} y={4} textAnchor="middle" fill="#fff" fontSize={12} fontWeight="900" style={{ pointerEvents: 'none' }}>{el.label}</text>
+                      )}
+                    </g>
+                    {isSel && !isReadOnly && (
+                      <g>
+                        {/* línea + manija de rotación */}
+                        <line x1={0} y1={-(size.h / 2)} x2={0} y2={handleY} stroke="#fff" strokeWidth={1.5} />
+                        <circle cx={0} cy={handleY} r={7} fill="#3b82f6" stroke="#fff" strokeWidth={2}
+                          style={{ cursor: 'grab' }}
+                          onPointerDown={e => onElemPointerDown(e, el.id, 'rotate')} />
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+
+              {zones.length === 0 && elements.length === 0 && (
                 <text x={CANVAS_W / 2} y={CANVAS_H / 2} fill="#ffffff40" fontSize={16} fontWeight="700"
                   textAnchor="middle" style={{ textTransform: 'uppercase' }}>
                   Agregá una zona para empezar a dibujar el salón
@@ -221,6 +368,27 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
 
           {/* Panel lateral: propiedades de la zona seleccionada + lista */}
           <div className="space-y-3">
+            {selEl && (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
+                <p className="text-[10px] font-black uppercase text-text-main tracking-widest">{elemTypeLabel[selEl.type]}</p>
+                {selEl.type !== 'silla' && (
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-text-dim">N° / etiqueta (opcional)</label>
+                    <input value={selEl.label || ''} disabled={isReadOnly}
+                      onChange={e => updateElement(selEl.id, { label: e.target.value })}
+                      placeholder="Ej. Mesa 5"
+                      className="w-full mt-1 bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  </div>
+                )}
+                <p className="text-[9px] font-bold text-text-dim">Arrastrá el elemento para moverlo, o la manija azul de arriba para rotarlo.</p>
+                {!isReadOnly && (
+                  <button onClick={() => removeElement(selEl.id)}
+                    className="w-full flex items-center justify-center gap-2 bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20">
+                    <Trash2 size={13} /> Eliminar elemento
+                  </button>
+                )}
+              </div>
+            )}
             {sel ? (
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
                 <p className="text-[10px] font-black uppercase text-text-main tracking-widest">Zona seleccionada</p>
