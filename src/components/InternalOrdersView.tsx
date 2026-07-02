@@ -361,8 +361,10 @@ export default function InternalOrdersView({
   const handleSave = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés cargar pedidos.'); return; }
     if (!selectedBranchId || selectedBranchId === 'all') { alert('Seleccioná una sucursal para cargar el pedido.'); return; }
-    if (activeOrders.length > 0) {
-      alert(`No podés generar un pedido nuevo mientras tengas ${activeOrders.length} pedido(s) sin recibir.\n\nPrimero marcá como RECIBIDOS los pedidos pendientes de esta sucursal y volvé a intentar.`);
+    const activeSameType = activeOrders.filter(o => o.type === orderType);
+    if (activeSameType.length >= 2) {
+      const tipoLabel = orderType === 'compras' ? 'Compras' : 'Producción';
+      alert(`Ya tenés ${activeSameType.length} pedidos de ${tipoLabel} sin recibir.\n\nPara no acumular pedidos, primero marcá como RECIBIDOS los pedidos de ${tipoLabel} pendientes de esta sucursal y volvé a intentar.`);
       return;
     }
     if (isSaturday) { alert('Los sábados no se cargan pedidos (el domingo no se trabaja en Almacén).'); return; }
@@ -451,20 +453,27 @@ export default function InternalOrdersView({
         </p>
       </div>
 
-      {/* Bloqueo: hay pedidos sin recibir */}
-      {activeOrders.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl p-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={16} className="text-amber-500 shrink-0" />
-            <p className="text-[11px] font-black text-amber-600 uppercase tracking-widest">
-              Tenés {activeOrders.length} pedido(s) sin recibir
+      {/* Aviso de pedidos pendientes del mismo tipo */}
+      {activeOrders.filter(o => o.type === orderType).length > 0 && (() => {
+        const n = activeOrders.filter(o => o.type === orderType).length;
+        const tipoLabel = orderType === 'compras' ? 'Compras' : 'Producción';
+        const bloqueado = n >= 2;
+        return (
+          <div className={cn("border rounded-xl p-4", bloqueado ? "bg-red-500/10 border-red-500/40" : "bg-amber-500/10 border-amber-500/40")}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className={cn("shrink-0", bloqueado ? "text-red-500" : "text-amber-500")} />
+              <p className={cn("text-[11px] font-black uppercase tracking-widest", bloqueado ? "text-red-600" : "text-amber-600")}>
+                Tenés {n} pedido(s) de {tipoLabel} sin recibir
+              </p>
+            </div>
+            <p className="text-[10px] font-bold text-text-dim mt-1">
+              {bloqueado
+                ? `No podés generar otro pedido de ${tipoLabel} hasta recibir alguno. Marcá como RECIBIDOS los pendientes en "Pedidos en curso".`
+                : `Podés generar un pedido complementario de ${tipoLabel} si te olvidaste algo. Recordá marcar como recibidos los pendientes cuando lleguen.`}
             </p>
           </div>
-          <p className="text-[10px] font-bold text-text-dim mt-1">
-            Para generar un pedido nuevo, primero marcá como RECIBIDOS los pedidos pendientes de esta sucursal (en "Pedidos en curso").
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Alerta de faltantes en pedidos recibidos */}
       {Object.keys(shortfalls).length > 0 && (
