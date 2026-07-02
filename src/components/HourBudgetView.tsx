@@ -205,7 +205,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId === 'all' ? (branches[0]?.id || '') : selectedBranchId);
   const activeBranch = branches.find(b => b.id === localBranchId) || branches[0];
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
-  const [currentTab, setCurrentTab] = useState<'table' | 'map'>('table');
+  const [currentTab, setCurrentTab] = useState<'table' | 'map' | 'simulate'>('table');
   // Escala salarial desde Supabase (fuente de verdad para valor hora)
   const [salaryScale, setSalaryScale] = useState<any[]>(() => {
     try { return JSON.parse(localStorage.getItem('craft_salary_positions') || '[]'); } catch { return []; }
@@ -255,6 +255,14 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   const [mapShift, setMapShift] = useState<'Mañana' | 'Tarde'>('Tarde');
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<string>('cocina');
+  // --- Simulación de Planta (escenario hipotético) ---
+  const [simDateStr, setSimDateStr] = useState<string>('');
+  const [simShift, setSimShift] = useState<'Mañana' | 'Tarde'>('Tarde');
+  const [simSelectedRoom, setSimSelectedRoom] = useState<string>('cocina');
+  // Escenario editable: por sector, lista de fichas { label, count }
+  const [simScenario, setSimScenario] = useState<Record<string, Array<{ label: string; count: number }>>>({ cocina: [], bacha: [], barra: [], caja: [], salon: [] });
+  const [simLoadedKey, setSimLoadedKey] = useState<string>(''); // para saber si ya precargamos este día/turno
+
 
   // Sync with selected branch changes
   useEffect(() => {
@@ -272,6 +280,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   useEffect(() => {
     const [yr, mo] = selectedMonth.split('-');
     setMapDateStr(`${yr}-${mo}-01`);
+    setSimDateStr(`${yr}-${mo}-01`);
+    setSimLoadedKey(''); // forzar recarga del escenario al cambiar de mes
   }, [selectedMonth]);
 
   // Load and memoize custom positions lists
@@ -1251,6 +1261,41 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     return { roomTotals, roomStaff, isHoliday, activeDayName };
   }, [filteredRows, mapShift, mapDateStr, activeMonthDays, holidaysList]);
 
+  // Dotación REAL del día/turno de simulación (para precargar el escenario)
+  const simRealData = useMemo(() => {
+    const matchedDayObj = activeMonthDays.find(d => d.dateStr === simDateStr);
+    const activeDayName = matchedDayObj ? matchedDayObj.dayName : 'Lunes';
+    const roomStaff: Record<string, Array<{ label: string; count: number }>> = { cocina: [], bacha: [], barra: [], caja: [], salon: [] };
+    filteredRows.forEach(row => {
+      if (row.shift === simShift) {
+        const headcount = getHeadcount(row, simDateStr, activeDayName);
+        if (headcount > 0) {
+          const room = getRoomForRole(row.roleId, row.roleLabel);
+          if (room) {
+            const existing = roomStaff[room].find(s => s.label === row.roleLabel);
+            if (existing) existing.count += headcount;
+            else roomStaff[room].push({ label: row.roleLabel, count: headcount });
+          }
+        }
+      }
+    });
+    return { roomStaff, activeDayName };
+  }, [filteredRows, simShift, simDateStr, activeMonthDays]);
+
+  // Al cambiar día/turno de simulación, precargar el escenario con la dotación real (si no fue editado aún)
+  useEffect(() => {
+    if (!simDateStr) return;
+    const key = `${simDateStr}_${simShift}`;
+    if (key === simLoadedKey) return;
+    // Copia profunda de la dotación real como punto de partida
+    const fresh: Record<string, Array<{ label: string; count: number }>> = { cocina: [], bacha: [], barra: [], caja: [], salon: [] };
+    Object.entries(simRealData.roomStaff).forEach(([room, arr]) => {
+      fresh[room] = (arr as Array<{ label: string; count: number }>).map(s => ({ ...s }));
+    });
+    setSimScenario(fresh);
+    setSimLoadedKey(key);
+  }, [simDateStr, simShift, simRealData, simLoadedKey]);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -1493,6 +1538,20 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
               >
                 <span className="flex items-center gap-1.5">
                   <Layers size={13} /> Visualizar en Planta Día x Día
+                </span>
+              </button>
+
+              <button
+                onClick={() => setCurrentTab('simulate')}
+                className={cn(
+                  "px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest transition-all",
+                  currentTab === 'simulate'
+                    ? "bg-brand-500 text-black font-extrabold shadow-md"
+                    : "text-text-dim hover:text-text-main"
+                )}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Layers size={13} /> Simular Planta
                 </span>
               </button>
             </div>
@@ -2387,6 +2446,100 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                       Haz click sobre cualquier sector del plano (<span className="text-brand-500 font-extrabold">Cocina, Salón, Barra, Caja, Bachas</span>) para auditar la dotación. Tienes la libertad de configurar refuerzos para un día en particular (por ejemplo, si un lunes es feriado) en la pestaña del Roster Semanal; esta planta reflejará exactamente esos cambios.
                     </div>
                   </div>
+                </div>
+              </motion.div>
+            )}
+
+            {currentTab === 'simulate' && (
+              <motion.div
+                key="simulate-view"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="bg-[#1A1A1A] border border-border-dim rounded-lg p-6 space-y-6"
+              >
+                {/* Control Bar */}
+                <div className="space-y-4 border-b border-border-dim/60 pb-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-black uppercase text-text-main flex items-center gap-2">
+                        <MapPin size={14} className="text-brand-500" /> Simulación de Planta (Escenario Hipotético)
+                      </h3>
+                      <p className="text-[8.5px] text-[#8C959F] uppercase font-bold tracking-tight">
+                        Armá un escenario de dotación para planificar cuánta gente necesitás. Arranca con la dotación real del día; no afecta los datos reales.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[9px] font-black uppercase text-text-dim">Filtrar Turno:</span>
+                      <div className="flex bg-[#121212]/80 p-1 rounded-md border border-border-dim/40">
+                        <button onClick={() => { setSimShift('Mañana'); setSimLoadedKey(''); }}
+                          className={cn("px-3 py-1 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap", simShift === 'Mañana' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+                          Mañana
+                        </button>
+                        <button onClick={() => { setSimShift('Tarde'); setSimLoadedKey(''); }}
+                          className={cn("px-3 py-1 rounded text-[8.5px] font-black uppercase transition-all whitespace-nowrap", simShift === 'Tarde' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+                          Tarde
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Day strip */}
+                  <div className="space-y-2">
+                    <span className="text-[9px] font-black uppercase text-brand-500 flex items-center gap-1">
+                      <Clock size={12} /> Selecciona el Día a Simular:
+                    </span>
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-zinc-800">
+                      {activeMonthDays.map((day) => {
+                        const isSelected = simDateStr === day.dateStr;
+                        return (
+                          <button key={day.dateStr}
+                            onClick={() => { setSimDateStr(day.dateStr); setSimLoadedKey(''); }}
+                            className={cn(
+                              "flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-lg border transition-all shrink-0",
+                              isSelected ? "bg-brand-500 border-brand-500 text-black" : "bg-[#121212] border-border-dim text-text-dim hover:border-brand-500/50"
+                            )}>
+                            <span className="text-[8px] font-black uppercase">{day.dayName.slice(0, 3)}</span>
+                            <span className="text-base font-black">{parseInt(day.dateStr.split('-')[2], 10)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Escenario por sector (Parte 1: solo visualización de lo precargado) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {(['cocina','salon','barra','caja','bacha'] as const).map(room => {
+                    const staff = simScenario[room] || [];
+                    const total = staff.reduce((a, s) => a + s.count, 0);
+                    const roomLabel = { cocina: 'Cocina', salon: 'Salón', barra: 'Barra', caja: 'Caja', bacha: 'Bachas' }[room];
+                    return (
+                      <div key={room} className="bg-[#121212] border border-border-dim rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="text-[11px] font-black uppercase text-text-main tracking-widest">{roomLabel}</h4>
+                          <span className="text-[9px] font-black bg-brand-500/15 text-brand-500 px-2 py-0.5 rounded">{total}p</span>
+                        </div>
+                        {staff.length === 0 ? (
+                          <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest py-3 text-center">Sin personal</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {staff.map((s, i) => (
+                              <div key={i} className="flex items-center justify-between bg-[#1A1A1A] border border-border-dim/50 rounded px-3 py-1.5">
+                                <span className="text-[10px] font-bold text-text-main">{s.label}</span>
+                                <span className="text-[10px] font-mono font-black text-brand-500">{s.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-brand-500/5 border border-brand-500/20 rounded-lg p-3 text-[9px] text-[#8C959F] leading-relaxed">
+                  <p className="font-bold text-text-main uppercase mb-1">Simulación</p>
+                  Este escenario arranca con la dotación real del día seleccionado. Próximamente vas a poder arrastrar personas y puestos entre sectores y guardar el escenario.
                 </div>
               </motion.div>
             )}
