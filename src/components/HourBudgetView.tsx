@@ -2747,8 +2747,23 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                                   {el.type === 'mesa_redonda' && <circle cx={0} cy={0} r={24} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
                                   {el.type === 'mesa_cuadrada' && <rect x={-24} y={-24} width={48} height={48} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
                                   {el.type === 'mesa_rect' && <rect x={-40} y={-22} width={80} height={44} rx={4} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
-                                  {el.type === 'silla' && <rect x={-11} y={-11} width={22} height={22} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
-                                  {el.type === 'sillon' && <rect x={-24} y={-14} width={48} height={28} rx={5} fill={fill} stroke="#d4a373" strokeWidth={1.5} />}
+                                  {el.type === 'silla' && (
+                                    <g>
+                                      <rect x={-11} y={-15} width={22} height={7} rx={3} fill="#d4a373" opacity={0.85} />
+                                      <rect x={-11} y={-7} width={22} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                      <rect x={-10} y={9} width={4} height={4} rx={1} fill="#d4a373" opacity={0.6} />
+                                      <rect x={6} y={9} width={4} height={4} rx={1} fill="#d4a373" opacity={0.6} />
+                                    </g>
+                                  )}
+                                  {el.type === 'sillon' && (
+                                    <g>
+                                      <rect x={-24} y={-16} width={48} height={9} rx={4} fill="#d4a373" opacity={0.85} />
+                                      <rect x={-24} y={-8} width={6} height={18} rx={3} fill="#d4a373" opacity={0.7} />
+                                      <rect x={18} y={-8} width={6} height={18} rx={3} fill="#d4a373" opacity={0.7} />
+                                      <rect x={-18} y={-6} width={17} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                      <rect x={1} y={-6} width={17} height={16} rx={3} fill={fill} stroke="#d4a373" strokeWidth={1.5} />
+                                    </g>
+                                  )}
                                   {el.label && el.type !== 'silla' && el.type !== 'sillon' && (
                                     <text x={0} y={4} textAnchor="middle" fill="#fff" fontSize={11} fontWeight="900">{el.label}</text>
                                   )}
