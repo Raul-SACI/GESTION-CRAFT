@@ -16,6 +16,7 @@ interface SalonElement {
   type: ElementType;
   x: number; y: number;
   rotation: number;
+  scale: number;
   label?: string;
 }
 interface Props {
@@ -47,7 +48,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const dragState = useRef<{ id: string; mode: 'move' | 'resize'; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
-  const elemDrag = useRef<{ id: string; mode: 'move' | 'rotate'; startX: number; startY: number; origX: number; origY: number; origRot: number } | null>(null);
+  const elemDrag = useRef<{ id: string; mode: 'move' | 'rotate' | 'scale'; startX: number; startY: number; origX: number; origY: number; origRot: number; origScale: number } | null>(null);
 
   // Cargar zonas de la sucursal
   useEffect(() => {
@@ -66,7 +67,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       })));
       setElements((eData || []).map((el: any) => ({
         id: el.id, type: el.type, x: Number(el.x), y: Number(el.y),
-        rotation: Number(el.rotation) || 0, label: el.label || '',
+        rotation: Number(el.rotation) || 0, scale: Number(el.scale) || 1, label: el.label || '',
       })));
       setLoading(false);
     })();
@@ -105,7 +106,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
   // --- Elementos (mesas/sillas) ---
   const addElement = (type: ElementType) => {
     if (isReadOnly) return;
-    const nel: SalonElement = { id: `tmp_${Date.now()}`, type, x: CANVAS_W / 2, y: CANVAS_H / 2, rotation: 0, label: '' };
+    const nel: SalonElement = { id: `tmp_${Date.now()}`, type, x: CANVAS_W / 2, y: CANVAS_H / 2, rotation: 0, scale: 1, label: '' };
     setElements(prev => [...prev, nel]);
     setSelectedElement(nel.id);
     setSelectedZone(null);
@@ -118,7 +119,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
     if (selectedElement === id) setSelectedElement(null);
   };
 
-  const onElemPointerDown = (e: React.PointerEvent, id: string, mode: 'move' | 'rotate') => {
+  const onElemPointerDown = (e: React.PointerEvent, id: string, mode: 'move' | 'rotate' | 'scale') => {
     if (isReadOnly) return;
     e.stopPropagation();
     setSelectedElement(id);
@@ -126,7 +127,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
     const el = elements.find(x => x.id === id);
     if (!el) return;
     const p = toSvgCoords(e.clientX, e.clientY);
-    elemDrag.current = { id, mode, startX: p.x, startY: p.y, origX: el.x, origY: el.y, origRot: el.rotation };
+    elemDrag.current = { id, mode, startX: p.x, startY: p.y, origX: el.x, origY: el.y, origRot: el.rotation, origScale: el.scale };
     (e.target as Element).setPointerCapture?.(e.pointerId);
   };
 
@@ -150,12 +151,22 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
         const nx = Math.max(0, Math.min(CANVAS_W, ed.origX + (p.x - ed.startX)));
         const ny = Math.max(0, Math.min(CANVAS_H, ed.origY + (p.y - ed.startY)));
         updateElement(ed.id, { x: nx, y: ny });
-      } else {
+      } else if (ed.mode === 'rotate') {
         // Rotación libre: ángulo entre el centro del elemento y el puntero
         const el = elements.find(x => x.id === ed.id);
         if (el) {
           const ang = Math.atan2(p.y - el.y, p.x - el.x) * (180 / Math.PI) + 90;
           updateElement(ed.id, { rotation: Math.round(ang) });
+        }
+      } else {
+        // Escalar: según la distancia del puntero al centro del elemento
+        const el = elements.find(x => x.id === ed.id);
+        if (el) {
+          const base = ELEM_SIZE[el.type];
+          const halfDiag = Math.sqrt(base.w * base.w + base.h * base.h) / 2;
+          const dist = Math.sqrt((p.x - el.x) ** 2 + (p.y - el.y) ** 2);
+          const newScale = Math.max(0.4, Math.min(3, dist / halfDiag));
+          updateElement(ed.id, { scale: Math.round(newScale * 20) / 20 });
         }
       }
       return;
@@ -196,7 +207,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       if (delE.error) throw delE.error;
       if (elements.length > 0) {
         const insE = await supabase.from('salon_elements').insert(
-          elements.map(el => ({ branch_id: branchId, type: el.type, x: el.x, y: el.y, rotation: el.rotation, label: el.label || null }))
+          elements.map(el => ({ branch_id: branchId, type: el.type, x: el.x, y: el.y, rotation: el.rotation, scale: el.scale, label: el.label || null }))
         );
         if (insE.error) throw insE.error;
       }
@@ -228,8 +239,13 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
       case 'silla':
         return (
           <g>
-            <rect x={-12} y={-12} width={24} height={24} rx={3} fill={fill} stroke={stroke} strokeWidth={sw} />
-            <rect x={-12} y={-14} width={24} height={6} rx={2} fill={stroke} opacity={0.5} />
+            {/* respaldo */}
+            <rect x={-11} y={-15} width={22} height={7} rx={3} fill={stroke} opacity={0.85} />
+            {/* asiento */}
+            <rect x={-11} y={-7} width={22} height={16} rx={3} fill={fill} stroke={stroke} strokeWidth={sw} />
+            {/* patas insinuadas */}
+            <rect x={-10} y={9} width={4} height={4} rx={1} fill={stroke} opacity={0.6} />
+            <rect x={6} y={9} width={4} height={4} rx={1} fill={stroke} opacity={0.6} />
           </g>
         );
     }
@@ -333,9 +349,12 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
               {elements.map(el => {
                 const isSel = el.id === selectedElement;
                 const size = ELEM_SIZE[el.type];
-                const handleY = -(size.h / 2) - 22; // manija de rotación arriba del elemento
+                const sc = el.scale || 1;
+                const handleY = -(size.h / 2) - 22 / sc; // manija de rotación (compensa escala)
+                const cornerX = size.w / 2;
+                const cornerY = size.h / 2;
                 return (
-                  <g key={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rotation})`}>
+                  <g key={el.id} transform={`translate(${el.x}, ${el.y}) rotate(${el.rotation}) scale(${sc})`}>
                     <g style={{ cursor: isReadOnly ? 'default' : 'move' }}
                       onPointerDown={e => onElemPointerDown(e, el.id, 'move')}
                       onClick={e => { e.stopPropagation(); setSelectedElement(el.id); setSelectedZone(null); }}>
@@ -347,10 +366,15 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                     {isSel && !isReadOnly && (
                       <g>
                         {/* línea + manija de rotación */}
-                        <line x1={0} y1={-(size.h / 2)} x2={0} y2={handleY} stroke="#fff" strokeWidth={1.5} />
-                        <circle cx={0} cy={handleY} r={7} fill="#3b82f6" stroke="#fff" strokeWidth={2}
+                        <line x1={0} y1={-(size.h / 2)} x2={0} y2={handleY} stroke="#fff" strokeWidth={1.5 / sc} />
+                        <circle cx={0} cy={handleY} r={7 / sc} fill="#3b82f6" stroke="#fff" strokeWidth={2 / sc}
                           style={{ cursor: 'grab' }}
                           onPointerDown={e => onElemPointerDown(e, el.id, 'rotate')} />
+                        {/* manija de escala (esquina inferior derecha) */}
+                        <rect x={cornerX - 6 / sc} y={cornerY - 6 / sc} width={12 / sc} height={12 / sc} rx={2 / sc}
+                          fill="#10b981" stroke="#fff" strokeWidth={1.5 / sc}
+                          style={{ cursor: 'nwse-resize' }}
+                          onPointerDown={e => onElemPointerDown(e, el.id, 'scale')} />
                       </g>
                     )}
                   </g>
@@ -380,7 +404,7 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                       className="w-full mt-1 bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5 text-[12px] font-bold text-text-main outline-none focus:border-brand-500" />
                   </div>
                 )}
-                <p className="text-[9px] font-bold text-text-dim">Arrastrá el elemento para moverlo, o la manija azul de arriba para rotarlo.</p>
+                <p className="text-[9px] font-bold text-text-dim">Arrastrá el elemento para moverlo, la manija <span className="text-blue-400">azul</span> para rotarlo, y la <span className="text-emerald-400">verde</span> (esquina) para cambiar el tamaño.</p>
                 {!isReadOnly && (
                   <button onClick={() => removeElement(selEl.id)}
                     className="w-full flex items-center justify-center gap-2 bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20">
