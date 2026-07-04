@@ -5029,16 +5029,25 @@ export default function FinanceView({
                     }));
                   };
 
+                  // Edita la fecha de una carga manual
+                  const updateEntryDate = (entryId: string, newDate: string) => {
+                    if (!newDate) return;
+                    setEntries(prev => prev.map(e => e.id === entryId ? { ...e, date: newDate } : e));
+                  };
+
                   return (
                     <>
                       {manualEntries.map(e => (
                         <div key={e.id} className="bg-bg-accent/30 border border-border-dim/50 rounded-lg p-3">
                           <div className="flex items-center justify-between gap-3 mb-2">
-                            <div className="flex flex-col min-w-0 flex-1">
-                              {e.description
-                                ? (<><span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>
-                                   <span className="text-[9px] font-bold text-text-dim uppercase">{fmtFecha(e.date)}</span></>)
-                                : (<span className="text-[10px] font-black text-text-main uppercase">{fmtFecha(e.date)}</span>)}
+                            <div className="flex flex-col min-w-0 flex-1 gap-1">
+                              {e.description && <span className="text-[11px] font-black text-text-main uppercase truncate">{e.description}</span>}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[8px] font-black text-text-dim uppercase tracking-widest">Fecha:</span>
+                                <input type="date" defaultValue={e.date}
+                                  onBlur={(ev) => { if (ev.target.value && ev.target.value !== e.date) updateEntryDate(e.id, ev.target.value); }}
+                                  className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500 cursor-pointer" />
+                              </div>
                             </div>
                             <div className="text-right shrink-0">
                               <span className="text-[8px] font-bold text-text-dim uppercase block">Total</span>
