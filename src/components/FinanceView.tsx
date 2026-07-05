@@ -40,7 +40,8 @@ import {
   Upload,
   Download,
   FileSpreadsheet,
-  Search
+  Search,
+  ArrowLeftRight
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch, ScheduledPayment, FinanceCategory, FinanceEntry } from '../types';
@@ -1098,6 +1099,51 @@ export default function FinanceView({
   const totalWeeklyIncome = useMemo(() => weeklyIncomeByItem.reduce((s, r) => s + r.total, 0), [weeklyIncomeByItem]);
   const totalStartBalance = useMemo(() => Object.values(weekStartBalances).reduce((a: number, b: number) => a + b, 0) as number, [weekStartBalances]);
 
+  // Pases de fondos de la semana (agrupando la salida y la entrada por su stamp)
+  const weeklyTransfers = useMemo(() => {
+    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const outs = entries.filter(e => e.itemId === 'pase_out' && weekDates.has(e.date));
+    return outs.map(out => {
+      const stamp = String(out.id).replace('transfer_out_', '');
+      const inEntry = entries.find(e => e.id === `transfer_in_${stamp}`);
+      const fromAcc = ACCOUNTS.find(a => (Number(out.amounts?.[a.id]) || 0) !== 0);
+      const toAcc = inEntry ? ACCOUNTS.find(a => (Number(inEntry.amounts?.[a.id]) || 0) !== 0) : undefined;
+      const amount = fromAcc ? (Number(out.amounts?.[fromAcc.id]) || 0) : 0;
+      return { stamp, date: out.date, fromId: fromAcc?.id, toId: toAcc?.id, amount, outId: out.id, inId: inEntry?.id };
+    }).sort((a, b) => a.date.localeCompare(b.date));
+  }, [entries, activeWeekRange.weekdays]);
+
+  // Editar un pase: actualiza salida y entrada en conjunto (fecha, monto, origen, destino)
+  const updateTransfer = (stamp: string, patch: { date?: string; amount?: number; fromId?: string; toId?: string }) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    setEntries(prev => {
+      const out = prev.find(e => e.id === `transfer_out_${stamp}`);
+      const inn = prev.find(e => e.id === `transfer_in_${stamp}`);
+      if (!out || !inn) return prev;
+      const curFrom = ACCOUNTS.find(a => (Number(out.amounts?.[a.id]) || 0) !== 0)?.id || 'santander';
+      const curTo = ACCOUNTS.find(a => (Number(inn.amounts?.[a.id]) || 0) !== 0)?.id || 'efectivo';
+      const curAmt = Number(out.amounts?.[curFrom]) || 0;
+      const newFrom = patch.fromId ?? curFrom;
+      const newTo = patch.toId ?? curTo;
+      const newAmt = patch.amount ?? curAmt;
+      const newDate = patch.date ?? out.date;
+      if (newFrom === newTo) { alert('El origen y el destino deben ser distintos.'); return prev; }
+      const fromName = ACCOUNTS.find(a => a.id === newFrom)?.name || newFrom;
+      const toName = ACCOUNTS.find(a => a.id === newTo)?.name || newTo;
+      const desc = `Pase de fondos: ${fromName} → ${toName}`;
+      return prev.map(e => {
+        if (e.id === `transfer_out_${stamp}`) return { ...e, date: newDate, amounts: { [newFrom]: newAmt } as Record<string, number>, description: desc };
+        if (e.id === `transfer_in_${stamp}`) return { ...e, date: newDate, amounts: { [newTo]: newAmt } as Record<string, number>, description: desc };
+        return e;
+      });
+    });
+  };
+  const deleteTransfer = (stamp: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!confirm('¿Eliminar este pase de fondos? Se borrarán tanto la salida como la entrada.')) return;
+    setEntries(prev => prev.filter(e => e.id !== `transfer_out_${stamp}` && e.id !== `transfer_in_${stamp}`));
+  };
+
   // Gastos a cubrir de la semana por medio de cobro (cuenta)
   const weeklyExpenseByAccount = useMemo(() => {
     const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
@@ -1741,6 +1787,73 @@ export default function FinanceView({
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Pases de Fondos de la semana */}
+            {periodType === 'weekly' && (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h3 className="text-xs font-black uppercase text-text-main tracking-widest flex items-center gap-2">
+                    <ArrowLeftRight size={15} className="text-blue-500" /> Pases de Fondos de la Semana
+                  </h3>
+                  {!isReadOnly && (
+                    <button onClick={() => { setTransferForm({ from: 'santander', to: 'efectivo', amount: 0, date: toLocalISO(new Date()) }); setShowTransferModal(true); }}
+                      className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/30 text-blue-400 px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-blue-500/20">
+                      <Plus size={12} /> Nuevo pase
+                    </button>
+                  )}
+                </div>
+                {weeklyTransfers.length === 0 ? (
+                  <p className="text-[10px] text-text-dim font-bold uppercase text-center py-4">No hay pases de fondos en esta semana.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {weeklyTransfers.map(t => (
+                      <div key={t.stamp} className="bg-bg-accent/30 border border-border-dim/40 rounded-lg p-3 flex flex-wrap items-center gap-3">
+                        {/* Fecha */}
+                        <div className="flex flex-col">
+                          <span className="text-[7px] font-black uppercase text-text-dim tracking-widest">Fecha</span>
+                          <input type="date" defaultValue={t.date} disabled={isReadOnly}
+                            onBlur={ev => { if (ev.target.value && ev.target.value !== t.date) updateTransfer(t.stamp, { date: ev.target.value }); }}
+                            className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                        </div>
+                        {/* Origen */}
+                        <div className="flex flex-col">
+                          <span className="text-[7px] font-black uppercase text-text-dim tracking-widest">Desde</span>
+                          <select defaultValue={t.fromId} disabled={isReadOnly}
+                            onChange={ev => updateTransfer(t.stamp, { fromId: ev.target.value })}
+                            className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                            {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                        </div>
+                        <ArrowLeftRight size={14} className="text-text-dim shrink-0 mt-3" />
+                        {/* Destino */}
+                        <div className="flex flex-col">
+                          <span className="text-[7px] font-black uppercase text-text-dim tracking-widest">Hacia</span>
+                          <select defaultValue={t.toId} disabled={isReadOnly}
+                            onChange={ev => updateTransfer(t.stamp, { toId: ev.target.value })}
+                            className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                            {ACCOUNTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                        </div>
+                        {/* Monto */}
+                        <div className="flex flex-col">
+                          <span className="text-[7px] font-black uppercase text-text-dim tracking-widest">Monto</span>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] font-black text-text-dim">$</span>
+                            <input type="number" defaultValue={t.amount} disabled={isReadOnly}
+                              onBlur={ev => { const v = parseFloat(ev.target.value) || 0; if (v !== t.amount) updateTransfer(t.stamp, { amount: v }); }}
+                              className="w-28 bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                          </div>
+                        </div>
+                        {!isReadOnly && (
+                          <button onClick={() => deleteTransfer(t.stamp)}
+                            className="ml-auto text-text-dim hover:text-red-500 mt-3" title="Eliminar pase"><Trash2 size={14} /></button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
