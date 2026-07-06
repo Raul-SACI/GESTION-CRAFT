@@ -732,7 +732,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                   let efVal = 0;
                   for (let i = weekStarts.length - 1; i >= 0; i--) {
                     const v = dailyData[`${monthStr}-${weekStarts[i]}`]?.[item.id]?.ef;
-                    if (v) { efVal = v; break; }
+                    if (v !== undefined && v !== null) { efVal = v; break; }
                   }
                   data = { ei: eiVal, ef: efVal, ...totals };
                 }
@@ -958,13 +958,28 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
 }
 
 function StockInputCell({ value, onChange, disabled, className }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string }) {
+  // Estado de texto local para distinguir "vacío" de "0" mientras se edita
+  const [text, setText] = useState<string>(value === 0 ? '' : String(value));
+  const [focused, setFocused] = useState(false);
+
+  // Sincroniza cuando el valor externo cambia y el campo no está en edición
+  useEffect(() => {
+    if (!focused) setText(value === 0 ? '' : String(value));
+  }, [value, focused]);
+
   return (
     <td className={cn("px-2 py-4", disabled ? "bg-bg-accent/30" : "bg-bg-sidebar", className)}>
       <input 
         type="number"
         step="0.001"
-        value={value || ''}
-        onChange={e => onChange(parseFloat(e.target.value) || 0)}
+        value={text}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setText(value === 0 ? '' : String(value)); }}
+        onChange={e => {
+          setText(e.target.value);
+          const parsed = e.target.value === '' ? 0 : parseFloat(e.target.value);
+          onChange(isNaN(parsed) ? 0 : parsed);
+        }}
         placeholder="0.000"
         disabled={disabled}
         className={cn(
