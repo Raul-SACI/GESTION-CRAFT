@@ -284,6 +284,19 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
     mesa_redonda: 'Mesa redonda', mesa_cuadrada: 'Mesa cuadrada', mesa_rect: 'Mesa rectangular', silla: 'Silla', sillon: 'Sillón',
   };
 
+  // Cuenta mesas / sillas / sillones cuyo centro cae dentro de una zona
+  const countInZone = (z: Zone) => {
+    let mesas = 0, sillas = 0, sillones = 0;
+    elements.forEach(el => {
+      const inside = el.x >= z.x && el.x <= z.x + z.width && el.y >= z.y && el.y <= z.y + z.height;
+      if (!inside) return;
+      if (el.type === 'silla') sillas++;
+      else if (el.type === 'sillon') sillones++;
+      else mesas++;
+    });
+    return { mesas, sillas, sillones };
+  };
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -364,6 +377,15 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                     />
                     <text x={z.x + 12} y={z.y + 24} fill={z.color} fontSize={16} fontWeight="900"
                       style={{ pointerEvents: 'none', textTransform: 'uppercase' }}>{z.name}</text>
+                    {(() => {
+                      const c = countInZone(z);
+                      const parts = [`${c.mesas} mesa${c.mesas === 1 ? '' : 's'}`, `${c.sillas} silla${c.sillas === 1 ? '' : 's'}`];
+                      if (c.sillones > 0) parts.push(`${c.sillones} sillón${c.sillones === 1 ? '' : 'es'}`);
+                      return (
+                        <text x={z.x + 12} y={z.y + 40} fill="#ffffffaa" fontSize={11} fontWeight="700"
+                          style={{ pointerEvents: 'none', textTransform: 'uppercase' }}>{parts.join(' · ')}</text>
+                      );
+                    })()}
                     {isSel && !isReadOnly && (
                       <rect
                         x={z.x + z.width - 16} y={z.y + z.height - 16} width={16} height={16}
@@ -465,6 +487,16 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
             {sel ? (
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
                 <p className="text-[10px] font-black uppercase text-text-main tracking-widest">Zona seleccionada</p>
+                {(() => {
+                  const c = countInZone(sel);
+                  return (
+                    <div className="flex gap-2 flex-wrap">
+                      <span className="text-[9px] font-black uppercase bg-bg-accent/50 border border-border-dim rounded px-2 py-1 text-text-main">{c.mesas} mesas</span>
+                      <span className="text-[9px] font-black uppercase bg-bg-accent/50 border border-border-dim rounded px-2 py-1 text-text-main">{c.sillas} sillas</span>
+                      <span className="text-[9px] font-black uppercase bg-bg-accent/50 border border-border-dim rounded px-2 py-1 text-text-main">{c.sillones} sillones</span>
+                    </div>
+                  );
+                })()}
                 <div>
                   <label className="text-[9px] font-black uppercase text-text-dim">Nombre</label>
                   <input value={sel.name} disabled={isReadOnly}
@@ -500,13 +532,17 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                 <p className="text-[9px] font-bold uppercase text-text-dim">Ninguna</p>
               ) : (
                 <div className="space-y-1">
-                  {zones.map(z => (
-                    <button key={z.id} onClick={() => setSelectedZone(z.id)}
-                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-all ${selectedZone === z.id ? 'bg-bg-accent' : 'hover:bg-bg-accent/40'}`}>
-                      <span className="w-3 h-3 rounded-full shrink-0" style={{ background: z.color }} />
-                      <span className="text-[11px] font-bold text-text-main truncate">{z.name}</span>
-                    </button>
-                  ))}
+                  {zones.map(z => {
+                    const c = countInZone(z);
+                    return (
+                      <button key={z.id} onClick={() => setSelectedZone(z.id)}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-all ${selectedZone === z.id ? 'bg-bg-accent' : 'hover:bg-bg-accent/40'}`}>
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: z.color }} />
+                        <span className="text-[11px] font-bold text-text-main truncate flex-1">{z.name}</span>
+                        <span className="text-[8px] font-black text-text-dim uppercase shrink-0">{c.mesas}m · {c.sillas}s{c.sillones > 0 ? ` · ${c.sillones}si` : ''}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
