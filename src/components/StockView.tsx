@@ -162,7 +162,8 @@ export default function StockView({
             compras: log.compras,
             produccion: log.produccion || 0,
             recupero: log.recupero || 0,
-            ventasPersonal: log.ventas_personal || 0
+            ventasPersonal: log.ventas_personal || 0,
+            touched: (log.touched_fields || '').split(',').filter(Boolean)
           };
         });
 
@@ -403,10 +404,16 @@ export default function StockView({
     }
 
     // Optimistic update
+    let touchedForSave: string[] = [];
     setDailyData(prev => {
+      const existing = prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0, touched: [] };
+      const prevTouched: string[] = existing.touched || [];
+      const newTouched = prevTouched.includes(field) ? prevTouched : [...prevTouched, field];
+      touchedForSave = newTouched;
       const currentDayData = {
-        ...(prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 }),
-        [field]: value
+        ...existing,
+        [field]: value,
+        touched: newTouched
       };
 
       const newState = {
@@ -422,7 +429,7 @@ export default function StockView({
         newState[nextDayStr] = {
           ...(newState[nextDayStr] || {}),
           [id]: {
-            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0 }),
+            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0, touched: [] }),
             ei: value
           }
         };
@@ -456,7 +463,8 @@ export default function StockView({
         branch_id: selectedBranchId,
         item_id: id,
         date: targetDate,
-        [dbField]: value
+        [dbField]: value,
+        touched_fields: touchedForSave.join(',')
       }, { onConflict: 'branch_id,item_id,date' });
 
     // If EF was updated, also update EI of next day in DB
@@ -759,6 +767,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.ei} 
                       onChange={val => updateItemData(item.id, 'ei', val, weekTargetDate)}
+                      touched={data.touched?.includes('ei')}
                       disabled={isSummary || isItemLocked || !eiEditable} 
                       className="bg-brand-500/5 font-bold"
                     />
@@ -767,6 +776,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.compras} 
                       onChange={val => updateItemData(item.id, 'compras', val, weekTargetDate)}
+                      touched={data.touched?.includes('compras')}
                       disabled={isSummary || isItemLocked} 
                       className="bg-emerald-500/5"
                     />
@@ -776,6 +786,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.produccion} 
                         onChange={val => updateItemData(item.id, 'produccion', val, weekTargetDate)}
+                        touched={data.touched?.includes('produccion')}
                         disabled={isSummary || isItemLocked} 
                         className="bg-emerald-500/5"
                       />
@@ -785,6 +796,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.prestamosRecibidos} 
                       onChange={val => updateItemData(item.id, 'prestamosRecibidos', val, weekTargetDate)}
+                      touched={data.touched?.includes('prestamosRecibidos')}
                       disabled={isSummary || isItemLocked}
                       className="bg-brand-500/5"
                     />
@@ -793,6 +805,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.prestamosEnviados} 
                       onChange={val => updateItemData(item.id, 'prestamosEnviados', val, weekTargetDate)}
+                      touched={data.touched?.includes('prestamosEnviados')}
                       disabled={isSummary || isItemLocked}
                       className="bg-brand-500/5"
                     />
@@ -801,6 +814,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.consumoPersonal} 
                       onChange={val => updateItemData(item.id, 'consumoPersonal', val, weekTargetDate)}
+                      touched={data.touched?.includes('consumoPersonal')}
                       disabled={isSummary || isItemLocked}
                     />
 
@@ -809,6 +823,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.recupero} 
                         onChange={val => updateItemData(item.id, 'recupero', val, weekTargetDate)}
+                        touched={data.touched?.includes('recupero')}
                         disabled={isSummary || isItemLocked}
                         className="bg-red-500/5"
                       />
@@ -819,6 +834,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.ventasPersonal} 
                         onChange={val => updateItemData(item.id, 'ventasPersonal', val, weekTargetDate)}
+                        touched={data.touched?.includes('ventasPersonal')}
                         disabled={isSummary || isItemLocked}
                         className="bg-red-500/5"
                       />
@@ -829,6 +845,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.decomisos} 
                         onChange={val => updateItemData(item.id, 'decomisos', val)}
+                        touched={data.touched?.includes('decomisos')}
                         disabled={true}
                         className="bg-red-500/5"
                       />
@@ -838,6 +855,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     <StockInputCell 
                       value={data.ef} 
                       onChange={val => updateItemData(item.id, 'ef', val, weekTargetDate)}
+                      touched={data.touched?.includes('ef')}
                       disabled={isSummary || isItemLocked}
                     />
 
@@ -846,6 +864,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.ventasTeorico} 
                         onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
+                        touched={data.touched?.includes('ventasTeorico')}
                         disabled={true}
                       />
                     )}
@@ -855,6 +874,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       <StockInputCell 
                         value={data.decomisos} 
                         onChange={val => updateItemData(item.id, 'decomisos', val)}
+                        touched={data.touched?.includes('decomisos')}
                         disabled={true}
                       />
                     )}
@@ -957,15 +977,21 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
   );
 }
 
-function StockInputCell({ value, onChange, disabled, className }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string }) {
-  // Estado de texto local para distinguir "vacío" de "0" mientras se edita
-  const [text, setText] = useState<string>(value === 0 ? '' : String(value));
+function StockInputCell({ value, onChange, disabled, className, touched }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string, touched?: boolean }) {
+  // text guarda EXACTAMENTE lo que hay en el campo. '' = vacío (placeholder gris); '0' = cero cargado (negrita)
+  // Si el campo fue "tocado" (guardado), un 0 se muestra como '0' en negrita aunque venga de la base.
+  const [text, setText] = useState<string>(value === 0 ? (touched ? '0' : '') : String(value));
   const [focused, setFocused] = useState(false);
+  const [zeroTyped, setZeroTyped] = useState(!!touched && value === 0);
 
-  // Sincroniza cuando el valor externo cambia y el campo no está en edición
   useEffect(() => {
-    if (!focused) setText(value === 0 ? '' : String(value));
-  }, [value, focused]);
+    if (!focused) {
+      if (value === 0) setText((zeroTyped || touched) ? '0' : '');
+      else { setText(String(value)); setZeroTyped(false); }
+    }
+  }, [value, focused, zeroTyped, touched]);
+
+  const hasValue = text !== '';
 
   return (
     <td className={cn("px-2 py-4", disabled ? "bg-bg-accent/30" : "bg-bg-sidebar", className)}>
@@ -974,16 +1000,20 @@ function StockInputCell({ value, onChange, disabled, className }: { value: numbe
         step="0.001"
         value={text}
         onFocus={() => setFocused(true)}
-        onBlur={() => { setFocused(false); setText(value === 0 ? '' : String(value)); }}
+        onBlur={() => { setFocused(false); }}
         onChange={e => {
-          setText(e.target.value);
-          const parsed = e.target.value === '' ? 0 : parseFloat(e.target.value);
+          const raw = e.target.value;
+          setText(raw);
+          const isZero = raw !== '' && parseFloat(raw.replace(',', '.')) === 0;
+          setZeroTyped(isZero);
+          const parsed = raw === '' ? 0 : parseFloat(raw);
           onChange(isNaN(parsed) ? 0 : parsed);
         }}
         placeholder="0.000"
         disabled={disabled}
         className={cn(
-          "w-16 mx-auto block bg-transparent border border-border-dim/50 rounded py-1 px-1 text-center text-[10px] text-text-main font-mono focus:border-brand-500 outline-none transition-colors",
+          "w-16 mx-auto block bg-transparent border border-border-dim/50 rounded py-1 px-1 text-center text-[10px] font-mono focus:border-brand-500 outline-none transition-colors",
+          hasValue ? "text-text-main font-bold" : "text-text-dim",
           disabled && "opacity-70 cursor-not-allowed border-none font-bold"
         )}
       />
