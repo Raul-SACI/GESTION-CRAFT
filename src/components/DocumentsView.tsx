@@ -192,48 +192,59 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files: File[] = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     if (isReadOnly) {
       alert('Modo Solo Lectura activado. No tienes permisos para subir archivos.');
       return;
     }
 
     setUploading(true);
+    const errores: string[] = [];
     try {
-      // 1. Upload to Storage
-      const fileName = `${Date.now()}_${file.name}`;
-      const path = `${mode}/${branchId || 'general'}/${fileName}`;
-      
-      const { data: storageData, error: storageError } = await supabase.storage
-        .from('documents')
-        .upload(path, file);
+      for (const file of files) {
+        try {
+          // 1. Upload to Storage
+          const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name}`;
+          const path = `${mode}/${branchId || 'general'}/${fileName}`;
 
-      if (storageError) throw storageError;
+          const { error: storageError } = await supabase.storage
+            .from('documents')
+            .upload(path, file);
 
-      // 2. Insert metadata into DB
-      const { error: dbError } = await supabase.from('documents').insert([
-        {
-          name: file.name,
-          type: 'file',
-          parent_id: currentFolderId,
-          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
-          storage_path: path,
-          file_size: file.size,
-          content_type: file.type,
-          category: 'file', // Satisfy real Supabase schema NOT NULL constraint
-          url: path        // Satisfy real Supabase schema NOT NULL constraint
+          if (storageError) throw storageError;
+
+          // 2. Insert metadata into DB
+          const { error: dbError } = await supabase.from('documents').insert([
+            {
+              name: file.name,
+              type: 'file',
+              parent_id: currentFolderId,
+              branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+              storage_path: path,
+              file_size: file.size,
+              content_type: file.type,
+              category: 'file',
+              url: path
+            }
+          ]);
+
+          if (dbError) throw dbError;
+        } catch (errFile: any) {
+          errores.push(`${file.name}: ${errFile.message || 'error'}`);
         }
-      ]);
-
-      if (dbError) throw dbError;
+      }
 
       fetchDocuments();
+      if (errores.length > 0) {
+        alert(`Algunos archivos no se pudieron subir (${errores.length}):\n\n${errores.join('\n')}`);
+      }
     } catch (err: any) {
-      console.error('Error uploading file:', err);
-      alert(`Error al subir archivo: ${err.message || JSON.stringify(err)}`);
+      console.error('Error uploading files:', err);
+      alert(`Error al subir archivos: ${err.message || JSON.stringify(err)}`);
     } finally {
       setUploading(false);
+      e.target.value = ''; // permitir volver a elegir los mismos archivos
     }
   };
 
@@ -392,7 +403,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           )}>
             {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
             Subir Archivo
-            <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
+            <input type="file" multiple className="hidden" onChange={handleFileUpload} disabled={uploading} />
           </label>
         </div>
       </div>
