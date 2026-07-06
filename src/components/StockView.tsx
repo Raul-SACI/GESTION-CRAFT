@@ -405,6 +405,7 @@ export default function StockView({
 
     // Optimistic update
     let touchedForSave: string[] = [];
+    let nextTouchedForSave: string[] = [];
     setDailyData(prev => {
       const existing = prev[targetDate]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0, touched: [] };
       const prevTouched: string[] = existing.touched || [];
@@ -426,11 +427,16 @@ export default function StockView({
 
       // If we updated EF, update EI of next day
       if (field === 'ef') {
+        const nextExisting = newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0, touched: [] };
+        const nextTouched: string[] = nextExisting.touched || [];
+        const nextTouchedNew = nextTouched.includes('ei') ? nextTouched : [...nextTouched, 'ei'];
+        nextTouchedForSave = nextTouchedNew;
         newState[nextDayStr] = {
           ...(newState[nextDayStr] || {}),
           [id]: {
-            ...(newState[nextDayStr]?.[id] || { ei: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, ef: 0, ventasTeorico: 0, decomisos: 0, compras: 0, produccion: 0, recupero: 0, ventasPersonal: 0, touched: [] }),
-            ei: value
+            ...nextExisting,
+            ei: value,
+            touched: nextTouchedNew
           }
         };
       }
@@ -475,7 +481,8 @@ export default function StockView({
            branch_id: selectedBranchId,
            item_id: id,
            date: nextDayStr,
-           ei: value
+           ei: value,
+           touched_fields: nextTouchedForSave.join(',')
          }, { onConflict: 'branch_id,item_id,date' });
     }
   };
