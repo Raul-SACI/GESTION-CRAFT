@@ -545,6 +545,18 @@ export default function SalonConfigView({ branches, selectedBranchId, isReadOnly
                   })}
                 </div>
               )}
+              {zones.length > 0 && (() => {
+                const tot = zones.reduce((acc, z) => {
+                  const c = countInZone(z);
+                  return { mesas: acc.mesas + c.mesas, sillas: acc.sillas + c.sillas, sillones: acc.sillones + c.sillones };
+                }, { mesas: 0, sillas: 0, sillones: 0 });
+                return (
+                  <div className="mt-3 pt-3 border-t border-border-dim flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-text-main tracking-widest">Total salón</span>
+                    <span className="text-[9px] font-black text-brand-500 uppercase">{tot.mesas} mesas · {tot.sillas} sillas{tot.sillones > 0 ? ` · ${tot.sillones} sillones` : ''}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
