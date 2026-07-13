@@ -6,7 +6,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
-  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3, ChevronDown, ChevronRight, CheckCircle2
+  ShoppingBag, Receipt, Target, Award, Loader2, Coffee, Utensils, Calculator, ListOrdered, Clock, BarChart3, ChevronDown, ChevronRight, CheckCircle2, AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -59,6 +59,9 @@ interface BranchSales {
   pyResto: number | null;
   pyCafe: number | null;
   cmv: number | null;
+  // Compras + movimientos (dato crudo, siempre disponible) y si faltan las existencias
+  comprasMovimientos: number | null;
+  existenciasCargadas: boolean;
   budgetHours: number;
   workedHours: number;
   hoursByPosition: Record<string, { budget: number; worked: number }>;
@@ -153,7 +156,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           ticketsProjection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
-          pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0,
+          pyResto: null, pyCafe: null, cmv: null, comprasMovimientos: null, existenciasCargadas: false, budgetHours: 0, workedHours: 0,
           hoursByPosition: {},
           semanas: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } },
           semanasPrev: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } }
@@ -250,7 +253,14 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       Object.keys(cmvByBranch).forEach(bid => {
         if (!agg[bid]) return;
         const c = cmvByBranch[bid];
-        agg[bid].cmv = c.has ? (c.initial + c.purchases + c.movements - c.final) : null;
+        if (!c.has) { agg[bid].cmv = null; agg[bid].comprasMovimientos = null; agg[bid].existenciasCargadas = false; return; }
+        // Compras + movimientos: dato crudo, siempre disponible
+        agg[bid].comprasMovimientos = c.purchases + c.movements;
+        // Existencias cargadas = al menos una de las dos tiene valor distinto de 0
+        const cargadas = (c.initial !== 0) || (c.final !== 0);
+        agg[bid].existenciasCargadas = cargadas;
+        // Sin existencias no se puede cerrar el CMV: se muestra en 0 con alerta
+        agg[bid].cmv = cargadas ? (c.initial + c.purchases + c.movements - c.final) : 0;
       });
 
       // Presupuesto de horas (solo aprobados) y horas reales, por sucursal y por puesto.
@@ -622,6 +632,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 <thead>
                   <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
                     <th className="px-3 py-2">Sucursal</th>
+                    <th className="px-3 py-2 text-right">Compras + Mov.</th>
+                    <th className="px-3 py-2 text-right">% s/Ventas</th>
                     <th className="px-3 py-2 text-right">CMV</th>
                     <th className="px-3 py-2 text-right">Ventas Netas</th>
                     <th className="px-3 py-2 text-right">CMV %</th>
@@ -629,11 +641,33 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 </thead>
                 <tbody className="divide-y divide-border-dim">
                   {shown.map(d => {
-                    const cmvPct = (d.cmv !== null && d.netCurrent > 0) ? (d.cmv / d.netCurrent) * 100 : null;
+                    const sinExistencias = d.cmv !== null && !d.existenciasCargadas;
+                    const cmvPct = (d.cmv !== null && d.existenciasCargadas && d.netCurrent > 0) ? (d.cmv / d.netCurrent) * 100 : null;
+                    const cmPct = (d.comprasMovimientos !== null && d.netCurrent > 0) ? (d.comprasMovimientos / d.netCurrent) * 100 : null;
                     return (
                       <tr key={d.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
                         <td className="px-3 py-2.5 font-black uppercase text-text-main">{d.branchName}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.cmv !== null ? fmt(d.cmv) : <span className="text-text-dim">— sin carga</span>}</td>
+                        {/* Compras + Movimientos (dato crudo) */}
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">
+                          {d.comprasMovimientos !== null ? fmt(d.comprasMovimientos) : <span className="text-text-dim">— sin carga</span>}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono font-bold">
+                          {cmPct !== null
+                            ? <span className={cmPct > 35 ? 'text-red-500' : cmPct > 30 ? 'text-amber-500' : 'text-emerald-500'}>{cmPct.toFixed(1)}%</span>
+                            : <span className="text-text-dim">—</span>}
+                        </td>
+                        {/* CMV (solo válido con existencias cargadas) */}
+                        <td className="px-3 py-2.5 text-right font-mono">
+                          {d.cmv === null
+                            ? <span className="text-text-dim">— sin carga</span>
+                            : sinExistencias
+                              ? (
+                                <span className="inline-flex items-center gap-1 text-amber-500 font-bold" title="Faltan cargar las existencias (EI y EF) para poder cerrar el CMV">
+                                  <AlertTriangle size={11} /> $0
+                                </span>
+                              )
+                              : <span className="text-text-main">{fmt(d.cmv)}</span>}
+                        </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-dim">{fmt(d.netCurrent)}</td>
                         <td className="px-3 py-2.5 text-right font-mono font-bold">
                           {cmvPct !== null
@@ -646,7 +680,16 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                 </tbody>
               </table>
             </div>
-            <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Datos del modulo CMV Mensual Sucursal (Administracion)</p>
+            {shown.some(d => d.cmv !== null && !d.existenciasCargadas) && (
+              <div className="mt-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-start gap-2">
+                <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-[9px] font-bold text-amber-600 uppercase leading-relaxed">
+                  Hay sucursales sin las existencias cargadas (EI y EF). Sin ellas el CMV no se puede cerrar y se muestra en $0.
+                  Mientras tanto, mirá la columna <span className="text-text-main">Compras + Mov.</span> como referencia.
+                </p>
+              </div>
+            )}
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Datos del modulo CMV Mensual Sucursal (Administracion) · CMV = EI + Compras + Movimientos − EF</p>
           </div>
 
           {/* KPIs financieros (Estado de Resultados consolidado) */}
