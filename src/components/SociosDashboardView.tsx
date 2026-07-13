@@ -64,6 +64,8 @@ interface BranchSales {
   hoursByPosition: Record<string, { budget: number; worked: number }>;
   // Desglose por semana (1-4): net, gross, tickets
   semanas: Record<number, { net: number; gross: number; tickets: number }>;
+  // Mismo desglose para el mes anterior (solo días comparables)
+  semanasPrev: Record<number, { net: number; gross: number; tickets: number }>;
 }
 
 const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
@@ -153,7 +155,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           googleVotes: (b as any).googleRatingCount || 0,
           pyResto: null, pyCafe: null, cmv: null, budgetHours: 0, workedHours: 0,
           hoursByPosition: {},
-          semanas: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } }
+          semanas: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } },
+          semanasPrev: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } }
         };
       });
 
@@ -189,6 +192,12 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         a.netPrev += Number(t.net_sales) || 0;
         a.grossPrev += Number(t.gross_sales) || 0;
         a.ticketsPrev += Number(t.orders) || 0;
+        // Desglose por semana del mes anterior (mismos días comparables)
+        const diaMesP = parseInt(dayNum);
+        const wkP = diaMesP <= 7 ? 1 : diaMesP <= 14 ? 2 : diaMesP <= 21 ? 3 : 4;
+        a.semanasPrev[wkP].net += Number(t.net_sales) || 0;
+        a.semanasPrev[wkP].gross += Number(t.gross_sales) || 0;
+        a.semanasPrev[wkP].tickets += Number(t.orders) || 0;
       });
 
       const daysInMonth = new Date(cy, cm, 0).getDate();
@@ -463,11 +472,11 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                   <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
                     <th className="px-3 py-2">Sucursal</th>
                     <th className="px-3 py-2 text-right">V. Netas</th>
-                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">V. Brutas</th>
-                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">Tickets</th>
-                    <th className="px-3 py-2 text-right">vs Ant.</th>
+                    <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">Proy. Ventas</th>
                     <th className="px-3 py-2 text-right">Proy. Tickets</th>
                   </tr>
@@ -477,9 +486,18 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                     const pn = pct(d.netCurrent, d.netPrev);
                     const pg = pct(d.grossCurrent, d.grossPrev);
                     const pt = pct(d.ticketsCurrent, d.ticketsPrev);
-                    const cell = (p: number | null) => p === null
-                      ? <span className="text-text-dim">—</span>
-                      : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>;
+                    const cell = (p: number | null, prevVal?: number, isMoney = true) => (
+                      <div className="flex flex-col items-end leading-tight">
+                        {p === null
+                          ? <span className="text-text-dim">—</span>
+                          : <span className={p >= 0 ? 'text-emerald-500' : 'text-red-500'}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>}
+                        {prevVal !== undefined && (
+                          <span className="text-[8px] font-normal text-text-dim opacity-70">
+                            {isMoney ? fmt(prevVal) : Math.round(prevVal).toLocaleString('es-AR')}
+                          </span>
+                        )}
+                      </div>
+                    );
                     return (
                       <React.Fragment key={d.branchId}>
                       <tr className="text-[11px] font-medium hover:bg-bg-accent/30 cursor-pointer" onClick={() => setExpandedRows(p => ({ ...p, [d.branchId]: !p[d.branchId] }))}>
@@ -490,26 +508,38 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.netCurrent)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pn)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pn, d.netPrev)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.grossCurrent)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pg)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pg, d.grossPrev)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt, d.ticketsPrev, false)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{Math.round(d.ticketsProjection).toLocaleString('es-AR')}</td>
                       </tr>
                       {expandedRows[d.branchId] && [1, 2, 3, 4].map(wk => {
                         const s = d.semanas[wk];
+                        const sp = d.semanasPrev[wk];
                         const rangos: Record<number, string> = { 1: '1-7', 2: '8-14', 3: '15-21', 4: '22-fin' };
+                        const wn = pct(s.net, sp.net);
+                        const wg = pct(s.gross, sp.gross);
+                        const wt = pct(s.tickets, sp.tickets);
+                        const wcell = (p: number | null, prevVal: number, isMoney = true) => (
+                          <div className="flex flex-col items-end leading-tight">
+                            {p === null
+                              ? <span className="text-text-dim opacity-50">—</span>
+                              : <span className={cn('font-bold', p >= 0 ? 'text-emerald-500' : 'text-red-500')}>{p >= 0 ? '+' : ''}{p.toFixed(1)}%</span>}
+                            <span className="text-[8px] opacity-60">{isMoney ? fmt(prevVal) : Math.round(prevVal).toLocaleString('es-AR')}</span>
+                          </div>
+                        );
                         return (
                           <tr key={`${d.branchId}-w${wk}`} className="text-[10px] bg-bg-accent/20 text-text-dim">
                             <td className="pl-9 pr-3 py-1.5 font-bold uppercase">Semana {wk} <span className="opacity-50">({rangos[wk]})</span></td>
                             <td className="px-3 py-1.5 text-right font-mono">{fmt(s.net)}</td>
-                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5 text-right font-mono text-[9px]">{wcell(wn, sp.net)}</td>
                             <td className="px-3 py-1.5 text-right font-mono">{fmt(s.gross)}</td>
-                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5 text-right font-mono text-[9px]">{wcell(wg, sp.gross)}</td>
                             <td className="px-3 py-1.5 text-right font-mono">{s.tickets.toLocaleString('es-AR')}</td>
-                            <td className="px-3 py-1.5"></td>
+                            <td className="px-3 py-1.5 text-right font-mono text-[9px]">{wcell(wt, sp.tickets, false)}</td>
                             <td className="px-3 py-1.5"></td>
                             <td className="px-3 py-1.5"></td>
                           </tr>
