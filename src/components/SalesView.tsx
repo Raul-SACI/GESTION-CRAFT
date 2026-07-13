@@ -5,6 +5,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
+import SalesByBranchTable from './SalesByBranchTable';
 import { 
   TrendingUp, 
   Plus, 
@@ -2067,6 +2068,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
 
       {activeSubTab === 'daily' ? (
         <>
+          <SalesByBranchTable branches={branches} />
           {isAdding && (
             <div className="bg-bg-sidebar border border-brand-500/30 p-8 rounded shadow-2xl space-y-8">
           <div className="flex flex-col md:flex-row gap-6 pb-6 border-b border-border-dim">
