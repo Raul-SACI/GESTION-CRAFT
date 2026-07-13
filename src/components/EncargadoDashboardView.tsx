@@ -513,6 +513,17 @@ export default function EncargadoDashboardView({
     return cmvInitial + cmvPurchases + cmvMovements - cmvFinal;
   }, [cmvInitial, cmvPurchases, cmvMovements, cmvFinal]);
 
+  // Compras + Movimientos (dato crudo, siempre disponible)
+  const comprasMovimientos = useMemo(() => cmvPurchases + cmvMovements, [cmvPurchases, cmvMovements]);
+  // ¿Están cargadas las existencias? Si EI y EF son ambas 0, no se puede cerrar el CMV.
+  const existenciasCargadas = useMemo(() => cmvInitial !== 0 || cmvFinal !== 0, [cmvInitial, cmvFinal]);
+  // % de Compras + Mov. sobre ventas (referencia mientras no haya existencias)
+  const comprasMovPercentage = useMemo(() => {
+    const net = isSimulationMode && manualSalesOverride ? parseFloat(manualSalesOverride) : salesNet;
+    if (net <= 0) return null;
+    return (comprasMovimientos / net) * 100;
+  }, [comprasMovimientos, salesNet, isSimulationMode, manualSalesOverride]);
+
   const cmvPercentage = useMemo(() => {
     const net = isSimulationMode && manualSalesOverride ? parseFloat(manualSalesOverride) : salesNet;
     if (net <= 0) return 30.2;
@@ -1010,20 +1021,50 @@ export default function EncargadoDashboardView({
         </div>
 
         {/* CMV Monthly Column */}
-        <div className="bg-bg-sidebar border border-border-dim p-5 rounded relative overflow-hidden group hover:border-emerald-500/40 transition-all shadow-md">
+        <div className={cn(
+          "bg-bg-sidebar border p-5 rounded relative overflow-hidden group transition-all shadow-md",
+          existenciasCargadas ? "border-border-dim hover:border-emerald-500/40" : "border-amber-500/40"
+        )}>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Compras & CMV</span>
-            <TrendingDown size={14} className="text-emerald-500" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <h2 className="text-2xl font-mono font-black text-text-main">
-              ${totalCMVAmount.toLocaleString()}
-            </h2>
-            <span className="text-xs font-mono font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-              {liveCmvValue.toFixed(1)}%
+            <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">
+              {existenciasCargadas ? 'Compras & CMV' : 'Compras + Mov.'}
             </span>
+            {existenciasCargadas
+              ? <TrendingDown size={14} className="text-emerald-500" />
+              : <AlertTriangle size={14} className="text-amber-500" />}
           </div>
-          <p className="text-[8px] text-text-dim uppercase font-bold mt-1.5 font-mono">ΕΙ: ${cmvInitial.toLocaleString()} + Compras + Mov - EF: ${cmvFinal.toLocaleString()}</p>
+          {existenciasCargadas ? (
+            <>
+              <div className="flex items-baseline gap-1.5">
+                <h2 className="text-2xl font-mono font-black text-text-main">
+                  ${totalCMVAmount.toLocaleString()}
+                </h2>
+                <span className="text-xs font-mono font-bold text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                  {liveCmvValue.toFixed(1)}%
+                </span>
+              </div>
+              <p className="text-[8px] text-text-dim uppercase font-bold mt-1.5 font-mono">EI: ${cmvInitial.toLocaleString()} + Compras + Mov − EF: ${cmvFinal.toLocaleString()}</p>
+            </>
+          ) : (
+            <>
+              <div className="flex items-baseline gap-1.5">
+                <h2 className="text-2xl font-mono font-black text-text-main">
+                  ${comprasMovimientos.toLocaleString()}
+                </h2>
+                {comprasMovPercentage !== null && (
+                  <span className="text-xs font-mono font-bold text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                    {comprasMovPercentage.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+              <p className="text-[8px] text-amber-600 uppercase font-black mt-1.5 leading-tight">
+                CMV sin cerrar · faltan cargar EI y EF
+              </p>
+              <p className="text-[7px] text-text-dim uppercase font-bold mt-0.5 font-mono">
+                El CMV real = EI + Compras + Mov − EF
+              </p>
+            </>
+          )}
         </div>
 
         {/* HR Hour Deviation Column */}
