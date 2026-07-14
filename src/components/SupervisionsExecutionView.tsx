@@ -298,6 +298,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
 
   // --- RESUMEN: BANDERAS ROJAS POR RESPONSABLE ---
   const [flagsMonth, setFlagsMonth] = useState<string>('all');
+  const [flagsBranch, setFlagsBranch] = useState<string>('all');
 
   // Cuenta las banderas rojas de una supervisión, separadas por responsable.
   // Se cuenta desde las respuestas (cada una tiene su target), no desde el total.
@@ -332,6 +333,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
     return dbResponses
       .filter(r => !r.annulled)
       .filter(r => flagsMonth === 'all' || String(r.date || '').substring(0, 7) === flagsMonth)
+      .filter(r => flagsBranch === 'all' || r.branch_id === flagsBranch)
       .map(r => {
         const c = contarPorResponsable(r);
         return {
@@ -345,7 +347,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       })
       .filter(f => f.total > 0)
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  }, [dbResponses, flagsMonth, branches, templates]);
+  }, [dbResponses, flagsMonth, flagsBranch, branches, templates]);
 
   const totalesBanderas = useMemo(() => resumenBanderas.reduce((acc, f) => ({
     soloEnc: acc.soloEnc + f.soloEnc,
@@ -613,17 +615,26 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       )}
 
       {/* Resumen: Banderas Rojas por Responsable */}
-      {resumenBanderas.length > 0 && (
+      {dbResponses.length > 0 && (
         <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-[11px] font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
               🚩 Banderas Rojas por Responsable
             </h3>
-            <select value={flagsMonth} onChange={e => setFlagsMonth(e.target.value)}
-              className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
-              <option value="all">Todos los meses</option>
-              {mesesDisponibles.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}
-            </select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={flagsBranch} onChange={e => setFlagsBranch(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todas las sucursales</option>
+                {branches.filter(b => b.id !== 'all').map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <select value={flagsMonth} onChange={e => setFlagsMonth(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todos los meses</option>
+                {mesesDisponibles.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Totales del período */}
@@ -661,7 +672,13 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-dim/40">
-                {resumenBanderas.map(f => (
+                {resumenBanderas.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-6 text-center text-[10px] font-bold uppercase text-text-dim">
+                      No hay banderas rojas para el filtro seleccionado.
+                    </td>
+                  </tr>
+                ) : resumenBanderas.map(f => (
                   <tr key={f.id} className="hover:bg-bg-accent/40">
                     <td className="px-4 py-3 font-mono text-text-dim">{f.date}</td>
                     <td className="px-4 py-3 font-black text-text-main uppercase">{f.branch}</td>
