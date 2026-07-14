@@ -296,6 +296,64 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
     await loadData();
   };
 
+  // --- RESUMEN: BANDERAS ROJAS POR RESPONSABLE ---
+  const [flagsMonth, setFlagsMonth] = useState<string>('all');
+
+  // Cuenta las banderas rojas de una supervisión, separadas por responsable.
+  // Se cuenta desde las respuestas (cada una tiene su target), no desde el total.
+  const contarPorResponsable = (r: any) => {
+    const answers = r.scores?.answers || {};
+    let soloEnc = 0, soloCoc = 0, ambos = 0;
+    (Object.values(answers) as any[]).forEach(a => {
+      if (a?.color !== 'red') return;
+      const t = a?.target || 'ambos'; // las viejas (sin target) se asumen "ambos"
+      if (t === 'encargado') soloEnc++;
+      else if (t === 'cocina') soloCoc++;
+      else ambos++;
+    });
+    return { soloEnc, soloCoc, ambos, total: soloEnc + soloCoc + ambos };
+  };
+
+  // Meses disponibles según las supervisiones cargadas
+  const mesesDisponibles = useMemo(() => {
+    const ms = Array.from(new Set(dbResponses.map(r => String(r.date || '').substring(0, 7)).filter(Boolean)));
+    return ms.sort().reverse();
+  }, [dbResponses]);
+
+  const mesLabel = (m: string) => {
+    if (m === 'all') return 'Todos los meses';
+    const [y, mo] = m.split('-');
+    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return `${names[Number(mo) - 1] || mo} ${y}`;
+  };
+
+  // Filas del resumen: solo supervisiones NO anuladas y con banderas rojas
+  const resumenBanderas = useMemo(() => {
+    return dbResponses
+      .filter(r => !r.annulled)
+      .filter(r => flagsMonth === 'all' || String(r.date || '').substring(0, 7) === flagsMonth)
+      .map(r => {
+        const c = contarPorResponsable(r);
+        return {
+          id: r.id,
+          date: r.date,
+          branch: branches.find(b => b.id === r.branch_id)?.name || r.branch_id,
+          form: r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name || '—',
+          user: r.scores?.supervisor?.name || '—',
+          ...c
+        };
+      })
+      .filter(f => f.total > 0)
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  }, [dbResponses, flagsMonth, branches, templates]);
+
+  const totalesBanderas = useMemo(() => resumenBanderas.reduce((acc, f) => ({
+    soloEnc: acc.soloEnc + f.soloEnc,
+    soloCoc: acc.soloCoc + f.soloCoc,
+    ambos: acc.ambos + f.ambos,
+    total: acc.total + f.total
+  }), { soloEnc: 0, soloCoc: 0, ambos: 0, total: 0 }), [resumenBanderas]);
+
   const totalAmarillo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.yellow, 0);
   const totalRojo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.red, 0);
 
@@ -551,6 +609,78 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                 ));
             })()}
           </div>
+        </div>
+      )}
+
+      {/* Resumen: Banderas Rojas por Responsable */}
+      {resumenBanderas.length > 0 && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
+              🚩 Banderas Rojas por Responsable
+            </h3>
+            <select value={flagsMonth} onChange={e => setFlagsMonth(e.target.value)}
+              className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+              <option value="all">Todos los meses</option>
+              {mesesDisponibles.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}
+            </select>
+          </div>
+
+          {/* Totales del período */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-bg-accent/40 rounded-lg p-3">
+              <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Solo Encargado</p>
+              <p className="text-lg font-mono font-black text-red-500">{totalesBanderas.soloEnc}</p>
+            </div>
+            <div className="bg-bg-accent/40 rounded-lg p-3">
+              <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Solo Jefe de Cocina</p>
+              <p className="text-lg font-mono font-black text-red-500">{totalesBanderas.soloCoc}</p>
+            </div>
+            <div className="bg-bg-accent/40 rounded-lg p-3">
+              <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Ambos</p>
+              <p className="text-lg font-mono font-black text-amber-500">{totalesBanderas.ambos}</p>
+            </div>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Total banderas</p>
+              <p className="text-lg font-mono font-black text-red-500">{totalesBanderas.total}</p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-border-dim">
+            <table className="w-full border-collapse text-[10px]">
+              <thead>
+                <tr className="bg-bg-accent text-left text-text-dim font-bold uppercase tracking-widest border-b border-border-dim">
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Sucursal</th>
+                  <th className="px-4 py-3">Formulario</th>
+                  <th className="px-4 py-3">Supervisor</th>
+                  <th className="px-4 py-3 text-center">Encargado</th>
+                  <th className="px-4 py-3 text-center">Jefe Cocina</th>
+                  <th className="px-4 py-3 text-center">Ambos</th>
+                  <th className="px-4 py-3 text-center">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim/40">
+                {resumenBanderas.map(f => (
+                  <tr key={f.id} className="hover:bg-bg-accent/40">
+                    <td className="px-4 py-3 font-mono text-text-dim">{f.date}</td>
+                    <td className="px-4 py-3 font-black text-text-main uppercase">{f.branch}</td>
+                    <td className="px-4 py-3 font-bold text-text-main uppercase">{f.form}</td>
+                    <td className="px-4 py-3 font-bold text-text-dim uppercase">{f.user}</td>
+                    <td className="px-4 py-3 text-center font-black text-red-500">{f.soloEnc || '—'}</td>
+                    <td className="px-4 py-3 text-center font-black text-red-500">{f.soloCoc || '—'}</td>
+                    <td className="px-4 py-3 text-center font-black text-amber-500">{f.ambos || '—'}</td>
+                    <td className="px-4 py-3 text-center font-black text-text-main">{f.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[8px] font-bold uppercase text-text-dim opacity-70 leading-relaxed">
+            Para los premios: al Encargado le corresponden {totalesBanderas.soloEnc + totalesBanderas.ambos} banderas
+            (solo encargado + ambos) y al Jefe de Cocina {totalesBanderas.soloCoc + totalesBanderas.ambos} (solo cocina + ambos).
+            Las supervisiones anuladas no se cuentan. Las banderas cargadas antes de esta función figuran como "Ambos".
+          </p>
         </div>
       )}
 
