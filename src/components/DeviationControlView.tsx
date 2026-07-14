@@ -145,11 +145,28 @@ export default function DeviationControlView({
   const toggleItemSelected = (id: string) => {
     setSelectedItemIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
+  // Cuenta cuántas recetas usan estos insumos (se borrarían en cascada)
+  const contarRecetasAfectadas = async (itemIds: string[]): Promise<number> => {
+    try {
+      const { count } = await supabase
+        .from('recipes')
+        .select('*', { count: 'exact', head: true })
+        .in('item_id', itemIds);
+      return count || 0;
+    } catch { return 0; }
+  };
+
   const deleteSelectedItems = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     if (selectedItemIds.size === 0) return;
-    if (!window.confirm(`¿Eliminar ${selectedItemIds.size} insumo(s) seleccionado(s)? Esta acción no se puede deshacer.`)) return;
-    const { error } = await supabase.from('stock_items').delete().in('id', Array.from(selectedItemIds));
+    const ids: string[] = Array.from(selectedItemIds).map(x => String(x));
+    const nRecetas = await contarRecetasAfectadas(ids);
+    const aviso = nRecetas > 0
+      ? `⚠ ATENCIÓN: ${nRecetas} línea(s) de RECETAS usan estos insumos y SE BORRARÁN TAMBIÉN.\n\n`
+      : '';
+    if (!window.confirm(`${aviso}¿Eliminar ${selectedItemIds.size} insumo(s) seleccionado(s)? Esta acción no se puede deshacer.`)) return;
+    if (nRecetas > 0 && !window.confirm(`Confirmación final: se van a borrar ${nRecetas} línea(s) de recetas junto con los insumos. ¿Continuar?`)) return;
+    const { error } = await supabase.from('stock_items').delete().in('id', ids);
     if (error) { alert('Error al eliminar: ' + error.message); return; }
     setSelectedItemIds(new Set());
     await reloadItems();
@@ -157,9 +174,13 @@ export default function DeviationControlView({
   const deleteAllItems = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     if (items.length === 0) return;
-    if (!window.confirm(`¿Eliminar TODOS los ${items.length} insumos del maestro? Esta acción no se puede deshacer.`)) return;
-    if (!window.confirm('Confirmación final: se borrará el maestro de insumos completo. ¿Continuar?')) return;
-    const { error } = await supabase.from('stock_items').delete().in('id', items.map(i => i.id));
+    const nRecetas = await contarRecetasAfectadas((items as any[]).map((i: any) => String(i.id)));
+    const aviso = nRecetas > 0
+      ? `⚠ ATENCIÓN: al borrar los insumos, TODAS LAS RECETAS SE BORRAN TAMBIÉN.\n\nSe perderán ${nRecetas} línea(s) de recetas y NO se pueden recuperar.\n\nSi tu intención es reimportar el maestro: NO hace falta borrar. La importación ya actualiza los insumos existentes sin duplicarlos ni romper las recetas.\n\n`
+      : '';
+    if (!window.confirm(`${aviso}¿Eliminar TODOS los ${items.length} insumos del maestro? Esta acción no se puede deshacer.`)) return;
+    if (!window.confirm(`Confirmación final: se borrará el maestro de insumos completo${nRecetas > 0 ? ` Y ${nRecetas} línea(s) de recetas` : ''}. ¿Continuar?`)) return;
+    const { error } = await supabase.from('stock_items').delete().in('id', (items as any[]).map(i => i.id));
     if (error) { alert('Error al eliminar: ' + error.message); return; }
     setSelectedItemIds(new Set());
     await reloadItems();
@@ -569,7 +590,6 @@ export default function DeviationControlView({
 
         const columnasDetectadas = Object.keys(data[0] || {}).join(', ');
         const descartadas: string[] = [];
-
         const newItems = data.map((row: any, idx: number) => {
           const name = pickCol(row, 'Nombre', 'name', 'insumo', 'descripcion', 'descripción', 'detalle').toUpperCase();
           const unit = pickCol(row, 'Unidad', 'unit', 'u.m.', 'um', 'medida').toLowerCase();
@@ -594,12 +614,33 @@ export default function DeviationControlView({
         }
 
         // Confirmación antes de cargar
-        const dupCount = newItems.filter(ni => items.some((it: any) => String(it.name).toUpperCase() === ni.name)).length;
+        // Separar en NUEVOS y EXISTENTES (matcheando por código, o por nombre si no tiene código)
+        const norm = (s: any) => String(s || '').trim().toUpperCase();
+        const porCodigo = new Map<string, any>();
+        const porNombre = new Map<string, any>();
+        (items as any[]).forEach(it => {
+          if (it.code) porCodigo.set(norm(it.code), it);
+          porNombre.set(norm(it.name), it);
+        });
+
+        const aCrear: any[] = [];
+        const aActualizar: Array<{ id: string; data: any }> = [];
+        newItems.forEach(ni => {
+          const existente = (ni.code && porCodigo.get(norm(ni.code))) || porNombre.get(norm(ni.name));
+          if (existente) {
+            aActualizar.push({ id: existente.id, data: ni });
+          } else {
+            aCrear.push(ni);
+          }
+        });
+
         const resumen =
-          `Se van a importar ${newItems.length} insumos.\n\n` +
+          `Se van a procesar ${newItems.length} insumos:\n\n` +
+          `  • ${aCrear.length} NUEVOS (se crean)\n` +
+          `  • ${aActualizar.length} EXISTENTES (se actualizan sus datos)\n\n` +
           `Filas leídas del archivo: ${data.length}\n` +
           (descartadas.length > 0 ? `Filas descartadas (sin nombre o unidad): ${descartadas.length}\n` : '') +
-          (dupCount > 0 ? `⚠ ${dupCount} ya existen en el maestro con el mismo nombre (se cargarán igual, duplicados)\n` : '') +
+          `\nLos insumos existentes se ACTUALIZAN (no se duplican), así las recetas y el historial se mantienen.\n` +
           `\nEjemplos:\n` +
           newItems.slice(0, 3).map(i => `• ${i.name} (${i.unit})${i.cost ? ` - $${i.cost.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}`).join('\n') +
           (newItems.length > 3 ? `\n… y ${newItems.length - 3} más` : '') +
@@ -610,12 +651,25 @@ export default function DeviationControlView({
           return;
         }
 
-        const { error } = await supabase.from('stock_items').insert(newItems);
-        if (error) throw error;
+        // Crear los nuevos
+        if (aCrear.length > 0) {
+          const { error } = await supabase.from('stock_items').insert(aCrear);
+          if (error) throw error;
+        }
+        // Actualizar los existentes (mantiene el ID → no rompe recetas)
+        let fallosUpdate = 0;
+        for (const upd of aActualizar) {
+          const { error } = await supabase.from('stock_items').update(upd.data).eq('id', upd.id);
+          if (error) fallosUpdate++;
+        }
+
         await reloadItems();
         alert(
-          `✓ ${newItems.length} insumos importados correctamente.` +
-          (descartadas.length > 0 ? `\n\nSe descartaron ${descartadas.length} filas:\n${descartadas.slice(0, 5).join('\n')}${descartadas.length > 5 ? `\n… y ${descartadas.length - 5} más` : ''}` : '')
+          `✓ Importación completada.\n\n` +
+          `  • ${aCrear.length} insumos creados\n` +
+          `  • ${aActualizar.length - fallosUpdate} insumos actualizados\n` +
+          (fallosUpdate > 0 ? `  • ${fallosUpdate} no se pudieron actualizar\n` : '') +
+          (descartadas.length > 0 ? `\nSe descartaron ${descartadas.length} filas:\n${descartadas.slice(0, 5).join('\n')}${descartadas.length > 5 ? `\n… y ${descartadas.length - 5} más` : ''}` : '')
         );
       } catch (err: any) {
         alert('Error al importar insumos:\n\n' + (err.message || JSON.stringify(err)));
