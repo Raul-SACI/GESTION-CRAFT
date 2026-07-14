@@ -8,7 +8,8 @@ import {
   Calendar,
   Building2,
   BarChart3,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -28,7 +29,7 @@ interface AuditResult {
   };
 }
 
-export default function SupervisionsExecutionView({ branches, isReadOnly = false }: { branches: Branch[]; isReadOnly?: boolean }) {
+export default function SupervisionsExecutionView({ branches, isReadOnly = false, currentUserRole, currentUserName }: { branches: Branch[]; isReadOnly?: boolean; currentUserRole?: string; currentUserName?: string }) {
   const [templates, setTemplates] = useState<AuditTemplate[]>([]);
   const [dbResponses, setDbResponses] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<{ checklist_id: string; branch_id: string; frequency: string; start_date?: string | null }[]>([]);
@@ -159,7 +160,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       const days = freqDays[sch.frequency] || 7;
       // Última respuesta de ese formulario + sucursal
       const matching = dbResponses
-        .filter(r => r.branch_id === sch.branch_id && (r.checklist_id === sch.checklist_id))
+        .filter(r => !r.annulled && r.branch_id === sch.branch_id && (r.checklist_id === sch.checklist_id))
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       const last = matching[0];
       const templateName = templates.find(t => t.id === sch.checklist_id)?.name || 'Formulario';
@@ -217,7 +218,8 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
 
   // Compute live KPIs per branch based on database responses
   const getBranchAuditResult = (branchId: string): AuditResult => {
-    const lastResponse = dbResponses.find(r => r.branch_id === branchId);
+    // Las supervisiones ANULADAS no cuentan para banderas ni premios
+    const lastResponse = dbResponses.find(r => r.branch_id === branchId && !r.annulled);
     
     if (lastResponse) {
       const savedFlags = lastResponse.scores?.flags || { red: 0, yellow: 0, green: 0 };
@@ -247,6 +249,52 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
     const res = getBranchAuditResult(b.id);
     return res.status === 'completed' && res.flags.red === 0;
   }).length;
+
+  // --- ANULAR SUPERVISIONES (solo administración: impactan en los premios) ---
+  const puedeAnular = currentUserRole === 'administrador';
+
+  const anularSupervision = async (r: any) => {
+    if (!puedeAnular) { alert('Solo la administración puede anular supervisiones.'); return; }
+    const suc = branches.find(b => b.id === r.branch_id)?.name || 'la sucursal';
+    const rojas = r.scores?.flags?.red || 0;
+    const motivo = window.prompt(
+      `ANULAR SUPERVISIÓN\n\n` +
+      `Fecha: ${r.date}\n` +
+      `Sucursal: ${suc}\n` +
+      `Banderas rojas: ${rojas}\n\n` +
+      `La supervisión queda registrada pero NO cuenta para banderas ni premios.\n` +
+      (rojas > 0 ? `⚠ Esto va a modificar los premios de esta sucursal.\n\n` : '\n') +
+      `Escribí el motivo de la anulación:`
+    );
+    if (motivo === null) return;
+    if (!motivo.trim()) { alert('Tenés que indicar un motivo para anular.'); return; }
+    if (!window.confirm(`Confirmación final: ¿anular la supervisión del ${r.date} en ${suc}?`)) return;
+
+    const { error } = await supabase
+      .from('supervision_responses')
+      .update({
+        annulled: true,
+        annulled_by: currentUserName || 'ADMIN',
+        annulled_at: new Date().toISOString(),
+        annulled_reason: motivo.trim()
+      })
+      .eq('id', r.id);
+
+    if (error) { alert('No se pudo anular: ' + error.message); return; }
+    await loadData();
+    alert('Supervisión anulada. Ya no cuenta para banderas ni premios.');
+  };
+
+  const reactivarSupervision = async (r: any) => {
+    if (!puedeAnular) return;
+    if (!window.confirm(`¿Reactivar la supervisión del ${r.date}? Va a volver a contar para banderas y premios.`)) return;
+    const { error } = await supabase
+      .from('supervision_responses')
+      .update({ annulled: false, annulled_by: null, annulled_at: null, annulled_reason: null })
+      .eq('id', r.id);
+    if (error) { alert('No se pudo reactivar: ' + error.message); return; }
+    await loadData();
+  };
 
   const totalAmarillo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.yellow, 0);
   const totalRojo = filteredBranches.reduce((acc, b) => acc + getBranchAuditResult(b.id).flags.red, 0);
@@ -408,7 +456,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
 
   // Compile alerts based on live DB answers
   const liveAlerts = dbResponses
-    .filter(r => (r.scores?.flags?.red || 0) > 0)
+    .filter(r => !r.annulled && (r.scores?.flags?.red || 0) > 0)
     .slice(0, 3)
     .map(r => {
       const bObj = branches.find(b => b.id === r.branch_id);
@@ -524,6 +572,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                   <th className="px-4 py-3 text-center">🔴</th>
                   <th className="px-4 py-3 text-center">🟡</th>
                   <th className="px-4 py-3 text-center">🟢</th>
+                  {puedeAnular && <th className="px-4 py-3 text-center">Acción</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-dim/40">
@@ -533,18 +582,42 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                   const bName = branches.find(b => b.id === r.branch_id)?.name || r.branch_id;
                   const formName = r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name || '—';
                   const userName = r.scores?.supervisor?.name || '—';
+                  const anulada = !!r.annulled;
                   return (
-                    <tr key={r.id} className="hover:bg-bg-accent/40">
-                      <td className="px-4 py-3 font-mono text-text-dim">{r.date}</td>
-                      <td className="px-4 py-3 font-black text-text-main uppercase">{bName}</td>
-                      <td className="px-4 py-3 font-bold text-text-main uppercase">{formName}</td>
+                    <tr key={r.id} className={cn("hover:bg-bg-accent/40", anulada && "opacity-50")}>
+                      <td className="px-4 py-3 font-mono text-text-dim">
+                        {r.date}
+                        {anulada && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded text-[7px] font-black uppercase"
+                            title={`Anulada por ${r.annulled_by || '—'}${r.annulled_reason ? `: ${r.annulled_reason}` : ''}`}>
+                            Anulada
+                          </span>
+                        )}
+                      </td>
+                      <td className={cn("px-4 py-3 font-black text-text-main uppercase", anulada && "line-through")}>{bName}</td>
+                      <td className={cn("px-4 py-3 font-bold text-text-main uppercase", anulada && "line-through")}>{formName}</td>
                       <td className="px-4 py-3 font-bold text-text-dim uppercase">{userName}</td>
                       <td className="px-4 py-3 text-center">
-                        <span className={cn("font-black", score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500")}>{score.toFixed(1)}/10</span>
+                        <span className={cn("font-black", anulada ? "text-text-dim line-through" : score >= 8 ? "text-emerald-500" : score >= 6 ? "text-yellow-500" : "text-red-500")}>{score.toFixed(1)}/10</span>
                       </td>
-                      <td className="px-4 py-3 text-center font-black text-red-500">{flags.red || 0}</td>
-                      <td className="px-4 py-3 text-center font-black text-yellow-500">{flags.yellow || 0}</td>
-                      <td className="px-4 py-3 text-center font-black text-emerald-500">{flags.green || 0}</td>
+                      <td className={cn("px-4 py-3 text-center font-black", anulada ? "text-text-dim" : "text-red-500")}>{flags.red || 0}</td>
+                      <td className={cn("px-4 py-3 text-center font-black", anulada ? "text-text-dim" : "text-yellow-500")}>{flags.yellow || 0}</td>
+                      <td className={cn("px-4 py-3 text-center font-black", anulada ? "text-text-dim" : "text-emerald-500")}>{flags.green || 0}</td>
+                      {puedeAnular && (
+                        <td className="px-4 py-3 text-center">
+                          {anulada ? (
+                            <button onClick={() => reactivarSupervision(r)}
+                              className="text-[8px] font-black uppercase tracking-wider text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 rounded px-2 py-1">
+                              Reactivar
+                            </button>
+                          ) : (
+                            <button onClick={() => anularSupervision(r)}
+                              className="text-text-dim hover:text-red-500 transition-colors" title="Anular supervisión">
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

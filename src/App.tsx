@@ -1724,7 +1724,7 @@ function AppContent() {
               {activeTab === 'supervision_banderas' && <SupervisionFlagsView key="supervision_banderas" branches={branches} initialViewMode="admin" hideToggle={true} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} isReadOnly={isCurrentTabReadOnly} currentUserRole={currentUser.role} currentUserName={currentUser.name} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'control_agendas' && <SupervisorAgendaView key="control_agendas" branches={branches} mode="control" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'decomisos' && (
