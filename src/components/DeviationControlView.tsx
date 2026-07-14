@@ -506,6 +506,21 @@ export default function DeviationControlView({
     XLSX.writeFile(wb, filename);
   };
 
+  // Busca el valor de una columna probando varios nombres posibles (tolerante a mayúsculas/espacios/acentos)
+  const pickCol = (row: any, ...candidates: string[]): string => {
+    const norm = (s: string) => String(s).trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // saca acentos
+    const keys = Object.keys(row);
+    for (const cand of candidates) {
+      const target = norm(cand);
+      const hit = keys.find(k => norm(k) === target);
+      if (hit !== undefined && row[hit] !== undefined && row[hit] !== null && String(row[hit]).trim() !== '') {
+        return String(row[hit]).trim();
+      }
+    }
+    return '';
+  };
+
   const handleImportItems = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const file = e.target.files?.[0];
@@ -518,26 +533,70 @@ export default function DeviationControlView({
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data: any[] = XLSX.utils.sheet_to_json(ws);
 
-        const newItems = data.map((row: any) => ({
-          name: String(row.Nombre || row.name || '').toUpperCase(),
-          unit: String(row.Unidad || row.unit || '').toLowerCase(),
-          category: String(row.Categoria || row.Categoría || row.category || '').toUpperCase() || null,
-          code: String(row.Codigo || row.Código || row.code || '').toUpperCase() || null,
-          cost: parseFloat(row.Costo || row.cost || 0)
-        })).filter(i => i.name && i.unit);
-
-        if (newItems.length > 0) {
-          const { error } = await supabase.from('stock_items').insert(newItems);
-          if (error) throw error;
-          await reloadItems();
-          alert(`Éxito: ${newItems.length} insumos importados.`);
+        if (data.length === 0) {
+          alert('El archivo está vacío o no tiene filas de datos.\n\nRevisá que la primera fila sean los títulos de las columnas (Nombre, Unidad, Categoria, Codigo, Costo).');
+          setLoading(false);
+          return;
         }
+
+        const columnasDetectadas = Object.keys(data[0] || {}).join(', ');
+        const descartadas: string[] = [];
+
+        const newItems = data.map((row: any, idx: number) => {
+          const name = pickCol(row, 'Nombre', 'name', 'insumo', 'descripcion', 'descripción', 'detalle').toUpperCase();
+          const unit = pickCol(row, 'Unidad', 'unit', 'u.m.', 'um', 'medida').toLowerCase();
+          const category = pickCol(row, 'Categoria', 'Categoría', 'category', 'rubro').toUpperCase();
+          const code = pickCol(row, 'Codigo', 'Código', 'code', 'cod').toUpperCase();
+          const costRaw = pickCol(row, 'Costo', 'cost', 'precio', 'costo unitario');
+          const cost = parseFloat(String(costRaw).replace(/\$/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+          if (!name || !unit) descartadas.push(`Fila ${idx + 2}${name ? ` (${name})` : ''}: falta ${!name ? 'NOMBRE' : ''}${!name && !unit ? ' y ' : ''}${!unit ? 'UNIDAD' : ''}`);
+          return { name, unit, category: category || null, code: code || null, cost };
+        }).filter(i => i.name && i.unit);
+
+        // Nada válido para importar: explicar POR QUÉ
+        if (newItems.length === 0) {
+          alert(
+            `No se pudo importar ningún insumo.\n\n` +
+            `Filas leídas: ${data.length}\n` +
+            `Columnas encontradas en el archivo: ${columnasDetectadas || '(ninguna)'}\n\n` +
+            `El archivo debe tener al menos las columnas NOMBRE y UNIDAD.\n` +
+            `Descargá la "Planilla Modelo" para ver el formato correcto.`
+          );
+          setLoading(false);
+          return;
+        }
+
+        // Confirmación antes de cargar
+        const dupCount = newItems.filter(ni => items.some((it: any) => String(it.name).toUpperCase() === ni.name)).length;
+        const resumen =
+          `Se van a importar ${newItems.length} insumos.\n\n` +
+          `Filas leídas del archivo: ${data.length}\n` +
+          (descartadas.length > 0 ? `Filas descartadas (sin nombre o unidad): ${descartadas.length}\n` : '') +
+          (dupCount > 0 ? `⚠ ${dupCount} ya existen en el maestro con el mismo nombre (se cargarán igual, duplicados)\n` : '') +
+          `\nEjemplos:\n` +
+          newItems.slice(0, 3).map(i => `• ${i.name} (${i.unit})${i.cost ? ` - $${i.cost}` : ''}`).join('\n') +
+          (newItems.length > 3 ? `\n… y ${newItems.length - 3} más` : '') +
+          `\n\n¿Confirmás la importación?`;
+
+        if (!window.confirm(resumen)) {
+          setLoading(false);
+          return;
+        }
+
+        const { error } = await supabase.from('stock_items').insert(newItems);
+        if (error) throw error;
+        await reloadItems();
+        alert(
+          `✓ ${newItems.length} insumos importados correctamente.` +
+          (descartadas.length > 0 ? `\n\nSe descartaron ${descartadas.length} filas:\n${descartadas.slice(0, 5).join('\n')}${descartadas.length > 5 ? `\n… y ${descartadas.length - 5} más` : ''}` : '')
+        );
       } catch (err: any) {
-        alert('Error al importar insumos: ' + err.message);
+        alert('Error al importar insumos:\n\n' + (err.message || JSON.stringify(err)));
       } finally {
         setLoading(false);
+        e.target.value = ''; // permitir reimportar el mismo archivo
       }
     };
     reader.readAsBinaryString(file);
