@@ -29,6 +29,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [dayMode, setDayMode] = useState<'pedidas' | 'recibidas'>('pedidas');
+  const [modoComparacion, setModoComparacion] = useState<'mismos-dias' | 'mes-completo'>('mismos-dias');
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
@@ -225,14 +226,14 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   }, [month, fOrders]);
 
   const comparativoInsumos = useMemo(() => {
-    // Acumula pedidas/recibidas por insumo, solo hasta el día de corte
-    const acum = (ords: OrderRow[], its: ItemRow[]) => {
+    // Acumula pedidas/recibidas por insumo. Si modo='mismos-dias', solo hasta el día de corte.
+    const acum = (ords: OrderRow[], its: ItemRow[], limitarDias: boolean) => {
       const m: Record<string, { pedidas: number; recibidas: number }> = {};
       its.forEach(it => {
         const ord = ords.find(o => o.id === it.order_id);
         if (!ord) return;
         const dia = parseInt(ord.order_date.split('-')[2], 10);
-        if (dia > diaCorte) return; // solo mismos días transcurridos
+        if (limitarDias && dia > diaCorte) return;
         if (!m[it.item_name]) m[it.item_name] = { pedidas: 0, recibidas: 0 };
         m[it.item_name].pedidas += Number(it.quantity) || 0;
         if (ord.status === 'recibido') {
@@ -243,8 +244,10 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
       });
       return m;
     };
-    const cur = acum(fOrders, fItems);
-    const prv = acum(fPrevOrders, fPrevItems);
+    // El mes actual SIEMPRE se limita al día de corte (no hay datos futuros igual).
+    // El mes anterior se limita solo en modo 'mismos-dias'.
+    const cur = acum(fOrders, fItems, true);
+    const prv = acum(fPrevOrders, fPrevItems, modoComparacion === 'mismos-dias');
     const nombres = new Set([...Object.keys(cur), ...Object.keys(prv)]);
     const filas = Array.from(nombres).map(name => {
       const c = cur[name] || { pedidas: 0, recibidas: 0 };
@@ -255,16 +258,27 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
         pedidasActual: c.pedidas, pedidasPrev: p.pedidas,
         recibidasActual: c.recibidas, recibidasPrev: p.recibidas,
         varPedidas,
-        // Para ordenar: magnitud del cambio (los nuevos van arriba)
         magnitud: varPedidas === null ? Infinity : Math.abs(varPedidas)
       };
     });
     return filas.sort((a, b) => b.magnitud - a.magnitud);
-  }, [fOrders, fItems, fPrevOrders, fPrevItems, diaCorte]);
+  }, [fOrders, fItems, fPrevOrders, fPrevItems, diaCorte, modoComparacion]);
+
+  // ¿El mes anterior tiene pedidos en el rango comparado? (para avisar si no hay con qué comparar)
+  const prevSinDatosEnRango = useMemo(() => {
+    if (fPrevOrders.length === 0) return false; // no hay nada en todo el mes: otro caso
+    const enRango = fPrevOrders.filter(o => parseInt(o.order_date.split('-')[2], 10) <= diaCorte);
+    return enRango.length === 0;
+  }, [fPrevOrders, diaCorte]);
+
+  // Primer día con pedidos del mes anterior (para el mensaje de aviso)
+  const primerDiaPrev = useMemo(() => {
+    if (fPrevOrders.length === 0) return null;
+    return Math.min(...fPrevOrders.map(o => parseInt(o.order_date.split('-')[2], 10)));
+  }, [fPrevOrders]);
 
   const [showAllInsumos, setShowAllInsumos] = useState(false);
   const fmtQ = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
-
   // KPIs generales
   const kpis = useMemo(() => {
     const totalPedidos = fOrders.length;
@@ -532,13 +546,37 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
           <div className="bg-bg-card border border-border-dim rounded-xl p-5">
             <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
               <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Cantidades por insumo vs mes anterior</h3>
-              <span className="text-[9px] font-black uppercase bg-brand-500/10 text-brand-500 px-2 py-1 rounded">
-                Días 1 al {diaCorte} de ambos meses
-              </span>
+              <div className="flex items-center gap-1 bg-bg-accent/40 p-0.5 rounded-lg">
+                <button onClick={() => setModoComparacion('mismos-dias')}
+                  className={cn("px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all",
+                    modoComparacion === 'mismos-dias' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+                  Días 1 al {diaCorte}
+                </button>
+                <button onClick={() => setModoComparacion('mes-completo')}
+                  className={cn("px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all",
+                    modoComparacion === 'mes-completo' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+                  vs mes anterior completo
+                </button>
+              </div>
             </div>
             <p className="text-[8px] font-bold uppercase text-text-dim mb-3 opacity-70">
-              Comparación justa: solo los mismos días transcurridos. Ordenado por mayor variación.
+              {modoComparacion === 'mismos-dias'
+                ? `Comparación justa: días 1 al ${diaCorte} de ambos meses. Ordenado por mayor variación.`
+                : `Este mes (días 1 al ${diaCorte}) contra el mes anterior COMPLETO. Ojo: no son períodos equivalentes.`}
             </p>
+
+            {/* Aviso: el mes anterior no tiene pedidos en el rango comparado */}
+            {modoComparacion === 'mismos-dias' && prevSinDatosEnRango && (
+              <div className="mb-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex items-start gap-2">
+                <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-[9px] font-bold text-amber-600 uppercase leading-relaxed">
+                  El mes anterior no tiene pedidos en los días 1 al {diaCorte}
+                  {primerDiaPrev ? ` (los pedidos arrancaron el día ${primerDiaPrev})` : ''}.
+                  Por eso todos los insumos figuran como <span className="text-blue-500">NUEVO</span>: no hay con qué compararlos.
+                  Probá con <span className="text-text-main">"vs mes anterior completo"</span>.
+                </p>
+              </div>
+            )}
             {comparativoInsumos.length === 0 ? (
               <p className="text-[10px] text-text-dim uppercase font-bold text-center py-6">Sin datos para comparar.</p>
             ) : (
@@ -549,7 +587,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
                       <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
                         <th className="px-3 py-2">Insumo</th>
                         <th className="px-3 py-2 text-right">Pedidas (mes act.)</th>
-                        <th className="px-3 py-2 text-right">Pedidas (mes ant.)</th>
+                        <th className="px-3 py-2 text-right">Pedidas ({modoComparacion === 'mismos-dias' ? 'mes ant.' : 'mes ant. completo'})</th>
                         <th className="px-3 py-2 text-right">Variación</th>
                         <th className="px-3 py-2 text-right">Recibidas (act.)</th>
                         <th className="px-3 py-2 text-right">Recibidas (ant.)</th>
