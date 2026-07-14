@@ -139,35 +139,79 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const gastoMes = useMemo(() => {
     let total = 0;
     let sinPrecio = 0;
+    const diasConPedido = new Set<string>();
     fItems.forEach(it => {
       const ord = fOrders.find(o => o.id === it.order_id);
       const v = valorRecibido(it, ord);
       total += v;
+      if (ord && v > 0) diasConPedido.add(ord.delivery_date || ord.order_date);
       if (ord?.status === 'recibido' && it.received !== false && !(Number(it.unit_cost) > 0)) sinPrecio++;
     });
-    return { total, sinPrecio };
+    return { total, sinPrecio, dias: diasConPedido.size };
   }, [fItems, fOrders]);
 
   // Ventas netas del mes (misma sucursal / todas)
-  const ventasNetas = useMemo(() => {
-    const rows = branchFilter === 'all' ? sales : sales.filter(s => s.branch_id === branchFilter);
-    return rows.reduce((a, s) => a + (Number(s.net_sales) || 0), 0);
-  }, [sales, branchFilter]);
+  const ventasRows = useMemo(
+    () => branchFilter === 'all' ? sales : sales.filter(s => s.branch_id === branchFilter),
+    [sales, branchFilter]
+  );
+  const ventasNetas = useMemo(() => ventasRows.reduce((a, s) => a + (Number(s.net_sales) || 0), 0), [ventasRows]);
 
-  const pctSobreVentas = ventasNetas > 0 ? (gastoMes.total / ventasNetas) * 100 : null;
+  // Último día del mes con ventas cargadas (para recortar el gasto al mismo período)
+  const ultimoDiaConVentas = useMemo(() => {
+    if (ventasRows.length === 0) return 0;
+    return Math.max(...ventasRows.map(s => parseInt(String(s.date).slice(8, 10), 10)));
+  }, [ventasRows]);
 
-  // Gasto del mes ANTERIOR (mismos criterios)
-  const fPrevOrders = useMemo(() => branchFilter === 'all' ? prevOrders : prevOrders.filter(o => o.branch_id === branchFilter), [prevOrders, branchFilter]);
-  const fPrevOrderIds = useMemo(() => new Set(fPrevOrders.map(o => o.id)), [fPrevOrders]);
-  const fPrevItems = useMemo(() => prevItems.filter(i => fPrevOrderIds.has(i.order_id)), [prevItems, fPrevOrderIds]);
-  const gastoPrev = useMemo(() => {
+  // === % SOBRE VENTAS: mismo período en ambos lados ===
+  // Gasto recortado: solo pedidos ENTREGADOS hasta el último día con ventas
+  const gastoHastaVentas = useMemo(() => {
+    if (ultimoDiaConVentas === 0) return 0;
     let total = 0;
-    fPrevItems.forEach(it => {
-      const ord = fPrevOrders.find(o => o.id === it.order_id);
+    fItems.forEach(it => {
+      const ord = fOrders.find(o => o.id === it.order_id);
+      if (!ord) return;
+      const fecha = ord.delivery_date || ord.order_date; // fecha de entrada de la mercadería
+      const dia = parseInt(String(fecha).slice(8, 10), 10);
+      if (dia > ultimoDiaConVentas) return;
       total += valorRecibido(it, ord);
     });
     return total;
-  }, [fPrevItems, fPrevOrders]);
+  }, [fItems, fOrders, ultimoDiaConVentas]);
+
+  const pctSobreVentas = ventasNetas > 0 ? (gastoHastaVentas / ventasNetas) * 100 : null;
+
+  // === vs MES ANTERIOR: siempre misma cantidad de días en ambos meses ===
+  const fPrevOrders = useMemo(() => branchFilter === 'all' ? prevOrders : prevOrders.filter(o => o.branch_id === branchFilter), [prevOrders, branchFilter]);
+  const fPrevOrderIds = useMemo(() => new Set(fPrevOrders.map(o => o.id)), [fPrevOrders]);
+  const fPrevItems = useMemo(() => prevItems.filter(i => fPrevOrderIds.has(i.order_id)), [prevItems, fPrevOrderIds]);
+
+  // Gasto de un conjunto, limitado a los días 1..corte (por fecha de entrega)
+  const gastoHastaDia = (ords: OrderRow[], its: ItemRow[], corte: number) => {
+    let total = 0;
+    its.forEach(it => {
+      const ord = ords.find(o => o.id === it.order_id);
+      if (!ord) return;
+      const fecha = ord.delivery_date || ord.order_date;
+      const dia = parseInt(String(fecha).slice(8, 10), 10);
+      if (dia > corte) return;
+      total += valorRecibido(it, ord);
+    });
+    return total;
+  };
+
+  // Día de corte: hasta qué día comparamos (si es el mes en curso, hasta hoy)
+  const diaCorte = useMemo(() => {
+    const hoy = new Date();
+    const esMesActual = month === `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    if (esMesActual) return hoy.getDate();
+    const dias = fOrders.map(o => parseInt(o.order_date.split('-')[2], 10));
+    return dias.length > 0 ? Math.max(...dias) : 31;
+  }, [month, fOrders]);
+
+  // Comparativa justa: ambos meses hasta el mismo día
+  const gastoActualComparable = useMemo(() => gastoHastaDia(fOrders, fItems, diaCorte), [fOrders, fItems, diaCorte]);
+  const gastoPrev = useMemo(() => gastoHastaDia(fPrevOrders, fPrevItems, diaCorte), [fPrevOrders, fPrevItems, diaCorte]);
 
   // Comparativa por DÍA DE LA SEMANA (lunes vs lunes) en plata
   const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -215,16 +259,6 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const fmtM = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
   // === COMPARATIVO POR INSUMO: mismos días transcurridos ===
-  // Hasta qué día del mes tenemos pedidos cargados (si es el mes en curso, hasta hoy)
-  const diaCorte = useMemo(() => {
-    const hoy = new Date();
-    const esMesActual = month === `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
-    if (esMesActual) return hoy.getDate();
-    // Mes pasado: hasta el último día con pedidos cargados
-    const dias = fOrders.map(o => parseInt(o.order_date.split('-')[2], 10));
-    return dias.length > 0 ? Math.max(...dias) : 31;
-  }, [month, fOrders]);
-
   const comparativoInsumos = useMemo(() => {
     // Acumula pedidas/recibidas por insumo. Si modo='mismos-dias', solo hasta el día de corte.
     const acum = (ords: OrderRow[], its: ItemRow[], limitarDias: boolean) => {
@@ -474,10 +508,13 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
             <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Gasto en pedidos (sobre lo recibido)</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-bg-accent/30 rounded-lg p-4">
-                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Gastado este mes</p>
+                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Gastado este mes (total)</p>
                 <p className="text-xl font-mono font-black text-text-main">{fmtM(gastoMes.total)}</p>
+                <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">
+                  {gastoMes.dias} {gastoMes.dias === 1 ? 'día' : 'días'} con mercadería recibida
+                </p>
                 {gastoMes.sinPrecio > 0 && (
-                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-1">{gastoMes.sinPrecio} ítems recibidos sin precio cargado</p>
+                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-0.5">{gastoMes.sinPrecio} ítems recibidos sin precio cargado</p>
                 )}
               </div>
               <div className="bg-bg-accent/30 rounded-lg p-4">
@@ -489,21 +526,31 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
                 ) : (
                   <p className="text-xl font-mono font-black text-text-dim">—</p>
                 )}
-                <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Ventas netas: {fmtM(ventasNetas)}</p>
+                {ultimoDiaConVentas > 0 ? (
+                  <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1 leading-relaxed">
+                    Días 1 al {ultimoDiaConVentas} (donde hay ventas cargadas)<br />
+                    {fmtM(gastoHastaVentas)} sobre {fmtM(ventasNetas)}
+                  </p>
+                ) : (
+                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-1">Sin ventas cargadas este mes</p>
+                )}
               </div>
               <div className="bg-bg-accent/30 rounded-lg p-4">
                 <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">vs Mes anterior</p>
                 {gastoPrev > 0 ? (
                   <>
-                    <p className={cn("text-xl font-mono font-black", gastoMes.total > gastoPrev ? "text-red-500" : "text-emerald-500")}>
-                      {gastoMes.total >= gastoPrev ? '+' : ''}{(((gastoMes.total - gastoPrev) / gastoPrev) * 100).toFixed(1)}%
+                    <p className={cn("text-xl font-mono font-black", gastoActualComparable > gastoPrev ? "text-red-500" : "text-emerald-500")}>
+                      {gastoActualComparable >= gastoPrev ? '+' : ''}{(((gastoActualComparable - gastoPrev) / gastoPrev) * 100).toFixed(1)}%
                     </p>
-                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Mes anterior: {fmtM(gastoPrev)}</p>
+                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1 leading-relaxed">
+                      Días 1 al {diaCorte} de ambos meses<br />
+                      {fmtM(gastoActualComparable)} vs {fmtM(gastoPrev)}
+                    </p>
                   </>
                 ) : (
                   <>
                     <p className="text-xl font-mono font-black text-text-dim">—</p>
-                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Sin datos valorizados el mes anterior</p>
+                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Sin datos valorizados el mes anterior (días 1 al {diaCorte})</p>
                   </>
                 )}
               </div>
