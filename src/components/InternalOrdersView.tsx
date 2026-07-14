@@ -234,6 +234,7 @@ export default function InternalOrdersView({
       category: d.category || 'SIN CATEGORÍA',
       unit: d.unit || '',
       quantity: Number(d.quantity) || 0,
+      unitCost: Number(d.unit_cost) || 0,
       received: d.received ?? true,                       // por defecto se asume recibido
       receivedQty: d.received_qty != null ? Number(d.received_qty) : Number(d.quantity) || 0,
       receptionNote: d.reception_note || ''
@@ -262,14 +263,36 @@ export default function InternalOrdersView({
     if (!receivingOrder) return;
     setSavingReception(true);
     try {
+      // RED DE SEGURIDAD: si un ítem quedó sin precio (unit_cost = 0) pero el insumo SÍ tiene
+      // precio en el maestro, lo completamos al recibir. Evita que el gasto quede subestimado
+      // por pedidos creados cuando el maestro no tenía el precio cargado.
+      const norm = (s: string) => String(s || '').trim().toUpperCase();
+      const precioMaestro = new Map<string, number>();
+      (items || []).forEach((it: any) => {
+        const c = Number(it.cost) || 0;
+        if (c > 0) precioMaestro.set(norm(it.name), c);
+      });
+
+      let completados = 0;
+
       // Actualizar cada ítem con su estado de recepción
       for (const l of receptionLines) {
-        await supabase.from('internal_order_items').update({
+        const payload: any = {
           received: l.received,
           received_qty: l.received ? l.receivedQty : 0,
           reception_note: l.receptionNote || null
-        }).eq('id', l.id);
+        };
+        // Si no tiene precio congelado pero el maestro sí lo tiene, lo completamos
+        if (!(Number(l.unitCost) > 0)) {
+          const p = precioMaestro.get(norm(l.itemName));
+          if (p && p > 0) {
+            payload.unit_cost = p;
+            completados++;
+          }
+        }
+        await supabase.from('internal_order_items').update(payload).eq('id', l.id);
       }
+
       // Marcar el pedido como recibido
       const { error } = await supabase.from('internal_orders')
         .update({ status: 'recibido', received_at: new Date().toISOString() })
@@ -278,7 +301,10 @@ export default function InternalOrdersView({
       setReceivingOrder(null);
       setReceptionLines([]);
       await loadRecentOrders();
-      alert('Pedido marcado como recibido.');
+      alert(
+        'Pedido marcado como recibido.' +
+        (completados > 0 ? `\n\nSe completó el precio de ${completados} insumo(s) que no lo tenían, tomándolo del maestro.` : '')
+      );
     } catch (e: any) {
       alert('Error al guardar la recepción: ' + (e.message || e));
     } finally {
@@ -376,6 +402,18 @@ export default function InternalOrdersView({
     if (isSaturday) { alert('Los sábados no se cargan pedidos (el domingo no se trabaja en Almacén).'); return; }
     if (lines.length === 0) { alert('Agregá al menos un insumo al pedido.'); return; }
     if (lines.some(l => !l.quantity || l.quantity <= 0)) { alert('Todas las cantidades deben ser mayores a cero.'); return; }
+    // Aviso preventivo: insumos sin precio en el maestro (el pedido no se va a poder valorizar bien)
+    const sinPrecio = lines.filter(l => !(Number(l.unitCost) > 0));
+    if (sinPrecio.length > 0) {
+      const nombres = sinPrecio.slice(0, 5).map(l => `• ${l.itemName}`).join('\n');
+      const ok = window.confirm(
+        `Atención: ${sinPrecio.length} insumo(s) no tienen precio cargado en el maestro:\n\n` +
+        `${nombres}${sinPrecio.length > 5 ? `\n… y ${sinPrecio.length - 5} más` : ''}\n\n` +
+        `El pedido se puede generar igual, pero esos insumos no van a sumar al gasto hasta que cargues su precio en Maestros.\n\n` +
+        `¿Generar el pedido de todas formas?`
+      );
+      if (!ok) return;
+    }
 
     setSaving(true);
     try {
