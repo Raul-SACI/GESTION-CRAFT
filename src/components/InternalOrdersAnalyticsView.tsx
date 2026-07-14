@@ -213,6 +213,58 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
 
   const fmtM = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
+  // === COMPARATIVO POR INSUMO: mismos días transcurridos ===
+  // Hasta qué día del mes tenemos pedidos cargados (si es el mes en curso, hasta hoy)
+  const diaCorte = useMemo(() => {
+    const hoy = new Date();
+    const esMesActual = month === `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+    if (esMesActual) return hoy.getDate();
+    // Mes pasado: hasta el último día con pedidos cargados
+    const dias = fOrders.map(o => parseInt(o.order_date.split('-')[2], 10));
+    return dias.length > 0 ? Math.max(...dias) : 31;
+  }, [month, fOrders]);
+
+  const comparativoInsumos = useMemo(() => {
+    // Acumula pedidas/recibidas por insumo, solo hasta el día de corte
+    const acum = (ords: OrderRow[], its: ItemRow[]) => {
+      const m: Record<string, { pedidas: number; recibidas: number }> = {};
+      its.forEach(it => {
+        const ord = ords.find(o => o.id === it.order_id);
+        if (!ord) return;
+        const dia = parseInt(ord.order_date.split('-')[2], 10);
+        if (dia > diaCorte) return; // solo mismos días transcurridos
+        if (!m[it.item_name]) m[it.item_name] = { pedidas: 0, recibidas: 0 };
+        m[it.item_name].pedidas += Number(it.quantity) || 0;
+        if (ord.status === 'recibido') {
+          m[it.item_name].recibidas += it.received === false
+            ? 0
+            : (it.received_qty != null ? Number(it.received_qty) : Number(it.quantity) || 0);
+        }
+      });
+      return m;
+    };
+    const cur = acum(fOrders, fItems);
+    const prv = acum(fPrevOrders, fPrevItems);
+    const nombres = new Set([...Object.keys(cur), ...Object.keys(prv)]);
+    const filas = Array.from(nombres).map(name => {
+      const c = cur[name] || { pedidas: 0, recibidas: 0 };
+      const p = prv[name] || { pedidas: 0, recibidas: 0 };
+      const varPedidas = p.pedidas > 0 ? ((c.pedidas - p.pedidas) / p.pedidas) * 100 : (c.pedidas > 0 ? null : 0);
+      return {
+        name,
+        pedidasActual: c.pedidas, pedidasPrev: p.pedidas,
+        recibidasActual: c.recibidas, recibidasPrev: p.recibidas,
+        varPedidas,
+        // Para ordenar: magnitud del cambio (los nuevos van arriba)
+        magnitud: varPedidas === null ? Infinity : Math.abs(varPedidas)
+      };
+    });
+    return filas.sort((a, b) => b.magnitud - a.magnitud);
+  }, [fOrders, fItems, fPrevOrders, fPrevItems, diaCorte]);
+
+  const [showAllInsumos, setShowAllInsumos] = useState(false);
+  const fmtQ = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+
   // KPIs generales
   const kpis = useMemo(() => {
     const totalPedidos = fOrders.length;
@@ -474,6 +526,65 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          {/* Comparativo por insumo (mismos días transcurridos) */}
+          <div className="bg-bg-card border border-border-dim rounded-xl p-5">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Cantidades por insumo vs mes anterior</h3>
+              <span className="text-[9px] font-black uppercase bg-brand-500/10 text-brand-500 px-2 py-1 rounded">
+                Días 1 al {diaCorte} de ambos meses
+              </span>
+            </div>
+            <p className="text-[8px] font-bold uppercase text-text-dim mb-3 opacity-70">
+              Comparación justa: solo los mismos días transcurridos. Ordenado por mayor variación.
+            </p>
+            {comparativoInsumos.length === 0 ? (
+              <p className="text-[10px] text-text-dim uppercase font-bold text-center py-6">Sin datos para comparar.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                        <th className="px-3 py-2">Insumo</th>
+                        <th className="px-3 py-2 text-right">Pedidas (mes act.)</th>
+                        <th className="px-3 py-2 text-right">Pedidas (mes ant.)</th>
+                        <th className="px-3 py-2 text-right">Variación</th>
+                        <th className="px-3 py-2 text-right">Recibidas (act.)</th>
+                        <th className="px-3 py-2 text-right">Recibidas (ant.)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim">
+                      {(showAllInsumos ? comparativoInsumos : comparativoInsumos.slice(0, 20)).map(r => (
+                        <tr key={r.name} className="text-[10px] hover:bg-bg-accent/30">
+                          <td className="px-3 py-2 font-bold text-text-main uppercase">{r.name}</td>
+                          <td className="px-3 py-2 text-right font-mono font-black text-text-main">{fmtQ(r.pedidasActual)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-text-dim">{fmtQ(r.pedidasPrev)}</td>
+                          <td className="px-3 py-2 text-right font-mono font-black">
+                            {r.varPedidas === null
+                              ? <span className="text-blue-500 text-[9px]">NUEVO</span>
+                              : r.pedidasActual === 0 && r.pedidasPrev > 0
+                                ? <span className="text-text-dim text-[9px]">NO PEDIDO</span>
+                                : <span className={r.varPedidas >= 0 ? 'text-red-500' : 'text-emerald-500'}>
+                                    {r.varPedidas >= 0 ? '+' : ''}{r.varPedidas.toFixed(1)}%
+                                  </span>}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-text-main">{fmtQ(r.recibidasActual)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-text-dim">{fmtQ(r.recibidasPrev)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {comparativoInsumos.length > 20 && (
+                  <button onClick={() => setShowAllInsumos(v => !v)}
+                    className="mt-3 w-full text-[9px] font-black uppercase tracking-widest text-brand-500 hover:text-brand-600 py-2">
+                    {showAllInsumos ? 'Ver menos' : `Ver los ${comparativoInsumos.length} insumos`}
+                  </button>
+                )}
+              </>
+            )}
           </div>
 
           {/* Evolución por día de un insumo elegido */}
