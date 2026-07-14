@@ -48,7 +48,7 @@ export default function SupervisionFlagsView({
 
   // Supervisor Form State
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
-  const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string }>>({});
+  const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string; target?: 'encargado' | 'cocina' | 'ambos' }>>({});
   const [generalNotes, setGeneralNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -586,9 +586,20 @@ export default function SupervisionFlagsView({
         optionId: opt.id,
         text: opt.text,
         score: opt.score,
-        color: opt.color
+        color: opt.color,
+        // Las banderas rojas arrancan como "ambos"; el supervisor puede ajustarlo
+        target: opt.color === 'red' ? (prev[questionId]?.target || 'ambos') : undefined
       }
     }));
+  };
+
+  // Cambia a quién corresponde una bandera roja
+  const handleSetTarget = (questionId: string, target: 'encargado' | 'cocina' | 'ambos') => {
+    setAnswers(prev => {
+      const cur = prev[questionId];
+      if (!cur || cur.color !== 'red') return prev;
+      return { ...prev, [questionId]: { ...cur, target } };
+    });
   };
 
   const handleTextAnswerChange = (questionId: string, value: string) => {
@@ -621,12 +632,19 @@ export default function SupervisionFlagsView({
     let redCount = 0;
     let yellowCount = 0;
     let greenCount = 0;
+    let redEncargado = 0;
+    let redCocina = 0;
 
     nonTextQuestions.forEach(q => {
       const ans = answers[q.id];
       if (ans) {
         totalScore += ans.score;
-        if (ans.color === 'red') redCount++;
+        if (ans.color === 'red') {
+          redCount++;
+          const t = ans.target || 'ambos';
+          if (t === 'encargado' || t === 'ambos') redEncargado++;
+          if (t === 'cocina' || t === 'ambos') redCocina++;
+        }
         else if (ans.color === 'yellow') yellowCount++;
         else if (ans.color === 'green') greenCount++;
       }
@@ -645,7 +663,9 @@ export default function SupervisionFlagsView({
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
-          flags: { red: redCount, yellow: yellowCount, green: greenCount }
+          flags: { red: redCount, yellow: yellowCount, green: greenCount },
+          // Desglose de banderas rojas por responsable (para el cálculo de premios)
+          flags_by_target: { encargado: redEncargado, cocina: redCocina }
         },
         total_score: parseFloat(averageNormalizedScore.toFixed(2)),
         notes: generalNotes
@@ -1160,6 +1180,36 @@ export default function SupervisionFlagsView({
                                      </button>
                                    );
                                  })}
+                              </div>
+                            )}
+
+                            {/* Selector de responsable: solo si la respuesta es BANDERA ROJA */}
+                            {answers[q.id]?.color === 'red' && (
+                              <div className="mt-3 bg-red-500/5 border border-red-500/30 rounded-lg p-3">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-red-500 mb-2 flex items-center gap-1.5">
+                                  <Flag size={11} /> ¿A quién corresponde esta bandera roja?
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                  {([
+                                    { id: 'encargado', label: 'Encargado' },
+                                    { id: 'cocina', label: 'Jefe de Cocina' },
+                                    { id: 'ambos', label: 'Ambos' },
+                                  ] as const).map(t => {
+                                    const sel = (answers[q.id]?.target || 'ambos') === t.id;
+                                    return (
+                                      <button key={t.id} type="button"
+                                        onClick={() => handleSetTarget(q.id, t.id)}
+                                        className={cn(
+                                          "px-2 py-2 rounded-md border text-[9px] font-black uppercase tracking-wider transition-all",
+                                          sel
+                                            ? "bg-red-500 border-red-500 text-white"
+                                            : "bg-bg-sidebar border-border-dim text-text-dim hover:border-red-500/50"
+                                        )}>
+                                        {t.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             )}
                          </div>
