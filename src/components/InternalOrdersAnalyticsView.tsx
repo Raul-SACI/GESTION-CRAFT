@@ -30,6 +30,7 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [dayMode, setDayMode] = useState<'pedidas' | 'recibidas'>('pedidas');
   const [modoComparacion, setModoComparacion] = useState<'mismos-dias' | 'mes-completo'>('mismos-dias');
+  const [showSinPrecio, setShowSinPrecio] = useState(false);
 
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
 
@@ -138,16 +139,26 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
 
   const gastoMes = useMemo(() => {
     let total = 0;
-    let sinPrecio = 0;
+    const sinPrecioMap: Record<string, { veces: number; cantidad: number }> = {};
     const diasConPedido = new Set<string>();
     fItems.forEach(it => {
       const ord = fOrders.find(o => o.id === it.order_id);
       const v = valorRecibido(it, ord);
       total += v;
       if (ord && v > 0) diasConPedido.add(ord.delivery_date || ord.order_date);
-      if (ord?.status === 'recibido' && it.received !== false && !(Number(it.unit_cost) > 0)) sinPrecio++;
+      // Ítem recibido pero sin precio congelado: no suma al gasto (lo subestima)
+      if (ord?.status === 'recibido' && it.received !== false && !(Number(it.unit_cost) > 0)) {
+        const qty = it.received_qty != null ? Number(it.received_qty) : Number(it.quantity) || 0;
+        if (!sinPrecioMap[it.item_name]) sinPrecioMap[it.item_name] = { veces: 0, cantidad: 0 };
+        sinPrecioMap[it.item_name].veces++;
+        sinPrecioMap[it.item_name].cantidad += qty;
+      }
     });
-    return { total, sinPrecio, dias: diasConPedido.size };
+    const sinPrecioLista = Object.entries(sinPrecioMap)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.cantidad - a.cantidad);
+    const sinPrecio = Object.values(sinPrecioMap).reduce((a, v) => a + v.veces, 0);
+    return { total, sinPrecio, sinPrecioLista, dias: diasConPedido.size };
   }, [fItems, fOrders]);
 
   // Ventas netas del mes (misma sucursal / todas)
@@ -514,7 +525,10 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
                   {gastoMes.dias} {gastoMes.dias === 1 ? 'día' : 'días'} con mercadería recibida
                 </p>
                 {gastoMes.sinPrecio > 0 && (
-                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-0.5">{gastoMes.sinPrecio} ítems recibidos sin precio cargado</p>
+                  <button onClick={() => setShowSinPrecio(true)}
+                    className="text-[7px] font-black uppercase text-amber-500 mt-0.5 hover:text-amber-400 underline decoration-dotted text-left">
+                    {gastoMes.sinPrecio} ítems recibidos sin precio cargado · Ver cuáles
+                  </button>
                 )}
               </div>
               <div className="bg-bg-accent/30 rounded-lg p-4">
@@ -788,6 +802,60 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
             </div>
           </div>
         </>
+      )}
+
+      {/* Modal: insumos recibidos SIN precio */}
+      {showSinPrecio && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowSinPrecio(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase text-text-main tracking-wider flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-amber-500" /> Insumos recibidos sin precio
+                </h3>
+                <p className="text-[9px] font-bold uppercase text-text-dim mt-1">
+                  Estos ítems no suman al gasto. El total real es mayor al que ves.
+                </p>
+              </div>
+              <button onClick={() => setShowSinPrecio(false)} className="text-text-dim hover:text-text-main text-lg">✕</button>
+            </div>
+            <div className="p-5 overflow-y-auto custom-scrollbar">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-4">
+                <p className="text-[9px] font-bold text-amber-600 uppercase leading-relaxed">
+                  Causa habitual: el insumo no tiene costo cargado en el Maestro, o su nombre no coincide con el del maestro.
+                  Cargá el costo en <span className="text-text-main">Maestros → Insumos</span> para que los próximos pedidos se valoricen.
+                </p>
+              </div>
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                    <th className="px-3 py-2">Insumo</th>
+                    <th className="px-3 py-2 text-right">Cant. recibida</th>
+                    <th className="px-3 py-2 text-right">Veces</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim">
+                  {gastoMes.sinPrecioLista.map(r => (
+                    <tr key={r.name} className="text-[10px]">
+                      <td className="px-3 py-2 font-bold text-text-main uppercase">{r.name}</td>
+                      <td className="px-3 py-2 text-right font-mono font-black text-text-main">{fmtQ(r.cantidad)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-text-dim">{r.veces}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 border-t border-border-dim flex items-center justify-between">
+              <span className="text-[9px] font-black uppercase text-text-dim">
+                {gastoMes.sinPrecioLista.length} insumos distintos · {gastoMes.sinPrecio} ítems
+              </span>
+              <button onClick={() => setShowSinPrecio(false)}
+                className="bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600">
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
