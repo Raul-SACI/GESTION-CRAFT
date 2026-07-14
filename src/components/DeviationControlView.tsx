@@ -506,19 +506,45 @@ export default function DeviationControlView({
     XLSX.writeFile(wb, filename);
   };
 
-  // Busca el valor de una columna probando varios nombres posibles (tolerante a mayúsculas/espacios/acentos)
-  const pickCol = (row: any, ...candidates: string[]): string => {
+  // Devuelve el valor CRUDO de una columna (puede ser number o string), probando varios nombres
+  const pickRaw = (row: any, ...candidates: string[]): any => {
     const norm = (s: string) => String(s).trim().toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, ''); // saca acentos
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const keys = Object.keys(row);
     for (const cand of candidates) {
       const target = norm(cand);
       const hit = keys.find(k => norm(k) === target);
       if (hit !== undefined && row[hit] !== undefined && row[hit] !== null && String(row[hit]).trim() !== '') {
-        return String(row[hit]).trim();
+        return row[hit];
       }
     }
-    return '';
+    return undefined;
+  };
+
+  // Convierte a número respetando el formato: si ya es number, se usa tal cual.
+  // Si es texto, interpreta formato argentino ("1.931,40") o inglés ("1931.40").
+  const parseCost = (raw: any): number => {
+    if (raw === undefined || raw === null || raw === '') return 0;
+    if (typeof raw === 'number') return raw; // Excel ya lo entregó como número: NO tocar
+    let s = String(raw).trim().replace(/\$/g, '').replace(/\s/g, '');
+    const tieneComa = s.includes(',');
+    const tienePunto = s.includes('.');
+    if (tieneComa && tienePunto) {
+      // "1.931,40" -> el último separador es el decimal
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if (tieneComa) {
+      s = s.replace(',', '.'); // "1931,40"
+    }
+    // Si solo tiene punto, se asume decimal ("1931.40") y se deja como está
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  };
+
+  // Busca el valor de una columna probando varios nombres posibles (tolerante a mayúsculas/espacios/acentos)
+  const pickCol = (row: any, ...candidates: string[]): string => {
+    const v = pickRaw(row, ...candidates);
+    return v === undefined ? '' : String(v).trim();
   };
 
   const handleImportItems = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -549,8 +575,7 @@ export default function DeviationControlView({
           const unit = pickCol(row, 'Unidad', 'unit', 'u.m.', 'um', 'medida').toLowerCase();
           const category = pickCol(row, 'Categoria', 'Categoría', 'category', 'rubro').toUpperCase();
           const code = pickCol(row, 'Codigo', 'Código', 'code', 'cod').toUpperCase();
-          const costRaw = pickCol(row, 'Costo', 'cost', 'precio', 'costo unitario');
-          const cost = parseFloat(String(costRaw).replace(/\$/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+          const cost = parseCost(pickRaw(row, 'Costo', 'cost', 'precio', 'costo unitario'));
           if (!name || !unit) descartadas.push(`Fila ${idx + 2}${name ? ` (${name})` : ''}: falta ${!name ? 'NOMBRE' : ''}${!name && !unit ? ' y ' : ''}${!unit ? 'UNIDAD' : ''}`);
           return { name, unit, category: category || null, code: code || null, cost };
         }).filter(i => i.name && i.unit);
@@ -576,7 +601,7 @@ export default function DeviationControlView({
           (descartadas.length > 0 ? `Filas descartadas (sin nombre o unidad): ${descartadas.length}\n` : '') +
           (dupCount > 0 ? `⚠ ${dupCount} ya existen en el maestro con el mismo nombre (se cargarán igual, duplicados)\n` : '') +
           `\nEjemplos:\n` +
-          newItems.slice(0, 3).map(i => `• ${i.name} (${i.unit})${i.cost ? ` - $${i.cost}` : ''}`).join('\n') +
+          newItems.slice(0, 3).map(i => `• ${i.name} (${i.unit})${i.cost ? ` - $${i.cost.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''}`).join('\n') +
           (newItems.length > 3 ? `\n… y ${newItems.length - 3} más` : '') +
           `\n\n¿Confirmás la importación?`;
 
