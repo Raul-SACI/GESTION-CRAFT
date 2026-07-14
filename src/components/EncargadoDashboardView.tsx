@@ -946,6 +946,22 @@ export default function EncargadoDashboardView({
         }
 
         const tier = getAchievedTier(v, currentValue);
+
+        // Escala de objetivos ordenada (del más fácil al más exigente) para mostrarla al usuario
+        const tiersOrdenados = (v.tiers || [])
+          .map((t: any) => ({ threshold: Number(t.threshold) || 0, prize: Number(t.prize) || 0 }))
+          .sort((a: any, b: any) => v.isLowerBetter ? b.threshold - a.threshold : a.threshold - b.threshold);
+
+        // Próximo escalón que NO se alcanzó (el objetivo a perseguir)
+        const proximo = tiersOrdenados.find((t: any) =>
+          v.isLowerBetter ? currentValue > t.threshold : currentValue < t.threshold
+        ) || null;
+
+        // Cuánto falta para alcanzarlo
+        const falta = proximo
+          ? (v.isLowerBetter ? currentValue - proximo.threshold : proximo.threshold - currentValue)
+          : 0;
+
         return {
           variableId: v.id,
           variableName: v.name,
@@ -953,6 +969,10 @@ export default function EncargadoDashboardView({
           unit: v.unit,
           achievedTier: tier,
           prize: tier ? tier.prize : 0,
+          isLowerBetter: !!v.isLowerBetter,
+          tiersOrdenados,
+          proximo,
+          falta,
           targetText: v.tiers ? v.tiers.map((t: any) => `${v.isLowerBetter ? '<=': '>='} ${t.threshold}${v.unit} ($${t.prize.toLocaleString()})`).join(' | ') : 'Sin escala'
         };
       });
@@ -1460,15 +1480,56 @@ export default function EncargadoDashboardView({
                     {role !== 'segundo_cocina' && breakdown.variablesStatus && breakdown.variablesStatus.length > 0 && (
                       <div className="space-y-1 pl-1 bg-bg-accent/40 rounded p-2.5">
                         <p className="text-[7.5px] font-black text-text-dim uppercase tracking-wider mb-1">Desglose de Objetivos:</p>
-                        {breakdown.variablesStatus.map((v: any) => (
-                          <div key={v.variableId} className="flex justify-between text-[8px] leading-relaxed uppercase">
-                            <span className="text-text-dim font-bold truncate max-w-[130px]">{v.variableName}:</span>
-                            <span className="font-mono flex items-center gap-1">
-                              <span className="text-text-main font-black">{v.currentValue?.toFixed(1)}{v.unit}</span>
-                              <span className="text-text-dim italic">({v.achievedTier ? `+$${v.achievedTier.prize.toLocaleString()}` : '$0'})</span>
-                            </span>
-                          </div>
-                        ))}
+                        {breakdown.variablesStatus.map((v: any) => {
+                          // Formato legible según la magnitud (las ventas son millones)
+                          const fmtVal = (n: number) => {
+                            if (Math.abs(n) >= 1000000) return `$${(n / 1000000).toFixed(1)}M`;
+                            if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(0)}k`;
+                            return `${n.toFixed(1)}${v.unit || ''}`;
+                          };
+                          const esPlata = String(v.unit || '').includes('$') || String(v.variableName).toLowerCase().includes('venta');
+                          const mostrar = (n: number) => esPlata ? fmtVal(n) : `${n.toFixed(1)}${v.unit || ''}`;
+                          return (
+                            <div key={v.variableId} className="border-b border-border-dim/20 last:border-none pb-1 last:pb-0">
+                              <div className="flex justify-between text-[8px] leading-relaxed uppercase">
+                                <span className="text-text-dim font-bold truncate max-w-[130px]">{v.variableName}:</span>
+                                <span className="font-mono flex items-center gap-1">
+                                  <span className="text-text-main font-black">{mostrar(v.currentValue || 0)}</span>
+                                  <span className={cn("italic font-bold", v.achievedTier ? "text-emerald-600" : "text-text-dim")}>
+                                    ({v.achievedTier ? `+$${v.achievedTier.prize.toLocaleString('es-AR')}` : '$0'})
+                                  </span>
+                                </span>
+                              </div>
+                              {/* Escala de objetivos: cuál se alcanzó y cuál es el próximo */}
+                              {v.tiersOrdenados && v.tiersOrdenados.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-0.5 pl-1">
+                                  {v.tiersOrdenados.map((t: any, i: number) => {
+                                    const alcanzado = v.achievedTier && t.threshold === v.achievedTier.threshold;
+                                    const esProximo = v.proximo && t.threshold === v.proximo.threshold;
+                                    return (
+                                      <span key={i} className={cn(
+                                        "text-[7px] font-mono font-bold px-1 py-0.5 rounded border",
+                                        alcanzado
+                                          ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-600"
+                                          : esProximo
+                                            ? "bg-amber-500/10 border-amber-500/40 text-amber-600"
+                                            : "bg-bg-sidebar border-border-dim text-text-dim opacity-60"
+                                      )}>
+                                        {v.isLowerBetter ? '≤' : '≥'}{mostrar(t.threshold)} = ${t.prize.toLocaleString('es-AR')}
+                                        {alcanzado && ' ✓'}
+                                      </span>
+                                    );
+                                  })}
+                                  {v.proximo && (
+                                    <span className="text-[7px] font-bold uppercase text-amber-600 px-1 py-0.5">
+                                      Falta {mostrar(Math.abs(v.falta))}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
 
                         {/* Penalty rows - always show so encargado knows cost per flag */}
                         <div className={`flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 font-extrabold ${breakdown.totalPenaltyVal > 0 ? 'text-red-400' : 'text-text-dim'}`}>
