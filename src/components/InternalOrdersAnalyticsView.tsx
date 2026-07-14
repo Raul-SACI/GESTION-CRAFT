@@ -6,11 +6,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, BarChart3, Loader2, Calendar, Package, TrendingUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { cn } from '@/src/lib/utils';
 
 interface Props { branches: Branch[]; onBack: () => void; }
 interface OrderRow { id: string; branch_id: string; order_type: string; order_date: string; delivery_date: string; status?: string; }
-interface ItemRow { order_id: string; item_name: string; category: string | null; quantity: number; received: boolean | null; received_qty: number | null; }
+interface ItemRow { order_id: string; item_name: string; category: string | null; quantity: number; received: boolean | null; received_qty: number | null; unit_cost: number | null; }
+interface SaleRow { branch_id: string; date: string; net_sales: number | null; }
 
 const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const monthLabel = (m: string) => { const [y, mm] = m.split('-'); return `${meses[parseInt(mm,10)-1]} ${y}`; };
@@ -21,6 +23,9 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const [branchFilter, setBranchFilter] = useState('all');
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [items, setItems] = useState<ItemRow[]>([]);
+  const [prevOrders, setPrevOrders] = useState<OrderRow[]>([]);
+  const [prevItems, setPrevItems] = useState<ItemRow[]>([]);
+  const [sales, setSales] = useState<SaleRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState<string>('');
   const [dayMode, setDayMode] = useState<'pedidas' | 'recibidas'>('pedidas');
@@ -30,51 +35,88 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   useEffect(() => {
     setLoading(true);
     (async () => {
-      const start = `${month}-01`;
-      const [y, m] = month.split('-').map(Number);
-      const end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
-      // Pedidos del mes (por fecha de pedido) - paginado por robustez
-      const ords: OrderRow[] = [];
-      let fromO = 0;
-      const PAGE_O = 1000;
-      while (true) {
-        const { data: ordersData, error } = await supabase
-          .from('internal_orders')
-          .select('id, branch_id, order_type, order_date, delivery_date, status')
-          .gte('order_date', start).lte('order_date', end)
-          .range(fromO, fromO + PAGE_O - 1);
-        if (error || !ordersData || ordersData.length === 0) break;
-        ords.push(...(ordersData as OrderRow[]));
-        if (ordersData.length < PAGE_O) break;
-        fromO += PAGE_O;
-      }
-      setOrders(ords);
-      // Items de esos pedidos (paginado para superar el límite de 1000 filas de Supabase)
-      if (ords.length > 0) {
-        const ids = ords.map(o => o.id);
-        const allItems: ItemRow[] = [];
-        const CHUNK = 200; // pedir por lotes de order_ids para no armar un IN gigante
-        for (let c = 0; c < ids.length; c += CHUNK) {
-          const idsChunk = ids.slice(c, c + CHUNK);
-          let from = 0;
-          const PAGE = 1000;
-          // paginar dentro de cada lote por si un lote supera 1000 items
-          while (true) {
-            const { data: itemsData, error } = await supabase
-              .from('internal_order_items')
-              .select('order_id, item_name, category, quantity, received, received_qty')
-              .in('order_id', idsChunk)
-              .range(from, from + PAGE - 1);
-            if (error || !itemsData || itemsData.length === 0) break;
-            allItems.push(...(itemsData as ItemRow[]));
-            if (itemsData.length < PAGE) break;
-            from += PAGE;
+      const rangoDe = (ym: string) => {
+        const [yy, mm] = ym.split('-').map(Number);
+        return { start: `${ym}-01`, end: `${ym}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}` };
+      };
+      const prevMonthOf = (ym: string) => {
+        const [yy, mm] = ym.split('-').map(Number);
+        const d = new Date(yy, mm - 2, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      // Trae pedidos + items de un mes (paginado)
+      const fetchMes = async (ym: string): Promise<{ ords: OrderRow[]; its: ItemRow[] }> => {
+        const { start, end } = rangoDe(ym);
+        const ords: OrderRow[] = [];
+        let fromO = 0;
+        const PAGE_O = 1000;
+        while (true) {
+          const { data, error } = await supabase
+            .from('internal_orders')
+            .select('id, branch_id, order_type, order_date, delivery_date, status')
+            .gte('order_date', start).lte('order_date', end)
+            .range(fromO, fromO + PAGE_O - 1);
+          if (error || !data || data.length === 0) break;
+          ords.push(...(data as OrderRow[]));
+          if (data.length < PAGE_O) break;
+          fromO += PAGE_O;
+        }
+        const its: ItemRow[] = [];
+        if (ords.length > 0) {
+          const ids = ords.map(o => o.id);
+          const CHUNK = 200;
+          for (let c = 0; c < ids.length; c += CHUNK) {
+            const idsChunk = ids.slice(c, c + CHUNK);
+            let from = 0;
+            const PAGE = 1000;
+            while (true) {
+              const { data, error } = await supabase
+                .from('internal_order_items')
+                .select('order_id, item_name, category, quantity, received, received_qty, unit_cost')
+                .in('order_id', idsChunk)
+                .range(from, from + PAGE - 1);
+              if (error || !data || data.length === 0) break;
+              its.push(...(data as ItemRow[]));
+              if (data.length < PAGE) break;
+              from += PAGE;
+            }
           }
         }
-        setItems(allItems);
-      } else {
-        setItems([]);
-      }
+        return { ords, its };
+      };
+
+      // Trae ventas netas de un mes por sucursal y fecha
+      const fetchVentas = async (ym: string): Promise<SaleRow[]> => {
+        const { start, end } = rangoDe(ym);
+        const all: SaleRow[] = [];
+        let page = 0;
+        while (page < 50) {
+          const { data, error } = await supabase
+            .from('sales_tickets')
+            .select('branch_id, date, net_sales')
+            .gte('date', start).lte('date', end)
+            .range(page * 1000, (page + 1) * 1000 - 1);
+          if (error || !data || data.length === 0) break;
+          all.push(...(data as SaleRow[]));
+          if (data.length < 1000) break;
+          page++;
+        }
+        return all;
+      };
+
+      const prevM = prevMonthOf(month);
+      const [cur, prev, ventasCur] = await Promise.all([
+        fetchMes(month),
+        fetchMes(prevM),
+        fetchVentas(month)
+      ]);
+
+      setOrders(cur.ords);
+      setItems(cur.its);
+      setPrevOrders(prev.ords);
+      setPrevItems(prev.its);
+      setSales(ventasCur);
       setLoading(false);
     })();
   }, [month]);
@@ -83,6 +125,93 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
   const fOrders = useMemo(() => branchFilter === 'all' ? orders : orders.filter(o => o.branch_id === branchFilter), [orders, branchFilter]);
   const fOrderIds = useMemo(() => new Set(fOrders.map(o => o.id)), [fOrders]);
   const fItems = useMemo(() => items.filter(i => fOrderIds.has(i.order_id)), [items, fOrderIds]);
+
+  // === PLATA GASTADA (sobre lo RECIBIDO) ===
+  // Valor recibido de un item: precio congelado × cantidad efectivamente recibida
+  const valorRecibido = (it: ItemRow, ord?: OrderRow) => {
+    if (!ord || ord.status !== 'recibido') return 0;
+    if (it.received === false) return 0;
+    const qty = it.received_qty != null ? Number(it.received_qty) : Number(it.quantity);
+    return (Number(it.unit_cost) || 0) * (qty || 0);
+  };
+
+  const gastoMes = useMemo(() => {
+    let total = 0;
+    let sinPrecio = 0;
+    fItems.forEach(it => {
+      const ord = fOrders.find(o => o.id === it.order_id);
+      const v = valorRecibido(it, ord);
+      total += v;
+      if (ord?.status === 'recibido' && it.received !== false && !(Number(it.unit_cost) > 0)) sinPrecio++;
+    });
+    return { total, sinPrecio };
+  }, [fItems, fOrders]);
+
+  // Ventas netas del mes (misma sucursal / todas)
+  const ventasNetas = useMemo(() => {
+    const rows = branchFilter === 'all' ? sales : sales.filter(s => s.branch_id === branchFilter);
+    return rows.reduce((a, s) => a + (Number(s.net_sales) || 0), 0);
+  }, [sales, branchFilter]);
+
+  const pctSobreVentas = ventasNetas > 0 ? (gastoMes.total / ventasNetas) * 100 : null;
+
+  // Gasto del mes ANTERIOR (mismos criterios)
+  const fPrevOrders = useMemo(() => branchFilter === 'all' ? prevOrders : prevOrders.filter(o => o.branch_id === branchFilter), [prevOrders, branchFilter]);
+  const fPrevOrderIds = useMemo(() => new Set(fPrevOrders.map(o => o.id)), [fPrevOrders]);
+  const fPrevItems = useMemo(() => prevItems.filter(i => fPrevOrderIds.has(i.order_id)), [prevItems, fPrevOrderIds]);
+  const gastoPrev = useMemo(() => {
+    let total = 0;
+    fPrevItems.forEach(it => {
+      const ord = fPrevOrders.find(o => o.id === it.order_id);
+      total += valorRecibido(it, ord);
+    });
+    return total;
+  }, [fPrevItems, fPrevOrders]);
+
+  // Comparativa por DÍA DE LA SEMANA (lunes vs lunes) en plata
+  const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const porDiaSemana = useMemo(() => {
+    const acum = (ords: OrderRow[], its: ItemRow[]) => {
+      const m: number[] = [0, 0, 0, 0, 0, 0, 0];
+      its.forEach(it => {
+        const ord = ords.find(o => o.id === it.order_id);
+        if (!ord) return;
+        const v = valorRecibido(it, ord);
+        if (v === 0) return;
+        const [yy, mm, dd] = ord.order_date.split('-').map(Number);
+        const dow = new Date(yy, mm - 1, dd).getDay();
+        m[dow] += v;
+      });
+      return m;
+    };
+    const cur = acum(fOrders, fItems);
+    const prv = acum(fPrevOrders, fPrevItems);
+    // Ordenar Lunes→Domingo
+    const orden = [1, 2, 3, 4, 5, 6, 0];
+    return orden.map(d => ({ dia: DIAS[d].slice(0, 3), actual: cur[d], anterior: prv[d] }));
+  }, [fOrders, fItems, fPrevOrders, fPrevItems]);
+
+  // Comparativa por SEMANA del mes en plata
+  const porSemana = useMemo(() => {
+    const acum = (ords: OrderRow[], its: ItemRow[]) => {
+      const m: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      its.forEach(it => {
+        const ord = ords.find(o => o.id === it.order_id);
+        if (!ord) return;
+        const v = valorRecibido(it, ord);
+        if (v === 0) return;
+        const dia = parseInt(ord.order_date.split('-')[2], 10);
+        const wk = dia <= 7 ? 1 : dia <= 14 ? 2 : dia <= 21 ? 3 : 4;
+        m[wk] += v;
+      });
+      return m;
+    };
+    const cur = acum(fOrders, fItems);
+    const prv = acum(fPrevOrders, fPrevItems);
+    return [1, 2, 3, 4].map(w => ({ semana: `Sem ${w}`, actual: cur[w], anterior: prv[w] }));
+  }, [fOrders, fItems, fPrevOrders, fPrevItems]);
+
+  const fmtM = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
   // KPIs generales
   const kpis = useMemo(() => {
@@ -271,6 +400,79 @@ export default function InternalOrdersAnalyticsView({ branches, onBack }: Props)
               <div className="flex items-center gap-1.5 mb-1"><TrendingUp size={12} className="text-brand-500" /><p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Cumplimiento</p></div>
               <p className="text-2xl font-mono font-black text-text-main">{kpis.cumplimiento != null ? `${fmt(kpis.cumplimiento)}%` : '—'}</p>
               <p className="text-[8px] font-bold text-text-dim mt-0.5">recibido vs pedido</p>
+            </div>
+          </div>
+
+          {/* === PLATA GASTADA EN PEDIDOS === */}
+          <div className="bg-bg-card border border-border-dim rounded-xl p-5">
+            <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Gasto en pedidos (sobre lo recibido)</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">Gastado este mes</p>
+                <p className="text-xl font-mono font-black text-text-main">{fmtM(gastoMes.total)}</p>
+                {gastoMes.sinPrecio > 0 && (
+                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-1">{gastoMes.sinPrecio} ítems recibidos sin precio cargado</p>
+                )}
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">% sobre ventas netas</p>
+                {pctSobreVentas !== null ? (
+                  <p className={cn("text-xl font-mono font-black", pctSobreVentas > 40 ? "text-red-500" : pctSobreVentas > 30 ? "text-amber-500" : "text-emerald-500")}>
+                    {pctSobreVentas.toFixed(1)}%
+                  </p>
+                ) : (
+                  <p className="text-xl font-mono font-black text-text-dim">—</p>
+                )}
+                <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Ventas netas: {fmtM(ventasNetas)}</p>
+              </div>
+              <div className="bg-bg-accent/30 rounded-lg p-4">
+                <p className="text-[8px] font-black uppercase tracking-widest text-text-dim">vs Mes anterior</p>
+                {gastoPrev > 0 ? (
+                  <>
+                    <p className={cn("text-xl font-mono font-black", gastoMes.total > gastoPrev ? "text-red-500" : "text-emerald-500")}>
+                      {gastoMes.total >= gastoPrev ? '+' : ''}{(((gastoMes.total - gastoPrev) / gastoPrev) * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Mes anterior: {fmtM(gastoPrev)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xl font-mono font-black text-text-dim">—</p>
+                    <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1">Sin datos valorizados el mes anterior</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Comparativas contra el mes anterior (en plata) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-bg-card border border-border-dim rounded-xl p-5">
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Gasto por día de la semana</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={porDiaSemana}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
+                  <XAxis dataKey="dia" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v: any) => fmtM(Number(v))} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar dataKey="anterior" name="Mes anterior" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual" name="Este mes" fill="#e31e24" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="bg-bg-card border border-border-dim rounded-xl p-5">
+              <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest mb-3">Gasto por semana del mes</h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={porSemana}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
+                  <XAxis dataKey="semana" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip formatter={(v: any) => fmtM(Number(v))} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar dataKey="anterior" name="Mes anterior" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="actual" name="Este mes" fill="#e31e24" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
