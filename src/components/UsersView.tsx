@@ -270,13 +270,20 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
         return;
       }
 
+      // En multi_branch, branch_id (singular) = la PRIMERA sucursal de la lista.
+      // Antes quedaba en null (porque el nombre combinado no matcheaba ninguna sucursal),
+      // y eso dejaba al usuario sin sucursal efectiva en los módulos que usan branch_id.
+      const branchIdFinal = scope === 'multi_branch'
+        ? ((userForm.branchIds && userForm.branchIds[0]) || null)
+        : finalBranchId;
+
       if (userForm.id) {
         // --- EDITAR: solo actualiza el perfil ---
         const payload: any = {
           name: userForm.name.toUpperCase(),
           role: userForm.role,
           branch_name: finalBranch,
-          branch_id: finalBranchId,
+          branch_id: branchIdFinal,
           branch_ids: finalBranchIds,
           can_see_payments: userForm.canSeePayments,
           can_valorizar_inventory: userForm.canValorizarInventory,
@@ -312,7 +319,7 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
               name: userForm.name.trim(),
               role: userForm.role,
               branch_name: finalBranch,
-              branch_id: finalBranchId,
+              branch_id: branchIdFinal,
             }),
           }
         );
@@ -320,6 +327,17 @@ export default function UsersView({ selectedBranchId, branches, onUsersChanged, 
         const result = await response.json();
         if (!response.ok || result.error) {
           throw new Error(result.error || 'Error al crear el usuario en Auth.');
+        }
+
+        // La función de alta no recibe branch_ids ni los permisos: los completamos acá.
+        // Sin esto, un usuario multi_branch quedaba sin su lista de sucursales.
+        const nuevoId = result?.user?.id || result?.id;
+        if (nuevoId) {
+          await supabase.from('profiles').update({
+            branch_ids: finalBranchIds,
+            can_see_payments: userForm.canSeePayments,
+            can_valorizar_inventory: userForm.canValorizarInventory,
+          }).eq('id', nuevoId);
         }
       }
 
