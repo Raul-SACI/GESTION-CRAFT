@@ -299,6 +299,57 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
   // --- RESUMEN: BANDERAS ROJAS POR RESPONSABLE ---
   const [flagsMonth, setFlagsMonth] = useState<string>('all');
   const [flagsBranch, setFlagsBranch] = useState<string>('all');
+  const [expandedFlag, setExpandedFlag] = useState<string | null>(null);
+  const [savingTarget, setSavingTarget] = useState<string | null>(null);
+
+  // Devuelve el detalle de las banderas rojas de una supervisión, con el texto de la pregunta
+  const detalleBanderas = (r: any) => {
+    const answers = r.scores?.answers || {};
+    const tpl = templates.find(t => t.id === r.checklist_id);
+    return Object.entries(answers)
+      .filter(([, a]: any) => a?.color === 'red')
+      .map(([qid, a]: any) => {
+        const q = tpl?.questions.find(qq => qq.id === qid);
+        return {
+          qid,
+          pregunta: q?.text || '(pregunta no encontrada — la plantilla pudo cambiar)',
+          categoria: q?.category || '',
+          target: a?.target || null // null = nunca se asignó
+        };
+      });
+  };
+
+  // Guarda el responsable de UNA bandera puntual de una supervisión ya cargada
+  const asignarResponsable = async (r: any, qid: string, target: 'encargado' | 'cocina' | 'ambos') => {
+    if (!puedeAnular) { alert('Solo la administración puede reasignar banderas.'); return; }
+    setSavingTarget(`${r.id}_${qid}`);
+    try {
+      const scores = JSON.parse(JSON.stringify(r.scores || {}));
+      if (!scores.answers?.[qid]) throw new Error('No se encontró la respuesta.');
+      scores.answers[qid].target = target;
+
+      // Recalcular el desglose por responsable con TODAS las respuestas
+      let enc = 0, coc = 0;
+      (Object.values(scores.answers) as any[]).forEach(a => {
+        if (a?.color !== 'red') return;
+        const t = a?.target || 'ambos';
+        if (t === 'encargado' || t === 'ambos') enc++;
+        if (t === 'cocina' || t === 'ambos') coc++;
+      });
+      scores.flags_by_target = { encargado: enc, cocina: coc };
+
+      const { error } = await supabase
+        .from('supervision_responses')
+        .update({ scores })
+        .eq('id', r.id);
+      if (error) throw error;
+      await loadData();
+    } catch (e: any) {
+      alert('No se pudo guardar: ' + (e.message || e));
+    } finally {
+      setSavingTarget(null);
+    }
+  };
 
   // Cuenta las banderas rojas de una supervisión, separadas por responsable.
   // Se cuenta desde las respuestas (cada una tiene su target), no desde el total.
@@ -678,25 +729,91 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                       No hay banderas rojas para el filtro seleccionado.
                     </td>
                   </tr>
-                ) : resumenBanderas.map(f => (
-                  <tr key={f.id} className="hover:bg-bg-accent/40">
-                    <td className="px-4 py-3 font-mono text-text-dim">{f.date}</td>
-                    <td className="px-4 py-3 font-black text-text-main uppercase">{f.branch}</td>
-                    <td className="px-4 py-3 font-bold text-text-main uppercase">{f.form}</td>
-                    <td className="px-4 py-3 font-bold text-text-dim uppercase">{f.user}</td>
-                    <td className="px-4 py-3 text-center font-black text-red-500">{f.soloEnc || '—'}</td>
-                    <td className="px-4 py-3 text-center font-black text-red-500">{f.soloCoc || '—'}</td>
-                    <td className="px-4 py-3 text-center font-black text-amber-500">{f.ambos || '—'}</td>
-                    <td className="px-4 py-3 text-center font-black text-text-main">{f.total}</td>
-                  </tr>
-                ))}
+                ) : resumenBanderas.map(f => {
+                  const resp = dbResponses.find(x => x.id === f.id);
+                  const isExp = expandedFlag === f.id;
+                  const sinAsignar = resp ? detalleBanderas(resp).filter(d => !d.target).length : 0;
+                  return (
+                  <React.Fragment key={f.id}>
+                    <tr className={cn("hover:bg-bg-accent/40", puedeAnular && "cursor-pointer")}
+                      onClick={() => puedeAnular && setExpandedFlag(isExp ? null : f.id)}>
+                      <td className="px-4 py-3 font-mono text-text-dim">
+                        {puedeAnular && <span className="mr-1.5 text-brand-500">{isExp ? '▾' : '▸'}</span>}
+                        {f.date}
+                      </td>
+                      <td className="px-4 py-3 font-black text-text-main uppercase">{f.branch}</td>
+                      <td className="px-4 py-3 font-bold text-text-main uppercase">
+                        {f.form}
+                        {sinAsignar > 0 && puedeAnular && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-amber-500/10 text-amber-500 border border-amber-500/30 rounded text-[7px] font-black">
+                            {sinAsignar} sin asignar
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-text-dim uppercase">{f.user}</td>
+                      <td className="px-4 py-3 text-center font-black text-red-500">{f.soloEnc || '—'}</td>
+                      <td className="px-4 py-3 text-center font-black text-red-500">{f.soloCoc || '—'}</td>
+                      <td className="px-4 py-3 text-center font-black text-amber-500">{f.ambos || '—'}</td>
+                      <td className="px-4 py-3 text-center font-black text-text-main">{f.total}</td>
+                    </tr>
+                    {isExp && resp && (
+                      <tr className="bg-bg-accent/20">
+                        <td colSpan={8} className="px-4 py-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-text-dim mb-2">
+                            Asignar responsable de cada bandera roja
+                          </p>
+                          <div className="space-y-2">
+                            {detalleBanderas(resp).map(d => {
+                              const guardando = savingTarget === `${resp.id}_${d.qid}`;
+                              return (
+                                <div key={d.qid} className="flex items-center justify-between gap-3 bg-bg-card border border-border-dim rounded-lg p-2.5 flex-wrap">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[10px] font-bold text-text-main uppercase">{d.pregunta}</p>
+                                    {d.categoria && <p className="text-[8px] font-bold text-text-dim uppercase">{d.categoria}</p>}
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {([
+                                      { id: 'encargado', label: 'Encargado' },
+                                      { id: 'cocina', label: 'Jefe Cocina' },
+                                      { id: 'ambos', label: 'Ambos' },
+                                    ] as const).map(t => {
+                                      const sel = d.target === t.id;
+                                      return (
+                                        <button key={t.id} type="button" disabled={guardando}
+                                          onClick={(e) => { e.stopPropagation(); asignarResponsable(resp, d.qid, t.id); }}
+                                          className={cn(
+                                            "px-2.5 py-1.5 rounded border text-[8px] font-black uppercase tracking-wider transition-all",
+                                            sel
+                                              ? "bg-red-500 border-red-500 text-white"
+                                              : "bg-bg-sidebar border-border-dim text-text-dim hover:border-red-500/50",
+                                            guardando && "opacity-50 cursor-wait"
+                                          )}>
+                                          {t.label}
+                                        </button>
+                                      );
+                                    })}
+                                    {!d.target && (
+                                      <span className="ml-1 text-[8px] font-black uppercase text-amber-500">Sin asignar</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
           <p className="text-[8px] font-bold uppercase text-text-dim opacity-70 leading-relaxed">
             Para los premios: al Encargado le corresponden {totalesBanderas.soloEnc + totalesBanderas.ambos} banderas
             (solo encargado + ambos) y al Jefe de Cocina {totalesBanderas.soloCoc + totalesBanderas.ambos} (solo cocina + ambos).
-            Las supervisiones anuladas no se cuentan. Las banderas cargadas antes de esta función figuran como "Ambos".
+            Las supervisiones anuladas no se cuentan.
+            {puedeAnular && ' Hacé clic en una fila para asignar el responsable de cada bandera. Las que nunca se asignaron cuentan como "Ambos" hasta que las edites.'}
           </p>
         </div>
       )}
