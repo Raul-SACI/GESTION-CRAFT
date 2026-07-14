@@ -23,6 +23,7 @@ import {
   Users, 
   Briefcase, 
   AlertTriangle, 
+  Pencil,
   Percent, 
   ShieldAlert, 
   RefreshCw,
@@ -99,6 +100,8 @@ export default function EncargadoDashboardView({
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
+  // Ajustes manuales de premio (excepciones cargadas por administración)
+  const [prizeAdjustments, setPrizeAdjustments] = useState<Record<string, { id: string; amount: number; reason: string; created_by?: string }>>({});
   const [weeklyHoursLogs, setWeeklyHoursLogs] = useState<Record<string, any[]>>({});
   // Semanas (1-4) cuyas horas ya fueron validadas/guardadas por RRHH (tabla hr_hour_logs)
   const [rrhhValidatedWeeks, setRrhhValidatedWeeks] = useState<number[]>([]);
@@ -814,10 +817,70 @@ export default function EncargadoDashboardView({
     ];
   }, [selectedBranchId, selectedMonth]);
 
-  const activeConfigs = useMemo(() => {
-    // Only use real configs from DB - never show generated/fake data to encargados
+  const activeConfigs = useMemo(() => {    // Only use real configs from DB - never show generated/fake data to encargados
     return performanceConfigs;
   }, [performanceConfigs]);
+
+  // --- AJUSTES MANUALES DE PREMIO (excepciones: horas autorizadas, reemplazos, etc.) ---
+  const esAdmin = String((currentUser as any)?.role || '').toLowerCase() === 'administrador';
+
+  const cargarAjustes = async () => {
+    if (!selectedBranchId || selectedBranchId === 'all') { setPrizeAdjustments({}); return; }
+    const { data } = await supabase
+      .from('performance_adjustments')
+      .select('id, role, amount, reason, created_by')
+      .eq('branch_id', selectedBranchId)
+      .eq('month', selectedMonth);
+    const map: Record<string, any> = {};
+    (data || []).forEach((a: any) => { map[a.role] = { id: a.id, amount: Number(a.amount) || 0, reason: a.reason, created_by: a.created_by }; });
+    setPrizeAdjustments(map);
+  };
+  useEffect(() => { cargarAjustes(); }, [selectedBranchId, selectedMonth]);
+
+  const guardarAjuste = async (role: string, roleLabel: string) => {
+    if (!esAdmin) { alert('Solo la administración puede ajustar premios.'); return; }
+    const actual = prizeAdjustments[role];
+    const montoStr = window.prompt(
+      `AJUSTE DE PREMIO · ${roleLabel}\n\n` +
+      `Sucursal: ${activeBranch?.name || selectedBranchId} · Mes: ${selectedMonth}\n\n` +
+      `Ingresá el monto del ajuste (positivo suma, negativo resta).\n` +
+      `Ej: 45000 para devolver un descuento indebido.\n` +
+      `Dejalo en 0 para eliminar el ajuste.`,
+      actual ? String(actual.amount) : '0'
+    );
+    if (montoStr === null) return;
+    const monto = parseFloat(String(montoStr).replace(/\./g, '').replace(',', '.'));
+    if (isNaN(monto)) { alert('El monto no es válido.'); return; }
+
+    if (monto === 0) {
+      if (actual) {
+        await supabase.from('performance_adjustments').delete().eq('id', actual.id);
+        await cargarAjustes();
+        alert('Ajuste eliminado.');
+      }
+      return;
+    }
+
+    const motivo = window.prompt(
+      `Motivo del ajuste (obligatorio):\n\nEj: "Horas autorizadas por reemplazo del jefe de cocina en vacaciones"`,
+      actual?.reason || ''
+    );
+    if (motivo === null) return;
+    if (!motivo.trim()) { alert('Tenés que indicar un motivo.'); return; }
+
+    const { error } = await supabase.from('performance_adjustments').upsert({
+      branch_id: selectedBranchId,
+      month: selectedMonth,
+      role,
+      amount: monto,
+      reason: motivo.trim(),
+      created_by: (currentUser as any)?.name || 'ADMIN'
+    }, { onConflict: 'branch_id,month,role' });
+
+    if (error) { alert('No se pudo guardar: ' + error.message); return; }
+    await cargarAjustes();
+    alert(`Ajuste guardado: ${monto >= 0 ? '+' : ''}$${monto.toLocaleString('es-AR')}`);
+  };
 
   const calculatedPrizesBreakdown = useMemo(() => {
     const result: Record<string, any> = {};
@@ -900,6 +963,11 @@ export default function EncargadoDashboardView({
         finalCalculatedPrize = Math.round(chefFinal * 0.8);
       }
 
+      // Ajuste manual cargado por administración (excepciones)
+      const ajuste = prizeAdjustments[role];
+      const ajusteMonto = ajuste ? Number(ajuste.amount) || 0 : 0;
+      finalCalculatedPrize = Math.max(0, finalCalculatedPrize + ajusteMonto);
+
       result[role] = {
         roleLabel: role === 'encargado' ? 'Premio Encargado' : role === 'jefe_cocina' ? 'Premio Jefe de Cocina' : 'Premio Segundo de Cocina (80%)',
         salesGoal,
@@ -907,13 +975,16 @@ export default function EncargadoDashboardView({
         totalPenaltyVal,
         rawPrizesTotal,
         finalCalculatedPrize,
+        ajusteMonto,
+        ajusteMotivo: ajuste?.reason || '',
+        ajustePor: ajuste?.created_by || '',
         variablesStatus,
         isMatched
       };
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, averageStockDeviation, hoursDeviationPct]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, averageStockDeviation, hoursDeviationPct, prizeAdjustments]);
 
   return (
     <motion.div 
@@ -1344,12 +1415,38 @@ export default function EncargadoDashboardView({
                           <span className="block text-[8px] text-text-dim uppercase">80% correspondiente al Jefe</span>
                         )}
                       </div>
-                      <div className="text-right font-mono">
+                      <div className="text-right font-mono flex items-center gap-2">
                         <span className="text-xl font-black text-text-main">
                           ${breakdown.finalCalculatedPrize.toLocaleString()}
                         </span>
+                        {esAdmin && (
+                          <button onClick={() => guardarAjuste(role, breakdown.roleLabel)}
+                            className="text-text-dim hover:text-brand-500 transition-colors"
+                            title="Ajustar premio (excepciones)">
+                            <Pencil size={12} />
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {/* Ajuste manual cargado por administración */}
+                    {breakdown.ajusteMonto !== 0 && (
+                      <div className={cn(
+                        "border rounded px-2 py-1.5",
+                        breakdown.ajusteMonto > 0 ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] font-black uppercase text-text-dim">Ajuste de administración</span>
+                          <span className={cn("text-[10px] font-mono font-black", breakdown.ajusteMonto > 0 ? "text-emerald-500" : "text-red-500")}>
+                            {breakdown.ajusteMonto > 0 ? '+' : ''}${breakdown.ajusteMonto.toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                        <p className="text-[8px] font-bold text-text-main mt-0.5 leading-tight">{breakdown.ajusteMotivo}</p>
+                        {breakdown.ajustePor && (
+                          <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-0.5">Cargado por {breakdown.ajustePor}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Show breakdown of target items (only for primary configurations) */}
                     {role !== 'segundo_cocina' && breakdown.variablesStatus && breakdown.variablesStatus.length > 0 && (
