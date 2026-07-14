@@ -687,24 +687,30 @@ export default function EncargadoDashboardView({
   }, [itemDeviations]);
 
   // Desvío de horas vs presupuesto (%)
+  // REGLAS:
+  //  1. Solo cuentan los EXCESOS (gastar de menos no es desvío; los ahorros no compensan excesos).
+  //  2. Los puestos de ENCARGADO quedan EXCLUIDOS (tienen vía libre para hacer las horas que necesiten).
+  //  3. Se mide puesto por puesto, no en el total global.
   const hoursDeviationPct = useMemo(() => {
-    let totalPlanned = 0;
-    let totalActual = 0;
-    if (hourBudgetRows && weeklyHoursLogs) {
-      hourBudgetRows.forEach((row: any) => {
-        totalPlanned += (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0);
-      });
-      Object.values(weeklyHoursLogs).forEach((weekLogs: any) => {
-        if (Array.isArray(weekLogs)) {
-          weekLogs.forEach((log: any) => {
-            totalActual += Number(log.hours_actual ?? log.hours_rrhh ?? log.hoursRrhh ?? log.hoursActual ?? 0);
-          });
-        }
-      });
-    }
-    if (totalPlanned === 0) return 0;
-    return Math.abs(((totalActual - totalPlanned) / totalPlanned) * 100);
-  }, [hourBudgetRows, weeklyHoursLogs]);
+    const esEncargado = (nombre: string) => {
+      const n = String(nombre || '').toUpperCase();
+      return n.includes('ENCARGADO');
+    };
+
+    let excesoTotal = 0;      // suma de horas de más (solo los puestos que se pasaron)
+    let presupuestoBase = 0;  // presupuesto de los puestos que SÍ cuentan
+
+    positionHoursBreakdown.forEach(p => {
+      if (esEncargado(p.positionName)) return;   // el encargado no computa
+      if (!p.budgeted || p.budgeted <= 0) return; // sin presupuesto no hay desvío medible
+      presupuestoBase += p.budgeted;
+      const exceso = p.worked - p.budgeted;
+      if (exceso > 0) excesoTotal += exceso;      // los ahorros se ignoran
+    });
+
+    if (presupuestoBase === 0) return 0;
+    return (excesoTotal / presupuestoBase) * 100;
+  }, [positionHoursBreakdown]);
 
   // PRIZE CALCULATION LOGIC PERFECT FOR EXTRACTION
   const getAchievedTier = (variable: any, actualValue: number) => {
@@ -1085,6 +1091,21 @@ export default function EncargadoDashboardView({
             </span>
           </div>
           <p className="text-[8px] text-text-dim uppercase font-bold mt-1.5">Desvío vs Presupuesto ideal en el mes</p>
+          {/* El desvío que afecta los PREMIOS se calcula distinto: solo excesos, sin encargados */}
+          <div className="mt-2 pt-2 border-t border-border-dim/40">
+            <div className="flex items-center justify-between">
+              <span className="text-[7px] font-black uppercase tracking-wider text-text-dim">Para premios</span>
+              <span className={cn(
+                "text-[10px] font-mono font-black",
+                hoursDeviationPct === 0 ? "text-emerald-500" : hoursDeviationPct > 5 ? "text-red-500" : "text-amber-500"
+              )}>
+                {hoursDeviationPct.toFixed(1)}%
+              </span>
+            </div>
+            <p className="text-[7px] text-text-dim uppercase font-bold mt-0.5 leading-tight opacity-70">
+              Solo excesos por puesto · Encargados excluidos
+            </p>
+          </div>
         </div>
 
         {/* Supervision Flag Penalties Column */}
