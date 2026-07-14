@@ -28,6 +28,7 @@ interface OrderLine {
   category: string;
   unit: string;
   quantity: number;
+  unitCost?: number;
   observations: string;
   received?: boolean;
   receivedQty?: number | null;
@@ -293,9 +294,14 @@ export default function InternalOrdersView({
       category: item.category || 'SIN CATEGORÍA',
       unit: item.unit || '',
       quantity: 1,
+      unitCost: Number((item as any).cost) || 0,
       observations: ''
     }]);
   };
+
+  // Total valorizado del pedido en curso
+  const orderTotal = lines.reduce((acc, l) => acc + (Number(l.unitCost) || 0) * (Number(l.quantity) || 0), 0);
+  const fmtMoney = (n: number) => '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const updateLine = (itemId: string, field: 'quantity' | 'observations', value: any) => {
     setLines(prev => prev.map(l => l.itemId === itemId ? { ...l, [field]: value } : l));
@@ -396,6 +402,7 @@ export default function InternalOrdersView({
         category: l.category,
         unit: l.unit,
         quantity: l.quantity,
+        unit_cost: Number(l.unitCost) || 0,
         observations: l.observations || null
       }));
       const { error: itemsErr } = await supabase.from('internal_order_items').insert(itemsToInsert);
@@ -594,7 +601,12 @@ export default function InternalOrdersView({
                   <p className="text-[10px] font-black text-text-main uppercase">
                     {item.code ? <span className="text-brand-500 mr-1">{item.code}</span> : ''}{item.name}
                   </p>
-                  <p className="text-[8px] text-text-dim font-bold uppercase">{item.category || 'SIN CATEGORÍA'} · {item.unit}</p>
+                  <p className="text-[8px] text-text-dim font-bold uppercase">
+                    {item.category || 'SIN CATEGORÍA'} · {item.unit}
+                    {Number((item as any).cost) > 0 && (
+                      <span className="text-emerald-600 ml-1">· {fmtMoney(Number((item as any).cost))}/{item.unit}</span>
+                    )}
+                  </p>
                 </div>
                 <Plus size={14} className="text-text-dim group-hover:text-brand-500" />
               </button>
@@ -616,11 +628,23 @@ export default function InternalOrdersView({
                     <p className="text-[10px] font-black text-text-main uppercase">
                       {l.code ? <span className="text-brand-500 mr-1">{l.code}</span> : ''}{l.itemName}
                     </p>
-                    <p className="text-[8px] text-text-dim font-bold uppercase">{l.category} · {l.unit}</p>
+                    <p className="text-[8px] text-text-dim font-bold uppercase">
+                      {l.category} · {l.unit}
+                      {Number(l.unitCost) > 0
+                        ? <span className="text-emerald-600 ml-1">· {fmtMoney(Number(l.unitCost))}/{l.unit}</span>
+                        : <span className="text-amber-500 ml-1">· sin precio en maestro</span>}
+                    </p>
                   </div>
-                  <button onClick={() => removeLine(l.itemId)} className="p-1.5 text-text-dim hover:text-red-500 transition-colors">
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {Number(l.unitCost) > 0 && Number(l.quantity) > 0 && (
+                      <span className="text-[10px] font-mono font-black text-text-main">
+                        {fmtMoney(Number(l.unitCost) * Number(l.quantity))}
+                      </span>
+                    )}
+                    <button onClick={() => removeLine(l.itemId)} className="p-1.5 text-text-dim hover:text-red-500 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <div className="w-24">
@@ -648,6 +672,18 @@ export default function InternalOrdersView({
               <p className="text-[9px] text-text-dim italic uppercase text-center py-8">Agregá insumos desde la columna izquierda.</p>
             )}
           </div>
+
+          {lines.length > 0 && (
+            <div className="bg-brand-500/10 border border-brand-500/30 rounded-lg px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-[9px] font-black uppercase text-text-dim tracking-widest">Total del pedido</p>
+                {lines.some(l => !Number(l.unitCost)) && (
+                  <p className="text-[7px] font-bold uppercase text-amber-500 mt-0.5">Hay insumos sin precio cargado en el maestro</p>
+                )}
+              </div>
+              <span className="text-lg font-mono font-black text-brand-500">{fmtMoney(orderTotal)}</span>
+            </div>
+          )}
 
           <div>
             <label className="text-[8px] font-black text-text-dim uppercase block mb-1">Observaciones generales del pedido</label>
