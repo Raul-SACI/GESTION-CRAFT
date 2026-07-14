@@ -665,7 +665,10 @@ export default function SupervisionFlagsView({
           answers,
           flags: { red: redCount, yellow: yellowCount, green: greenCount },
           // Desglose de banderas rojas por responsable (para el cálculo de premios)
-          flags_by_target: { encargado: redEncargado, cocina: redCocina }
+          flags_by_target: { encargado: redEncargado, cocina: redCocina },
+          // Nombre del formulario y quién hizo la supervisión (se muestran en el listado)
+          template_name: selectedTemplate.name,
+          supervisor: currentUserName ? { name: currentUserName } : undefined
         },
         total_score: parseFloat(averageNormalizedScore.toFixed(2)),
         notes: generalNotes
