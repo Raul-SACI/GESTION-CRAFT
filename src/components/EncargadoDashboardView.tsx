@@ -693,22 +693,30 @@ export default function EncargadoDashboardView({
   // REGLAS:
   //  1. Solo cuentan los EXCESOS (gastar de menos no es desvío; los ahorros no compensan excesos).
   //  2. Los puestos de ENCARGADO quedan EXCLUIDOS (tienen vía libre para hacer las horas que necesiten).
-  //  3. Se mide puesto por puesto, no en el total global.
+  //  3. Se mide puesto por puesto, AGRUPANDO las filas del mismo rol (un puesto puede tener
+  //     varias filas: turno mañana y turno tarde). Si no se agrupa, el consumo queda en una fila
+  //     y el presupuesto repartido en varias, y aparecen excesos falsos.
   const hoursDeviationPct = useMemo(() => {
-    const esEncargado = (nombre: string) => {
-      const n = String(nombre || '').toUpperCase();
-      return n.includes('ENCARGADO');
-    };
+    const esEncargado = (nombre: string) => String(nombre || '').toUpperCase().includes('ENCARGADO');
 
-    let excesoTotal = 0;      // suma de horas de más (solo los puestos que se pasaron)
+    // Agrupar presupuesto y consumo por rol normalizado
+    const porRol: Record<string, { budgeted: number; worked: number; nombre: string }> = {};
+    positionHoursBreakdown.forEach(p => {
+      const key = normalizeRole(p.positionName || p.positionId || '');
+      if (!porRol[key]) porRol[key] = { budgeted: 0, worked: 0, nombre: p.positionName || '' };
+      porRol[key].budgeted += Number(p.budgeted) || 0;
+      porRol[key].worked += Number(p.worked) || 0; // el consumo ya viene sin duplicar
+    });
+
+    let excesoTotal = 0;      // horas de más (solo de los puestos que se pasaron)
     let presupuestoBase = 0;  // presupuesto de los puestos que SÍ cuentan
 
-    positionHoursBreakdown.forEach(p => {
-      if (esEncargado(p.positionName)) return;   // el encargado no computa
-      if (!p.budgeted || p.budgeted <= 0) return; // sin presupuesto no hay desvío medible
-      presupuestoBase += p.budgeted;
-      const exceso = p.worked - p.budgeted;
-      if (exceso > 0) excesoTotal += exceso;      // los ahorros se ignoran
+    Object.values(porRol).forEach(r => {
+      if (esEncargado(r.nombre)) return;   // el encargado no computa
+      if (r.budgeted <= 0) return;         // sin presupuesto no hay desvío medible
+      presupuestoBase += r.budgeted;
+      const exceso = r.worked - r.budgeted;
+      if (exceso > 0) excesoTotal += exceso; // los ahorros se ignoran
     });
 
     if (presupuestoBase === 0) return 0;
