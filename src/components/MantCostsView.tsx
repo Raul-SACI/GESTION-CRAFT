@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, DollarSign } from 'lucide-react';
+import { Loader2, DollarSign, Plus } from 'lucide-react';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
@@ -22,7 +22,8 @@ const PAY_LABELS: Record<string, string> = {
 };
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-export default function MantCostsView() {
+export default function MantCostsView({ currentUserRole, currentUserName }: { currentUserRole?: string; currentUserName?: string }) {
+  const esAdmin = String(currentUserRole || '').toLowerCase() === 'administrador';
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -32,6 +33,52 @@ export default function MantCostsView() {
   const [fBranch, setFBranch] = useState('');
   const [fPayType, setFPayType] = useState('');
   const [fMonth, setFMonth] = useState('');
+
+  // Formulario de nuevo gasto
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const emptyForm = { asset_id: '', branch: '', description: '', date: new Date().toISOString().split('T')[0], responsible: '', parts: '', labor_cost: '', parts_cost: '', pay_type: 'caja_chica' };
+  const [form, setForm] = useState(emptyForm);
+
+  const guardarGasto = async () => {
+    if (!esAdmin) { alert('Solo la administración puede registrar gastos.'); return; }
+    if (!form.description.trim()) { alert('La descripción es obligatoria.'); return; }
+    if (!form.branch) { alert('Elegí la sucursal.'); return; }
+    const labor = parseFloat(form.labor_cost) || 0;
+    const parts = parseFloat(form.parts_cost) || 0;
+    const total = labor + parts;
+    if (total <= 0) { alert('Cargá al menos un costo (mano de obra o repuestos).'); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        asset_id: form.asset_id || null, // null = gasto general (no atado a un bien)
+        branch: form.branch,
+        description: form.description.trim(),
+        date: form.date,
+        responsible: form.responsible.trim() || (currentUserName || ''),
+        parts: form.parts.trim(),
+        labor_cost: String(labor),
+        parts_cost: String(parts),
+        total_cost: String(total),
+        pay_type: form.pay_type,
+      };
+      const { error } = await supabaseMant.from('reparaciones').insert([payload]);
+      if (error) throw error;
+      setShowForm(false);
+      setForm(emptyForm);
+      await loadAll();
+      alert('Gasto registrado correctamente.');
+    } catch (e: any) {
+      const msg = String(e.message || e);
+      if (msg.toLowerCase().includes('row-level security')) {
+        alert('No se pudo guardar por seguridad de la base (RLS).\n\nHay que desactivar RLS en la tabla "reparaciones" de la base de mantenimiento. Avisale al administrador del sistema.');
+      } else {
+        alert('Error al registrar el gasto: ' + msg);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const loadAll = async () => {
     setLoading(true);
@@ -86,6 +133,98 @@ export default function MantCostsView() {
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+      {/* Botón registrar gasto (solo administración) */}
+      {esAdmin && (
+        <div className="flex justify-end">
+          <button onClick={() => setShowForm(v => !v)}
+            className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-black uppercase text-[10px] tracking-widest px-4 py-2.5 rounded-lg transition-colors">
+            <Plus size={15} /> {showForm ? 'Cerrar' : 'Registrar gasto'}
+          </button>
+        </div>
+      )}
+
+      {/* Formulario de nuevo gasto */}
+      {esAdmin && showForm && (
+        <div className="bg-bg-sidebar border border-brand-500/40 rounded-xl p-5 space-y-4">
+          <h3 className="text-[11px] font-black uppercase text-brand-500 tracking-widest">Registrar gasto de mantenimiento</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Descripción *</label>
+              <input type="text" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+                placeholder="Ej: Cambio de foco en el salón"
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500 uppercase" />
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Fecha</label>
+              <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs font-mono text-text-main outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal *</label>
+              <select value={form.branch} onChange={e => setForm({ ...form, branch: e.target.value })}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500 uppercase">
+                <option value="">Elegí una sucursal</option>
+                {branches.map(b => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Bien (opcional)</label>
+              <select value={form.asset_id} onChange={e => setForm({ ...form, asset_id: e.target.value })}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500 uppercase">
+                <option value="">Gasto general (sin bien)</option>
+                {assets
+                  .filter(a => !form.branch || a.branch === form.branch)
+                  .map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Tipo de pago</label>
+              <select value={form.pay_type} onChange={e => setForm({ ...form, pay_type: e.target.value })}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500">
+                {Object.entries(PAY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Responsable</label>
+              <input type="text" value={form.responsible} onChange={e => setForm({ ...form, responsible: e.target.value })}
+                placeholder={currentUserName || 'Quién realizó el gasto'}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500 uppercase" />
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Mano de obra ($)</label>
+              <input type="number" value={form.labor_cost} onChange={e => setForm({ ...form, labor_cost: e.target.value })}
+                placeholder="0"
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs font-mono text-text-main outline-none focus:border-brand-500" />
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Repuestos ($)</label>
+              <input type="number" value={form.parts_cost} onChange={e => setForm({ ...form, parts_cost: e.target.value })}
+                placeholder="0"
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs font-mono text-text-main outline-none focus:border-brand-500" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Detalle de repuestos (opcional)</label>
+              <input type="text" value={form.parts} onChange={e => setForm({ ...form, parts: e.target.value })}
+                placeholder="Ej: 1 foco LED 12W"
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-xs text-text-main outline-none focus:border-brand-500 uppercase" />
+            </div>
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[11px] font-mono font-black text-text-main">
+              Total: ${fmt((parseFloat(form.labor_cost) || 0) + (parseFloat(form.parts_cost) || 0))}
+            </span>
+            <div className="flex gap-2">
+              <button onClick={() => { setShowForm(false); setForm(emptyForm); }}
+                className="text-[10px] font-black uppercase text-text-dim border border-border-dim rounded px-3 py-2 hover:bg-bg-accent/40">Cancelar</button>
+              <button onClick={guardarGasto} disabled={saving}
+                className="text-[10px] font-black uppercase bg-emerald-500 hover:bg-emerald-600 text-white rounded px-4 py-2 disabled:opacity-50">
+                {saving ? 'Guardando…' : 'Guardar gasto'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Total */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-8 text-center">
         <DollarSign size={28} className="text-brand-500 mx-auto mb-2" />

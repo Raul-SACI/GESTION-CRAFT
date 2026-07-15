@@ -1582,7 +1582,7 @@ function AppContent() {
                 <MantValorizationView />
               )}
               {activeTab === 'mant_costos' && (
-                <MantCostsView />
+                <MantCostsView currentUserRole={currentUser.role} currentUserName={currentUser.name} />
               )}
               {activeTab === 'mant_config' && (
                 <MantConfigView />
