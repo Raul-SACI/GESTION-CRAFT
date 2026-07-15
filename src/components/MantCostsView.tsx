@@ -50,7 +50,10 @@ export default function MantCostsView({ currentUserRole, currentUserName }: { cu
     if (total <= 0) { alert('Cargá al menos un costo (mano de obra o repuestos).'); return; }
     setSaving(true);
     try {
+      // Los ids de esta tabla son cadenas cortas tipo "jkkm0x3h" (no UUID). Generamos uno igual.
+      const genId = () => Math.random().toString(36).slice(2, 10).padEnd(8, '0');
       const payload = {
+        id: genId(),
         asset_id: form.asset_id || null, // null = gasto general (no atado a un bien)
         branch: form.branch,
         description: form.description.trim(),
