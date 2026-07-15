@@ -1197,7 +1197,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
     setLoading(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       // raw:true + cellDates:false: everything stays as raw values
       // FECHA = Excel serial number (e.g. 46113), HORA = fraction (e.g. 0.3527=8:28)
@@ -1216,7 +1216,13 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         // Excel epoch: 1899-12-30. Formula: serial-25569 days from Unix epoch (1970-01-01)
         let dateStr = '';
         const rawDate = row['FECHA'];
-        if (typeof rawDate === 'number') {
+        if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
+          // La fecha vino como objeto Date (Excel formateado como fecha, no como número serial)
+          const y = rawDate.getFullYear();
+          const m = String(rawDate.getMonth() + 1).padStart(2, '0');
+          const day = String(rawDate.getDate()).padStart(2, '0');
+          dateStr = `${y}-${m}-${day}`;
+        } else if (typeof rawDate === 'number') {
           // Convert Excel serial to ISO date using UTC to avoid timezone shifts
           const msFromEpoch = Math.round((rawDate - 25569) * 86400 * 1000);
           const d = new Date(msFromEpoch);
@@ -1240,7 +1246,10 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         // Parse hour: with cellDates:false + raw:true, HORA is a fraction (0.35277 = 8:28)
         let hourStr = '00:00';
         const rawHour = row['HORA'];
-        if (typeof rawHour === 'number') {
+        if (rawHour instanceof Date && !isNaN(rawHour.getTime())) {
+          // La hora vino como objeto Date/time
+          hourStr = `${String(rawHour.getHours()).padStart(2, '0')}:${String(rawHour.getMinutes()).padStart(2, '0')}`;
+        } else if (typeof rawHour === 'number') {
           // Works for both time fractions (0-1) and full datetime serials
           const timeFraction = rawHour % 1; // Get just the time part
           const totalMins = Math.round(timeFraction * 1440);
@@ -2026,12 +2035,22 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
           
           {activeSubTab === 'daily' ? (
             <>
-              <label className="bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center justify-center gap-2" title="Importa el detalle completo de tickets para análisis por hora, día y medio de cobro">
-                <FileUp size={16} /> IMPORTAR TICKETS DETALLE
+              <label className={cn(
+                "border px-6 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2",
+                loading
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 cursor-wait"
+                  : "bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-400 cursor-pointer"
+              )} title="Importa el detalle completo de tickets para análisis por hora, día y medio de cobro">
+                {loading ? (
+                  <><Loader2 size={16} className="animate-spin" /> IMPORTANDO… NO CIERRES</>
+                ) : (
+                  <><FileUp size={16} /> IMPORTAR TICKETS DETALLE</>
+                )}
                 <input 
                   type="file" 
                   accept=".xlsx, .xls" 
                   className="hidden" 
+                  disabled={loading}
                   onChange={handleImportTicketsExcel}
                 />
               </label>
