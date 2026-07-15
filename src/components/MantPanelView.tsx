@@ -4,13 +4,13 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, Package, DollarSign, ClipboardList } from 'lucide-react';
+import { Loader2, Package, DollarSign, ClipboardList, Wrench } from 'lucide-react';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
 interface Asset { id: string; name: string; branch: string; inactive: boolean; acquisition_cost: string; acquisition_cost_usd: string; }
 interface Task { id: string; branch: string; asset_id: string; status: string; }
-interface Repair { id: string; branch: string; asset_id: string; total_cost: string; }
+interface Repair { id: string; branch: string; asset_id: string; total_cost: string; date?: string; description?: string; labor_cost?: string; parts_cost?: string; responsible?: string; }
 
 const fmt = (n: number) => Math.round(n).toLocaleString('es-AR');
 
@@ -21,6 +21,10 @@ export default function MantPanelView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [valCurrency, setValCurrency] = useState<'ARS' | 'USD'>('ARS');
+  // Filtros de la tabla de reparaciones
+  const [repMonth, setRepMonth] = useState<string>('all');
+  const [repFrom, setRepFrom] = useState<string>('');
+  const [repTo, setRepTo] = useState<string>('');
 
   useEffect(() => {
     (async () => {
@@ -46,7 +50,7 @@ export default function MantPanelView() {
         const [a, t, r] = await Promise.all([
           getAll('activos', 'id, name, branch, inactive, acquisition_cost, acquisition_cost_usd'),
           getAll('tareas', 'id, branch, asset_id, status'),
-          getAll('reparaciones', 'id, branch, asset_id, total_cost'),
+          getAll('reparaciones', 'id, branch, asset_id, total_cost, date, description, labor_cost, parts_cost, responsible'),
         ]);
         setAssets(a as Asset[]);
         setTasks(t as Task[]);
@@ -86,6 +90,44 @@ export default function MantPanelView() {
       return { branch: b, assets: bAssets.length, value, tasks: bTasks.length, repairCost };
     });
   }, [assets, activeAssets, pendingTasks, repairs]);
+
+  // Mapa de activos por id (para mostrar el nombre del bien)
+  const assetById = useMemo(() => {
+    const m: Record<string, Asset> = {};
+    assets.forEach(a => { m[a.id] = a; });
+    return m;
+  }, [assets]);
+
+  // Meses disponibles según las reparaciones cargadas
+  const repMonths = useMemo(() => {
+    const ms = Array.from(new Set(repairs.map(r => String(r.date || '').substring(0, 7)).filter(Boolean)));
+    return ms.sort().reverse();
+  }, [repairs]);
+
+  const mesLabel = (m: string) => {
+    if (m === 'all') return 'Todos los meses';
+    const [y, mo] = m.split('-');
+    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return `${names[Number(mo) - 1] || mo} ${y}`;
+  };
+
+  // Reparaciones filtradas por mes y/o rango de fechas
+  const filteredRepairs = useMemo(() => {
+    return repairs
+      .filter(r => {
+        const d = String(r.date || '');
+        if (repMonth !== 'all' && d.substring(0, 7) !== repMonth) return false;
+        if (repFrom && d < repFrom) return false;
+        if (repTo && d > repTo) return false;
+        return true;
+      })
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  }, [repairs, repMonth, repFrom, repTo]);
+
+  const filteredRepairsTotal = useMemo(
+    () => filteredRepairs.reduce((s, r) => s + (parseFloat(r.total_cost) || 0), 0),
+    [filteredRepairs]
+  );
 
   if (loading) {
     return <div className="py-24 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>;
@@ -173,6 +215,78 @@ export default function MantPanelView() {
               ))}
               {branchRows.length === 0 && (
                 <tr><td colSpan={5} className="px-5 py-10 text-center text-[10px] font-black uppercase text-text-dim">Sin activos cargados</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Reparaciones realizadas y sus costos */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-border-dim flex items-center justify-between flex-wrap gap-3">
+          <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest flex items-center gap-2">
+            <Wrench size={14} className="text-brand-500" /> Reparaciones realizadas
+          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={repMonth} onChange={e => setRepMonth(e.target.value)}
+              className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+              <option value="all">Todos los meses</option>
+              {repMonths.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}
+            </select>
+            <div className="flex items-center gap-1">
+              <span className="text-[8px] font-black uppercase text-text-dim">Desde</span>
+              <input type="date" value={repFrom} onChange={e => setRepFrom(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-mono text-text-main outline-none focus:border-brand-500" />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-[8px] font-black uppercase text-text-dim">Hasta</span>
+              <input type="date" value={repTo} onChange={e => setRepTo(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-mono text-text-main outline-none focus:border-brand-500" />
+            </div>
+            {(repMonth !== 'all' || repFrom || repTo) && (
+              <button onClick={() => { setRepMonth('all'); setRepFrom(''); setRepTo(''); }}
+                className="text-[8px] font-black uppercase text-brand-500 hover:text-brand-600 px-2 py-1">Limpiar</button>
+            )}
+          </div>
+        </div>
+        <div className="px-5 py-2 bg-bg-accent/30 flex items-center justify-between">
+          <span className="text-[9px] font-black uppercase text-text-dim">{filteredRepairs.length} reparación(es)</span>
+          <span className="text-[11px] font-mono font-black text-red-400">Total: ${fmt(filteredRepairsTotal)}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
+            <thead>
+              <tr className="bg-bg-accent/40 border-b border-border-dim text-[10px] font-black uppercase text-text-dim tracking-widest">
+                <th className="px-4 py-3">Fecha</th>
+                <th className="px-4 py-3">Bien / Descripción</th>
+                <th className="px-4 py-3">Sede</th>
+                <th className="px-4 py-3 text-right">M. Obra</th>
+                <th className="px-4 py-3 text-right">Repuestos</th>
+                <th className="px-4 py-3 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRepairs.map(r => {
+                const a = r.asset_id ? assetById[r.asset_id] : null;
+                const rBranch = r.branch || (a && a.branch) || '-';
+                return (
+                  <tr key={r.id} className="border-b border-border-dim/30 hover:bg-bg-accent/20 transition-colors text-[11px]">
+                    <td className="px-4 py-2.5 font-mono text-text-dim">{r.date || '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <p className="font-black text-text-main uppercase">{a?.name || 'Bien'}{r.description ? ` — ${r.description}` : ''}</p>
+                      {r.responsible && <p className="text-[9px] text-text-dim">Resp: {r.responsible}</p>}
+                    </td>
+                    <td className="px-4 py-2.5 text-text-dim uppercase">{rBranch}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-text-dim">${fmt(parseFloat(r.labor_cost || '0') || 0)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-text-dim">${fmt(parseFloat(r.parts_cost || '0') || 0)}</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-black text-text-main">${fmt(parseFloat(r.total_cost) || 0)}</td>
+                  </tr>
+                );
+              })}
+              {filteredRepairs.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-12 text-center text-[10px] font-black uppercase text-text-dim">
+                  {repairs.length === 0 ? 'No hay reparaciones registradas' : 'No hay reparaciones para el filtro seleccionado'}
+                </td></tr>
               )}
             </tbody>
           </table>
