@@ -24,6 +24,7 @@ import {
   Briefcase, 
   AlertTriangle, 
   Pencil,
+  X,
   Percent, 
   ShieldAlert, 
   RefreshCw,
@@ -36,6 +37,7 @@ import {
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
+import { SEEDED_TEMPLATES } from '../lib/supervisionSeeds';
 import MonthlyRankingTop from './MonthlyRankingTop';
 import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import ReadOnlyPlantaView from './ReadOnlyPlantaView';
@@ -682,7 +684,55 @@ export default function EncargadoDashboardView({
   const liveGoogleScore = isSimulationMode && manualGoogleOverride ? parseFloat(manualGoogleOverride) : googleRating;
   const livePyRestoScore = isSimulationMode && manualPyRestoOverride ? parseFloat(manualPyRestoOverride) : pedidosYaRestoRating;
   const livePyCafeScore = isSimulationMode && manualPyCafeOverride ? parseFloat(manualPyCafeOverride) : pedidosYaCafeRating;
+  // Plantillas de supervisión (para resolver el texto de cada pregunta en el detalle de banderas)
+  const [checklistTemplates, setChecklistTemplates] = useState<any[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('supervision_checklists').select('*');
+        setChecklistTemplates((data && data.length > 0) ? data : SEEDED_TEMPLATES);
+      } catch {
+        setChecklistTemplates(SEEDED_TEMPLATES);
+      }
+    })();
+  }, []);
+
+  const questionTextById = useMemo(() => {
+    const m: Record<string, string> = {};
+    checklistTemplates.forEach((t: any) => {
+      (t.questions || []).forEach((q: any) => { if (q?.id) m[q.id] = q.text || ''; });
+    });
+    return m;
+  }, [checklistTemplates]);
+
+  const [showFlagsModal, setShowFlagsModal] = useState(false);
   const liveRedFlags = isSimulationMode && manualRedFlagsOverride ? parseInt(manualRedFlagsOverride) : supervisionFlags.red;
+
+  // Detalle de banderas rojas por responsable (encargado / cocina / ambos), con cuándo, por qué y quién
+  const redFlagsDetail = useMemo(() => {
+    const items: Array<{ date: string; supervisor: string; pregunta: string; target: string; template: string }> = [];
+    let enc = 0, coc = 0;
+    (supervisionResponses || []).forEach((r: any) => {
+      const answers = r.scores?.answers || {};
+      const supervisor = r.scores?.supervisor?.name || '—';
+      const template = r.scores?.template_name || '—';
+      Object.entries(answers).forEach(([qid, a]: any) => {
+        if (a?.color !== 'red') return;
+        const t = a?.target || 'ambos';
+        if (t === 'encargado' || t === 'ambos') enc++;
+        if (t === 'cocina' || t === 'ambos') coc++;
+        items.push({
+          date: r.date,
+          supervisor,
+          template,
+          pregunta: questionTextById[qid] || a?.text || 'Bandera roja',
+          target: t
+        });
+      });
+    });
+    items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return { encargado: enc, cocina: coc, items };
+  }, [supervisionResponses, questionTextById]);
 
   // Desvío promedio de insumos controlados (desde inventory_logs, columna desvio)
   const averageStockDeviation = useMemo(() => {
@@ -1210,7 +1260,11 @@ export default function EncargadoDashboardView({
         </div>
 
         {/* Supervision Flag Penalties Column */}
-        <div className="bg-bg-sidebar border border-border-dim p-5 rounded relative overflow-hidden group hover:border-red-500/40 transition-all shadow-md">
+        <div onClick={() => redFlagsDetail.items.length > 0 && setShowFlagsModal(true)}
+          className={cn(
+            "bg-bg-sidebar border border-border-dim p-5 rounded relative overflow-hidden group hover:border-red-500/40 transition-all shadow-md",
+            redFlagsDetail.items.length > 0 && "cursor-pointer"
+          )}>
           <div className="flex items-center justify-between mb-3">
             <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Banderas Rojas</span>
             <Flag size={14} className="text-red-500" />
@@ -1223,6 +1277,25 @@ export default function EncargadoDashboardView({
               ({supervisionFlags.yellow} Am | {supervisionFlags.green} Ve)
             </span>
           </div>
+
+          {/* Desglose por responsable */}
+          {!isSimulationMode && (redFlagsDetail.encargado > 0 || redFlagsDetail.cocina > 0) && (
+            <div className="mt-3 pt-3 border-t border-border-dim/40 grid grid-cols-2 gap-2">
+              <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5">
+                <p className="text-[7px] font-black uppercase tracking-wider text-text-dim">Encargado</p>
+                <p className="text-sm font-mono font-black text-red-500">{redFlagsDetail.encargado}</p>
+              </div>
+              <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5">
+                <p className="text-[7px] font-black uppercase tracking-wider text-text-dim">Jefe de Cocina</p>
+                <p className="text-sm font-mono font-black text-red-500">{redFlagsDetail.cocina}</p>
+              </div>
+            </div>
+          )}
+          {redFlagsDetail.items.length > 0 && (
+            <p className="mt-2 text-[8px] font-black uppercase tracking-wider text-brand-500 opacity-80">
+              Ver detalle →
+            </p>
+          )}
           <p className="text-[8.5px] text-text-dim uppercase font-bold mt-1.5 flex items-center gap-1">
             <AlertCircle size={10} className="text-red-500" /> Resta según config de premios por bandera
           </p>
@@ -1576,6 +1649,51 @@ export default function EncargadoDashboardView({
       </div>
 
       <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
+
+      {/* Modal: detalle de banderas rojas */}
+      {showFlagsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowFlagsModal(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
+                <Flag size={15} /> Detalle de Banderas Rojas
+              </h3>
+              <button onClick={() => setShowFlagsModal(false)} className="text-text-dim hover:text-text-main">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-5 py-2 bg-bg-accent/30 grid grid-cols-2 gap-2 text-center">
+              <div><span className="text-[8px] font-black uppercase text-text-dim">Encargado: </span><span className="font-mono font-black text-red-500">{redFlagsDetail.encargado}</span></div>
+              <div><span className="text-[8px] font-black uppercase text-text-dim">Jefe de Cocina: </span><span className="font-mono font-black text-red-500">{redFlagsDetail.cocina}</span></div>
+            </div>
+            <div className="overflow-y-auto p-4 space-y-2">
+              {redFlagsDetail.items.map((it, i) => (
+                <div key={i} className="bg-bg-sidebar border border-border-dim rounded-lg p-3">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <p className="text-[11px] font-black text-text-main uppercase flex-1">{it.pregunta}</p>
+                    <span className={cn(
+                      "text-[7px] font-black uppercase tracking-wider px-2 py-1 rounded border shrink-0",
+                      it.target === 'encargado' ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
+                        : it.target === 'cocina' ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                        : "bg-red-500/10 text-red-500 border-red-500/30"
+                    )}>
+                      {it.target === 'encargado' ? 'Encargado' : it.target === 'cocina' ? 'Jefe de Cocina' : 'Ambos'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-[8px] font-bold uppercase text-text-dim">
+                    <span>📅 {it.date}</span>
+                    <span>👤 {it.supervisor}</span>
+                    {it.template !== '—' && <span>📋 {it.template}</span>}
+                  </div>
+                </div>
+              ))}
+              {redFlagsDetail.items.length === 0 && (
+                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Sin banderas rojas este mes.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </motion.div>
   );
