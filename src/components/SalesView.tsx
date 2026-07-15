@@ -1208,14 +1208,23 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
       const tickets: any[] = [];
 
       for (const row of rows) {
-        const sucursal = String(row['SUCURSAL'] || '').trim().toUpperCase();
+        // Los encabezados pueden venir con espacios alrededor (ej. " SUCURSAL "),
+        // así que buscamos cada columna de forma tolerante a espacios/acentos/mayúsculas.
+        const keys = Object.keys(row);
+        const col = (name: string) => {
+          const n = name.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const k = keys.find(kk => kk.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === n);
+          return k ? row[k] : undefined;
+        };
+
+        const sucursal = String(col('SUCURSAL') || '').trim().toUpperCase();
         const branchId = branchMap[sucursal];
         if (!branchId) continue;
 
         // Parse date: with cellDates:false, FECHA is Excel serial number (e.g. 46113)
         // Excel epoch: 1899-12-30. Formula: serial-25569 days from Unix epoch (1970-01-01)
         let dateStr = '';
-        const rawDate = row['FECHA'];
+        const rawDate = col('FECHA');
         if (rawDate instanceof Date && !isNaN(rawDate.getTime())) {
           // La fecha vino como objeto Date (Excel formateado como fecha, no como número serial)
           const y = rawDate.getFullYear();
@@ -1245,7 +1254,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
 
         // Parse hour: with cellDates:false + raw:true, HORA is a fraction (0.35277 = 8:28)
         let hourStr = '00:00';
-        const rawHour = row['HORA'];
+        const rawHour = col('HORA');
         if (rawHour instanceof Date && !isNaN(rawHour.getTime())) {
           // La hora vino como objeto Date/time
           hourStr = `${String(rawHour.getHours()).padStart(2, '0')}:${String(rawHour.getMinutes()).padStart(2, '0')}`;
@@ -1263,7 +1272,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
         // Always calculate week from date (1-7=S1, 8-14=S2, 15-21=S3, 22+=S4) - never trust Excel's SEMANA column
         const dayOfMonth = d.getDate();
         const weekNum = dayOfMonth <= 7 ? 1 : dayOfMonth <= 14 ? 2 : dayOfMonth <= 21 ? 3 : 4;
-        const shift = shiftMap[String(row['TURNO'] || '').toUpperCase().trim()] || 'Mañana';
+        const shift = shiftMap[String(col('TURNO') || '').toUpperCase().trim()] || 'Mañana';
         const month = dateStr.substring(0, 7);
 
         // Find columns trimming spaces (Excel columns may have extra spaces)
