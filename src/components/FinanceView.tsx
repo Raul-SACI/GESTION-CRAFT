@@ -604,6 +604,20 @@ export default function FinanceView({
     };
   }, [currentDateStr]);
 
+  // Cuotas de este módulo (bank/tax/legal) que vencen en la semana actual
+  const cuotasSemana = useMemo(() => {
+    const desde = activeWeekRange.monday;
+    const hasta = activeWeekRange.sunday;
+    return filteredPayments
+      .filter(p => p.dueDate && p.dueDate >= desde && p.dueDate <= hasta)
+      .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+  }, [filteredPayments, activeWeekRange]);
+
+  const cuotasSemanaTotal = useMemo(
+    () => cuotasSemana.filter(p => p.status !== 'paid').reduce((s, p) => s + (Number(p.amount) || 0), 0),
+    [cuotasSemana]
+  );
+
   // Dynamic starting balances computed from the closest preceding closed Sunday
   const weekStartBalances = useMemo(() => {
     const prevSundayObj = new Date(activeWeekRange.monday + 'T12:00:00');
@@ -2668,6 +2682,68 @@ export default function FinanceView({
             exit={{ opacity: 0, x: -20 }}
             className="space-y-6"
           >
+            {/* CUOTAS QUE VENCEN ESTA SEMANA (solo módulos de pasivos) */}
+            {mode !== 'default' && (
+              <div className={cn(
+                "border rounded-xl p-5 shadow-md",
+                cuotasSemana.length > 0 ? "bg-red-500/5 border-red-500/30" : "bg-bg-card border-border-dim"
+              )}>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                  <h3 className="text-xs font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
+                    <Calendar size={15} /> Vencen esta semana
+                    <span className="text-[9px] font-bold text-text-dim normal-case">({activeWeekRange.label})</span>
+                  </h3>
+                  {cuotasSemana.length > 0 && (
+                    <span className="text-[11px] font-mono font-black text-red-500">
+                      Total pendiente: ${cuotasSemanaTotal.toLocaleString('es-AR')}
+                    </span>
+                  )}
+                </div>
+                {cuotasSemana.length === 0 ? (
+                  <p className="text-[10px] font-bold uppercase text-text-dim text-center py-3">
+                    No hay cuotas que venzan esta semana. 👍
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                          <th className="px-3 py-2">Vence</th>
+                          <th className="px-3 py-2">Descripción</th>
+                          <th className="px-3 py-2">Cuota</th>
+                          <th className="px-3 py-2 text-right">Monto</th>
+                          <th className="px-3 py-2 text-center">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/40">
+                        {cuotasSemana.map(p => {
+                          const [y, m, d] = String(p.dueDate).split('-');
+                          const pagada = p.status === 'paid';
+                          return (
+                            <tr key={p.id} className={cn("text-[11px]", pagada && "opacity-50")}>
+                              <td className="px-3 py-2.5 font-mono font-black text-text-main">{d}/{m}</td>
+                              <td className={cn("px-3 py-2.5 font-bold text-text-main uppercase", pagada && "line-through")}>{p.description || '—'}</td>
+                              <td className="px-3 py-2.5 font-mono text-text-dim">{(p as any).installmentNumber || '—'}</td>
+                              <td className={cn("px-3 py-2.5 text-right font-mono font-black", pagada ? "text-text-dim line-through" : "text-text-main")}>
+                                ${(Number(p.amount) || 0).toLocaleString('es-AR')}
+                              </td>
+                              <td className="px-3 py-2.5 text-center">
+                                {pagada ? (
+                                  <span className="text-[8px] font-black uppercase bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded px-2 py-0.5">Pagada</span>
+                                ) : (
+                                  <span className="text-[8px] font-black uppercase bg-red-500/10 text-red-500 border border-red-500/30 rounded px-2 py-0.5">Pendiente</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* SEARCH AND CONTROL BAR */}
             <div className="flex flex-wrap justify-between items-center gap-4 bg-bg-card border border-border-dim p-4 rounded-xl shadow-md">
               <div className="relative w-full max-w-sm">
