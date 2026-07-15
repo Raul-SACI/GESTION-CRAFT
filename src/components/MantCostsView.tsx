@@ -22,8 +22,9 @@ const PAY_LABELS: Record<string, string> = {
 };
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
-export default function MantCostsView({ currentUserRole, currentUserName }: { currentUserRole?: string; currentUserName?: string }) {
-  const esAdmin = String(currentUserRole || '').toLowerCase() === 'administrador';
+export default function MantCostsView({ currentUserRole, currentUserName, canEdit }: { currentUserRole?: string; currentUserName?: string; canEdit?: boolean }) {
+  // Puede registrar gastos: el admin siempre, o cualquier usuario cuyo rol tenga "Costos" en modo EDITAR
+  const puedeRegistrar = String(currentUserRole || '').toLowerCase() === 'administrador' || canEdit === true;
   const [repairs, setRepairs] = useState<Repair[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -41,7 +42,7 @@ export default function MantCostsView({ currentUserRole, currentUserName }: { cu
   const [form, setForm] = useState(emptyForm);
 
   const guardarGasto = async () => {
-    if (!esAdmin) { alert('Solo la administración puede registrar gastos.'); return; }
+    if (!puedeRegistrar) { alert('No tenés permiso para registrar gastos. Pedile al administrador que habilite "Costos" en modo editar para tu rol.'); return; }
     if (!form.description.trim()) { alert('La descripción es obligatoria.'); return; }
     if (!form.branch) { alert('Elegí la sucursal.'); return; }
     const labor = parseFloat(form.labor_cost) || 0;
@@ -137,7 +138,7 @@ export default function MantCostsView({ currentUserRole, currentUserName }: { cu
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
       {/* Botón registrar gasto (solo administración) */}
-      {esAdmin && (
+      {puedeRegistrar && (
         <div className="flex justify-end">
           <button onClick={() => setShowForm(v => !v)}
             className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white font-black uppercase text-[10px] tracking-widest px-4 py-2.5 rounded-lg transition-colors">
@@ -147,7 +148,7 @@ export default function MantCostsView({ currentUserRole, currentUserName }: { cu
       )}
 
       {/* Formulario de nuevo gasto */}
-      {esAdmin && showForm && (
+      {puedeRegistrar && showForm && (
         <div className="bg-bg-sidebar border border-brand-500/40 rounded-xl p-5 space-y-4">
           <h3 className="text-[11px] font-black uppercase text-brand-500 tracking-widest">Registrar gasto de mantenimiento</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
