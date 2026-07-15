@@ -48,7 +48,7 @@ export default function SupervisionFlagsView({
 
   // Supervisor Form State
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
-  const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string; target?: 'encargado' | 'cocina' | 'ambos' }>>({});
+  const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string; target?: 'encargado' | 'cocina' | 'ambos'; questionText?: string }>>({});
   const [generalNotes, setGeneralNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -579,7 +579,7 @@ export default function SupervisionFlagsView({
     });
   };
 
-  const handleSelectOption = (questionId: string, opt: Option) => {
+  const handleSelectOption = (questionId: string, opt: Option, questionText?: string) => {
     setAnswers(prev => ({
       ...prev,
       [questionId]: {
@@ -587,6 +587,7 @@ export default function SupervisionFlagsView({
         text: opt.text,
         score: opt.score,
         color: opt.color,
+        questionText: questionText || prev[questionId]?.questionText,
         // Las banderas rojas arrancan como "ambos"; el supervisor puede ajustarlo
         target: opt.color === 'red' ? (prev[questionId]?.target || 'ambos') : undefined
       }
@@ -1158,7 +1159,7 @@ export default function SupervisionFlagsView({
                                      <button 
                                         key={opt.id}
                                         type="button"
-                                        onClick={() => handleSelectOption(q.id, opt)}
+                                        onClick={() => handleSelectOption(q.id, opt, q.text)}
                                         className={cn(
                                           "p-3 rounded-md border text-left flex items-center justify-between transition-all group",
                                           isSelected 

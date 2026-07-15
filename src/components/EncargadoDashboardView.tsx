@@ -699,8 +699,9 @@ export default function EncargadoDashboardView({
 
   const questionTextById = useMemo(() => {
     const m: Record<string, string> = {};
-    checklistTemplates.forEach((t: any) => {
-      (t.questions || []).forEach((q: any) => { if (q?.id) m[q.id] = q.text || ''; });
+    // Combinar plantillas de la base + semilla, para cubrir cualquier id de pregunta
+    [...checklistTemplates, ...SEEDED_TEMPLATES].forEach((t: any) => {
+      (t.questions || []).forEach((q: any) => { if (q?.id && q?.text && !m[q.id]) m[q.id] = q.text; });
     });
     return m;
   }, [checklistTemplates]);
@@ -725,7 +726,7 @@ export default function EncargadoDashboardView({
           date: r.date,
           supervisor,
           template,
-          pregunta: questionTextById[qid] || a?.text || 'Bandera roja',
+          pregunta: a?.questionText || questionTextById[qid] || a?.text || 'Bandera roja',
           target: t
         });
       });
