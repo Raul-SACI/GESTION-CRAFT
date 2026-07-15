@@ -402,9 +402,11 @@ export default function EncargadoDashboardView({
           .lte('date', `${month}-${String(sLastDay).padStart(2, '0')}`);
 
         if (!respError && responses) {
-          setSupervisionResponses(responses);
+          // Las supervisiones ANULADAS no cuentan para banderas ni premios
+          const vigentes = responses.filter((r: any) => !r.annulled);
+          setSupervisionResponses(vigentes);
           let redSum = 0, yellowSum = 0, greenSum = 0;
-          responses.forEach(r => {
+          vigentes.forEach(r => {
             const flagsObj = r.scores?.flags;
             if (flagsObj) {
               redSum += (flagsObj.red || 0);
