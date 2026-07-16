@@ -933,7 +933,10 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
         const csvRoleName = rowCells[roleColIdx] || 'Personal';
         const shiftRaw = (rowCells[shiftColIdx] || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
         const shiftVal: 'Mañana' | 'Tarde' = shiftRaw.includes('manana') ? 'Mañana' : 'Tarde';
-        const hoursPerDayVal = parseInt(rowCells[hoursColIdx]) || 8;
+        // Horas de jornada: usar parseFloat y aceptar coma decimal (ej. "7,5" = 7.5).
+        // Antes usaba parseInt y "7,5" se cargaba como 7, distorsionando el presupuesto.
+        const parseNum = (v: any) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isNaN(n) ? 0 : n; };
+        const hoursPerDayVal = parseNum(rowCells[hoursColIdx]) || 8;
         
         const matchedRole = sucursalRolesList.find((rl: any) => 
           rl.label.toLowerCase().trim() === csvRoleName.toLowerCase().trim() ||
@@ -944,7 +947,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
         let totalAssignedHours = 0;
         
         dateColumns.forEach(({ colIdx, dateStr }) => {
-          const countVal = parseFloat(rowCells[colIdx]) || 0;
+          const countVal = parseNum(rowCells[colIdx]);
           staffByDate[dateStr] = countVal;
           if (countVal > 0) {
             totalAssignedHours += countVal * hoursPerDayVal;
@@ -1058,12 +1061,13 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
             staff_by_date: r.staffByDate ? JSON.stringify(r.staffByDate) : null,
           };
         }
-        grouped[key].week1 += Math.round(getWeekHours(r, weekDates[0]));
-        grouped[key].week2 += Math.round(getWeekHours(r, weekDates[1]));
-        grouped[key].week3 += Math.round(getWeekHours(r, weekDates[2]));
-        grouped[key].week4 += Math.round(getWeekHours(r, weekDates[3]));
-        grouped[key].week5 += Math.round(getWeekHours(r, weekDates[4]));
-        grouped[key].total_hours += Math.round(
+        // No redondear: preservar los decimales (ej. jornadas de 7,5 hs)
+        grouped[key].week1 += getWeekHours(r, weekDates[0]);
+        grouped[key].week2 += getWeekHours(r, weekDates[1]);
+        grouped[key].week3 += getWeekHours(r, weekDates[2]);
+        grouped[key].week4 += getWeekHours(r, weekDates[3]);
+        grouped[key].week5 += getWeekHours(r, weekDates[4]);
+        grouped[key].total_hours += (
           getWeekHours(r, weekDates[0]) + getWeekHours(r, weekDates[1]) +
           getWeekHours(r, weekDates[2]) + getWeekHours(r, weekDates[3]) +
           getWeekHours(r, weekDates[4])
@@ -2038,9 +2042,10 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                                 <input
                                   type="number"
                                   value={row.hoursPerDay}
-                                  onChange={(e) => handleRowChange(row.id, 'hoursPerDay', parseInt(e.target.value) || 0)}
+                                  onChange={(e) => handleRowChange(row.id, 'hoursPerDay', parseFloat(e.target.value.replace(',', '.')) || 0)}
                                   className="w-11 bg-bg-accent border border-border-dim rounded py-1 text-center text-text-main font-mono text-[11px] font-bold outline-none focus:border-brand-500"
                                   min="0"
+                                  step="0.5"
                                 />
                               </td>
 
