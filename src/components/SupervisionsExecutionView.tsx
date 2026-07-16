@@ -298,6 +298,10 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
 
   // --- RESUMEN: BANDERAS ROJAS POR RESPONSABLE ---
   const [flagsMonth, setFlagsMonth] = useState<string>('all');
+  // Filtros de la tabla "Supervisiones Realizadas"
+  const [listMonth, setListMonth] = useState<string>('all');
+  const [listBranch, setListBranch] = useState<string>('all');
+  const [listForm, setListForm] = useState<string>('all');
   const [flagsBranch, setFlagsBranch] = useState<string>('all');
   const [expandedFlag, setExpandedFlag] = useState<string | null>(null);
   const [savingTarget, setSavingTarget] = useState<string | null>(null);
@@ -378,6 +382,29 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
     const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     return `${names[Number(mo) - 1] || mo} ${y}`;
   };
+
+  // Formularios disponibles (para el filtro de la tabla)
+  const formulariosDisponibles = useMemo(() => {
+    const fs = new Set<string>();
+    dbResponses.forEach(r => {
+      const f = r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name;
+      if (f) fs.add(f);
+    });
+    return Array.from(fs).sort();
+  }, [dbResponses, templates]);
+
+  // Supervisiones realizadas, aplicando los filtros de la tabla
+  const listaFiltrada = useMemo(() => {
+    return dbResponses.filter(r => {
+      if (listMonth !== 'all' && String(r.date || '').substring(0, 7) !== listMonth) return false;
+      if (listBranch !== 'all' && r.branch_id !== listBranch) return false;
+      if (listForm !== 'all') {
+        const f = r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name || '';
+        if (f !== listForm) return false;
+      }
+      return true;
+    });
+  }, [dbResponses, listMonth, listBranch, listForm, templates]);
 
   // Filas del resumen: solo supervisiones NO anuladas y con banderas rojas
   const resumenBanderas = useMemo(() => {
@@ -821,9 +848,32 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       {/* Listado de supervisiones realizadas */}
       {dbResponses.length > 0 && (
         <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
-          <h3 className="text-[11px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
-            <ClipboardCheck size={15} /> Supervisiones Realizadas ({dbResponses.length})
-          </h3>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+              <ClipboardCheck size={15} /> Supervisiones Realizadas ({listaFiltrada.length}{listaFiltrada.length !== dbResponses.length ? ` de ${dbResponses.length}` : ''})
+            </h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={listBranch} onChange={e => setListBranch(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todas las sucursales</option>
+                {branches.filter(b => b.id !== 'all').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <select value={listForm} onChange={e => setListForm(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todos los formularios</option>
+                {formulariosDisponibles.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <select value={listMonth} onChange={e => setListMonth(e.target.value)}
+                className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todos los meses</option>
+                {mesesDisponibles.map(m => <option key={m} value={m}>{mesLabel(m)}</option>)}
+              </select>
+              {(listBranch !== 'all' || listForm !== 'all' || listMonth !== 'all') && (
+                <button onClick={() => { setListBranch('all'); setListForm('all'); setListMonth('all'); }}
+                  className="text-[9px] font-black uppercase text-brand-500 hover:text-brand-600 px-2 py-1">Limpiar</button>
+              )}
+            </div>
+          </div>
           <div className="overflow-x-auto rounded-lg border border-border-dim">
             <table className="w-full border-collapse text-[10px]">
               <thead>
@@ -840,7 +890,11 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-dim/40">
-                {dbResponses.map(r => {
+                {listaFiltrada.length === 0 ? (
+                  <tr><td colSpan={puedeAnular ? 9 : 8} className="px-4 py-8 text-center text-[10px] font-bold uppercase text-text-dim">
+                    No hay supervisiones para el filtro seleccionado.
+                  </td></tr>
+                ) : listaFiltrada.map(r => {
                   const flags = r.scores?.flags || {};
                   const score = Number(r.total_score) || 0;
                   const bName = branches.find(b => b.id === r.branch_id)?.name || r.branch_id;
