@@ -3,6 +3,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Calendar, 
@@ -760,10 +761,6 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     const dateHeaders = activeMonthDays.map(d => `${d.dayName} ${d.dateStr.split('-').reverse().join('/')}`);
     const headers = ['Puesto', 'Turno', 'Horas_Jornada', ...dateHeaders];
     
-    const csvRows = [];
-    csvRows.push('sep=,');
-    csvRows.push(headers.join(','));
-    
     // We export ALL possible sucursalRolesList positions for both Mañana & Tarde to make name selection simple
     const allExpectedRows: any[] = [];
     const shifts: ('Mañana' | 'Tarde')[] = ['Mañana', 'Tarde'];
@@ -813,32 +810,28 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
       }
     });
 
+    // Armar las filas como matriz (encabezados + datos) y exportar como XLSX real.
+    // El XLSX maneja UTF-8 nativamente, así que "Mañana", "Miércoles" y "Sábado" salen bien
+    // (el CSV daba problemas de codificación con Excel según la config regional).
+    const aoa: any[][] = [headers];
     allExpectedRows.forEach(row => {
-      const line = [
+      const line: any[] = [
         row.roleLabel || row.roleId,
         row.shift,
-        row.hoursPerDay.toString()
+        Number(row.hoursPerDay)
       ];
-      
       activeMonthDays.forEach(day => {
         const val = row.staffByDate?.[day.dateStr] !== undefined ? row.staffByDate[day.dateStr] : 0;
-        line.push(val.toString());
+        line.push(Number(val));
       });
-      
-      csvRows.push(line.join(','));
+      aoa.push(line);
     });
-    
-    const csvBuffer = "\uFEFF" + csvRows.join('\n');
-    const blob = new Blob([csvBuffer], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    const fileName = `Plantilla_Presupuesto_${branchName.replace(/\s+/g, '_')}_${selectedMonth}.csv`;
-    link.setAttribute("download", fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Presupuesto');
+    const fileName = `Plantilla_Presupuesto_${branchName.replace(/\s+/g, '_')}_${selectedMonth}.xlsx`;
+    XLSX.writeFile(wb, fileName);
   };
 
   const parseCSVLine = (line: string, delimiter: string): string[] => {
@@ -861,8 +854,34 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     return result;
   };
 
-  const processCSVFile = (fileText: string) => {
-    try {
+  // Acepta tanto .xlsx (nuevo formato de la plantilla) como .csv (compatibilidad).
+  // Para xlsx, lo convierte a CSV en memoria y reusa el mismo procesamiento.
+  const handleImportFile = (file: File) => {
+    const nombre = file.name.toLowerCase();
+    if (nombre.endsWith('.xlsx') || nombre.endsWith('.xls')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buf = new Uint8Array(event.target?.result as ArrayBuffer);
+          const wb = XLSX.read(buf, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const csv = XLSX.utils.sheet_to_csv(ws);
+          processCSVFile(csv);
+        } catch (err: any) {
+          alert('No se pudo leer el archivo Excel: ' + (err.message || err));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) processCSVFile(event.target.result as string);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const processCSVFile = (fileText: string) => {    try {
       const rawLines = fileText.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
       if (rawLines.length === 0) {
         alert("El archivo CSV está vacío.");
@@ -3096,13 +3115,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                         e.preventDefault();
                         setDragActive(false);
                         const file = e.dataTransfer.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            if (event.target?.result) processCSVFile(event.target.result as string);
-                          };
-                          reader.readAsText(file);
-                        }
+                        if (file) handleImportFile(file);
                       }}
                       className={cn(
                         "border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center space-y-3 transition-colors cursor-pointer",
@@ -3113,17 +3126,11 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
                       <input 
                         type="file" 
                         id="csv-file-input" 
-                        accept=".csv" 
+                        accept=".csv,.xlsx,.xls" 
                         className="hidden" 
                         onChange={(e) => {
                           const file = e.target.files?.[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              if (event.target?.result) processCSVFile(event.target.result as string);
-                            };
-                            reader.readAsText(file);
-                          }
+                          if (file) handleImportFile(file);
                         }}
                       />
                       <Upload className="text-text-dim/80" size={32} />
