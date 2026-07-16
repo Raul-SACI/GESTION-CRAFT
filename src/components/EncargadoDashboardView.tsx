@@ -1031,7 +1031,21 @@ export default function EncargadoDashboardView({
       });
 
       const rawPrizesTotal = variablesStatus.reduce((sum, v) => sum + v.prize, 0);
-      const totalPenaltyVal = liveRedFlags * redFlagPenalty;
+
+      // Banderas que le corresponden a ESTE rol según el responsable asignado:
+      //  - Encargado: las suyas + las de "ambos"
+      //  - Jefe de Cocina (y Segundo, que hereda del Jefe): las de cocina + las de "ambos"
+      // En modo simulación con override manual, se respeta el valor ingresado a mano.
+      let flagsDelRol: number;
+      if (isSimulationMode && manualRedFlagsOverride) {
+        flagsDelRol = parseInt(manualRedFlagsOverride) || 0;
+      } else if (role === 'encargado') {
+        flagsDelRol = redFlagsDetail.encargado;
+      } else {
+        flagsDelRol = redFlagsDetail.cocina; // jefe_cocina y segundo_cocina
+      }
+
+      const totalPenaltyVal = flagsDelRol * redFlagPenalty;
       // El premio se gana según cada variable y su escala (incluida Ventas Netas como variable).
       // No hay bloqueo por una "meta de ventas" general.
       let finalCalculatedPrize = Math.max(0, rawPrizesTotal - totalPenaltyVal);
@@ -1054,6 +1068,7 @@ export default function EncargadoDashboardView({
         salesGoal,
         redFlagPenalty,
         totalPenaltyVal,
+        flagsDelRol,
         rawPrizesTotal,
         finalCalculatedPrize,
         ajusteMonto,
@@ -1065,7 +1080,7 @@ export default function EncargadoDashboardView({
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, averageStockDeviation, hoursDeviationPct, prizeAdjustments]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
 
   return (
     <motion.div 
@@ -1609,7 +1624,7 @@ export default function EncargadoDashboardView({
 
                         {/* Penalty rows - always show so encargado knows cost per flag */}
                         <div className={`flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 font-extrabold ${breakdown.totalPenaltyVal > 0 ? 'text-red-400' : 'text-text-dim'}`}>
-                          <span>🚩 Descuento Banderas Rojas ({liveRedFlags} roja{liveRedFlags !== 1 ? 's' : ''} × ${breakdown.redFlagPenalty.toLocaleString()}):</span>
+                          <span>🚩 Descuento Banderas Rojas ({breakdown.flagsDelRol ?? 0} roja{(breakdown.flagsDelRol ?? 0) !== 1 ? 's' : ''} × ${breakdown.redFlagPenalty.toLocaleString()}):</span>
                           <span className="font-mono">{breakdown.totalPenaltyVal > 0 ? `-$${breakdown.totalPenaltyVal.toLocaleString()}` : '$0'}</span>
                         </div>
                       </div>
