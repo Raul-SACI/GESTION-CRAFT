@@ -285,6 +285,7 @@ export default function EncargadoDashboardView({
           week2: r.week2 || 0,
           week3: r.week3 || 0,
           week4: r.week4 || 0,
+          week5: r.week5 || 0,
           hourlyRate: r.hourly_rate || 0
         })));
       } else {
@@ -545,7 +546,7 @@ export default function EncargadoDashboardView({
       const positionName = row.roleLabel || row.positionName;
 
       // calculate budget for the month
-      let budgetedHours = (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0);
+      let budgetedHours = (row.week1 || 0) + (row.week2 || 0) + (row.week3 || 0) + (row.week4 || 0) + (row.week5 || 0);
       
       // If zero (e.g., from V2 budget structure), compute dynamic calendar budget
       if (budgetedHours === 0) {
