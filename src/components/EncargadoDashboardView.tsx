@@ -782,8 +782,14 @@ export default function EncargadoDashboardView({
 
     Object.values(porItem).forEach(itemLogs => {
       const sorted = [...itemLogs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-      const ei = Number(sorted[0]?.ei) || 0;
-      const ef = Number(sorted[sorted.length - 1]?.ef) || 0;
+      // EI: el del registro más temprano que tenga EI cargado (los días intermedios suelen tener EI=0).
+      // EF: el del registro más tardío que tenga EF cargado.
+      // Antes se tomaba el EI del primer registro y el EF del último a secas: si ese día tenía 0,
+      // el cálculo quedaba mal (ej. LOMO y PAPAS daban un desvío enorme y falso).
+      let ei = 0;
+      for (const d of sorted) { const v = Number(d.ei) || 0; if (v !== 0) { ei = v; break; } }
+      let ef = 0;
+      for (let i = sorted.length - 1; i >= 0; i--) { const v = Number(sorted[i].ef) || 0; if (v !== 0) { ef = v; break; } }
       let compras = 0, decomisos = 0, consumoPersonal = 0, ventasTeorico = 0, pRec = 0, pEnv = 0;
       itemLogs.forEach((d: any) => {
         compras += Number(d.compras) || 0;
