@@ -739,25 +739,20 @@ export default function EncargadoDashboardView({
     return { encargado: enc, cocina: coc, items };
   }, [supervisionResponses, questionTextById]);
 
-  // Desvío promedio de insumos controlados (desde inventory_logs, columna desvio)
-  // Desvío de stock (%) — replica la fórmula OFICIAL de Control de Desvíos:
-  // por cada insumo: consumo REAL = EI + compras + préstamos recibidos - préstamos enviados
-  //                                  - decomisos - consumo personal - EF
-  //                  consumo TEÓRICO = ventas teóricas
-  // Desvío global = |Σreal - Σteórico| / Σteórico × 100
+  // Desvío de stock (%) para el premio.
+  // Fórmula (definida por administración): promedio de los % de desvío de CADA insumo,
+  // en valor absoluto (cada insumo pesa igual; excesos y faltantes suman).
+  // Por insumo: real = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
+  //             % = |real - ventas teóricas| / ventas teóricas × 100
   const averageStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
     // CASO ESPECIAL JUNIO 2026: se perdieron los datos de inventario de las semanas 1-3
-    // (pero quedaron las ventas teóricas, que distorsionan el cálculo). Por indicación de
-    // administración, para junio 2026 el desvío se calcula SOLO con la semana 4 (día 22 en
-    // adelante), que es la única con datos completos y coherentes.
+    // (pero quedaron las ventas teóricas, que distorsionaban). Para junio 2026 el desvío
+    // se calcula SOLO con la semana 4 (día 22 en adelante), la única con datos coherentes.
     let logs = rawInventoryLogs;
     if (selectedMonth === '2026-06') {
-      logs = rawInventoryLogs.filter((d: any) => {
-        const dia = Number(String(d.date || '').substring(8, 10));
-        return dia >= 22;
-      });
+      logs = rawInventoryLogs.filter((d: any) => Number(String(d.date || '').substring(8, 10)) >= 22);
     }
 
     // Agrupar los logs por insumo
@@ -769,20 +764,18 @@ export default function EncargadoDashboardView({
       porItem[id].push(d);
     });
 
-    let totalReal = 0;
-    let totalTheo = 0;
+    const porcentajes: number[] = [];
 
-    Object.values(porItem).forEach(logs => {
-      const sorted = [...logs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    Object.values(porItem).forEach(itemLogs => {
+      const sorted = [...itemLogs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const ei = Number(sorted[0]?.ei) || 0;
       const ef = Number(sorted[sorted.length - 1]?.ef) || 0;
       let compras = 0, decomisos = 0, consumoPersonal = 0, ventasTeorico = 0, pRec = 0, pEnv = 0;
-      logs.forEach((d: any) => {
+      itemLogs.forEach((d: any) => {
         compras += Number(d.compras) || 0;
         decomisos += Number(d.decomisos) || 0;
         consumoPersonal += Number(d.consumo_personal) || 0;
         ventasTeorico += Number(d.ventas_teorico) || 0;
-        // Préstamos: pueden venir separados o en una sola columna con signo
         let env = Number(d.prestamos_enviados) || 0;
         let rec = Number(d.prestamos_recibidos) || 0;
         if (!env && !rec && d.prestamos) {
@@ -791,13 +784,16 @@ export default function EncargadoDashboardView({
         }
         pRec += rec; pEnv += env;
       });
+      // Sin ventas teóricas no se puede medir el % de ese insumo → se ignora
+      if (ventasTeorico <= 0) return;
       const real = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
-      totalReal += real;
-      totalTheo += ventasTeorico;
+      const pct = Math.abs((real - ventasTeorico) / ventasTeorico) * 100;
+      porcentajes.push(pct);
     });
 
-    if (totalTheo <= 0) return 0;
-    return (Math.abs(totalReal - totalTheo) / totalTheo) * 100;
+    if (porcentajes.length === 0) return 0;
+    // Promedio simple de los % (cada insumo pesa igual)
+    return porcentajes.reduce((s, p) => s + p, 0) / porcentajes.length;
   }, [rawInventoryLogs, selectedMonth]);
 
   // Desvío de horas vs presupuesto (%)
