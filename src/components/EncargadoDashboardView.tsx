@@ -100,6 +100,7 @@ export default function EncargadoDashboardView({
   const [wasteTotal, setWasteTotal] = useState(0);
   const [itemDeviations, setItemDeviations] = useState<any[]>([]);
   const [rawInventoryLogs, setRawInventoryLogs] = useState<any[]>([]);
+  const [controlledItemIds, setControlledItemIds] = useState<string[]>([]);
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
@@ -230,6 +231,18 @@ export default function EncargadoDashboardView({
     try {
       const [iy, im] = month.split('-').map(Number);
       const iLastDay = new Date(iy, im, 0).getDate();
+
+      // Insumos que se controlan este mes en esta sucursal (misma lista que usa la planilla).
+      // El dashboard debe medir el desvío SOLO sobre estos, no sobre todos los inventory_logs.
+      try {
+        const { data: mc } = await supabase
+          .from('monthly_controlled_items')
+          .select('item_ids')
+          .match({ branch_id: branchId, month })
+          .maybeSingle();
+        setControlledItemIds((mc?.item_ids as string[]) || []);
+      } catch { setControlledItemIds([]); }
+
       const { data, error } = await supabase
         .from('inventory_logs')
         .select('*')
@@ -760,6 +773,9 @@ export default function EncargadoDashboardView({
     logs.forEach((d: any) => {
       const id = d.item_id;
       if (!id) return;
+      // Solo los insumos marcados para control este mes (igual que la planilla).
+      // Si no hay lista configurada, se usan todos (compatibilidad).
+      if (controlledItemIds.length > 0 && !controlledItemIds.includes(id)) return;
       if (!porItem[id]) porItem[id] = [];
       porItem[id].push(d);
     });
@@ -794,7 +810,7 @@ export default function EncargadoDashboardView({
     if (porcentajes.length === 0) return 0;
     // Promedio simple de los % (cada insumo pesa igual)
     return porcentajes.reduce((s, p) => s + p, 0) / porcentajes.length;
-  }, [rawInventoryLogs, selectedMonth]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds]);
 
   // Desvío de horas vs presupuesto (%)
   // REGLAS:
