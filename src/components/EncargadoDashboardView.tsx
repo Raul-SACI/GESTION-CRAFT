@@ -99,6 +99,7 @@ export default function EncargadoDashboardView({
   // Deviations State
   const [wasteTotal, setWasteTotal] = useState(0);
   const [itemDeviations, setItemDeviations] = useState<any[]>([]);
+  const [rawInventoryLogs, setRawInventoryLogs] = useState<any[]>([]);
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
@@ -239,8 +240,9 @@ export default function EncargadoDashboardView({
       if (!error && data && data.length > 0) {
         const totalW = data.reduce((sum, item) => sum + (Number(item.decomisos) || 0), 0);
         setWasteTotal(totalW);
-        
-        // Match items with higher deviations (theoretical vs real physical diffs)
+        setRawInventoryLogs(data); // todos los logs del mes, para el cálculo oficial del desvío
+
+        // Match items with higher deviations (theoretical vs real physical diffs) — solo para mostrar
         const sortedItems = [...data]
           .map(d => ({
             name: d.item_id, // raw code or name
@@ -252,6 +254,7 @@ export default function EncargadoDashboardView({
         
         setItemDeviations(sortedItems);
       } else {
+        setRawInventoryLogs([]);
         setWasteTotal(14850);
         setItemDeviations([
           { name: 'Carne Vacuno (Kg)', date: '2026-05-24', deviation: -3.5 },
@@ -737,11 +740,53 @@ export default function EncargadoDashboardView({
   }, [supervisionResponses, questionTextById]);
 
   // Desvío promedio de insumos controlados (desde inventory_logs, columna desvio)
+  // Desvío de stock (%) — replica la fórmula OFICIAL de Control de Desvíos:
+  // por cada insumo: consumo REAL = EI + compras + préstamos recibidos - préstamos enviados
+  //                                  - decomisos - consumo personal - EF
+  //                  consumo TEÓRICO = ventas teóricas
+  // Desvío global = |Σreal - Σteórico| / Σteórico × 100
   const averageStockDeviation = useMemo(() => {
-    if (!itemDeviations || itemDeviations.length === 0) return 0;
-    const total = itemDeviations.reduce((sum: number, d: any) => sum + Math.abs(d.deviation || 0), 0);
-    return total / itemDeviations.length;
-  }, [itemDeviations]);
+    if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
+
+    // Agrupar los logs por insumo
+    const porItem: Record<string, any[]> = {};
+    rawInventoryLogs.forEach((d: any) => {
+      const id = d.item_id;
+      if (!id) return;
+      if (!porItem[id]) porItem[id] = [];
+      porItem[id].push(d);
+    });
+
+    let totalReal = 0;
+    let totalTheo = 0;
+
+    Object.values(porItem).forEach(logs => {
+      const sorted = [...logs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const ei = Number(sorted[0]?.ei) || 0;
+      const ef = Number(sorted[sorted.length - 1]?.ef) || 0;
+      let compras = 0, decomisos = 0, consumoPersonal = 0, ventasTeorico = 0, pRec = 0, pEnv = 0;
+      logs.forEach((d: any) => {
+        compras += Number(d.compras) || 0;
+        decomisos += Number(d.decomisos) || 0;
+        consumoPersonal += Number(d.consumo_personal) || 0;
+        ventasTeorico += Number(d.ventas_teorico) || 0;
+        // Préstamos: pueden venir separados o en una sola columna con signo
+        let env = Number(d.prestamos_enviados) || 0;
+        let rec = Number(d.prestamos_recibidos) || 0;
+        if (!env && !rec && d.prestamos) {
+          if (Number(d.prestamos) > 0) rec = Number(d.prestamos);
+          else env = Math.abs(Number(d.prestamos));
+        }
+        pRec += rec; pEnv += env;
+      });
+      const real = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
+      totalReal += real;
+      totalTheo += ventasTeorico;
+    });
+
+    if (totalTheo <= 0) return 0;
+    return (Math.abs(totalReal - totalTheo) / totalTheo) * 100;
+  }, [rawInventoryLogs]);
 
   // Desvío de horas vs presupuesto (%)
   // REGLAS:
