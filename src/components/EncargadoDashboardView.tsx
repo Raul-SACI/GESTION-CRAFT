@@ -973,6 +973,18 @@ export default function EncargadoDashboardView({
     return performanceConfigs;
   }, [performanceConfigs]);
 
+  // Objetivos de ventas netas (escalones del encargado) para mostrar en la tarjeta de ventas
+  const salesTargets = useMemo(() => {
+    const cfg = activeConfigs.find((c: any) => c.role === 'encargado') || activeConfigs[0];
+    if (!cfg) return [];
+    const vars = cfg.variables || [];
+    const ventasVar = vars.find((v: any) => String(v.name || '').toLowerCase().includes('venta'));
+    if (!ventasVar || !ventasVar.tiers) return [];
+    return ventasVar.tiers
+      .map((t: any) => ({ threshold: Number(t.threshold) || 0, prize: Number(t.prize) || 0 }))
+      .sort((a: any, b: any) => a.threshold - b.threshold);
+  }, [activeConfigs]);
+
   // --- AJUSTES MANUALES DE PREMIO (excepciones: horas autorizadas, reemplazos, etc.) ---
   const esAdmin = String((currentUser as any)?.role || '').toLowerCase() === 'administrador';
 
@@ -1292,6 +1304,36 @@ export default function EncargadoDashboardView({
             <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1 leading-tight">
               {salesDaysCount} día{salesDaysCount !== 1 ? 's' : ''} cargado{salesDaysCount !== 1 ? 's' : ''} · proyectado a fin de mes
             </p>
+          )}
+
+          {/* Objetivos de ventas: el encargado ve si la PROYECCIÓN alcanza cada escalón */}
+          {!isSimulationMode && salesTargets.length > 0 && (
+            <div className="mt-3 pt-2.5 border-t border-border-dim/40">
+              <p className="text-[7px] font-black uppercase tracking-widest text-text-dim mb-1.5">Objetivos de venta (vs proyección)</p>
+              <div className="space-y-1">
+                {salesTargets.map((t: any, i: number) => {
+                  const fmt = (n: number) => n >= 1000000 ? `$${(n / 1000000).toFixed(1)}M` : `$${(n / 1000).toFixed(0)}k`;
+                  const alcanzado = projectedNetSales >= t.threshold;
+                  const yaLogrado = liveNetSales >= t.threshold;
+                  return (
+                    <div key={i} className="flex items-center justify-between text-[8px] font-mono font-bold">
+                      <span className={cn(alcanzado ? "text-emerald-600" : "text-text-dim")}>
+                        {alcanzado ? '✓' : '○'} {fmt(t.threshold)}
+                        <span className="text-text-dim opacity-60"> = ${t.prize.toLocaleString('es-AR')}</span>
+                      </span>
+                      <span className={cn(
+                        "uppercase text-[7px] font-black px-1.5 py-0.5 rounded",
+                        yaLogrado ? "bg-emerald-500/15 text-emerald-600"
+                          : alcanzado ? "bg-amber-500/10 text-amber-600"
+                          : "bg-bg-accent text-text-dim"
+                      )}>
+                        {yaLogrado ? 'Logrado' : alcanzado ? 'Proyectado' : 'Lejos'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
 
