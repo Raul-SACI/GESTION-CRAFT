@@ -89,6 +89,7 @@ export default function EncargadoDashboardView({
   const [salesGross, setSalesGross] = useState(0);
   const [salesOrdersCount, setSalesOrdersCount] = useState(0);
   const [salesLastDate, setSalesLastDate] = useState<string | null>(null);
+  const [salesDaysCount, setSalesDaysCount] = useState(0);
   
   // CMV State (EI, EF, Purchases, Movements)
   const [cmvInitial, setCmvInitial] = useState(0);
@@ -183,13 +184,22 @@ export default function EncargadoDashboardView({
         setSalesOrdersCount(allData.reduce((s, i) => s + (Number(i.orders) || 0), 0));
         // Última fecha con datos cargados (la mayor entre todos los tickets del mes)
         let last: string | null = null;
-        allData.forEach(i => { if (i.date && (!last || String(i.date) > last)) last = String(i.date); });
+        const diasSet = new Set<string>();
+        allData.forEach(i => {
+          if (i.date) {
+            const ds = String(i.date);
+            if (!last || ds > last) last = ds;
+            diasSet.add(ds.substring(0, 10)); // día único
+          }
+        });
         setSalesLastDate(last);
+        setSalesDaysCount(diasSet.size);
       } else {
         setSalesNet(0);
         setSalesGross(0);
         setSalesOrdersCount(0);
         setSalesLastDate(null);
+        setSalesDaysCount(0);
       }
     } catch (err) {
       console.error('Error fetching sales data:', err);
@@ -697,6 +707,14 @@ export default function EncargadoDashboardView({
 
   // LIVE VALUES READY FOR VARIABLES IN BONUS
   const liveNetSales = isSimulationMode && manualSalesOverride ? parseFloat(manualSalesOverride) : salesNet;
+
+  // Proyección de ventas netas a fin de mes: venta cargada / días con ventas × días del mes
+  const projectedNetSales = useMemo(() => {
+    if (salesDaysCount <= 0) return 0;
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const diasDelMes = new Date(y, m, 0).getDate(); // último día del mes
+    return (liveNetSales / salesDaysCount) * diasDelMes;
+  }, [liveNetSales, salesDaysCount, selectedMonth]);
   const liveCmvValue = isSimulationMode && manualCmvOverride ? parseFloat(manualCmvOverride) : cmvPercentage;
   const liveGoogleScore = isSimulationMode && manualGoogleOverride ? parseFloat(manualGoogleOverride) : googleRating;
   const livePyRestoScore = isSimulationMode && manualPyRestoOverride ? parseFloat(manualPyRestoOverride) : pedidosYaRestoRating;
@@ -1264,6 +1282,17 @@ export default function EncargadoDashboardView({
             <span>BRUTAS (TICKETS):</span>
             <span className="text-text-main">${salesGross.toLocaleString()}</span>
           </div>
+          {!isSimulationMode && projectedNetSales > 0 && salesDaysCount > 0 && (
+            <div className="flex justify-between items-center mt-1.5 text-[9px] font-bold font-mono">
+              <span className="text-emerald-600 uppercase">Proyección neta:</span>
+              <span className="text-emerald-600">${Math.round(projectedNetSales).toLocaleString()}</span>
+            </div>
+          )}
+          {!isSimulationMode && salesDaysCount > 0 && (
+            <p className="text-[7px] font-bold uppercase text-text-dim opacity-70 mt-1 leading-tight">
+              {salesDaysCount} día{salesDaysCount !== 1 ? 's' : ''} cargado{salesDaysCount !== 1 ? 's' : ''} · proyectado a fin de mes
+            </p>
+          )}
         </div>
 
         {/* CMV Monthly Column */}
