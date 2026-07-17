@@ -748,9 +748,21 @@ export default function EncargadoDashboardView({
   const averageStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
+    // CASO ESPECIAL JUNIO 2026: se perdieron los datos de inventario de las semanas 1-3
+    // (pero quedaron las ventas teóricas, que distorsionan el cálculo). Por indicación de
+    // administración, para junio 2026 el desvío se calcula SOLO con la semana 4 (día 22 en
+    // adelante), que es la única con datos completos y coherentes.
+    let logs = rawInventoryLogs;
+    if (selectedMonth === '2026-06') {
+      logs = rawInventoryLogs.filter((d: any) => {
+        const dia = Number(String(d.date || '').substring(8, 10));
+        return dia >= 22;
+      });
+    }
+
     // Agrupar los logs por insumo
     const porItem: Record<string, any[]> = {};
-    rawInventoryLogs.forEach((d: any) => {
+    logs.forEach((d: any) => {
       const id = d.item_id;
       if (!id) return;
       if (!porItem[id]) porItem[id] = [];
@@ -786,7 +798,7 @@ export default function EncargadoDashboardView({
 
     if (totalTheo <= 0) return 0;
     return (Math.abs(totalReal - totalTheo) / totalTheo) * 100;
-  }, [rawInventoryLogs]);
+  }, [rawInventoryLogs, selectedMonth]);
 
   // Desvío de horas vs presupuesto (%)
   // REGLAS:
