@@ -752,35 +752,33 @@ export default function EncargadoDashboardView({
     return { encargado: enc, cocina: coc, items };
   }, [supervisionResponses, questionTextById]);
 
-  // Desvío de stock (%) para el premio.
-  // Fórmula (definida por administración): promedio de los % de desvío de CADA insumo,
-  // en valor absoluto (cada insumo pesa igual; excesos y faltantes suman).
-  // Por insumo: real = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
-  //             % = |real - ventas teóricas| / ventas teóricas × 100
+  // Desvío de stock para el premio.
+  // Definido por administración (Opción 1): PROMEDIO de la columna DESVÍO de la planilla,
+  // en valor absoluto. Por insumo, el desvío es (igual que la planilla):
+  //   cmvReal = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
+  //   desvío  = cmvReal - ventas teóricas   (en UNIDADES, tal como se ve en la planilla)
+  // El resultado es el promedio simple de |desvío| de cada insumo controlado.
   const averageStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
-    // CASO ESPECIAL JUNIO 2026: se perdieron los datos de inventario de las semanas 1-3
-    // (pero quedaron las ventas teóricas, que distorsionaban). Para junio 2026 el desvío
-    // se calcula SOLO con la semana 4 (día 22 en adelante), la única con datos coherentes.
+    // CASO ESPECIAL JUNIO 2026: se perdió el inventario de las semanas 1-3 (quedaron ventas
+    // teóricas huérfanas). Para junio 2026 el desvío se calcula SOLO con la semana 4 (día 22+).
     let logs = rawInventoryLogs;
     if (selectedMonth === '2026-06') {
       logs = rawInventoryLogs.filter((d: any) => Number(String(d.date || '').substring(8, 10)) >= 22);
     }
 
-    // Agrupar los logs por insumo
+    // Agrupar por insumo, usando SOLO los insumos de control semanal (igual que la planilla)
     const porItem: Record<string, any[]> = {};
     logs.forEach((d: any) => {
       const id = d.item_id;
       if (!id) return;
-      // Solo los insumos marcados para control este mes (igual que la planilla).
-      // Si no hay lista configurada, se usan todos (compatibilidad).
       if (controlledItemIds.length > 0 && !controlledItemIds.includes(id)) return;
       if (!porItem[id]) porItem[id] = [];
       porItem[id].push(d);
     });
 
-    const porcentajes: number[] = [];
+    const desvios: number[] = [];
 
     Object.values(porItem).forEach(itemLogs => {
       const sorted = [...itemLogs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -800,16 +798,15 @@ export default function EncargadoDashboardView({
         }
         pRec += rec; pEnv += env;
       });
-      // Sin ventas teóricas no se puede medir el % de ese insumo → se ignora
-      if (ventasTeorico <= 0) return;
-      const real = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
-      const pct = Math.abs((real - ventasTeorico) / ventasTeorico) * 100;
-      porcentajes.push(pct);
+      // Insumo sin ningún dato (todo en cero) no se cuenta
+      if (ei === 0 && ef === 0 && compras === 0 && ventasTeorico === 0) return;
+      const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
+      const desvio = cmvReal - ventasTeorico; // en unidades, igual que la planilla
+      desvios.push(Math.abs(desvio));
     });
 
-    if (porcentajes.length === 0) return 0;
-    // Promedio simple de los % (cada insumo pesa igual)
-    return porcentajes.reduce((s, p) => s + p, 0) / porcentajes.length;
+    if (desvios.length === 0) return 0;
+    return desvios.reduce((s, p) => s + p, 0) / desvios.length;
   }, [rawInventoryLogs, selectedMonth, controlledItemIds]);
 
   // Desvío de horas vs presupuesto (%)
