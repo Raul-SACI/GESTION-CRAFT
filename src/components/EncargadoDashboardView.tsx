@@ -102,6 +102,12 @@ export default function EncargadoDashboardView({
   const [itemDeviations, setItemDeviations] = useState<any[]>([]);
   const [rawInventoryLogs, setRawInventoryLogs] = useState<any[]>([]);
   const [controlledItemIds, setControlledItemIds] = useState<string[]>([]);
+  // Desvío de stock cargado a mano por administración (por sucursal y mes).
+  // Se usa cuando el cálculo automático no puede reproducir la planilla.
+  const [stockDeviationOverride, setStockDeviationOverride] = useState<{ id: string; value: number; note?: string } | null>(null);
+  const [showDeviationModal, setShowDeviationModal] = useState(false);
+  const [deviationInput, setDeviationInput] = useState('');
+  const [deviationNote, setDeviationNote] = useState('');
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
@@ -253,12 +259,19 @@ export default function EncargadoDashboardView({
         setControlledItemIds((mc?.item_ids as string[]) || []);
       } catch { setControlledItemIds([]); }
 
+      // Para junio 2026 la semana 4 se cierra a principios de julio, así que traemos
+      // también esos días (si no, faltan las ventas teóricas del cierre de semana).
+      const desde = `${month}-01`;
+      const hasta = month === '2026-06'
+        ? '2026-07-05'
+        : `${month}-${String(iLastDay).padStart(2, '0')}`;
+
       const { data, error } = await supabase
         .from('inventory_logs')
         .select('*')
         .match({ branch_id: branchId })
-        .gte('date', `${month}-01`)
-        .lte('date', `${month}-${String(iLastDay).padStart(2, '0')}`);
+        .gte('date', desde)
+        .lte('date', hasta);
 
       if (!error && data && data.length > 0) {
         const totalW = data.reduce((sum, item) => sum + (Number(item.decomisos) || 0), 0);
@@ -776,14 +789,19 @@ export default function EncargadoDashboardView({
   //   cmvReal = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
   //   desvío  = cmvReal - ventas teóricas   (en UNIDADES, tal como se ve en la planilla)
   // El resultado es el promedio simple de |desvío| de cada insumo controlado.
-  const averageStockDeviation = useMemo(() => {
+  const autoStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
     // CASO ESPECIAL JUNIO 2026: se perdió el inventario de las semanas 1-3 (quedaron ventas
-    // teóricas huérfanas). Para junio 2026 el desvío se calcula SOLO con la semana 4 (día 22+).
+    // teóricas huérfanas). Para junio 2026 el desvío se calcula SOLO con la semana 4.
+    // La semana 4 va del 22/06 al 05/07 (el cierre de semana cae en julio y ahí quedan
+    // cargadas las ventas teóricas), por eso el rango se compara por fecha completa.
     let logs = rawInventoryLogs;
     if (selectedMonth === '2026-06') {
-      logs = rawInventoryLogs.filter((d: any) => Number(String(d.date || '').substring(8, 10)) >= 22);
+      logs = rawInventoryLogs.filter((d: any) => {
+        const f = String(d.date || '').substring(0, 10);
+        return f >= '2026-06-22' && f <= '2026-07-05';
+      });
     }
 
     // Agrupar por insumo, usando SOLO los insumos de control semanal (igual que la planilla)
@@ -832,6 +850,9 @@ export default function EncargadoDashboardView({
     if (desvios.length === 0) return 0;
     return desvios.reduce((s, p) => s + p, 0) / desvios.length;
   }, [rawInventoryLogs, selectedMonth, controlledItemIds]);
+
+  // Desvío efectivo: si administración cargó un valor a mano para este mes/sucursal, se usa ese.
+  const averageStockDeviation = stockDeviationOverride ? stockDeviationOverride.value : autoStockDeviation;
 
   // Desvío de horas vs presupuesto (%)
   // REGLAS:
@@ -1000,6 +1021,50 @@ export default function EncargadoDashboardView({
     setPrizeAdjustments(map);
   };
   useEffect(() => { cargarAjustes(); }, [selectedBranchId, selectedMonth]);
+
+  // --- DESVÍO DE STOCK CARGADO A MANO (por sucursal y mes) ---
+  const cargarDesvioManual = async () => {
+    if (!selectedBranchId || selectedBranchId === 'all') { setStockDeviationOverride(null); return; }
+    try {
+      const { data } = await supabase
+        .from('stock_deviation_overrides')
+        .select('id, value, note')
+        .eq('branch_id', selectedBranchId)
+        .eq('month', selectedMonth)
+        .maybeSingle();
+      setStockDeviationOverride(data ? { id: data.id, value: Number(data.value) || 0, note: data.note } : null);
+    } catch { setStockDeviationOverride(null); }
+  };
+  useEffect(() => { cargarDesvioManual(); }, [selectedBranchId, selectedMonth]);
+
+  const guardarDesvioManual = async () => {
+    if (!esAdmin) { alert('Solo la administración puede cargar el desvío.'); return; }
+    if (!selectedBranchId || selectedBranchId === 'all') { alert('Elegí una sucursal concreta.'); return; }
+    const val = parseFloat(String(deviationInput).replace(',', '.'));
+    if (isNaN(val) || val < 0) { alert('Ingresá un desvío válido (ej. 1,32).'); return; }
+    const id = `${selectedBranchId}-${selectedMonth}`;
+    const { error } = await supabase.from('stock_deviation_overrides').upsert({
+      id,
+      branch_id: selectedBranchId,
+      month: selectedMonth,
+      value: val,
+      note: deviationNote || null,
+      created_by: (currentUser as any)?.name || 'admin',
+      created_at: new Date().toISOString()
+    }, { onConflict: 'branch_id,month' });
+    if (error) { alert('Error al guardar: ' + error.message); return; }
+    setShowDeviationModal(false);
+    setDeviationNote('');
+    await cargarDesvioManual();
+  };
+
+  const borrarDesvioManual = async () => {
+    if (!esAdmin || !stockDeviationOverride) return;
+    if (!window.confirm('¿Quitar el desvío cargado a mano y volver al cálculo automático?')) return;
+    await supabase.from('stock_deviation_overrides').delete().eq('id', stockDeviationOverride.id);
+    setShowDeviationModal(false);
+    await cargarDesvioManual();
+  };
 
   const guardarAjuste = async (role: string, roleLabel: string) => {
     if (!esAdmin) { alert('Solo la administración puede ajustar premios.'); return; }
@@ -1646,7 +1711,7 @@ export default function EncargadoDashboardView({
               <Award size={100} className="text-brand-500" />
             </div>
 
-            <div className="flex items-center justify-between border-b border-border-dim pb-4 mb-4">
+            <div className="flex items-center justify-between border-b border-border-dim pb-4 mb-4 flex-wrap gap-2">
               <div className="flex items-center gap-2">
                 <Award size={18} className="text-brand-500" />
                 <div>
@@ -1654,6 +1719,20 @@ export default function EncargadoDashboardView({
                   <p className="text-[8px] text-text-dim uppercase font-bold mt-0.5">Premio que va alcanzando la sucursal según la configuración cargada</p>
                 </div>
               </div>
+              {esAdmin && selectedBranchId !== 'all' && (
+                <button
+                  onClick={() => { setDeviationInput(stockDeviationOverride ? String(stockDeviationOverride.value) : ''); setDeviationNote(stockDeviationOverride?.note || ''); setShowDeviationModal(true); }}
+                  className={cn(
+                    "px-3 py-1.5 rounded border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+                    stockDeviationOverride
+                      ? "bg-amber-500/10 border-amber-500/40 text-amber-600 hover:bg-amber-500/20"
+                      : "bg-bg-accent border-border-dim text-text-dim hover:text-text-main"
+                  )}
+                  title="Cargar a mano el desvío de stock de la planilla de Control de Desvíos">
+                  <Pencil size={11} />
+                  {stockDeviationOverride ? `Desvío cargado: ${stockDeviationOverride.value}` : 'Cargar desvío a mano'}
+                </button>
+              )}
             </div>
 
             {/* List calculated bonuses */}
@@ -1809,6 +1888,62 @@ export default function EncargadoDashboardView({
       </div>
 
       <MonthlyRankingTop branches={branches} fixedBranchId={selectedBranchId !== 'all' ? selectedBranchId : undefined} />
+
+      {/* Modal: cargar el desvío de stock a mano */}
+      {showDeviationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowDeviationModal(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
+              <h3 className="text-xs font-black uppercase tracking-widest text-brand-500">Desvío de Stock · Carga Manual</h3>
+              <button onClick={() => setShowDeviationModal(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-[10px] text-text-dim font-bold leading-relaxed">
+                Ingresá el desvío que muestra la planilla de <strong>Control de Desvíos</strong> para esta sucursal y mes
+                (el promedio de los insumos de la semana). Este valor reemplaza al cálculo automático para el premio.
+              </p>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Desvío (%)</label>
+                <input
+                  type="text" inputMode="decimal" value={deviationInput}
+                  onChange={e => setDeviationInput(e.target.value)}
+                  placeholder="Ej: 1,32"
+                  className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-sm font-mono font-black text-text-main outline-none focus:border-brand-500"
+                />
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Nota (opcional)</label>
+                <input
+                  type="text" value={deviationNote}
+                  onChange={e => setDeviationNote(e.target.value)}
+                  placeholder="Ej: promedio semana 4 de junio"
+                  className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500"
+                />
+              </div>
+              {stockDeviationOverride && (
+                <p className="text-[9px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
+                  Actualmente cargado: <strong>{stockDeviationOverride.value}%</strong>
+                  {stockDeviationOverride.note ? ` · ${stockDeviationOverride.note}` : ''}
+                </p>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2">
+              {stockDeviationOverride ? (
+                <button onClick={borrarDesvioManual}
+                  className="px-3 py-2 rounded text-[9px] font-black uppercase text-red-500 hover:bg-red-500/10 transition-all">
+                  Quitar y usar automático
+                </button>
+              ) : <span />}
+              <div className="flex gap-2">
+                <button onClick={() => setShowDeviationModal(false)}
+                  className="px-4 py-2 rounded border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main">Cancelar</button>
+                <button onClick={guardarDesvioManual}
+                  className="px-4 py-2 rounded bg-brand-500 text-white text-[9px] font-black uppercase hover:bg-brand-600 transition-all">Guardar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: detalle de banderas rojas */}
       {showFlagsModal && (
