@@ -717,16 +717,15 @@ export default function FinanceView({
   const allEntries = useMemo(() => {
     const paymentEntries: FinanceEntry[] = payments.map(p => {
       const bankId = p.bank?.toLowerCase().trim() || '';
-      let targetAccount = 'bbva'; // default
+      // Medio de pago según la entidad. Si no es un banco reconocido (ej. "FINANCIERA"),
+      // se asume EFECTIVO: antes caía por defecto en BBVA y mostraba mal el flujo.
+      let targetAccount = 'efectivo';
       if (bankId.includes('santander')) targetAccount = 'santander';
       else if (bankId.includes('bbva')) targetAccount = 'bbva';
       else if (bankId.includes('macro')) targetAccount = 'macro';
       else if (bankId.includes('ciudad')) targetAccount = 'ciudad';
       else if (bankId.includes('nacion')) targetAccount = 'nacion';
       else if (bankId.includes('mp') || bankId.includes('mercado')) targetAccount = 'mp';
-      else if (p.category === 'other') targetAccount = 'efectivo';
-      else if (p.category === 'service') targetAccount = 'efectivo';
-      else if (p.category === 'legal') targetAccount = 'efectivo';
       
       const itemId = p.category === 'loan' 
         ? 'loan_cuota' 
@@ -753,13 +752,20 @@ export default function FinanceView({
         }
       }
 
+      // Si el pago no tiene descripción, se arma una con la entidad y el nº de cuota
+      // (antes quedaba el texto "undefined" en el detalle del flujo).
+      const baseDesc = (p.description && String(p.description).trim())
+        || [p.bank, p.installmentNumber ? `Cuota ${p.installmentNumber}` : '']
+             .filter(Boolean).join(' · ')
+        || 'Pago programado';
+
       return {
         id: `payment-${p.id}`,
         date: effectiveDate,
         itemId: itemId,
         amounts: { [targetAccount]: p.amount },
         isExecuted: p.status === 'paid',
-        description: p.description + descriptionSuffix
+        description: baseDesc + descriptionSuffix
       };
     });
 
