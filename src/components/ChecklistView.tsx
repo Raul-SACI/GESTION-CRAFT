@@ -27,12 +27,8 @@ const DIAS = [
   { id: 0, label: 'Domingo', short: 'DOM' },
 ];
 
-// Qué rol puede armar la lista de qué otro rol
-const PUEDE_ARMAR: Record<string, { targetRole: string; targetLabel: string }> = {
-  administrador: { targetRole: 'lider', targetLabel: 'Líderes Operativos' },
-  lider_encargados: { targetRole: 'encargado', targetLabel: 'Encargados' },
-  lider: { targetRole: 'encargado', targetLabel: 'Encargados' },
-};
+// Los roles se leen de roles_config: cada rol (Líder de Encargados, Líder de Cocina,
+// Líder de Cocina y Depósito, Encargado, etc.) tiene su propio check-list.
 
 interface ChecklistViewProps {
   branches: Branch[];
@@ -54,6 +50,12 @@ interface Tarea {
   created_by?: string;
 }
 
+interface RolConfig {
+  id: string;
+  name: string;
+  access_scope?: string;
+}
+
 export default function ChecklistView({
   branches,
   selectedBranchId,
@@ -63,14 +65,20 @@ export default function ChecklistView({
   scope = 'sucursal'
 }: ChecklistViewProps) {
   const roleKey = String(currentUserRole || '').toLowerCase();
-  const puedeArmar = PUEDE_ARMAR[roleKey];
-  // El rol cuyas tareas ve/marca este usuario
-  const miRol = scope === 'lideres' ? 'lider' : 'encargado';
+  const esAdmin = roleKey === 'administrador';
+  // Cualquier rol que no sea encargado puede armar listas de otros roles
+  const puedeArmar = esAdmin || roleKey.includes('lider') || roleKey.includes('líder');
 
   const [activeTab, setActiveTab] = useState<'mias' | 'armar'>('mias');
   const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [rolesDisponibles, setRolesDisponibles] = useState<RolConfig[]>([]);
+  // Rol para el que se están armando las tareas (lo elige quien administra)
+  const [rolDestino, setRolDestino] = useState<string>('');
   const [marcas, setMarcas] = useState<Record<string, { id: string; done: boolean; by?: string }>>({});
   const [loading, setLoading] = useState(false);
+
+  // Las tareas que ve/marca este usuario son las de SU propio rol
+  const miRol = roleKey;
 
   // Fecha sobre la que se marca (por defecto hoy)
   const [fecha, setFecha] = useState(() => {
@@ -88,6 +96,21 @@ export default function ChecklistView({
   const [nuevoDia, setNuevoDia] = useState(1);
   const [nuevaHora, setNuevaHora] = useState('');
   const [nuevaSucursal, setNuevaSucursal] = useState('all');
+
+  const cargarRoles = async () => {
+    try {
+      const { data } = await supabase.from('roles_config').select('id, name, access_scope').order('name');
+      const roles = (data as RolConfig[]) || [];
+      setRolesDisponibles(roles);
+      // Preseleccionar un rol destino razonable según quién está mirando
+      if (!rolDestino && roles.length > 0) {
+        const buscado = scope === 'lideres'
+          ? roles.find(r => String(r.id).toLowerCase().includes('lider') || String(r.name).toLowerCase().includes('líder'))
+          : roles.find(r => String(r.id).toLowerCase().includes('encargado'));
+        setRolDestino(buscado?.id || roles[0].id);
+      }
+    } catch { setRolesDisponibles([]); }
+  };
 
   const cargarTareas = async () => {
     setLoading(true);
@@ -111,7 +134,7 @@ export default function ChecklistView({
     } catch { setMarcas({}); }
   };
 
-  useEffect(() => { cargarTareas(); }, []);
+  useEffect(() => { cargarTareas(); cargarRoles(); }, []);
   useEffect(() => { cargarMarcas(); }, [fecha, selectedBranchId]);
 
   // Tareas que corresponden a este rol, este día y esta sucursal
@@ -123,12 +146,16 @@ export default function ChecklistView({
     ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
   }, [tareas, miRol, diaSemana, selectedBranchId]);
 
-  // Tareas que este usuario administra (del rol de abajo)
+  // Tareas del rol que se está administrando (el elegido en el selector)
   const tareasQueArmo = useMemo(() => {
-    if (!puedeArmar) return [];
-    return tareas.filter(t => t.role === puedeArmar.targetRole)
+    if (!rolDestino) return [];
+    return tareas.filter(t => t.role === rolDestino)
       .sort((a, b) => a.weekday - b.weekday || String(a.time || '').localeCompare(String(b.time || '')));
-  }, [tareas, puedeArmar]);
+  }, [tareas, rolDestino]);
+
+  const rolDestinoLabel = useMemo(() =>
+    rolesDisponibles.find(r => r.id === rolDestino)?.name || rolDestino,
+    [rolesDisponibles, rolDestino]);
 
   const toggleMarca = async (taskId: string) => {
     if (isReadOnly) return;
@@ -154,10 +181,11 @@ export default function ChecklistView({
 
   const agregarTarea = async () => {
     if (!puedeArmar) return;
+    if (!rolDestino) { alert('Elegí el rol para el que armás la tarea.'); return; }
     if (!nuevaTarea.trim()) { alert('Escribí la tarea.'); return; }
     const { error } = await supabase.from('checklist_tasks').insert({
       id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
-      role: puedeArmar.targetRole,
+      role: rolDestino,
       branch_id: nuevaSucursal === 'all' ? null : nuevaSucursal,
       task: nuevaTarea.trim(),
       weekday: nuevoDia,
@@ -204,7 +232,7 @@ export default function ChecklistView({
               <button onClick={() => setActiveTab('armar')}
                 className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
                   activeTab === 'armar' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
-                Armar de {puedeArmar.targetLabel}
+                Armar Check-Lists
               </button>
             </div>
           )}
@@ -281,10 +309,21 @@ export default function ChecklistView({
       {/* ─── ARMAR CHECK-LIST ─── */}
       {activeTab === 'armar' && puedeArmar && (
         <div className="space-y-4">
+          {/* Selector del rol cuyo check-list se está armando */}
+          <div className="bg-bg-card border border-brand-500/30 rounded-lg p-4 flex items-center gap-3 flex-wrap">
+            <Users size={15} className="text-brand-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-text-main">Armar el check-list de:</span>
+            <select value={rolDestino} onChange={e => setRolDestino(e.target.value)}
+              className="flex-1 min-w-[200px] bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+              {rolesDisponibles.length === 0 && <option value="">Sin roles configurados</option>}
+              {rolesDisponibles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+
           {/* Alta */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
-              <Plus size={14} /> Nueva tarea para {puedeArmar.targetLabel}
+              <Plus size={14} /> Nueva tarea para {rolDestinoLabel}
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
               <input type="text" value={nuevaTarea} onChange={e => setNuevaTarea(e.target.value)}
@@ -314,7 +353,7 @@ export default function ChecklistView({
           {/* Listado agrupado por día */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
-              <ListChecks size={14} /> Check-List de {puedeArmar.targetLabel} ({tareasQueArmo.length})
+              <ListChecks size={14} /> Check-List de {rolDestinoLabel} ({tareasQueArmo.length})
             </h3>
             {tareasQueArmo.length === 0 ? (
               <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">
