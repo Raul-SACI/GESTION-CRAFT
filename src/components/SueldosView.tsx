@@ -305,10 +305,12 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
     const fetchEmployees = async () => {
       const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
       try {
+        // Trae los empleados de la sucursal + los COMODÍN (branch_id = 'all'),
+        // que son los de prueba/eventuales disponibles en todos los locales.
         const { data, error } = await supabase
           .from('employees')
           .select('*')
-          .eq('branch_id', branchIdToFetch)
+          .in('branch_id', [branchIdToFetch, 'all'])
           .eq('is_active', true)
           .order('name');
         
@@ -318,6 +320,8 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           // Map text position from Maestro to ROLES id
           const mapPositionToRoleId = (pos: string): string => {
             const p = (pos || '').toLowerCase().trim();
+            // Comodín: el puesto se elige al cargar la jornada
+            if (p === 'all' || p === 'todos') return 'mozos';
             if (p.includes('encargado') || p.includes('gerente') || p.includes('sub-enc')) return 'encargado';
             if (p.includes('lider de cocina') || p.includes('jefe')) return 'jefe_cocina';
             if (p.includes('segundo')) return 'segundo_cocina';
