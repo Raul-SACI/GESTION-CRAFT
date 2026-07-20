@@ -404,6 +404,9 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
 
   // ─── MI AGENDA: carga y alta de tareas personales ───
   const duenoAgenda = agendaDe || currentUserName || '';
+  // Cada uno solo edita SU agenda: la de otros es de consulta.
+  const esMiAgenda = !!currentUserName && duenoAgenda === currentUserName;
+  const puedeEditarAgenda = esMiAgenda && !isReadOnly;
 
   const cargarMisTareas = async () => {
     if (!duenoAgenda) { setMisTareas([]); return; }
@@ -430,7 +433,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   }, [currentUserName]);
 
   const agregarMiTarea = async () => {
-    if (isReadOnly) return;
+    if (!puedeEditarAgenda) { alert('Solo podés agregar tareas en tu propia agenda.'); return; }
     if (!duenoAgenda) { alert('No se pudo identificar el usuario.'); return; }
     if (!nuevaTareaTexto.trim()) { alert('Escribí la tarea.'); return; }
     const { error: err } = await supabase.from('supervisor_tasks').insert({
@@ -449,13 +452,13 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   };
 
   const toggleMiTarea = async (t: any) => {
-    if (isReadOnly) return;
+    if (!puedeEditarAgenda) return;
     await supabase.from('supervisor_tasks').update({ done: !t.done }).eq('id', t.id);
     await cargarMisTareas();
   };
 
   const borrarMiTarea = async (id: string) => {
-    if (isReadOnly) return;
+    if (!puedeEditarAgenda) return;
     if (!window.confirm('¿Eliminar esta tarea?')) return;
     await supabase.from('supervisor_tasks').delete().eq('id', id);
     await cargarMisTareas();
@@ -544,8 +547,18 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
             </div>
           )}
 
-          {/* Alta de tarea */}
-          {!isReadOnly && (
+          {/* Aviso: la agenda de otro es solo de consulta */}
+          {!esMiAgenda && duenoAgenda && (
+            <div className="bg-amber-500/5 border border-amber-500/30 rounded-lg px-4 py-3 flex items-center gap-2">
+              <AlertCircle size={14} className="text-amber-500 shrink-0" />
+              <p className="text-[10px] font-bold uppercase text-amber-600">
+                Estás viendo la agenda de {duenoAgenda} · solo consulta, no podés modificarla
+              </p>
+            </div>
+          )}
+
+          {/* Alta de tarea: solo en la agenda propia */}
+          {puedeEditarAgenda && (
             <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
                 <Plus size={14} /> Nueva tarea {agendaDe && agendaDe !== currentUserName ? `para ${agendaDe}` : ''}
@@ -584,9 +597,10 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                     t.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim"
                   )}>
                     <div className="flex items-start gap-2">
-                      <button onClick={() => toggleMiTarea(t)} disabled={isReadOnly}
+                      <button onClick={() => toggleMiTarea(t)} disabled={!puedeEditarAgenda}
                         className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
-                          t.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim hover:border-brand-500")}>
+                          t.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim",
+                          puedeEditarAgenda ? "hover:border-brand-500 cursor-pointer" : "cursor-default opacity-70")}>
                         {t.done && <CheckCircle2 size={10} className="text-white" />}
                       </button>
                       <div className="flex-1 min-w-0">
@@ -594,7 +608,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                           t.done ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
                         {t.note && <p className="text-[8px] font-bold text-text-dim mt-0.5">{t.note}</p>}
                       </div>
-                      {!isReadOnly && (
+                      {puedeEditarAgenda && (
                         <button onClick={() => borrarMiTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
                           <Trash2 size={11} />
                         </button>
