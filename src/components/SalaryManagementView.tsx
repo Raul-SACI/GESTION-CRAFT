@@ -179,10 +179,15 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
   const [empBranchFilter, setEmpBranchFilter] = useState('all');
 
   const syncBranchStaffPools = (allEmployees: MasterEmployee[]) => {
-    const branchesList = Array.from(new Set(allEmployees.map(e => e.branchId)));
+    // Empleados comodín (branchId = 'all'): disponibles en TODAS las sucursales.
+    // Se usan para gente de prueba o eventual que rota por distintos locales/puestos.
+    const comodines = allEmployees.filter(e => e.branchId === 'all');
+    const branchesList = Array.from(new Set(
+      allEmployees.map(e => e.branchId).filter(b => b && b !== 'all')
+    ));
     // We synchronize each branch's state individually for compatibility with older parts of the system
     branchesList.forEach(bId => {
-      const branchStaff = allEmployees.filter(e => e.branchId === bId).map(e => ({
+      const branchStaff = [...allEmployees.filter(e => e.branchId === bId), ...comodines].map(e => ({
         id: e.id,
         name: e.name,
         position: e.position,
@@ -1999,6 +2004,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                     value={employeeForm.position}
                     onChange={e => setEmployeeForm({...employeeForm, position: e.target.value})}
                   >
+                    <option value="all">TODOS LOS PUESTOS (COMODÍN)</option>
                     {ROLES.map(r => (
                       <option key={r.id} value={r.id}>{r.label.toUpperCase()}</option>
                     ))}
@@ -2012,10 +2018,15 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                     value={employeeForm.branchId}
                     onChange={e => setEmployeeForm({...employeeForm, branchId: e.target.value})}
                   >
+                    <option value="all">TODAS LAS SUCURSALES (COMODÍN)</option>
                     {branches.map(b => (
                       <option key={b.id} value={b.id}>{b.name.toUpperCase()}</option>
                     ))}
                   </select>
+                  <p className="text-[9px] text-text-dim font-bold mt-1 leading-tight">
+                    Usá los comodines para empleados de prueba o eventuales que rotan por
+                    distintas sucursales y puestos.
+                  </p>
                 </div>
               </div>
 
