@@ -46,6 +46,7 @@ import {
   Calculator,
   Scale,
   Factory,
+  CheckSquare,
   ClipboardCheck,
   Ticket,
   StickyNote,
@@ -103,6 +104,7 @@ const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
+const ChecklistView = lazy(() => import('./components/ChecklistView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
@@ -601,6 +603,7 @@ function AppContent() {
       { id: 'inventario_mensual', label: 'Inventario Mensual', icon: ClipboardCheck },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
       { id: 'horas', label: 'Carga de Horas', icon: Clock },
+      { id: 'checklist_sucursal', label: 'Check-List', icon: CheckSquare },
       { id: 'novedades', label: 'Novedades', icon: ClipboardList },
       { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
       { id: 'pedidos_internos', label: 'Pedidos Internos', icon: ShoppingCart },
@@ -618,6 +621,7 @@ function AppContent() {
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
+      { id: 'checklist_lideres', label: 'Check-List', icon: CheckSquare },
     ],
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
@@ -1645,6 +1649,8 @@ function AppContent() {
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'config_salones' && <SalonConfigView key="config_salones" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'checklist_sucursal' && <ChecklistView key="checklist_sucursal" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="sucursal" />}
+              {activeTab === 'checklist_lideres' && <ChecklistView key="checklist_lideres" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="lideres" />}
               {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
                 <StockView 

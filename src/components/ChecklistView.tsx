@@ -1,0 +1,360 @@
+/**
+ * CHECK-LIST OPERATIVO
+ *
+ * Dos vistas en un mismo módulo:
+ *  - "Mi Check-List": las tareas que le tocan HOY al usuario según su rol, para tildar.
+ *  - "Armar Check-List": define las tareas recurrentes del rol que tiene a cargo.
+ *      · El admin arma las de los líderes
+ *      · El líder arma las de los encargados
+ *
+ * Las tareas son recurrentes por día de la semana (una tarea del "Lunes 10:00"
+ * aparece todos los lunes) y las marcas se guardan por fecha.
+ */
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'motion/react';
+import { CheckSquare, Plus, Trash2, Clock, Calendar, ListChecks, Check, X, Users } from 'lucide-react';
+import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
+import { Branch } from '../types';
+
+const DIAS = [
+  { id: 1, label: 'Lunes', short: 'LUN' },
+  { id: 2, label: 'Martes', short: 'MAR' },
+  { id: 3, label: 'Miércoles', short: 'MIÉ' },
+  { id: 4, label: 'Jueves', short: 'JUE' },
+  { id: 5, label: 'Viernes', short: 'VIE' },
+  { id: 6, label: 'Sábado', short: 'SÁB' },
+  { id: 0, label: 'Domingo', short: 'DOM' },
+];
+
+// Qué rol puede armar la lista de qué otro rol
+const PUEDE_ARMAR: Record<string, { targetRole: string; targetLabel: string }> = {
+  administrador: { targetRole: 'lider', targetLabel: 'Líderes Operativos' },
+  lider_encargados: { targetRole: 'encargado', targetLabel: 'Encargados' },
+  lider: { targetRole: 'encargado', targetLabel: 'Encargados' },
+};
+
+interface ChecklistViewProps {
+  branches: Branch[];
+  selectedBranchId: string;
+  currentUserRole?: string;
+  currentUserName?: string;
+  isReadOnly?: boolean;
+  /** 'sucursal' = vista del encargado · 'lideres' = vista del líder */
+  scope?: 'sucursal' | 'lideres';
+}
+
+interface Tarea {
+  id: string;
+  role: string;
+  branch_id: string | null;
+  task: string;
+  weekday: number;
+  time: string | null;
+  created_by?: string;
+}
+
+export default function ChecklistView({
+  branches,
+  selectedBranchId,
+  currentUserRole,
+  currentUserName,
+  isReadOnly,
+  scope = 'sucursal'
+}: ChecklistViewProps) {
+  const roleKey = String(currentUserRole || '').toLowerCase();
+  const puedeArmar = PUEDE_ARMAR[roleKey];
+  // El rol cuyas tareas ve/marca este usuario
+  const miRol = scope === 'lideres' ? 'lider' : 'encargado';
+
+  const [activeTab, setActiveTab] = useState<'mias' | 'armar'>('mias');
+  const [tareas, setTareas] = useState<Tarea[]>([]);
+  const [marcas, setMarcas] = useState<Record<string, { id: string; done: boolean; by?: string }>>({});
+  const [loading, setLoading] = useState(false);
+
+  // Fecha sobre la que se marca (por defecto hoy)
+  const [fecha, setFecha] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
+
+  const diaSemana = useMemo(() => {
+    const [y, m, d] = fecha.split('-').map(Number);
+    return new Date(y, m - 1, d).getDay();
+  }, [fecha]);
+
+  // --- Formulario de alta ---
+  const [nuevaTarea, setNuevaTarea] = useState('');
+  const [nuevoDia, setNuevoDia] = useState(1);
+  const [nuevaHora, setNuevaHora] = useState('');
+  const [nuevaSucursal, setNuevaSucursal] = useState('all');
+
+  const cargarTareas = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase.from('checklist_tasks').select('*').order('time');
+      setTareas((data as Tarea[]) || []);
+    } catch { setTareas([]); }
+    setLoading(false);
+  };
+
+  const cargarMarcas = async () => {
+    try {
+      const { data } = await supabase
+        .from('checklist_marks')
+        .select('*')
+        .eq('date', fecha)
+        .eq('branch_id', selectedBranchId);
+      const map: Record<string, { id: string; done: boolean; by?: string }> = {};
+      (data || []).forEach((m: any) => { map[m.task_id] = { id: m.id, done: m.done, by: m.marked_by }; });
+      setMarcas(map);
+    } catch { setMarcas({}); }
+  };
+
+  useEffect(() => { cargarTareas(); }, []);
+  useEffect(() => { cargarMarcas(); }, [fecha, selectedBranchId]);
+
+  // Tareas que corresponden a este rol, este día y esta sucursal
+  const misTareasHoy = useMemo(() => {
+    return tareas.filter(t =>
+      t.role === miRol &&
+      t.weekday === diaSemana &&
+      (!t.branch_id || t.branch_id === 'all' || t.branch_id === selectedBranchId)
+    ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+  }, [tareas, miRol, diaSemana, selectedBranchId]);
+
+  // Tareas que este usuario administra (del rol de abajo)
+  const tareasQueArmo = useMemo(() => {
+    if (!puedeArmar) return [];
+    return tareas.filter(t => t.role === puedeArmar.targetRole)
+      .sort((a, b) => a.weekday - b.weekday || String(a.time || '').localeCompare(String(b.time || '')));
+  }, [tareas, puedeArmar]);
+
+  const toggleMarca = async (taskId: string) => {
+    if (isReadOnly) return;
+    if (!selectedBranchId || selectedBranchId === 'all') {
+      alert('Elegí una sucursal para marcar las tareas.');
+      return;
+    }
+    const actual = marcas[taskId];
+    const nuevoEstado = !actual?.done;
+    const id = `${taskId}-${selectedBranchId}-${fecha}`;
+    const { error } = await supabase.from('checklist_marks').upsert({
+      id,
+      task_id: taskId,
+      branch_id: selectedBranchId,
+      date: fecha,
+      done: nuevoEstado,
+      marked_by: currentUserName || '—',
+      marked_at: new Date().toISOString()
+    }, { onConflict: 'task_id,branch_id,date' });
+    if (error) { alert('Error al guardar: ' + error.message); return; }
+    await cargarMarcas();
+  };
+
+  const agregarTarea = async () => {
+    if (!puedeArmar) return;
+    if (!nuevaTarea.trim()) { alert('Escribí la tarea.'); return; }
+    const { error } = await supabase.from('checklist_tasks').insert({
+      id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      role: puedeArmar.targetRole,
+      branch_id: nuevaSucursal === 'all' ? null : nuevaSucursal,
+      task: nuevaTarea.trim(),
+      weekday: nuevoDia,
+      time: nuevaHora || null,
+      created_by: currentUserName || '—',
+      created_at: new Date().toISOString()
+    });
+    if (error) { alert('Error al guardar: ' + error.message); return; }
+    setNuevaTarea(''); setNuevaHora('');
+    await cargarTareas();
+  };
+
+  const borrarTarea = async (id: string) => {
+    if (!window.confirm('¿Eliminar esta tarea del check-list?')) return;
+    await supabase.from('checklist_tasks').delete().eq('id', id);
+    await cargarTareas();
+  };
+
+  const cumplidas = misTareasHoy.filter(t => marcas[t.id]?.done).length;
+  const totalHoy = misTareasHoy.length;
+  const pct = totalHoy > 0 ? Math.round((cumplidas / totalHoy) * 100) : 0;
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+      {/* Encabezado */}
+      <div className="bg-bg-card border border-border-dim rounded-lg p-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <div className="bg-brand-500/10 p-2.5 rounded-lg"><CheckSquare className="text-brand-500" size={20} /></div>
+            <div>
+              <h2 className="text-base font-black uppercase text-text-main tracking-wider">Check-List Operativo</h2>
+              <p className="text-[9px] text-text-dim uppercase font-bold">
+                {scope === 'lideres' ? 'Tareas de líderes operativos' : 'Tareas de la sucursal'}
+              </p>
+            </div>
+          </div>
+          {puedeArmar && (
+            <div className="flex gap-1 bg-bg-accent p-1 rounded-lg">
+              <button onClick={() => setActiveTab('mias')}
+                className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  activeTab === 'mias' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                Mi Check-List
+              </button>
+              <button onClick={() => setActiveTab('armar')}
+                className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  activeTab === 'armar' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                Armar de {puedeArmar.targetLabel}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ─── MI CHECK-LIST ─── */}
+      {activeTab === 'mias' && (
+        <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <Calendar size={14} className="text-brand-500" />
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+              <span className="text-[9px] font-black uppercase text-text-dim">
+                {DIAS.find(d => d.id === diaSemana)?.label}
+              </span>
+            </div>
+            {totalHoy > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-black uppercase text-text-dim">Cumplimiento</span>
+                <span className={cn("text-sm font-mono font-black",
+                  pct === 100 ? "text-emerald-500" : pct >= 50 ? "text-amber-500" : "text-red-500")}>
+                  {cumplidas}/{totalHoy} · {pct}%
+                </span>
+              </div>
+            )}
+          </div>
+
+          {loading ? (
+            <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Cargando…</p>
+          ) : misTareasHoy.length === 0 ? (
+            <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">
+              No hay tareas cargadas para este día.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {misTareasHoy.map(t => {
+                const marca = marcas[t.id];
+                const hecha = marca?.done;
+                return (
+                  <div key={t.id}
+                    onClick={() => toggleMarca(t.id)}
+                    className={cn(
+                      "flex items-center gap-3 p-3.5 rounded-lg border transition-all cursor-pointer",
+                      hecha ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim hover:border-brand-500/40"
+                    )}>
+                    <div className={cn(
+                      "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
+                      hecha ? "bg-emerald-500 border-emerald-500" : "border-border-dim"
+                    )}>
+                      {hecha && <Check size={13} className="text-white" strokeWidth={3} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn("text-[11px] font-bold uppercase",
+                        hecha ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
+                      {marca?.by && hecha && (
+                        <p className="text-[8px] font-bold uppercase text-emerald-600 mt-0.5">Marcada por {marca.by}</p>
+                      )}
+                    </div>
+                    {t.time && (
+                      <span className="text-[9px] font-mono font-black text-text-dim flex items-center gap-1 shrink-0">
+                        <Clock size={11} /> {t.time}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── ARMAR CHECK-LIST ─── */}
+      {activeTab === 'armar' && puedeArmar && (
+        <div className="space-y-4">
+          {/* Alta */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+              <Plus size={14} /> Nueva tarea para {puedeArmar.targetLabel}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <input type="text" value={nuevaTarea} onChange={e => setNuevaTarea(e.target.value)}
+                placeholder="Tarea a realizar (ej. Controlar temperatura de heladeras)"
+                className="md:col-span-5 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+              <select value={nuevoDia} onChange={e => setNuevoDia(Number(e.target.value))}
+                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                {DIAS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+              </select>
+              <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
+                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+              <select value={nuevaSucursal} onChange={e => setNuevaSucursal(e.target.value)}
+                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="all">Todas las sucursales</option>
+                {branches.filter(b => b.id !== 'all').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <button onClick={agregarTarea}
+                className="md:col-span-1 bg-brand-500 hover:bg-brand-600 text-white rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
+                Agregar
+              </button>
+            </div>
+            <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">
+              La tarea se repite todas las semanas el día elegido.
+            </p>
+          </div>
+
+          {/* Listado agrupado por día */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+              <ListChecks size={14} /> Check-List de {puedeArmar.targetLabel} ({tareasQueArmo.length})
+            </h3>
+            {tareasQueArmo.length === 0 ? (
+              <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">
+                Todavía no cargaste ninguna tarea.
+              </p>
+            ) : (
+              DIAS.map(dia => {
+                const delDia = tareasQueArmo.filter(t => t.weekday === dia.id);
+                if (delDia.length === 0) return null;
+                return (
+                  <div key={dia.id} className="space-y-1.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/40 pb-1">
+                      {dia.label} ({delDia.length})
+                    </p>
+                    {delDia.map(t => {
+                      const suc = t.branch_id ? branches.find(b => b.id === t.branch_id)?.name : null;
+                      return (
+                        <div key={t.id} className="flex items-center gap-3 bg-bg-card border border-border-dim rounded px-3 py-2">
+                          <span className="flex-1 text-[11px] font-bold uppercase text-text-main">{t.task}</span>
+                          {suc && (
+                            <span className="text-[8px] font-black uppercase text-brand-500 bg-brand-500/10 px-2 py-0.5 rounded shrink-0">{suc}</span>
+                          )}
+                          {t.time && (
+                            <span className="text-[9px] font-mono font-black text-text-dim shrink-0">{t.time}</span>
+                          )}
+                          {!isReadOnly && (
+                            <button onClick={() => borrarTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
