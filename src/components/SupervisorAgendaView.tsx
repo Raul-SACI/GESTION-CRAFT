@@ -68,7 +68,7 @@ interface CoverageRule {
   label: string | null;
 }
 
-export default function SupervisorAgendaView({ branches, mode = 'armado', isReadOnly = false }: { branches: Branch[]; mode?: 'armado' | 'control'; isReadOnly?: boolean }) {
+export default function SupervisorAgendaView({ branches, mode = 'armado', isReadOnly = false, currentUserName, currentUserRole }: { branches: Branch[]; mode?: 'armado' | 'control'; isReadOnly?: boolean; currentUserName?: string; currentUserRole?: string }) {
   const isControl = mode === 'control';
   const [leaders, setLeaders] = useState<string[]>([]);
   const [leadersDiag, setLeadersDiag] = useState<{ totalEmps: number; lideres: number; err: string | null }>({ totalEmps: 0, lideres: 0, err: null });
@@ -79,6 +79,18 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+
+  // ─── MI AGENDA (tareas personales por fecha) ───
+  const esAdminOLider = String(currentUserRole || '').toLowerCase() === 'administrador'
+    || String(currentUserRole || '').toLowerCase().includes('lider');
+  const [vista, setVista] = useState<'cobertura' | 'mi_agenda'>('cobertura');
+  const [misTareas, setMisTareas] = useState<any[]>([]);
+  // De quién se está viendo la agenda (admin/líder puede ver la de otros)
+  const [agendaDe, setAgendaDe] = useState<string>('');
+  const [nuevaTareaTexto, setNuevaTareaTexto] = useState('');
+  const [nuevaTareaFecha, setNuevaTareaFecha] = useState(() => fmtDate(new Date()));
+  const [nuevaTareaHora, setNuevaTareaHora] = useState('09:00');
+  const [nuevaTareaNota, setNuevaTareaNota] = useState('');
 
   // Semana seleccionada (lunes)
   const [weekMonday, setWeekMonday] = useState<Date>(() => getMonday(new Date()));
@@ -390,6 +402,80 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
 
   const weekLabel = `${weekDays[0].toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
+  // ─── MI AGENDA: carga y alta de tareas personales ───
+  const duenoAgenda = agendaDe || currentUserName || '';
+
+  const cargarMisTareas = async () => {
+    if (!duenoAgenda) { setMisTareas([]); return; }
+    const desde = fmtDate(weekMonday);
+    const hastaD = new Date(weekMonday); hastaD.setDate(hastaD.getDate() + 6);
+    try {
+      const { data } = await supabase
+        .from('supervisor_tasks')
+        .select('*')
+        .eq('supervisor_name', duenoAgenda)
+        .gte('date', desde)
+        .lte('date', fmtDate(hastaD))
+        .order('date').order('time');
+      setMisTareas(data || []);
+    } catch { setMisTareas([]); }
+  };
+
+  useEffect(() => {
+    if (vista === 'mi_agenda') cargarMisTareas();
+  }, [vista, duenoAgenda, weekMonday]);
+
+  useEffect(() => {
+    if (!agendaDe && currentUserName) setAgendaDe(currentUserName);
+  }, [currentUserName]);
+
+  const agregarMiTarea = async () => {
+    if (isReadOnly) return;
+    if (!duenoAgenda) { alert('No se pudo identificar el usuario.'); return; }
+    if (!nuevaTareaTexto.trim()) { alert('Escribí la tarea.'); return; }
+    const { error: err } = await supabase.from('supervisor_tasks').insert({
+      id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      supervisor_name: duenoAgenda,
+      date: nuevaTareaFecha,
+      time: nuevaTareaHora || null,
+      task: nuevaTareaTexto.trim(),
+      note: nuevaTareaNota || null,
+      done: false,
+      created_at: new Date().toISOString()
+    });
+    if (err) { alert('Error al guardar: ' + err.message); return; }
+    setNuevaTareaTexto(''); setNuevaTareaNota('');
+    await cargarMisTareas();
+  };
+
+  const toggleMiTarea = async (t: any) => {
+    if (isReadOnly) return;
+    await supabase.from('supervisor_tasks').update({ done: !t.done }).eq('id', t.id);
+    await cargarMisTareas();
+  };
+
+  const borrarMiTarea = async (id: string) => {
+    if (isReadOnly) return;
+    if (!window.confirm('¿Eliminar esta tarea?')) return;
+    await supabase.from('supervisor_tasks').delete().eq('id', id);
+    await cargarMisTareas();
+  };
+
+  // Tareas agrupadas por día de la semana visible
+  const tareasPorDia = useMemo(() => {
+    const dias: Array<{ fecha: string; label: string; tareas: any[] }> = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekMonday); d.setDate(d.getDate() + i);
+      const f = fmtDate(d);
+      dias.push({
+        fecha: f,
+        label: `${DAYS_OF_WEEK[i]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        tareas: misTareas.filter(t => t.date === f).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+      });
+    }
+    return dias;
+  }, [misTareas, weekMonday]);
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       {/* Header */}
@@ -401,18 +487,31 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
           <div>
             <h2 className="text-xl font-black text-text-main uppercase tracking-tight">Agenda Supervisores</h2>
             <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">
-              {isControl ? 'Control de agendas y reglas de cobertura' : 'Planificación semanal de líderes'}
+              {vista === 'mi_agenda' ? 'Tareas propias por día y horario' : (isControl ? 'Control de agendas y reglas de cobertura' : 'Planificación semanal de líderes')}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Pestañas */}
+          <div className="flex bg-bg-accent p-1 rounded border border-border-dim">
+            <button onClick={() => setVista('cobertura')}
+              className={cn("px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors",
+                vista === 'cobertura' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+              Cobertura
+            </button>
+            <button onClick={() => setVista('mi_agenda')}
+              className={cn("px-4 py-1.5 rounded text-[10px] font-black uppercase tracking-wider transition-colors",
+                vista === 'mi_agenda' ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>
+              Mi Agenda
+            </button>
+          </div>
           {/* Selector de semana */}
           <div className="flex items-center gap-1 bg-bg-sidebar border border-border-dim rounded px-2 py-1.5">
             <button onClick={() => { const d = new Date(weekMonday); d.setDate(d.getDate() - 7); setWeekMonday(d); }} className="p-1 hover:text-brand-500 text-text-dim"><ChevronLeft size={16} /></button>
             <span className="text-[10px] font-black uppercase text-text-main tracking-wider min-w-[170px] text-center">{weekLabel}</span>
             <button onClick={() => { const d = new Date(weekMonday); d.setDate(d.getDate() + 7); setWeekMonday(d); }} className="p-1 hover:text-brand-500 text-text-dim"><ChevronRight size={16} /></button>
           </div>
-          {isControl && (
+          {isControl && vista === 'cobertura' && (
             <button
               onClick={() => setShowRules(true)}
               className="flex items-center gap-2 bg-bg-sidebar border border-border-dim text-text-main px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 transition-all"
@@ -420,16 +519,101 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
               <Calendar size={14} /> Reglas de Cobertura
             </button>
           )}
-          <button
+          {vista === 'cobertura' && <button
             onClick={() => { setShowAddEntry(true); setError(null); }}
             className="flex items-center gap-2 bg-brand-500 text-black px-5 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg"
           >
             <Plus size={14} /> Agendar Visita
-          </button>
+          </button>}
         </div>
       </div>
 
-      {loading ? (
+      {/* ─── MI AGENDA ─── */}
+      {vista === 'mi_agenda' && (
+        <div className="space-y-5">
+          {/* Selector de supervisor (solo admin/líder ve el de otros) */}
+          {esAdminOLider && leaders.length > 0 && (
+            <div className="bg-bg-card border border-brand-500/30 rounded-lg p-4 flex items-center gap-3 flex-wrap">
+              <ClipboardList size={15} className="text-brand-500" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-main">Ver agenda de:</span>
+              <select value={agendaDe} onChange={e => setAgendaDe(e.target.value)}
+                className="flex-1 min-w-[200px] bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                {currentUserName && <option value={currentUserName}>{currentUserName} (yo)</option>}
+                {leaders.filter(l => l !== currentUserName).map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Alta de tarea */}
+          {!isReadOnly && (
+            <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+                <Plus size={14} /> Nueva tarea {agendaDe && agendaDe !== currentUserName ? `para ${agendaDe}` : ''}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                <input type="text" value={nuevaTareaTexto} onChange={e => setNuevaTareaTexto(e.target.value)}
+                  placeholder="Tarea (ej. Visitar Barrio Norte y revisar depósito)"
+                  className="md:col-span-5 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                <input type="date" value={nuevaTareaFecha} onChange={e => setNuevaTareaFecha(e.target.value)}
+                  className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                <input type="time" value={nuevaTareaHora} onChange={e => setNuevaTareaHora(e.target.value)}
+                  className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                <input type="text" value={nuevaTareaNota} onChange={e => setNuevaTareaNota(e.target.value)}
+                  placeholder="Nota (opcional)"
+                  className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
+                <button onClick={agregarMiTarea}
+                  className="md:col-span-1 bg-brand-500 hover:bg-brand-600 text-black rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
+                  Agregar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Agenda de la semana, día por día */}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            {tareasPorDia.map(dia => (
+              <div key={dia.fecha} className="bg-bg-sidebar border border-border-dim rounded-lg p-4 space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-brand-500 border-b border-border-dim/40 pb-1.5">
+                  {dia.label}
+                </p>
+                {dia.tareas.length === 0 ? (
+                  <p className="text-[9px] font-bold uppercase text-text-dim opacity-50 py-3 text-center">Sin tareas</p>
+                ) : dia.tareas.map(t => (
+                  <div key={t.id} className={cn(
+                    "rounded border p-2.5 transition-all",
+                    t.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim"
+                  )}>
+                    <div className="flex items-start gap-2">
+                      <button onClick={() => toggleMiTarea(t)} disabled={isReadOnly}
+                        className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                          t.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim hover:border-brand-500")}>
+                        {t.done && <CheckCircle2 size={10} className="text-white" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={cn("text-[10px] font-bold uppercase leading-tight",
+                          t.done ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
+                        {t.note && <p className="text-[8px] font-bold text-text-dim mt-0.5">{t.note}</p>}
+                      </div>
+                      {!isReadOnly && (
+                        <button onClick={() => borrarMiTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
+                          <Trash2 size={11} />
+                        </button>
+                      )}
+                    </div>
+                    {t.time && (
+                      <p className="text-[8px] font-mono font-black text-brand-500 mt-1.5 flex items-center gap-1">
+                        <Clock size={9} /> {t.time}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {vista === 'cobertura' && (loading ? (
         <div className="flex flex-col items-center justify-center py-20 text-text-dim">
           <Loader2 className="animate-spin text-brand-500" size={32} />
           <p className="mt-3 text-[10px] font-black uppercase tracking-widest">Cargando agenda…</p>
@@ -580,7 +764,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
             )}
           </div>
         </>
-      )}
+      ))}
 
       {/* Modal de carga */}
       <AnimatePresence>
