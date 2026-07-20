@@ -554,6 +554,7 @@ function AppContent() {
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
+    'checklist_sucursal', 'checklist_lideres',
     'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
