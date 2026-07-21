@@ -430,7 +430,7 @@ export default function PriceListBuilder({
 
         {/* Lista de borradores */}
         {showDrafts && (
-          <div className="px-4 py-3 border-b border-border-dim bg-bg-accent/10 max-h-40 overflow-y-auto space-y-1">
+          <div className="shrink-0 px-4 py-3 border-b border-border-dim bg-bg-accent/10 max-h-40 overflow-y-auto space-y-1">
             {drafts.length === 0 ? (
               <p className="text-[10px] text-text-dim font-bold uppercase text-center py-2">No hay borradores guardados</p>
             ) : drafts.map(d => (
@@ -450,7 +450,7 @@ export default function PriceListBuilder({
           const prev = buildPreview();
           const listo = Boolean(colProducto && colPrecio) && importRows.length > 0;
           return (
-            <div className="px-4 py-3 border-b border-border-dim bg-bg-accent/10 max-h-72 overflow-y-auto space-y-3">
+            <div className="shrink-0 px-4 py-3 border-b border-border-dim bg-bg-accent/10 max-h-[60vh] overflow-y-auto space-y-3">
               <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1.5 bg-brand-500/10 text-brand-500 border border-brand-500/40 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-500/20 transition-all">
                   <Upload size={13} /> Elegir archivo Excel
