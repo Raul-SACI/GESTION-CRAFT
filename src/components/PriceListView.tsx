@@ -99,6 +99,10 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [newInflPct, setNewInflPct] = useState('');
   // Comisión de la plataforma (Pedidos Ya), editable y guardada en Supabase (tabla pricing_settings)
   const [pyCommission, setPyCommission] = useState<number>(10);
+  // Categorías creadas a mano (tabla menu_categories), por tipo de carta. Se suman a las de los productos.
+  const [managedCats, setManagedCats] = useState<Record<string, string[]>>({ salon: [], celiacos: [], pedidosya: [] });
+  const [showCategoriesModal, setShowCategoriesModal] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -168,6 +172,21 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         setPyCommission(Number(ps[0].commission_pct));
       }
     } catch (e) { console.error('Error cargando comisión Pedidos Ya:', e); }
+
+    // Categorías creadas a mano (si la tabla todavía no existe, se ignora)
+    try {
+      const { data: cats } = await supabase.from('menu_categories').select('menu_type, name');
+      if (cats) {
+        const grouped: Record<string, string[]> = { salon: [], celiacos: [], pedidosya: [] };
+        cats.forEach((c: any) => {
+          const mt = String(c.menu_type || '');
+          const nm = String(c.name || '').trim().toUpperCase();
+          if (!grouped[mt]) grouped[mt] = [];
+          if (nm && !grouped[mt].includes(nm)) grouped[mt].push(nm);
+        });
+        setManagedCats(grouped);
+      }
+    } catch (e) { console.error('Error cargando categorías administradas:', e); }
 
     if (data) {
       const organized: Record<string, MenuItem[]> = {
@@ -336,7 +355,37 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   };
 
   // Categorías disponibles en la lista activa (para el filtro desplegable)
-  const availableCategories = Array.from(new Set((menus[activeMenu] || []).map(i => i.category))).sort();
+  const availableCategories = Array.from(new Set([
+    ...(menus[activeMenu] || []).map(i => i.category),
+    ...(managedCats[activeMenu] || []),
+  ])).filter(Boolean).sort();
+
+  // Crea una categoría a mano (guardada en Supabase). Solo se usa en la solapa Pedidos Ya.
+  const addCategory = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const clean = newCatName.trim().toUpperCase();
+    if (!clean) return;
+    const yaExiste = (managedCats[activeMenu] || []).includes(clean)
+      || (menus[activeMenu] || []).some(i => String(i.category).toUpperCase() === clean);
+    if (yaExiste) { alert('Esa categoría ya existe.'); return; }
+    try {
+      const { error } = await supabase.from('menu_categories').insert([{ menu_type: activeMenu, name: clean }]);
+      if (error) throw error;
+      setManagedCats(prev => ({ ...prev, [activeMenu]: [...(prev[activeMenu] || []), clean] }));
+      setNewCatName('');
+    } catch (e: any) { alert('Error al crear la categoría: ' + (e.message || e)); }
+  };
+
+  // Quita una categoría creada a mano. Los productos que ya la usen la conservan.
+  const deleteCategory = async (name: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!window.confirm(`¿Quitar la categoría "${name}" de la lista? Los productos que ya la tengan asignada la conservan.`)) return;
+    try {
+      const { error } = await supabase.from('menu_categories').delete().eq('menu_type', activeMenu).eq('name', name);
+      if (error) throw error;
+      setManagedCats(prev => ({ ...prev, [activeMenu]: (prev[activeMenu] || []).filter(c => c !== name) }));
+    } catch (e: any) { alert('Error al quitar la categoría: ' + (e.message || e)); }
+  };
 
   const filteredItems = (menus[activeMenu] || []).filter(item => {
     // Filtro por categoría
@@ -652,6 +701,13 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             <option value="all">Todas las categorías</option>
             {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {activeMenu === 'pedidosya' && (
+            <button onClick={() => setShowCategoriesModal(true)}
+              className="bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
+              title="Crear o quitar categorías de Pedidos Ya">
+              <ListPlus size={14} /> Categorías
+            </button>
+          )}
           <button onClick={exportarCartaPDF}
             className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-red-500/50 hover:text-red-500 transition-all flex items-center gap-1.5"
             title="Descargar esta carta en PDF">
@@ -955,13 +1011,17 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               <div className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-text-dim uppercase">Categoría</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
+                    list="cat-suggestions"
                     placeholder="Ej: Entradas, Carnes, Bebidas..."
                     className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500"
                     value={newItem.category}
                     onChange={e => setNewItem({...newItem, category: e.target.value})}
                   />
+                  <datalist id="cat-suggestions">
+                    {availableCategories.map(c => <option key={c} value={c} />)}
+                  </datalist>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-text-dim uppercase">Nombre del Producto</label>
@@ -1006,6 +1066,68 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: administrar categorías de Pedidos Ya */}
+      {showCategoriesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowCategoriesModal(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Categorías · Pedidos Ya</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">Creá o quitá categorías para clasificar tus productos</p>
+              </div>
+              <button onClick={() => setShowCategoriesModal(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+
+            {/* Alta */}
+            <div className="p-4 border-b border-border-dim flex items-end gap-2 bg-bg-accent/20">
+              <div className="flex-1">
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Nueva categoría</label>
+                <input
+                  type="text"
+                  placeholder="Ej: PROMOS PEDIDOS YA"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addCategory(); }}
+                  disabled={isReadOnly}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] text-text-main uppercase outline-none focus:border-brand-500 disabled:opacity-60"
+                />
+              </div>
+              <button onClick={addCategory} disabled={isReadOnly || !newCatName.trim()}
+                className="flex items-center gap-1.5 bg-brand-500 text-white px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
+                <Plus size={13} /> Agregar
+              </button>
+            </div>
+
+            {/* Lista */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {availableCategories.length === 0 ? (
+                <p className="text-[10px] text-text-dim font-bold uppercase text-center py-4">Todavía no hay categorías</p>
+              ) : availableCategories.map(cat => {
+                const esCreada = (managedCats['pedidosya'] || []).includes(cat);
+                const enUso = (menus['pedidosya'] || []).some(i => String(i.category).toUpperCase() === cat);
+                return (
+                  <div key={cat} className="flex items-center justify-between gap-2 bg-bg-card border border-border-dim/50 rounded px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <Tag size={12} className="text-text-dim" />
+                      <span className="text-[11px] font-bold text-text-main uppercase">{cat}</span>
+                      {enUso && <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-bg-accent border border-border-dim text-text-dim">en uso</span>}
+                    </div>
+                    {esCreada ? (
+                      <button onClick={() => deleteCategory(cat)} className="text-text-dim hover:text-red-500" title="Quitar categoría"><Trash2 size={13} /></button>
+                    ) : (
+                      <span className="text-[7px] font-black uppercase text-text-dim/50">de productos</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-4 py-2 border-t border-border-dim">
+              <p className="text-[8px] text-text-dim uppercase tracking-wide">Las que dicen "de productos" salen solas de los ítems cargados y no se pueden quitar desde acá.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showBuilder && (
         <PriceListBuilder
