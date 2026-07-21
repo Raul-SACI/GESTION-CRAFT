@@ -19,7 +19,9 @@ import {
   FileSpreadsheet,
   Loader2,
   ListPlus,
-  Download
+  Download,
+  TrendingUp,
+  Store
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import jsPDF from 'jspdf';
@@ -119,6 +121,18 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [managedCats, setManagedCats] = useState<Record<string, string[]>>({ salon: [], celiacos: [], pedidosya: [] });
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  // ─── Simulador de venta ───
+  const [showSimModal, setShowSimModal] = useState(false);
+  const [simLoading, setSimLoading] = useState(false);
+  const [simLoaded, setSimLoaded] = useState(false);
+  const [simBranches, setSimBranches] = useState<{ id: string; name: string }[]>([]);
+  // Venta neta por mes y sucursal: netByMonthBranch[mes][branch_id] = total
+  const [netByMonthBranch, setNetByMonthBranch] = useState<Record<string, Record<string, number>>>({});
+  // Unidades por sucursal y código: unitsByBranchCode[branch_id][code] = unidades
+  const [unitsByBranchCode, setUnitsByBranchCode] = useState<Record<string, Record<string, number>>>({});
+  const [simBranch, setSimBranch] = useState<string>('all');
+  const [simMonth, setSimMonth] = useState<string>('');
+
   // Selector de columnas para el PDF de una carta
   const [showPdfColsModal, setShowPdfColsModal] = useState(false);
   const [pdfCols, setPdfCols] = useState<Record<string, boolean>>({
@@ -275,6 +289,58 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const pyGrossFactor = (activeMenu === 'pedidosya' && pyCommission > 0 && pyCommission < 100)
     ? 1 / (1 - pyCommission / 100)
     : 1;
+
+  // ─── Simulador de venta: carga de sucursales, ventas netas y ranking por sucursal ───
+  const loadSimData = async () => {
+    setSimLoading(true);
+    try {
+      const { data: br } = await supabase.from('branches').select('id, name');
+      setSimBranches((br || []).map((b: any) => ({ id: String(b.id), name: String(b.name || b.id) })));
+
+      // Venta neta por mes y sucursal (paginado: la tabla puede superar 1000 filas)
+      const net: Record<string, Record<string, number>> = {};
+      for (let page = 0, size = 1000; ; page++) {
+        const { data, error } = await supabase.from('sales').select('branch_id, date, net_sales').range(page * size, (page + 1) * size - 1);
+        if (error) break;
+        (data || []).forEach((r: any) => {
+          const mes = String(r.date || '').slice(0, 7);
+          const b = String(r.branch_id || '');
+          if (!mes || !b) return;
+          if (!net[mes]) net[mes] = {};
+          net[mes][b] = (net[mes][b] || 0) + (Number(r.net_sales) || 0);
+        });
+        if (!data || data.length < size) break;
+      }
+      setNetByMonthBranch(net);
+
+      // Unidades por sucursal y código (paginado)
+      const units: Record<string, Record<string, number>> = {};
+      for (let page = 0, size = 1000; ; page++) {
+        const { data, error } = await supabase.from('product_rankings').select('branch_id, product_code, quantity').range(page * size, (page + 1) * size - 1);
+        if (error) break;
+        (data || []).forEach((r: any) => {
+          const b = String(r.branch_id || '');
+          const code = String(r.product_code || '').trim();
+          if (!b || !code) return;
+          if (!units[b]) units[b] = {};
+          units[b][code] = (units[b][code] || 0) + (Number(r.quantity) || 0);
+        });
+        if (!data || data.length < size) break;
+      }
+      setUnitsByBranchCode(units);
+
+      // Mes por defecto: el más reciente con datos
+      const meses = Object.keys(net).sort();
+      if (meses.length > 0) setSimMonth(prev => prev || meses[meses.length - 1]);
+      setSimLoaded(true);
+    } catch (e) { console.error('Error cargando datos de simulación:', e); }
+    setSimLoading(false);
+  };
+
+  useEffect(() => {
+    if (showSimModal && !simLoaded && !simLoading) loadSimData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSimModal]);
 
   // ─── Carga de inflación mensual (tabla monthly_inflation) ───
   const guardarInflacion = async () => {
@@ -472,6 +538,55 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   })();
 
   const menuLabel = MENU_TYPES.find(m => m.id === activeMenu)?.label || '';
+
+  // Cambio de precio de la última carta por código (precio anterior → actual), tomando Salón/Celíacos
+  const priceChangeByCode = (() => {
+    const m: Record<string, { old: number; new: number }> = {};
+    const add = (it: MenuItem) => {
+      if (!it.externalCode) return;
+      const code = String(it.externalCode).trim();
+      if (!code || m[code]) return;
+      if (it.previousPrice && it.previousPrice > 0) m[code] = { old: it.previousPrice, new: it.price };
+    };
+    (menus.salon || []).forEach(add);
+    (menus.celiacos || []).forEach(add);
+    return m;
+  })();
+
+  // Meses disponibles (con venta neta cargada), del más nuevo al más viejo
+  const simMonths = Object.keys(netByMonthBranch).sort().reverse();
+
+  // Resultado de la simulación para la sucursal y el mes elegidos
+  const simResult = (() => {
+    if (!simMonth || !netByMonthBranch[simMonth]) return null;
+    const monthData = netByMonthBranch[simMonth];
+    const base = simBranch === 'all'
+      ? Object.values(monthData).reduce((a: number, b: number) => a + b, 0)
+      : (monthData[simBranch] || 0);
+
+    // Mix de unidades: de la sucursal elegida, o de toda la cadena
+    let unitsMap: Record<string, number> = {};
+    if (simBranch === 'all') {
+      Object.values(unitsByBranchCode).forEach(bm => {
+        Object.entries(bm).forEach(([c, u]) => { unitsMap[c] = (unitsMap[c] || 0) + u; });
+      });
+    } else {
+      unitsMap = unitsByBranchCode[simBranch] || {};
+    }
+
+    // % ponderado del último cambio de carta: Σ u·(nuevo-viejo) / Σ u·viejo
+    let num = 0, den = 0, matched = 0, unidades = 0;
+    Object.entries(unitsMap).forEach(([code, u]) => {
+      const pc = priceChangeByCode[code];
+      if (!pc || pc.old <= 0 || u <= 0) return;
+      num += u * (pc.new - pc.old);
+      den += u * pc.old;
+      matched++; unidades += u;
+    });
+    const pct = den > 0 ? (num / den) * 100 : 0;
+    const simulado = base * (1 + pct / 100);
+    return { base, pct, simulado, diff: simulado - base, matched, unidades };
+  })();
 
   // ─── EXPORTACIÓN ───
   const fechaHoy = () => {
@@ -823,6 +938,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             title="Descargar las 3 cartas juntas (PDF y Excel) con precio Salón y Pedidos Ya por producto">
             <Layers size={13} /> 3 Cartas
           </button>
+          <button onClick={() => setShowSimModal(true)}
+            className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-emerald-500/50 hover:text-emerald-500 transition-all flex items-center gap-1.5"
+            title="Estimar la venta con los precios nuevos, tomando la venta neta de un mes por sucursal">
+            <TrendingUp size={13} /> Simular Venta
+          </button>
           <button 
             onClick={() => setShowAddModal(true)}
             className="bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
@@ -1171,6 +1291,82 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: simulador de venta */}
+      {showSimModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowSimModal(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-lg shadow-2xl max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main flex items-center gap-2"><TrendingUp size={16} className="text-emerald-500" /> Simular venta con la carta nueva</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">Venta neta de un mes × el aumento de la última carta</p>
+              </div>
+              <button onClick={() => setShowSimModal(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+
+            {simLoading ? (
+              <div className="p-10 flex flex-col items-center gap-3">
+                <Loader2 size={32} className="animate-spin text-emerald-500" />
+                <p className="text-[11px] font-bold text-text-dim uppercase tracking-widest">Cargando ventas y ranking…</p>
+              </div>
+            ) : (
+              <div className="p-5 space-y-4">
+                {/* Selectores */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1 flex items-center gap-1"><Store size={11} /> Sucursal</label>
+                    <select value={simBranch} onChange={e => setSimBranch(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none focus:border-emerald-500">
+                      <option value="all">Todas (cadena)</option>
+                      {simBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Mes</label>
+                    <select value={simMonth} onChange={e => setSimMonth(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none focus:border-emerald-500">
+                      {simMonths.length === 0 && <option value="">Sin datos</option>}
+                      {simMonths.map(mes => {
+                        const [y, m] = mes.split('-');
+                        return <option key={mes} value={mes}>{MONTHS_ES[parseInt(m) - 1]} {y}</option>;
+                      })}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Resultado */}
+                {simResult ? (
+                  <>
+                    <div className="grid grid-cols-1 gap-2">
+                      <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Venta neta real del mes</span>
+                        <span className="text-lg font-black font-mono text-text-main">${Math.round(simResult.base).toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Aumento ponderado de la carta</span>
+                        <span className="text-lg font-black font-mono text-amber-500">{simResult.pct >= 0 ? '+' : ''}{simResult.pct.toFixed(1)}%</span>
+                      </div>
+                      <div className="bg-emerald-500/10 border border-emerald-500/40 rounded-lg p-4 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-emerald-500 tracking-widest">Venta estimada con la carta nueva</span>
+                        <span className="text-xl font-black font-mono text-emerald-500">${Math.round(simResult.simulado).toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4 flex items-center justify-between">
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Diferencia estimada</span>
+                        <span className="text-lg font-black font-mono text-emerald-500">+${Math.round(simResult.diff).toLocaleString('es-AR')} <span className="text-[11px]">({simResult.base > 0 ? '+' : ''}{simResult.base > 0 ? ((simResult.diff / simResult.base) * 100).toFixed(1) : '0'}%)</span></span>
+                      </div>
+                    </div>
+
+                    <p className="text-[9px] text-text-dim leading-relaxed">
+                      Estimación a <b>volumen constante</b> (se asume vender lo mismo que ese mes). El % surge de {simResult.matched} productos cruzados por código,
+                      ponderados por unidades vendidas{simBranch === 'all' ? ' de toda la cadena' : ' de la sucursal'}. Es un aproximado para dimensionar el impacto, no un valor exacto.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-text-dim italic text-center py-6">No hay venta neta cargada para ese mes/sucursal.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal: elegir columnas del PDF */}
       {showPdfColsModal && (
