@@ -83,6 +83,7 @@ export default function PriceListBuilder({
   const [nombre, setNombre] = useState(`Lista ${menuLabel} - ${todayISO()}`);
   const [fechaVigencia, setFechaVigencia] = useState(todayISO());
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [draftId, setDraftId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [showDrafts, setShowDrafts] = useState(false);
@@ -339,6 +340,7 @@ export default function PriceListBuilder({
       (vinculos > 0 ? `· ${vinculos} producto(s) que solo actualizan su código/rubro (sin cambio de precio)\n` : '') +
       `\nLos precios anteriores quedan guardados en el historial para comparar la evolución.\n\n¿Confirmás?`
     )) return;
+    setProgress({ done: 0, total: cambios.length + soloVinculo.length });
     setSaving(true);
     try {
       // Actualiza el precio de cada item modificado (o crea los nuevos) y registra el cambio en el historial
@@ -367,6 +369,7 @@ export default function PriceListBuilder({
             old_price: r.precioActual, new_price: r.precioSugerido, change_date: fechaVigencia,
           }]);
         }
+        setProgress(p => ({ ...p, done: p.done + 1 }));
       }
       // Vinculaciones sin cambio de precio: solo se guarda código/rubro (no toca el historial)
       for (const r of soloVinculo) {
@@ -377,6 +380,7 @@ export default function PriceListBuilder({
           const { error: linkErr } = await supabase.from('menu_items').update(upd).eq('id', r.id);
           if (linkErr) throw linkErr;
         }
+        setProgress(p => ({ ...p, done: p.done + 1 }));
       }
       // Marcar el borrador como confirmado (si venía de uno)
       if (draftId) {
@@ -394,6 +398,26 @@ export default function PriceListBuilder({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+      {/* Cartel de carga mientras se guardan los precios */}
+      {saving && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-bg-sidebar border border-brand-500/40 rounded-xl shadow-2xl px-8 py-7 flex flex-col items-center gap-3 max-w-sm text-center">
+            <Loader2 size={40} className="animate-spin text-brand-500" />
+            <p className="text-sm font-black uppercase tracking-widest text-text-main">Guardando precios…</p>
+            {progress.total > 0 ? (
+              <>
+                <p className="text-[11px] font-bold text-text-dim">{progress.done} de {progress.total} productos</p>
+                <div className="w-full h-2 bg-bg-accent rounded-full overflow-hidden">
+                  <div className="h-full bg-brand-500 transition-all duration-200" style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
+                </div>
+              </>
+            ) : (
+              <p className="text-[11px] font-bold text-text-dim">Un momento…</p>
+            )}
+            <p className="text-[9px] font-bold text-amber-500 uppercase tracking-wide mt-1">No cierres esta ventana hasta que termine</p>
+          </div>
+        </div>
+      )}
       <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }}
         className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-5xl shadow-2xl max-h-[92vh] flex flex-col">
         {/* Header */}
