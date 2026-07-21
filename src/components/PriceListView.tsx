@@ -36,6 +36,8 @@ interface MenuItem {
   lastUpdate: string;
   basePrice?: number | null;   // primer precio del año (enero), para la variación acumulada
   baseDate?: string | null;
+  previousPrice?: number | null;  // precio que tenía justo antes del último cambio
+  previousDate?: string | null;   // fecha en que se dejó ese precio anterior
 }
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -102,15 +104,22 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     // Traer todo el historial para calcular el precio base del año (el más antiguo) por producto
     const { data: history } = await supabase
       .from('menu_price_history')
-      .select('menu_item_id, new_price, change_date')
+      .select('menu_item_id, old_price, new_price, change_date')
       .order('change_date', { ascending: true });
 
     // Primer registro (más antiguo) de cada producto = precio base del año
     const baseByItem: Record<string, { price: number; date: string }> = {};
+    // Último cambio de precio de cada producto: su old_price = el precio anterior al actual
+    const prevByItem: Record<string, { price: number; date: string }> = {};
     (history || []).forEach((h: any) => {
       if (!h.menu_item_id) return;
       if (!baseByItem[h.menu_item_id]) {
         baseByItem[h.menu_item_id] = { price: Number(h.new_price), date: h.change_date };
+      }
+      // Como el historial viene en orden ascendente, la última pasada con old_price
+      // válido queda como el precio anterior más reciente.
+      if (h.old_price !== null && h.old_price !== undefined) {
+        prevByItem[h.menu_item_id] = { price: Number(h.old_price), date: h.change_date };
       }
     });
 
@@ -156,6 +165,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       data.forEach(item => {
         if (organized[item.menu_type]) {
           const base = baseByItem[item.id];
+          const prev = prevByItem[item.id];
           organized[item.menu_type].push({
             id: item.id,
             category: item.category,
@@ -163,7 +173,9 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             price: item.price,
             lastUpdate: item.last_update,
             basePrice: base ? base.price : null,
-            baseDate: base ? base.date : null
+            baseDate: base ? base.date : null,
+            previousPrice: prev ? prev.price : null,
+            previousDate: prev ? prev.date : null
           });
         }
       });
@@ -403,7 +415,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
     autoTable(doc, {
       startY: y + 3,
-      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']],
+      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']],
       body: items.map(i => {
         const sug = ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : null;
         // Variación real entre el precio de hoy y el sugerido (difiere del ajuste por el redondeo)
@@ -412,6 +424,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           i.category,
           i.name,
           i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-',
+          i.previousPrice ? `$${i.previousPrice.toLocaleString('es-AR')}` : '-',
           `$${i.price.toLocaleString('es-AR')}`,
           i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-',
           sug !== null ? `$${sug.toLocaleString('es-AR')}` : '-',
@@ -436,7 +449,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     if (yearInflation !== null) aoa.push(['Inflación acumulada', `${yearInflation.toFixed(1)}%`, inflationPeriod]);
     if (weightedIncrease) aoa.push(['Ajuste sugerido (ponderado)', `${weightedIncrease.aumentoSugerido.toFixed(1)}%`]);
     aoa.push([]);
-    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']);
+    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']);
 
     const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
     items.forEach(i => {
@@ -444,7 +457,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       const varSug = sug !== null && i.price > 0 ? ((sug - i.price) / i.price) * 100 : null;
       aoa.push([
         i.category, i.name,
-        i.basePrice ?? '', i.price,
+        i.basePrice ?? '', i.previousPrice ?? '', i.price,
         i.basePrice ? Number((((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)) : '',
         sug ?? '',
         varSug !== null ? Number(varSug.toFixed(1)) : ''
@@ -702,6 +715,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Categoría</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest">Producto</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Inicial<br/><span className="text-[8px] opacity-60">(01/01/2026)</span></th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Anterior<br/><span className="text-[8px] opacity-60">(antes del último cambio)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Actual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Var. Año</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Ideal<br/><span className="text-[8px] opacity-60">(s/inflación)</span></th>
@@ -721,6 +735,18 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                   <td className="px-6 py-4 text-right">
                     {item.basePrice ? (
                       <span className="text-[12px] font-mono text-text-dim">${item.basePrice.toLocaleString('es-AR')}</span>
+                    ) : (
+                      <span className="text-[10px] font-mono text-text-dim/50 italic">s/d</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {item.previousPrice ? (
+                      <div>
+                        <p className="text-[12px] font-mono text-text-dim">${item.previousPrice.toLocaleString('es-AR')}</p>
+                        {item.previousDate && (
+                          <p className="text-[8px] font-mono text-text-dim/60">{fmtFecha(item.previousDate)}</p>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-[10px] font-mono text-text-dim/50 italic">s/d</span>
                     )}
