@@ -3,9 +3,9 @@
  * Armado de una nueva lista de precios a partir de los precios sugeridos (ideales s/inflación).
  * Permite editar cada precio, guardar borrador, exportar (Excel/PDF) y confirmar vigencia desde una fecha.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ChangeEvent } from 'react';
 import { motion } from 'motion/react';
-import { X, Save, FileSpreadsheet, FileText, CheckCircle2, Loader2, FolderOpen, Trash2 } from 'lucide-react';
+import { X, Save, FileSpreadsheet, FileText, CheckCircle2, Loader2, FolderOpen, Trash2, Upload, Download, AlertTriangle, PlusCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -16,6 +16,7 @@ interface BuilderItem {
   id: string; category: string; name: string;
   precioActual: number; precioInicial?: number | null;
   precioSugerido: number; // editable
+  isNew?: boolean; // producto dado de alta desde una importación (todavía no existe en la carta)
 }
 
 interface Draft {
@@ -26,6 +27,21 @@ interface Draft {
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
 const uid = () => Math.random().toString(36).slice(2, 12);
+
+// Normaliza un nombre para emparejar (sin espacios de más, en mayúsculas)
+const norm = (s: any) => String(s ?? '').trim().toUpperCase();
+
+// Convierte un valor de celda a número de pesos entero. Acepta "$8.800", "8800", 8800, etc.
+// Los precios se manejan sin centavos, así que se descartan los separadores.
+const parseMoney = (v: any): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return isFinite(v) ? Math.round(v) : null;
+  let s = String(v).trim().replace(/[^0-9.,-]/g, '');
+  if (!s) return null;
+  s = s.replace(/\./g, '').replace(/,/g, ''); // quita separadores de miles/decimales
+  const n = parseInt(s, 10);
+  return isFinite(n) ? n : null;
+};
 
 export default function PriceListBuilder({
   menuType, menuLabel, items, onClose, onConfirmed, isReadOnly
@@ -44,6 +60,15 @@ export default function PriceListBuilder({
   const [draftId, setDraftId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [showDrafts, setShowDrafts] = useState(false);
+
+  // ─── Importación desde Excel ───
+  const [showImport, setShowImport] = useState(false);
+  const [importFileName, setImportFileName] = useState('');
+  const [importHeaders, setImportHeaders] = useState<string[]>([]);
+  const [importRows, setImportRows] = useState<Record<string, any>[]>([]);
+  const [colProducto, setColProducto] = useState('');
+  const [colPrecio, setColPrecio] = useState('');
+  const [colCategoria, setColCategoria] = useState('');
 
   useEffect(() => { loadDrafts(); }, []);
 
@@ -122,26 +147,149 @@ export default function PriceListBuilder({
     doc.save(`lista_precios_${menuType}_${fechaVigencia}.pdf`);
   };
 
+  // Descarga una plantilla simple (Categoría, Producto, Precio) con los precios actuales.
+  // El usuario edita la columna "Precio" y la vuelve a subir con "Importar Excel".
+  const descargarPlantilla = () => {
+    const data = rows.map(r => ({
+      'Categoría': r.category,
+      'Producto': r.name,
+      'Precio': Math.round(r.precioActual),
+    }));
+    const ws = XLSX.utils.json_to_sheet(data, { header: ['Categoría', 'Producto', 'Precio'] });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
+    XLSX.writeFile(wb, `plantilla_precios_${menuType}_${todayISO()}.xlsx`);
+  };
+
+  // Lee el Excel elegido, detecta la fila de encabezados (ignora las filas de título)
+  // y precarga las columnas de Producto / Precio / Categoría.
+  const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (!aoa.length) { alert('El archivo está vacío.'); return; }
+      // Buscar la fila de encabezados: la primera que tenga una celda tipo "Producto/Nombre/Artículo"
+      let hdrIdx = aoa.findIndex(row => row.some(c => /producto|nombre|art[ií]culo/i.test(String(c))));
+      if (hdrIdx < 0) hdrIdx = 0;
+      const headers = aoa[hdrIdx].map((c, i) => String(c).trim() || `Columna ${i + 1}`);
+      const dataRows = aoa.slice(hdrIdx + 1).filter(row => row.some(c => String(c).trim() !== ''));
+      const json = dataRows.map(row => {
+        const o: Record<string, any> = {};
+        headers.forEach((h, i) => { o[h] = row[i] ?? ''; });
+        return o;
+      });
+      if (!json.length) { alert('No encontré filas de datos debajo de los encabezados.'); return; }
+      setImportHeaders(headers);
+      setImportRows(json);
+      // Autodetección de columnas
+      const find = (regexes: RegExp[]) => {
+        for (const rx of regexes) { const h = headers.find(x => rx.test(x)); if (h) return h; }
+        return '';
+      };
+      setColProducto(find([/producto/i, /nombre/i, /art[ií]culo/i]) || headers[0] || '');
+      setColCategoria(find([/categor/i]));
+      setColPrecio(find([/precio\s*nuevo/i, /precio\s*a\s*fijar/i, /^precio$/i, /precio\s*actual/i, /precio\s*sugerido/i]) || '');
+    } catch (err: any) {
+      alert('No pude leer el archivo. Asegurate de que sea un Excel (.xlsx). Detalle: ' + (err.message || err));
+    }
+    e.target.value = ''; // permite volver a elegir el mismo archivo
+  };
+
+  // Calcula qué haría la importación con las columnas elegidas (para el preview y para aplicar).
+  const buildPreview = () => {
+    const toUpdate: { item: BuilderItem; price: number }[] = [];
+    const toCreate: { name: string; category: string; price: number }[] = [];
+    const errores: { name: string; motivo: string }[] = [];
+    const sinCambio: { name: string; price: number }[] = [];
+    if (!colProducto || !colPrecio) return { toUpdate, toCreate, errores, sinCambio };
+    const existingByName = new Map<string, BuilderItem>(rows.map(r => [norm(r.name), r] as [string, BuilderItem]));
+    const seen = new Set<string>();
+    importRows.forEach(raw => {
+      const nombreOriginal = String(raw[colProducto] ?? '').trim();
+      const name = norm(nombreOriginal);
+      const price = parseMoney(raw[colPrecio]);
+      if (!name) { errores.push({ name: '(sin nombre)', motivo: 'fila sin producto' }); return; }
+      if (price === null || price <= 0) { errores.push({ name: nombreOriginal, motivo: 'precio inválido o vacío' }); return; }
+      if (seen.has(name)) { errores.push({ name: nombreOriginal, motivo: 'repetido en el archivo' }); return; }
+      seen.add(name);
+      const ex = existingByName.get(name);
+      if (ex) {
+        if (price === ex.precioSugerido) sinCambio.push({ name: ex.name, price });
+        else toUpdate.push({ item: ex, price });
+      } else {
+        const cat = colCategoria ? norm(raw[colCategoria]) : '';
+        toCreate.push({ name: nombreOriginal, category: cat, price });
+      }
+    });
+    return { toUpdate, toCreate, errores, sinCambio };
+  };
+
+  const aplicarImport = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const { toUpdate, toCreate } = buildPreview();
+    if (toUpdate.length === 0 && toCreate.length === 0) { alert('No hay nada para importar con las columnas elegidas.'); return; }
+    setRows(prev => {
+      const next = prev.map(r => {
+        const u = toUpdate.find(x => x.item.id === r.id);
+        return u ? { ...r, precioSugerido: u.price } : r;
+      });
+      const nuevos: BuilderItem[] = toCreate.map(c => ({
+        id: uid(),
+        category: norm(c.category) || 'SIN CATEGORÍA',
+        name: norm(c.name),
+        precioActual: 0,
+        precioInicial: null,
+        precioSugerido: c.price,
+        isNew: true,
+      }));
+      return [...next, ...nuevos];
+    });
+    setShowImport(false);
+    setImportRows([]); setImportHeaders([]); setImportFileName('');
+    alert(`Importación aplicada:\n· ${toUpdate.length} precio(s) actualizado(s)\n· ${toCreate.length} producto(s) nuevo(s) agregado(s)\n\nRevisá la tabla y, cuando estés conforme, tocá "Dejar Vigente".`);
+  };
+
   const confirmarVigencia = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     const cambios = rows.filter(r => r.precioSugerido !== r.precioActual);
     if (cambios.length === 0) { alert('No hay precios modificados respecto al actual.'); return; }
+    const altas = cambios.filter(r => r.isNew).length;
+    const actualizaciones = cambios.length - altas;
     if (!window.confirm(
-      `Vas a dejar VIGENTES ${cambios.length} precio(s) nuevos para "${menuLabel}" desde el ${fechaVigencia.split('-').reverse().join('/')}.\n\n` +
+      `Vas a dejar VIGENTES ${cambios.length} cambio(s) para "${menuLabel}" desde el ${fechaVigencia.split('-').reverse().join('/')}:\n` +
+      `· ${actualizaciones} precio(s) actualizado(s)\n· ${altas} producto(s) nuevo(s) que se dan de alta en la carta\n\n` +
       `Los precios anteriores quedan guardados en el historial para comparar la evolución.\n\n¿Confirmás?`
     )) return;
     setSaving(true);
     try {
-      // Actualiza el precio actual de cada item modificado y registra el cambio en el historial
+      // Actualiza el precio de cada item modificado (o crea los nuevos) y registra el cambio en el historial
       for (const r of cambios) {
-        const { error: upErr } = await supabase.from('menu_items')
-          .update({ price: r.precioSugerido, last_update: fechaVigencia })
-          .eq('id', r.id);
-        if (upErr) throw upErr;
-        await supabase.from('menu_price_history').insert([{
-          menu_item_id: r.id, menu_type: menuType, category: r.category, item_name: r.name,
-          old_price: r.precioActual, new_price: r.precioSugerido, change_date: fechaVigencia,
-        }]);
+        if (r.isNew) {
+          // Producto nuevo importado: se da de alta en la carta y su precio inicial queda en el historial
+          const { data: nuevo, error: insErr } = await supabase.from('menu_items').insert([{
+            menu_type: menuType, category: r.category, name: r.name,
+            price: r.precioSugerido, last_update: fechaVigencia,
+          }]).select().single();
+          if (insErr) throw insErr;
+          await supabase.from('menu_price_history').insert([{
+            menu_item_id: nuevo.id, menu_type: menuType, category: r.category, item_name: r.name,
+            old_price: null, new_price: r.precioSugerido, change_date: fechaVigencia,
+          }]);
+        } else {
+          const { error: upErr } = await supabase.from('menu_items')
+            .update({ price: r.precioSugerido, last_update: fechaVigencia })
+            .eq('id', r.id);
+          if (upErr) throw upErr;
+          await supabase.from('menu_price_history').insert([{
+            menu_item_id: r.id, menu_type: menuType, category: r.category, item_name: r.name,
+            old_price: r.precioActual, new_price: r.precioSugerido, change_date: fechaVigencia,
+          }]);
+        }
       }
       // Marcar el borrador como confirmado (si venía de uno)
       if (draftId) {
@@ -179,9 +327,17 @@ export default function PriceListBuilder({
             <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Vigente desde</label>
             <input type="date" value={fechaVigencia} onChange={e => setFechaVigencia(e.target.value)} className="bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none focus:border-brand-500" />
           </div>
-          <button onClick={() => { setShowDrafts(!showDrafts); }} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">
+          <button onClick={() => { setShowDrafts(!showDrafts); setShowImport(false); }} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">
             <FolderOpen size={13} /> Borradores ({drafts.length})
           </button>
+          <button onClick={descargarPlantilla} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all" title="Descargá una plantilla con los productos y sus precios actuales para editar y volver a subir">
+            <Download size={13} /> Plantilla
+          </button>
+          {!isReadOnly && (
+            <button onClick={() => { setShowImport(!showImport); setShowDrafts(false); }} className={cn("flex items-center gap-1.5 border px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all", showImport ? "bg-brand-500 text-white border-brand-500" : "bg-bg-card border-border-dim text-text-dim hover:text-text-main")}>
+              <Upload size={13} /> Importar Excel
+            </button>
+          )}
         </div>
 
         {/* Lista de borradores */}
@@ -200,6 +356,99 @@ export default function PriceListBuilder({
             ))}
           </div>
         )}
+
+        {/* Panel de importación */}
+        {showImport && (() => {
+          const prev = buildPreview();
+          const listo = Boolean(colProducto && colPrecio) && importRows.length > 0;
+          return (
+            <div className="px-4 py-3 border-b border-border-dim bg-bg-accent/10 max-h-72 overflow-y-auto space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-1.5 bg-brand-500/10 text-brand-500 border border-brand-500/40 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-500/20 transition-all">
+                  <Upload size={13} /> Elegir archivo Excel
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={onImportFile} className="hidden" />
+                </label>
+                {importFileName && <span className="text-[10px] font-mono text-text-dim">{importFileName}</span>}
+              </div>
+
+              {importRows.length > 0 && (
+                <>
+                  {/* Selección de columnas */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Producto</label>
+                      <select value={colProducto} onChange={e => setColProducto(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                        <option value="">— elegir —</option>
+                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black uppercase text-brand-500 tracking-widest block mb-1">Columna Precio a fijar</label>
+                      <select value={colPrecio} onChange={e => setColPrecio(e.target.value)} className="w-full bg-bg-card border border-brand-500/50 rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                        <option value="">— elegir —</option>
+                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Categoría (opcional)</label>
+                      <select value={colCategoria} onChange={e => setColCategoria(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                        <option value="">— sin categoría —</option>
+                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Resumen */}
+                  {listo ? (
+                    <div className="flex flex-wrap gap-2 text-[9px] font-black uppercase tracking-widest">
+                      <span className="px-2 py-1 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/30">{prev.toUpdate.length} a actualizar</span>
+                      <span className="px-2 py-1 rounded bg-brand-500/10 text-brand-500 border border-brand-500/30">{prev.toCreate.length} nuevos</span>
+                      <span className="px-2 py-1 rounded bg-bg-card text-text-dim border border-border-dim">{prev.sinCambio.length} sin cambio</span>
+                      {prev.errores.length > 0 && <span className="px-2 py-1 rounded bg-amber-500/10 text-amber-500 border border-amber-500/30">{prev.errores.length} con problema</span>}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">Elegí la columna de Producto y la de Precio para ver la vista previa.</p>
+                  )}
+
+                  {/* Detalle */}
+                  {listo && (
+                    <div className="space-y-2">
+                      {prev.toCreate.length > 0 && (
+                        <div className="text-[10px] text-text-dim">
+                          <p className="font-black uppercase text-brand-500 mb-1 flex items-center gap-1"><PlusCircle size={11} /> Productos nuevos ({prev.toCreate.length})</p>
+                          <div className="flex flex-wrap gap-1">
+                            {prev.toCreate.slice(0, 30).map((c, i) => (
+                              <span key={i} className="font-mono bg-brand-500/5 border border-brand-500/20 rounded px-1.5 py-0.5">{c.name} · {fmt(c.price)}</span>
+                            ))}
+                            {prev.toCreate.length > 30 && <span className="italic">+{prev.toCreate.length - 30} más…</span>}
+                          </div>
+                        </div>
+                      )}
+                      {prev.errores.length > 0 && (
+                        <div className="text-[10px] text-amber-500">
+                          <p className="font-black uppercase mb-1 flex items-center gap-1"><AlertTriangle size={11} /> No se importan ({prev.errores.length})</p>
+                          <div className="flex flex-wrap gap-1">
+                            {prev.errores.slice(0, 20).map((er, i) => (
+                              <span key={i} className="font-mono bg-amber-500/5 border border-amber-500/20 rounded px-1.5 py-0.5">{er.name} · {er.motivo}</span>
+                            ))}
+                            {prev.errores.length > 20 && <span className="italic">+{prev.errores.length - 20} más…</span>}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button onClick={() => { setShowImport(false); setImportRows([]); setImportHeaders([]); setImportFileName(''); }} className="px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main">Cancelar</button>
+                    <button onClick={aplicarImport} disabled={!listo || (prev.toUpdate.length === 0 && prev.toCreate.length === 0)} className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
+                      <CheckCircle2 size={13} /> Aplicar importación
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Tabla editable */}
         <div className="flex-1 overflow-y-auto">
@@ -220,8 +469,11 @@ export default function PriceListBuilder({
                 return (
                   <tr key={r.id} className={cn("text-[11px] hover:bg-bg-accent/10", changed && "bg-brand-500/5")}>
                     <td className="px-4 py-2"><span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-bg-accent border border-border-dim text-text-dim">{r.category}</span></td>
-                    <td className="px-4 py-2 font-bold text-text-main uppercase">{r.name}</td>
-                    <td className="px-4 py-2 text-right font-mono text-text-dim">{fmt(r.precioActual)}</td>
+                    <td className="px-4 py-2 font-bold text-text-main uppercase">
+                      {r.name}
+                      {r.isNew && <span className="ml-2 text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-500 border border-brand-500/30 align-middle">Nuevo</span>}
+                    </td>
+                    <td className="px-4 py-2 text-right font-mono text-text-dim">{r.isNew ? '—' : fmt(r.precioActual)}</td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <span className="text-brand-500 font-mono text-[11px]">$</span>
@@ -231,9 +483,13 @@ export default function PriceListBuilder({
                       </div>
                     </td>
                     <td className="px-4 py-2 text-center">
-                      <span className={cn("text-[10px] font-black font-mono", varPct > 0 ? "text-emerald-500" : varPct < 0 ? "text-red-500" : "text-text-dim")}>
-                        {varPct > 0 ? '+' : ''}{varPct.toFixed(1)}%
-                      </span>
+                      {r.isNew ? (
+                        <span className="text-[9px] font-black uppercase text-brand-500">Alta</span>
+                      ) : (
+                        <span className={cn("text-[10px] font-black font-mono", varPct > 0 ? "text-emerald-500" : varPct < 0 ? "text-red-500" : "text-text-dim")}>
+                          {varPct > 0 ? '+' : ''}{varPct.toFixed(1)}%
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );
