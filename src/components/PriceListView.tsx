@@ -83,6 +83,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [yearInflation, setYearInflation] = useState<number | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [inflationPeriod, setInflationPeriod] = useState<string>('');
+  // Detalle mes a mes de la inflación cargada (tabla monthly_inflation)
+  const [inflationRows, setInflationRows] = useState<any[]>([]);
+  const [showInflationModal, setShowInflationModal] = useState(false);
+  const [newInflMonth, setNewInflMonth] = useState('');
+  const [newInflPct, setNewInflPct] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
@@ -117,6 +122,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         const last = monthsThisYear[monthsThisYear.length - 1].month.split('-')[1];
         setInflationPeriod(`${MONTHS_ES[parseInt(first) - 1]} a ${MONTHS_ES[parseInt(last) - 1]}`);
       }
+      // Detalle mes a mes (para el modal)
+      setInflationRows((infl || []).sort((a: any, b: any) => String(b.month).localeCompare(String(a.month))));
     } catch (e) { console.error('Error cargando inflación:', e); }
 
     if (data) {
@@ -164,6 +171,33 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         change_date: params.date
       }]);
     } catch (e) { console.error('Error registrando historial de precio:', e); }
+  };
+
+  // ─── Carga de inflación mensual (tabla monthly_inflation) ───
+  const guardarInflacion = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!/^\d{4}-\d{2}$/.test(newInflMonth)) { alert('Elegí un mes válido.'); return; }
+    const pct = parseFloat(String(newInflPct).replace(',', '.'));
+    if (isNaN(pct)) { alert('Ingresá un porcentaje válido (ej. 2,5).'); return; }
+    const { error } = await supabase.from('monthly_inflation').upsert({
+      month: newInflMonth,
+      inflation_pct: pct
+    }, { onConflict: 'month' });
+    if (error) { alert('Error al guardar: ' + error.message); return; }
+    setNewInflPct('');
+    await fetchData();
+  };
+
+  const borrarInflacion = async (month: string) => {
+    if (isReadOnly) return;
+    if (!window.confirm(`¿Eliminar la inflación cargada de ${month}?`)) return;
+    await supabase.from('monthly_inflation').delete().eq('month', month);
+    await fetchData();
+  };
+
+  const mesLabel = (m: string) => {
+    const [y, mo] = String(m).split('-');
+    return `${MONTHS_ES[parseInt(mo) - 1] || mo} ${y}`;
   };
 
   const handleAddItem = async () => {
@@ -357,8 +391,12 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             )}
           </div>
 
-          <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4">
-            <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Inflación acumulada</p>
+          <div onClick={() => { setShowInflationModal(true); if (!newInflMonth) { const d = new Date(); setNewInflMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); } }}
+            className="bg-bg-accent/40 border border-border-dim rounded-lg p-4 cursor-pointer hover:border-amber-500/50 transition-all group">
+            <div className="flex items-center justify-between">
+              <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Inflación acumulada</p>
+              <span className="text-[7px] font-black uppercase text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity">Ver detalle →</span>
+            </div>
             {yearInflation !== null ? (
               <>
                 <p className="text-xl font-black font-mono mt-1 text-amber-500">+{yearInflation.toFixed(1)}%</p>
@@ -601,6 +639,60 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           onClose={() => setShowBuilder(false)}
           onConfirmed={() => fetchData()}
         />
+      )}
+      {/* Modal: detalle y carga de inflación mensual */}
+      {showInflationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowInflationModal(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-amber-500">Inflación mensual cargada</h3>
+                <p className="text-[8px] font-bold uppercase text-text-dim mt-0.5">Fuente del cálculo acumulado</p>
+              </div>
+              <button onClick={() => setShowInflationModal(false)} className="text-text-dim hover:text-text-main text-lg font-black">✕</button>
+            </div>
+
+            {/* Alta de un mes */}
+            {!isReadOnly && (
+              <div className="px-5 py-4 border-b border-border-dim bg-bg-accent/30 space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-text-dim">Cargar / actualizar un mes</p>
+                <div className="flex gap-2 flex-wrap">
+                  <input type="month" value={newInflMonth} onChange={e => setNewInflMonth(e.target.value)}
+                    className="flex-1 min-w-[130px] bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-amber-500" />
+                  <input type="text" inputMode="decimal" value={newInflPct} onChange={e => setNewInflPct(e.target.value)}
+                    placeholder="% (ej. 2,5)"
+                    className="flex-1 min-w-[110px] bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-amber-500" />
+                  <button onClick={guardarInflacion}
+                    className="bg-amber-500 hover:bg-amber-600 text-black rounded px-4 py-2 text-[9px] font-black uppercase transition-all">
+                    Guardar
+                  </button>
+                </div>
+                <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">
+                  Si el mes ya existe, se actualiza el valor.
+                </p>
+              </div>
+            )}
+
+            {/* Listado */}
+            <div className="overflow-y-auto p-4 space-y-1.5">
+              {inflationRows.length === 0 ? (
+                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">No hay meses cargados.</p>
+              ) : inflationRows.map(r => (
+                <div key={r.month} className="flex items-center justify-between bg-bg-sidebar border border-border-dim rounded px-3 py-2">
+                  <span className="text-[11px] font-black uppercase text-text-main">{mesLabel(r.month)}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[12px] font-mono font-black text-amber-500">
+                      {Number(r.inflation_pct) >= 0 ? '+' : ''}{Number(r.inflation_pct).toFixed(1)}%
+                    </span>
+                    {!isReadOnly && (
+                      <button onClick={() => borrarInflacion(r.month)} className="text-text-dim hover:text-red-500 text-[10px] font-black">✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   );
