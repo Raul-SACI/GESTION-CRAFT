@@ -86,6 +86,9 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   // Detalle mes a mes de la inflación cargada (tabla monthly_inflation)
   const [inflationRows, setInflationRows] = useState<any[]>([]);
   const [showInflationModal, setShowInflationModal] = useState(false);
+  // Unidades vendidas por producto (de product_rankings), para ponderar por facturación
+  const [unitsByProduct, setUnitsByProduct] = useState<Record<string, number>>({});
+  const [showWeightedModal, setShowWeightedModal] = useState(false);
   const [newInflMonth, setNewInflMonth] = useState('');
   const [newInflPct, setNewInflPct] = useState('');
 
@@ -125,6 +128,20 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       // Detalle mes a mes (para el modal)
       setInflationRows((infl || []).sort((a: any, b: any) => String(b.month).localeCompare(String(a.month))));
     } catch (e) { console.error('Error cargando inflación:', e); }
+
+    // Ranking de unidades vendidas (para ponderar el aumento por facturación)
+    try {
+      const { data: rk } = await supabase
+        .from('product_rankings')
+        .select('product_name, quantity');
+      const acum: Record<string, number> = {};
+      (rk || []).forEach((r: any) => {
+        const key = String(r.product_name || '').trim().toUpperCase();
+        if (!key) return;
+        acum[key] = (acum[key] || 0) + (Number(r.quantity) || 0);
+      });
+      setUnitsByProduct(acum);
+    } catch (e) { console.error('Error cargando ranking:', e); }
 
     if (data) {
       const organized: Record<string, MenuItem[]> = {
@@ -296,6 +313,48 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     return { avg: sum / withBase.length, count: withBase.length };
   })();
 
+  // Aumento PONDERADO POR FACTURACIÓN: cada producto pesa según cuánto factura
+  // (unidades vendidas × precio actual), no todos por igual.
+  // Devuelve también la brecha contra la inflación y el aumento sugerido para emparejarla.
+  const weightedIncrease = (() => {
+    const items = (menus[activeMenu] || []).filter(i => i.basePrice && i.basePrice > 0);
+    if (items.length === 0) return null;
+
+    let totalFactActual = 0;   // facturación con precios de hoy
+    let totalFactBase = 0;     // la misma cantidad, a precios de enero
+    let conVentas = 0, sinVentas = 0;
+    const detalle: Array<{ name: string; units: number; price: number; base: number; pct: number; fact: number }> = [];
+
+    items.forEach(i => {
+      const units = unitsByProduct[String(i.name).trim().toUpperCase()] || 0;
+      if (units > 0) conVentas++; else sinVentas++;
+      if (units <= 0) return;
+      const base = i.basePrice as number;
+      const factActual = units * i.price;
+      const factBase = units * base;
+      totalFactActual += factActual;
+      totalFactBase += factBase;
+      detalle.push({
+        name: i.name, units, price: i.price, base,
+        pct: ((i.price - base) / base) * 100,
+        fact: factActual
+      });
+    });
+
+    if (totalFactBase <= 0) return null;
+
+    // Aumento real ponderado: cuánto creció la facturación por precio (a igual volumen)
+    const ponderado = ((totalFactActual - totalFactBase) / totalFactBase) * 100;
+    // Brecha vs inflación y aumento necesario para emparejarla
+    const infl = yearInflation ?? 0;
+    const brecha = ponderado - infl;
+    // Para alcanzar la inflación desde el nivel de precios actual
+    const aumentoSugerido = ((1 + infl / 100) / (1 + ponderado / 100) - 1) * 100;
+
+    detalle.sort((a, b) => b.fact - a.fact);
+    return { ponderado, infl, brecha, aumentoSugerido, conVentas, sinVentas, detalle, totalFact: totalFactActual };
+  })();
+
   const menuLabel = MENU_TYPES.find(m => m.id === activeMenu)?.label || '';
 
   return (
@@ -376,7 +435,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         </div>
 
         {/* Resúmenes: aumento promedio de la lista e inflación del año */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-6 pb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 px-6 pb-4">
           <div className="bg-bg-accent/40 border border-border-dim rounded-lg p-4">
             <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Aumento promedio · {menuLabel}</p>
             {listAvgIncrease ? (
@@ -424,6 +483,33 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               );
             })() : (
               <p className="text-sm text-text-dim italic mt-1">Faltan datos</p>
+            )}
+          </div>
+
+          {/* Aumento ponderado por facturación (según ranking de ventas) */}
+          <div onClick={() => weightedIncrease && setShowWeightedModal(true)}
+            className={cn("bg-bg-accent/40 border border-border-dim rounded-lg p-4 transition-all group",
+              weightedIncrease && "cursor-pointer hover:border-brand-500/50")}>
+            <div className="flex items-center justify-between">
+              <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Ajuste sugerido (ponderado)</p>
+              {weightedIncrease && (
+                <span className="text-[7px] font-black uppercase text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity">Ver detalle →</span>
+              )}
+            </div>
+            {weightedIncrease ? (
+              <>
+                <p className={cn("text-xl font-black font-mono mt-1",
+                  weightedIncrease.aumentoSugerido > 0.5 ? "text-amber-500" : "text-emerald-500")}>
+                  {weightedIncrease.aumentoSugerido > 0 ? '+' : ''}{weightedIncrease.aumentoSugerido.toFixed(1)}%
+                </p>
+                <p className="text-[8px] text-text-dim uppercase">
+                  {weightedIncrease.aumentoSugerido > 0.5
+                    ? 'para emparejar la inflación'
+                    : 'la carta ya cubre la inflación'}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-text-dim italic mt-1">Sin ranking de ventas</p>
             )}
           </div>
         </div>
@@ -640,6 +726,94 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           onConfirmed={() => fetchData()}
         />
       )}
+      {/* Modal: análisis ponderado por facturación */}
+      {showWeightedModal && weightedIncrease && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowWeightedModal(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-brand-500">Ajuste ponderado por facturación</h3>
+                <p className="text-[8px] font-bold uppercase text-text-dim mt-0.5">
+                  {menuLabel} · cada producto pesa según cuánto factura
+                </p>
+              </div>
+              <button onClick={() => setShowWeightedModal(false)} className="text-text-dim hover:text-text-main text-lg font-black">✕</button>
+            </div>
+
+            {/* Resumen */}
+            <div className="px-5 py-4 bg-bg-accent/30 border-b border-border-dim grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <p className="text-[7px] font-black uppercase text-text-dim tracking-widest">Aumento ponderado</p>
+                <p className="text-base font-mono font-black text-text-main">{weightedIncrease.ponderado >= 0 ? '+' : ''}{weightedIncrease.ponderado.toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-[7px] font-black uppercase text-text-dim tracking-widest">Inflación</p>
+                <p className="text-base font-mono font-black text-amber-500">+{weightedIncrease.infl.toFixed(1)}%</p>
+              </div>
+              <div>
+                <p className="text-[7px] font-black uppercase text-text-dim tracking-widest">Brecha</p>
+                <p className={cn("text-base font-mono font-black", weightedIncrease.brecha >= 0 ? "text-emerald-500" : "text-red-500")}>
+                  {weightedIncrease.brecha >= 0 ? '+' : ''}{weightedIncrease.brecha.toFixed(1)} pts
+                </p>
+              </div>
+              <div>
+                <p className="text-[7px] font-black uppercase text-text-dim tracking-widest">Ajuste sugerido</p>
+                <p className="text-base font-mono font-black text-brand-500">
+                  {weightedIncrease.aumentoSugerido > 0 ? '+' : ''}{weightedIncrease.aumentoSugerido.toFixed(1)}%
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-brand-500/5 border-b border-border-dim">
+              <p className="text-[10px] font-bold text-text-main leading-relaxed">
+                {weightedIncrease.aumentoSugerido > 0.5 ? (
+                  <>Aplicando un <strong>{weightedIncrease.aumentoSugerido.toFixed(1)}%</strong> parejo a toda la carta,
+                  la facturación por precios igualaría la inflación acumulada del año.</>
+                ) : (
+                  <>La carta ya subió al ritmo de la inflación (o más), ponderando por lo que realmente se vende.</>
+                )}
+              </p>
+              <p className="text-[8px] font-bold uppercase text-text-dim mt-1.5">
+                {weightedIncrease.conVentas} productos con ventas · {weightedIncrease.sinVentas} sin ventas (no ponderan)
+              </p>
+            </div>
+
+            {/* Detalle por producto */}
+            <div className="overflow-y-auto">
+              <table className="w-full text-[10px]">
+                <thead className="sticky top-0 bg-bg-accent">
+                  <tr className="text-text-dim font-black uppercase tracking-widest border-b border-border-dim">
+                    <th className="px-4 py-2.5 text-left">Producto</th>
+                    <th className="px-3 py-2.5 text-right">Unid.</th>
+                    <th className="px-3 py-2.5 text-right">Enero</th>
+                    <th className="px-3 py-2.5 text-right">Hoy</th>
+                    <th className="px-3 py-2.5 text-right">Var.</th>
+                    <th className="px-3 py-2.5 text-right">Peso</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/40">
+                  {weightedIncrease.detalle.map((d, i) => {
+                    const peso = (d.fact / weightedIncrease.totalFact) * 100;
+                    return (
+                      <tr key={i} className="hover:bg-bg-accent/30">
+                        <td className="px-4 py-2 font-bold uppercase text-text-main">{d.name}</td>
+                        <td className="px-3 py-2 text-right font-mono text-text-dim">{d.units.toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2 text-right font-mono text-text-dim">${d.base.toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2 text-right font-mono text-text-main">${d.price.toLocaleString('es-AR')}</td>
+                        <td className={cn("px-3 py-2 text-right font-mono font-black", d.pct >= weightedIncrease.infl ? "text-emerald-500" : "text-amber-500")}>
+                          {d.pct >= 0 ? '+' : ''}{d.pct.toFixed(1)}%
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono font-black text-brand-500">{peso.toFixed(1)}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: detalle y carga de inflación mensual */}
       {showInflationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowInflationModal(false)}>
