@@ -392,16 +392,25 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     if (yearInflation !== null) {
       doc.text(`Inflación acumulada (${inflationPeriod}): +${yearInflation.toFixed(1)}%`, 14, y); y += 5;
     }
+    if (weightedIncrease) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Ajuste sugerido (ponderado): ${weightedIncrease.aumentoSugerido > 0 ? '+' : ''}${weightedIncrease.aumentoSugerido.toFixed(1)}%`, 14, y);
+      doc.setFont('helvetica', 'normal'); y += 5;
+    }
+
+    // El precio sugerido solo aplica si hay ajuste calculado
+    const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
 
     autoTable(doc, {
       startY: y + 3,
-      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %']],
+      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %', 'Precio Sugerido']],
       body: items.map(i => [
         i.category,
         i.name,
         i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-',
         `$${i.price.toLocaleString('es-AR')}`,
-        i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-'
+        i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-',
+        ajuste !== null ? `$${redondeoComercial(i.price * (1 + ajuste / 100)).toLocaleString('es-AR')}` : '-'
       ]),
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
@@ -419,12 +428,16 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     ];
     if (listAvgIncrease) aoa.push(['Aumento promedio del año', `${listAvgIncrease.avg.toFixed(1)}%`]);
     if (yearInflation !== null) aoa.push(['Inflación acumulada', `${yearInflation.toFixed(1)}%`, inflationPeriod]);
+    if (weightedIncrease) aoa.push(['Ajuste sugerido (ponderado)', `${weightedIncrease.aumentoSugerido.toFixed(1)}%`]);
     aoa.push([]);
-    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %']);
+    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %', 'Precio Sugerido']);
+
+    const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
     items.forEach(i => aoa.push([
       i.category, i.name,
       i.basePrice ?? '', i.price,
-      i.basePrice ? Number((((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)) : ''
+      i.basePrice ? Number((((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)) : '',
+      ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : ''
     ]));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
