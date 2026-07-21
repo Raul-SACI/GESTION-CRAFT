@@ -97,6 +97,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [showWeightedModal, setShowWeightedModal] = useState(false);
   const [newInflMonth, setNewInflMonth] = useState('');
   const [newInflPct, setNewInflPct] = useState('');
+  // Comisión de la plataforma (Pedidos Ya), editable y guardada en Supabase (tabla pricing_settings)
+  const [pyCommission, setPyCommission] = useState<number>(10);
 
   const fetchData = async () => {
     setLoading(true);
@@ -156,6 +158,17 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       setUnitsByProduct(acum);
     } catch (e) { console.error('Error cargando ranking:', e); }
 
+    // Comisión de Pedidos Ya (si la tabla todavía no existe, se mantiene el default 10)
+    try {
+      const { data: ps } = await supabase
+        .from('pricing_settings')
+        .select('commission_pct')
+        .eq('menu_type', 'pedidosya');
+      if (ps && ps.length > 0 && ps[0].commission_pct != null) {
+        setPyCommission(Number(ps[0].commission_pct));
+      }
+    } catch (e) { console.error('Error cargando comisión Pedidos Ya:', e); }
+
     if (data) {
       const organized: Record<string, MenuItem[]> = {
         salon: [],
@@ -205,6 +218,21 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       }]);
     } catch (e) { console.error('Error registrando historial de precio:', e); }
   };
+
+  // Guarda la comisión de Pedidos Ya en Supabase (upsert por menu_type)
+  const savePyCommission = async (val: number) => {
+    const clean = isFinite(val) && val >= 0 && val < 100 ? val : 0;
+    setPyCommission(clean);
+    try {
+      await supabase.from('pricing_settings').upsert({ menu_type: 'pedidosya', commission_pct: clean });
+    } catch (e) { console.error('Error guardando comisión Pedidos Ya:', e); }
+  };
+
+  // Factor para "inflar" el precio y que, tras la comisión, quede el precio ideal por inflación.
+  // Solo aplica en la solapa Pedidos Ya. Ej: comisión 10% → 1/(1-0.10) = 1.111
+  const pyGrossFactor = (activeMenu === 'pedidosya' && pyCommission > 0 && pyCommission < 100)
+    ? 1 / (1 - pyCommission / 100)
+    : 1;
 
   // ─── Carga de inflación mensual (tabla monthly_inflation) ───
   const guardarInflacion = async () => {
@@ -415,17 +443,24 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
     autoTable(doc, {
       startY: y + 3,
-      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']],
+      head: [[
+        'Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual',
+        ...(activeMenu === 'pedidosya' ? [`Precio Ideal PY (com. ${pyCommission}%)`] : []),
+        'Var. %', 'Precio Sugerido', 'Var. Sugerida %'
+      ]],
       body: items.map(i => {
         const sug = ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : null;
         // Variación real entre el precio de hoy y el sugerido (difiere del ajuste por el redondeo)
         const varSug = sug !== null && i.price > 0 ? ((sug - i.price) / i.price) * 100 : null;
+        const idealPY = (activeMenu === 'pedidosya' && i.basePrice && i.basePrice > 0 && yearInflation !== null)
+          ? redondeoComercial(i.basePrice * (1 + yearInflation / 100) * pyGrossFactor) : null;
         return [
           i.category,
           i.name,
           i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-',
           i.previousPrice ? `$${i.previousPrice.toLocaleString('es-AR')}` : '-',
           `$${i.price.toLocaleString('es-AR')}`,
+          ...(activeMenu === 'pedidosya' ? [idealPY !== null ? `$${idealPY.toLocaleString('es-AR')}` : '-'] : []),
           i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-',
           sug !== null ? `$${sug.toLocaleString('es-AR')}` : '-',
           varSug !== null ? `${varSug >= 0 ? '+' : ''}${varSug.toFixed(1)}%` : '-'
@@ -449,15 +484,22 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     if (yearInflation !== null) aoa.push(['Inflación acumulada', `${yearInflation.toFixed(1)}%`, inflationPeriod]);
     if (weightedIncrease) aoa.push(['Ajuste sugerido (ponderado)', `${weightedIncrease.aumentoSugerido.toFixed(1)}%`]);
     aoa.push([]);
-    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual', 'Var. %', 'Precio Sugerido', 'Var. Sugerida %']);
+    aoa.push([
+      'Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual',
+      ...(activeMenu === 'pedidosya' ? [`Precio Ideal PY (com. ${pyCommission}%)`] : []),
+      'Var. %', 'Precio Sugerido', 'Var. Sugerida %'
+    ]);
 
     const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
     items.forEach(i => {
       const sug = ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : null;
       const varSug = sug !== null && i.price > 0 ? ((sug - i.price) / i.price) * 100 : null;
+      const idealPY = (activeMenu === 'pedidosya' && i.basePrice && i.basePrice > 0 && yearInflation !== null)
+        ? redondeoComercial(i.basePrice * (1 + yearInflation / 100) * pyGrossFactor) : null;
       aoa.push([
         i.category, i.name,
         i.basePrice ?? '', i.previousPrice ?? '', i.price,
+        ...(activeMenu === 'pedidosya' ? [idealPY ?? ''] : []),
         i.basePrice ? Number((((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)) : '',
         sug ?? '',
         varSug !== null ? Number(varSug.toFixed(1)) : ''
@@ -708,6 +750,31 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         </div>
 
+        {/* Barra de comisión: solo en Pedidos Ya */}
+        {activeMenu === 'pedidosya' && (
+          <div className="mx-6 mb-4 flex flex-wrap items-center gap-3 bg-brand-500/5 border border-brand-500/30 rounded-lg px-4 py-3">
+            <span className="text-[10px] font-black uppercase tracking-widest text-brand-500">Comisión Pedidos Ya</span>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={0}
+                max={99}
+                step={0.5}
+                defaultValue={pyCommission}
+                key={pyCommission}
+                onBlur={(e) => savePyCommission(parseFloat(e.target.value))}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                disabled={isReadOnly}
+                className="w-20 bg-bg-card border border-brand-500/50 rounded px-2 py-1 text-right text-[13px] font-mono font-black text-brand-500 outline-none focus:border-brand-500 disabled:opacity-60"
+              />
+              <span className="text-[13px] font-black text-brand-500">%</span>
+            </div>
+            <span className="text-[9px] font-bold text-text-dim uppercase tracking-wide">
+              El "Precio Ideal Pedidos Ya" se calcula para que, tras esta comisión, te quede el precio ideal por inflación.
+            </span>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -719,6 +786,9 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Actual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Var. Año</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Ideal<br/><span className="text-[8px] opacity-60">(s/inflación)</span></th>
+                {activeMenu === 'pedidosya' && (
+                  <th className="px-6 py-4 text-[10px] font-black uppercase text-brand-500 tracking-widest text-right">Precio Ideal PY<br/><span className="text-[8px] opacity-60">(s/infl. + comisión {pyCommission}%)</span></th>
+                )}
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Última Act.</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Acciones</th>
               </tr>
@@ -807,6 +877,29 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                       <span className="text-[10px] text-text-dim/50 italic">—</span>
                     )}
                   </td>
+                  {activeMenu === 'pedidosya' && (
+                    <td className="px-6 py-4 text-right">
+                      {item.basePrice && item.basePrice > 0 && yearInflation !== null ? (() => {
+                        const idealPY = redondeoComercial(item.basePrice * (1 + yearInflation / 100) * pyGrossFactor);
+                        const diff = idealPY - item.price;   // >0 = debería subir; <0 = ya está por encima
+                        const faltaSubir = diff > 0;
+                        return (
+                          <div>
+                            <p className="text-[13px] font-black font-mono text-brand-500">${idealPY.toLocaleString('es-AR')}</p>
+                            {Math.abs(diff) >= 1 ? (
+                              <p className={cn("text-[8px] font-bold uppercase", faltaSubir ? "text-amber-500" : "text-emerald-500")}>
+                                {faltaSubir ? `falta +$${diff.toLocaleString('es-AR')}` : `ya supera +$${Math.abs(diff).toLocaleString('es-AR')}`}
+                              </p>
+                            ) : (
+                              <p className="text-[8px] font-bold uppercase text-emerald-500">empatado</p>
+                            )}
+                          </div>
+                        );
+                      })() : (
+                        <span className="text-[10px] text-text-dim/50 italic">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-6 py-4 text-center">
                     <span className="text-[10px] font-mono text-text-dim">{fmtFecha(item.lastUpdate)}</span>
                   </td>
