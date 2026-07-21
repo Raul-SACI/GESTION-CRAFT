@@ -65,6 +65,21 @@ const MENU_TYPES = [
   { id: 'pedidosya', label: 'Pedidos Ya', icon: FileText }
 ];
 
+// Columnas disponibles para el PDF de una carta (el usuario elige cuáles incluir)
+const PDF_COL_DEFS: { key: string; label: string; pedidosyaOnly?: boolean }[] = [
+  { key: 'categoria', label: 'Categoría' },
+  { key: 'producto', label: 'Producto' },
+  { key: 'inicial', label: 'Precio Enero' },
+  { key: 'anterior', label: 'Precio Anterior' },
+  { key: 'actual', label: 'Precio Actual' },
+  { key: 'idealPY', label: 'Precio Ideal PY (comisión)', pedidosyaOnly: true },
+  { key: 'varAnio', label: 'Variación del año %' },
+  { key: 'ideal', label: 'Precio Ideal (s/inflación)' },
+  { key: 'sugerido', label: 'Precio Sugerido (ponderado)' },
+  { key: 'varSug', label: 'Variación sugerida %' },
+  { key: 'ultima', label: 'Última actualización' },
+];
+
 export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [activeMenu, setActiveMenu] = useState('salon');
   const [search, setSearch] = useState('');
@@ -104,6 +119,12 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [managedCats, setManagedCats] = useState<Record<string, string[]>>({ salon: [], celiacos: [], pedidosya: [] });
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  // Selector de columnas para el PDF de una carta
+  const [showPdfColsModal, setShowPdfColsModal] = useState(false);
+  const [pdfCols, setPdfCols] = useState<Record<string, boolean>>({
+    categoria: true, producto: true, inicial: true, anterior: true, actual: true,
+    idealPY: true, varAnio: true, ideal: false, sugerido: true, varSug: true, ultima: false,
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -464,9 +485,44 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     return categoryFilter === 'all' ? items : items.filter(i => i.category === categoryFilter);
   };
 
+  // Valor formateado de una columna del PDF para un producto
+  const valorColumnaPDF = (i: MenuItem, key: string): string => {
+    const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
+    const sug = ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : null;
+    switch (key) {
+      case 'categoria': return i.category || '-';
+      case 'producto': return i.name;
+      case 'inicial': return i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-';
+      case 'anterior': return i.previousPrice ? `$${i.previousPrice.toLocaleString('es-AR')}` : '-';
+      case 'actual': return `$${i.price.toLocaleString('es-AR')}`;
+      case 'idealPY': {
+        const v = (i.basePrice && i.basePrice > 0 && yearInflation !== null)
+          ? redondeoComercial(i.basePrice * (1 + yearInflation / 100) * pyGrossFactor) : null;
+        return v !== null ? `$${v.toLocaleString('es-AR')}` : '-';
+      }
+      case 'varAnio': return i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-';
+      case 'ideal': {
+        const v = (i.basePrice && i.basePrice > 0 && yearInflation !== null)
+          ? redondeoComercial(i.basePrice * (1 + yearInflation / 100)) : null;
+        return v !== null ? `$${v.toLocaleString('es-AR')}` : '-';
+      }
+      case 'sugerido': return sug !== null ? `$${sug.toLocaleString('es-AR')}` : '-';
+      case 'varSug': {
+        const vs = sug !== null && i.price > 0 ? ((sug - i.price) / i.price) * 100 : null;
+        return vs !== null ? `${vs >= 0 ? '+' : ''}${vs.toFixed(1)}%` : '-';
+      }
+      case 'ultima': return fmtFecha(i.lastUpdate);
+      default: return '';
+    }
+  };
+
   const exportarCartaPDF = () => {
     const items = itemsParaExportar();
     if (items.length === 0) { alert('No hay productos para exportar.'); return; }
+    // Columnas elegidas por el usuario (las de pedidosya solo aplican en esa carta)
+    const cols = PDF_COL_DEFS.filter(c => pdfCols[c.key] && (!c.pedidosyaOnly || activeMenu === 'pedidosya'));
+    if (cols.length === 0) { alert('Elegí al menos una columna para el PDF.'); return; }
+
     const doc = new jsPDF();
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
     doc.text('LISTA DE PRECIOS', 14, 18);
@@ -489,39 +545,81 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       doc.setFont('helvetica', 'normal'); y += 5;
     }
 
-    // El precio sugerido solo aplica si hay ajuste calculado
-    const ajuste = weightedIncrease ? weightedIncrease.aumentoSugerido : null;
-
     autoTable(doc, {
       startY: y + 3,
-      head: [[
-        'Categoría', 'Producto', 'Precio Enero', 'Precio Anterior', 'Precio Actual',
-        ...(activeMenu === 'pedidosya' ? [`Precio Ideal PY (com. ${pyCommission}%)`] : []),
-        'Var. %', 'Precio Sugerido', 'Var. Sugerida %'
-      ]],
-      body: items.map(i => {
-        const sug = ajuste !== null ? redondeoComercial(i.price * (1 + ajuste / 100)) : null;
-        // Variación real entre el precio de hoy y el sugerido (difiere del ajuste por el redondeo)
-        const varSug = sug !== null && i.price > 0 ? ((sug - i.price) / i.price) * 100 : null;
-        const idealPY = (activeMenu === 'pedidosya' && i.basePrice && i.basePrice > 0 && yearInflation !== null)
-          ? redondeoComercial(i.basePrice * (1 + yearInflation / 100) * pyGrossFactor) : null;
-        return [
-          i.category,
-          i.name,
-          i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-',
-          i.previousPrice ? `$${i.previousPrice.toLocaleString('es-AR')}` : '-',
-          `$${i.price.toLocaleString('es-AR')}`,
-          ...(activeMenu === 'pedidosya' ? [idealPY !== null ? `$${idealPY.toLocaleString('es-AR')}` : '-'] : []),
-          i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-',
-          sug !== null ? `$${sug.toLocaleString('es-AR')}` : '-',
-          varSug !== null ? `${varSug >= 0 ? '+' : ''}${varSug.toFixed(1)}%` : '-'
-        ];
-      }),
+      head: [cols.map(c => c.key === 'idealPY' ? `Precio Ideal PY (com. ${pyCommission}%)` : c.label)],
+      body: items.map(i => cols.map(c => valorColumnaPDF(i, c.key))),
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 245, 245] }
     });
     doc.save(`Lista_Precios_${menuLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    setShowPdfColsModal(false);
+  };
+
+  // Arma una tabla unificada de las 3 cartas: una fila por producto, con precio Salón y precio Pedidos Ya.
+  // Cruza el mismo producto entre cartas por código (o nombre). Los celíacos entran con su precio en Salón.
+  const buildUnified = () => {
+    type Row = { category: string; name: string; salon: number | null; py: number | null };
+    const map = new Map<string, Row>();
+    const keyOf = (it: MenuItem) => it.externalCode ? `C:${String(it.externalCode).trim()}` : `N:${String(it.name).trim().toUpperCase()}`;
+    const addPrecio = (it: MenuItem, campo: 'salon' | 'py') => {
+      const k = keyOf(it);
+      let r = map.get(k);
+      if (!r) { r = { category: it.category, name: it.name, salon: null, py: null }; map.set(k, r); }
+      if (r[campo] === null) r[campo] = it.price;
+      if (!r.category && it.category) r.category = it.category;
+    };
+    (menus.salon || []).forEach(it => addPrecio(it, 'salon'));
+    (menus.celiacos || []).forEach(it => addPrecio(it, 'salon')); // celíacos: su precio va en la columna Salón
+    (menus.pedidosya || []).forEach(it => addPrecio(it, 'py'));
+    return Array.from(map.values()).sort((a, b) =>
+      (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+  };
+
+  const exportar3CartasPDF = () => {
+    const filas = buildUnified();
+    if (filas.length === 0) { alert('No hay productos para exportar.'); return; }
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('LISTA DE PRECIOS · LAS 3 CARTAS', 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Generado: ${fechaHoy()} · ${filas.length} productos`, 14, 26);
+    autoTable(doc, {
+      startY: 32,
+      head: [['Categoría', 'Producto', 'Precio Salón', 'Precio Pedidos Ya']],
+      body: filas.map(r => [
+        r.category || '-', r.name,
+        r.salon != null ? `$${r.salon.toLocaleString('es-AR')}` : '-',
+        r.py != null ? `$${r.py.toLocaleString('es-AR')}` : '-',
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 245, 245] }
+    });
+    doc.save(`Lista_Precios_3_Cartas_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const exportar3CartasExcel = () => {
+    const filas = buildUnified();
+    if (filas.length === 0) { alert('No hay productos para exportar.'); return; }
+    const aoa: any[][] = [
+      ['LISTA DE PRECIOS · LAS 3 CARTAS'],
+      ['Generado', fechaHoy()],
+      [],
+      ['Categoría', 'Producto', 'Precio Salón', 'Precio Pedidos Ya'],
+    ];
+    filas.forEach(r => aoa.push([r.category || '', r.name, r.salon ?? '', r.py ?? '']));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '3 Cartas');
+    XLSX.writeFile(wb, `Lista_Precios_3_Cartas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  // Descarga las 2 versiones (PDF y Excel) de la tabla unificada de las 3 cartas
+  const exportar3Cartas = () => {
+    exportar3CartasPDF();
+    exportar3CartasExcel();
   };
 
   const exportarCartaExcel = () => {
@@ -710,15 +808,20 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               <ListPlus size={14} /> Categorías
             </button>
           )}
-          <button onClick={exportarCartaPDF}
+          <button onClick={() => setShowPdfColsModal(true)}
             className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-red-500/50 hover:text-red-500 transition-all flex items-center gap-1.5"
-            title="Descargar esta carta en PDF">
+            title="Descargar esta carta en PDF (elegís las columnas)">
             <Download size={13} /> PDF
           </button>
           <button onClick={exportarCartaExcel}
             className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-emerald-500/50 hover:text-emerald-500 transition-all flex items-center gap-1.5"
             title="Descargar esta carta en Excel">
             <Download size={13} /> Excel
+          </button>
+          <button onClick={exportar3Cartas}
+            className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
+            title="Descargar las 3 cartas juntas (PDF y Excel) con precio Salón y Pedidos Ya por producto">
+            <Layers size={13} /> 3 Cartas
           </button>
           <button 
             onClick={() => setShowAddModal(true)}
@@ -1068,6 +1171,40 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: elegir columnas del PDF */}
+      {showPdfColsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowPdfColsModal(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-md shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Columnas del PDF · {menuLabel}</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">Elegí qué columnas incluir en el PDF</p>
+              </div>
+              <button onClick={() => setShowPdfColsModal(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {PDF_COL_DEFS.filter(c => !c.pedidosyaOnly || activeMenu === 'pedidosya').map(c => (
+                <label key={c.key} className="flex items-center gap-2.5 bg-bg-card border border-border-dim/50 rounded px-3 py-2 cursor-pointer hover:border-brand-500/40">
+                  <input
+                    type="checkbox"
+                    checked={!!pdfCols[c.key]}
+                    onChange={e => setPdfCols(prev => ({ ...prev, [c.key]: e.target.checked }))}
+                    className="accent-brand-500 w-4 h-4"
+                  />
+                  <span className="text-[11px] font-bold text-text-main uppercase">{c.label}</span>
+                </label>
+              ))}
+            </div>
+            <div className="p-4 border-t border-border-dim flex justify-end gap-2">
+              <button onClick={() => setShowPdfColsModal(false)} className="px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main">Cancelar</button>
+              <button onClick={exportarCartaPDF} className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
+                <Download size={13} /> Generar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: administrar categorías de Pedidos Ya */}
       {showCategoriesModal && (
