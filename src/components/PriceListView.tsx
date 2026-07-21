@@ -787,6 +787,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                     <th className="px-3 py-2.5 text-right">Unid.</th>
                     <th className="px-3 py-2.5 text-right">Enero</th>
                     <th className="px-3 py-2.5 text-right">Hoy</th>
+                    <th className="px-3 py-2.5 text-right text-brand-500">Sugerido</th>
                     <th className="px-3 py-2.5 text-right">Var.</th>
                     <th className="px-3 py-2.5 text-right">Peso</th>
                   </tr>
@@ -794,12 +795,17 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 <tbody className="divide-y divide-border-dim/40">
                   {weightedIncrease.detalle.map((d, i) => {
                     const peso = (d.fact / weightedIncrease.totalFact) * 100;
+                    // Precio objetivo: se aplica el ajuste sugerido y se redondea a valor comercial
+                    const sugerido = redondeoComercial(d.price * (1 + weightedIncrease.aumentoSugerido / 100));
                     return (
                       <tr key={i} className="hover:bg-bg-accent/30">
                         <td className="px-4 py-2 font-bold uppercase text-text-main">{d.name}</td>
                         <td className="px-3 py-2 text-right font-mono text-text-dim">{d.units.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2 text-right font-mono text-text-dim">${d.base.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2 text-right font-mono text-text-main">${d.price.toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2 text-right font-mono font-black text-brand-500">
+                          ${sugerido.toLocaleString('es-AR')}
+                        </td>
                         <td className={cn("px-3 py-2 text-right font-mono font-black", d.pct >= weightedIncrease.infl ? "text-emerald-500" : "text-amber-500")}>
                           {d.pct >= 0 ? '+' : ''}{d.pct.toFixed(1)}%
                         </td>
