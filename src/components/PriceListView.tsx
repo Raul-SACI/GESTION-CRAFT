@@ -18,9 +18,13 @@ import {
   Layers,
   FileSpreadsheet,
   Loader2,
-  ListPlus
+  ListPlus,
+  Download
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import PriceListBuilder from './PriceListBuilder';
 
@@ -357,6 +361,140 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
   const menuLabel = MENU_TYPES.find(m => m.id === activeMenu)?.label || '';
 
+  // ─── EXPORTACIÓN ───
+  const fechaHoy = () => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  };
+
+  // Items de la carta activa, respetando el filtro de categoría
+  const itemsParaExportar = () => {
+    const items = menus[activeMenu] || [];
+    return categoryFilter === 'all' ? items : items.filter(i => i.category === categoryFilter);
+  };
+
+  const exportarCartaPDF = () => {
+    const items = itemsParaExportar();
+    if (items.length === 0) { alert('No hay productos para exportar.'); return; }
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('LISTA DE PRECIOS', 14, 18);
+    doc.setFontSize(12);
+    doc.text(menuLabel.toUpperCase(), 14, 26);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Generado: ${fechaHoy()}`, 14, 33);
+    if (categoryFilter !== 'all') doc.text(`Categoría: ${categoryFilter}`, 14, 38);
+
+    let y = categoryFilter !== 'all' ? 44 : 40;
+    if (listAvgIncrease) {
+      doc.text(`Aumento promedio del año: ${listAvgIncrease.avg >= 0 ? '+' : ''}${listAvgIncrease.avg.toFixed(1)}%`, 14, y); y += 5;
+    }
+    if (yearInflation !== null) {
+      doc.text(`Inflación acumulada (${inflationPeriod}): +${yearInflation.toFixed(1)}%`, 14, y); y += 5;
+    }
+
+    autoTable(doc, {
+      startY: y + 3,
+      head: [['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %']],
+      body: items.map(i => [
+        i.category,
+        i.name,
+        i.basePrice ? `$${i.basePrice.toLocaleString('es-AR')}` : '-',
+        `$${i.price.toLocaleString('es-AR')}`,
+        i.basePrice ? `${(((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)}%` : '-'
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 245, 245] }
+    });
+    doc.save(`Lista_Precios_${menuLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const exportarCartaExcel = () => {
+    const items = itemsParaExportar();
+    if (items.length === 0) { alert('No hay productos para exportar.'); return; }
+    const aoa: any[][] = [
+      ['LISTA DE PRECIOS · ' + menuLabel.toUpperCase()],
+      ['Generado', fechaHoy()],
+    ];
+    if (listAvgIncrease) aoa.push(['Aumento promedio del año', `${listAvgIncrease.avg.toFixed(1)}%`]);
+    if (yearInflation !== null) aoa.push(['Inflación acumulada', `${yearInflation.toFixed(1)}%`, inflationPeriod]);
+    aoa.push([]);
+    aoa.push(['Categoría', 'Producto', 'Precio Enero', 'Precio Actual', 'Var. %']);
+    items.forEach(i => aoa.push([
+      i.category, i.name,
+      i.basePrice ?? '', i.price,
+      i.basePrice ? Number((((i.price - i.basePrice) / i.basePrice) * 100).toFixed(1)) : ''
+    ]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, menuLabel.slice(0, 30) || 'Carta');
+    XLSX.writeFile(wb, `Lista_Precios_${menuLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportarAjustePDF = () => {
+    if (!weightedIncrease) { alert('No hay datos de ajuste ponderado.'); return; }
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text('AJUSTE SUGERIDO PONDERADO', 14, 18);
+    doc.setFontSize(11);
+    doc.text(menuLabel.toUpperCase(), 14, 26);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+    doc.text(`Generado: ${fechaHoy()}`, 14, 33);
+    doc.text(`Aumento ponderado por facturación: ${weightedIncrease.ponderado >= 0 ? '+' : ''}${weightedIncrease.ponderado.toFixed(1)}%`, 14, 40);
+    doc.text(`Inflación acumulada: +${weightedIncrease.infl.toFixed(1)}%`, 14, 45);
+    doc.text(`Brecha: ${weightedIncrease.brecha >= 0 ? '+' : ''}${weightedIncrease.brecha.toFixed(1)} pts`, 14, 50);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`AJUSTE SUGERIDO: ${weightedIncrease.aumentoSugerido > 0 ? '+' : ''}${weightedIncrease.aumentoSugerido.toFixed(1)}%`, 14, 57);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+    doc.text(`${weightedIncrease.conVentas} productos con ventas · ${weightedIncrease.sinVentas} sin ventas (no ponderan)`, 14, 63);
+
+    autoTable(doc, {
+      startY: 68,
+      head: [['Producto', 'Unid.', 'Enero', 'Hoy', 'Sugerido', 'Var. %', 'Peso %']],
+      body: weightedIncrease.detalle.map(d => [
+        d.name,
+        d.units.toLocaleString('es-AR'),
+        `$${d.base.toLocaleString('es-AR')}`,
+        `$${d.price.toLocaleString('es-AR')}`,
+        `$${redondeoComercial(d.price * (1 + weightedIncrease.aumentoSugerido / 100)).toLocaleString('es-AR')}`,
+        `${d.pct.toFixed(1)}%`,
+        `${((d.fact / weightedIncrease.totalFact) * 100).toFixed(1)}%`
+      ]),
+      styles: { fontSize: 7.5, cellPadding: 1.8 },
+      headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [245, 245, 245] }
+    });
+    doc.save(`Ajuste_Ponderado_${menuLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const exportarAjusteExcel = () => {
+    if (!weightedIncrease) { alert('No hay datos de ajuste ponderado.'); return; }
+    const aoa: any[][] = [
+      ['AJUSTE SUGERIDO PONDERADO · ' + menuLabel.toUpperCase()],
+      ['Generado', fechaHoy()],
+      [],
+      ['Aumento ponderado por facturación', `${weightedIncrease.ponderado.toFixed(1)}%`],
+      ['Inflación acumulada', `${weightedIncrease.infl.toFixed(1)}%`],
+      ['Brecha (pts)', Number(weightedIncrease.brecha.toFixed(1))],
+      ['AJUSTE SUGERIDO', `${weightedIncrease.aumentoSugerido.toFixed(1)}%`],
+      ['Productos con ventas', weightedIncrease.conVentas],
+      ['Productos sin ventas', weightedIncrease.sinVentas],
+      [],
+      ['Producto', 'Unidades', 'Precio Enero', 'Precio Hoy', 'Precio Sugerido', 'Var. %', 'Peso %']
+    ];
+    weightedIncrease.detalle.forEach(d => aoa.push([
+      d.name, d.units, d.base, d.price,
+      redondeoComercial(d.price * (1 + weightedIncrease.aumentoSugerido / 100)),
+      Number(d.pct.toFixed(1)),
+      Number(((d.fact / weightedIncrease.totalFact) * 100).toFixed(1))
+    ]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Ajuste Ponderado');
+    XLSX.writeFile(wb, `Ajuste_Ponderado_${menuLabel.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
@@ -426,6 +564,16 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             <option value="all">Todas las categorías</option>
             {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <button onClick={exportarCartaPDF}
+            className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-red-500/50 hover:text-red-500 transition-all flex items-center gap-1.5"
+            title="Descargar esta carta en PDF">
+            <Download size={13} /> PDF
+          </button>
+          <button onClick={exportarCartaExcel}
+            className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-emerald-500/50 hover:text-emerald-500 transition-all flex items-center gap-1.5"
+            title="Descargar esta carta en Excel">
+            <Download size={13} /> Excel
+          </button>
           <button 
             onClick={() => setShowAddModal(true)}
             className="bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
@@ -737,7 +885,17 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                   {menuLabel} · cada producto pesa según cuánto factura
                 </p>
               </div>
-              <button onClick={() => setShowWeightedModal(false)} className="text-text-dim hover:text-text-main text-lg font-black">✕</button>
+              <div className="flex items-center gap-2">
+                <button onClick={exportarAjustePDF}
+                  className="bg-bg-accent border border-border-dim px-3 py-1.5 rounded text-[9px] font-black uppercase text-text-main hover:border-red-500/50 hover:text-red-500 transition-all flex items-center gap-1">
+                  <Download size={11} /> PDF
+                </button>
+                <button onClick={exportarAjusteExcel}
+                  className="bg-bg-accent border border-border-dim px-3 py-1.5 rounded text-[9px] font-black uppercase text-text-main hover:border-emerald-500/50 hover:text-emerald-500 transition-all flex items-center gap-1">
+                  <Download size={11} /> Excel
+                </button>
+                <button onClick={() => setShowWeightedModal(false)} className="text-text-dim hover:text-text-main text-lg font-black ml-1">✕</button>
+              </div>
             </div>
 
             {/* Resumen */}
