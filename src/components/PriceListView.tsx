@@ -38,6 +38,7 @@ interface MenuItem {
   baseDate?: string | null;
   previousPrice?: number | null;  // precio que tenía justo antes del último cambio
   previousDate?: string | null;   // fecha en que se dejó ese precio anterior
+  externalCode?: string | null;   // código del artículo en el sistema del restaurante (Maxirest)
 }
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -207,7 +208,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             basePrice: base ? base.price : null,
             baseDate: base ? base.date : null,
             previousPrice: prev ? prev.price : null,
-            previousDate: prev ? prev.date : null
+            previousDate: prev ? prev.date : null,
+            externalCode: item.external_code ?? null
           });
         }
       });
@@ -1142,6 +1144,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               id: item.id, category: item.category, name: item.name,
               precioActual: item.price, precioInicial: item.basePrice,
               precioSugerido: sugerido,
+              externalCode: item.externalCode ?? null,
             };
           })}
           onClose={() => setShowBuilder(false)}

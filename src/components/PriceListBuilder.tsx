@@ -17,6 +17,8 @@ interface BuilderItem {
   precioActual: number; precioInicial?: number | null;
   precioSugerido: number; // editable
   isNew?: boolean; // producto dado de alta desde una importación (todavía no existe en la carta)
+  externalCode?: string | null; // código del artículo en Maxirest (para emparejar exacto)
+  pendingLink?: { code?: string | null; category?: string | null } | null; // datos a guardar al confirmar (código/rubro)
 }
 
 interface Draft {
@@ -41,6 +43,30 @@ const parseMoney = (v: any): number | null => {
   s = s.replace(/\./g, '').replace(/,/g, ''); // quita separadores de miles/decimales
   const n = parseInt(s, 10);
   return isFinite(n) ? n : null;
+};
+
+// ─── Formato Maxirest (el Excel del sistema del restaurante) ───
+// Encabezados esperados: COD RUBRO, NOM RUBRO, COD ARTICULO, NOM ARTICULO, PRECIOS SALON, PRECIOS PEDIDOS YA
+const MX = {
+  codigo: 'COD ARTICULO',
+  nombre: 'NOM ARTICULO',
+  rubro: 'NOM RUBRO',
+  precioSalon: 'PRECIOS SALON',
+  precioPY: 'PRECIOS PEDIDOS YA',
+};
+// Un archivo es "Maxirest" si trae el código de artículo y al menos una columna de precios conocida
+const esArchivoMaxirest = (headers: string[]) =>
+  headers.includes(MX.codigo) && (headers.includes(MX.precioSalon) || headers.includes(MX.precioPY));
+
+// Qué columna de precio y qué filas corresponden a cada carta dentro del archivo Maxirest
+const columnaPrecioMaxirest = (menuType: string) => (menuType === 'pedidosya' ? MX.precioPY : MX.precioSalon);
+const filaCorrespondeAMaxirest = (menuType: string, rubro: string, precio: number | null): boolean => {
+  const r = String(rubro || '').trim().toUpperCase();
+  const p = precio || 0;
+  if (menuType === 'pedidosya') return p > 0;                         // cualquier rubro con precio en la columna PY
+  if (menuType === 'celiacos') return r === 'SIN GLUTEN' && p > 0;    // solo el rubro sin gluten, con su precio salón
+  // salón: todo lo que tenga precio salón, salvo lo que va a otra carta
+  return p > 0 && r !== 'SIN GLUTEN' && r !== 'PEDIDOS YA';
 };
 
 export default function PriceListBuilder({
@@ -69,6 +95,8 @@ export default function PriceListBuilder({
   const [colProducto, setColProducto] = useState('');
   const [colPrecio, setColPrecio] = useState('');
   const [colCategoria, setColCategoria] = useState('');
+  const [colCodigo, setColCodigo] = useState('');       // columna de código (Maxirest)
+  const [maxirestMode, setMaxirestMode] = useState(false);
 
   useEffect(() => { loadDrafts(); }, []);
 
@@ -186,14 +214,26 @@ export default function PriceListBuilder({
       if (!json.length) { alert('No encontré filas de datos debajo de los encabezados.'); return; }
       setImportHeaders(headers);
       setImportRows(json);
-      // Autodetección de columnas
-      const find = (regexes: RegExp[]) => {
-        for (const rx of regexes) { const h = headers.find(x => rx.test(x)); if (h) return h; }
-        return '';
-      };
-      setColProducto(find([/producto/i, /nombre/i, /art[ií]culo/i]) || headers[0] || '');
-      setColCategoria(find([/categor/i]));
-      setColPrecio(find([/precio\s*nuevo/i, /precio\s*a\s*fijar/i, /^precio$/i, /precio\s*actual/i, /precio\s*sugerido/i]) || '');
+
+      // ¿Es el archivo del sistema del restaurante (Maxirest)? → configuración automática por carta
+      if (esArchivoMaxirest(headers)) {
+        setMaxirestMode(true);
+        setColProducto(MX.nombre);
+        setColCategoria(MX.rubro);
+        setColCodigo(MX.codigo);
+        setColPrecio(columnaPrecioMaxirest(menuType));
+      } else {
+        // Autodetección de columnas (archivo genérico / plantilla)
+        setMaxirestMode(false);
+        setColCodigo('');
+        const find = (regexes: RegExp[]) => {
+          for (const rx of regexes) { const h = headers.find(x => rx.test(x)); if (h) return h; }
+          return '';
+        };
+        setColProducto(find([/producto/i, /nombre/i, /art[ií]culo/i]) || headers[0] || '');
+        setColCategoria(find([/categor/i]));
+        setColPrecio(find([/precio\s*nuevo/i, /precio\s*a\s*fijar/i, /^precio$/i, /precio\s*actual/i, /precio\s*sugerido/i]) || '');
+      }
     } catch (err: any) {
       alert('No pude leer el archivo. Asegurate de que sea un Excel (.xlsx). Detalle: ' + (err.message || err));
     }
@@ -202,28 +242,45 @@ export default function PriceListBuilder({
 
   // Calcula qué haría la importación con las columnas elegidas (para el preview y para aplicar).
   const buildPreview = () => {
-    const toUpdate: { item: BuilderItem; price: number }[] = [];
-    const toCreate: { name: string; category: string; price: number }[] = [];
+    const toUpdate: { item: BuilderItem; price: number; code: string; category: string }[] = [];
+    const toCreate: { name: string; category: string; price: number; code: string }[] = [];
     const errores: { name: string; motivo: string }[] = [];
     const sinCambio: { name: string; price: number }[] = [];
-    if (!colProducto || !colPrecio) return { toUpdate, toCreate, errores, sinCambio };
+    const empty = { toUpdate, toCreate, errores, sinCambio };
+    if (!colProducto || !colPrecio) return empty;
+
     const existingByName = new Map<string, BuilderItem>(rows.map(r => [norm(r.name), r] as [string, BuilderItem]));
+    const existingByCode = new Map<string, BuilderItem>(
+      rows.filter(r => r.externalCode).map(r => [String(r.externalCode).trim(), r] as [string, BuilderItem])
+    );
     const seen = new Set<string>();
+
     importRows.forEach(raw => {
       const nombreOriginal = String(raw[colProducto] ?? '').trim();
       const name = norm(nombreOriginal);
       const price = parseMoney(raw[colPrecio]);
+      const code = colCodigo ? String(raw[colCodigo] ?? '').trim() : '';
+      const rubro = colCategoria ? norm(raw[colCategoria]) : '';
+
+      // En modo Maxirest, cada carta toma solo las filas que le corresponden
+      if (maxirestMode && !filaCorrespondeAMaxirest(menuType, rubro, price)) return;
+
       if (!name) { errores.push({ name: '(sin nombre)', motivo: 'fila sin producto' }); return; }
       if (price === null || price <= 0) { errores.push({ name: nombreOriginal, motivo: 'precio inválido o vacío' }); return; }
-      if (seen.has(name)) { errores.push({ name: nombreOriginal, motivo: 'repetido en el archivo' }); return; }
-      seen.add(name);
-      const ex = existingByName.get(name);
+      const dedupeKey = code || name;
+      if (seen.has(dedupeKey)) { errores.push({ name: nombreOriginal, motivo: 'repetido en el archivo' }); return; }
+      seen.add(dedupeKey);
+
+      // Empareja primero por código (exacto), y si no hay, por nombre
+      const ex = (code && existingByCode.get(code)) || existingByName.get(name);
       if (ex) {
-        if (price === ex.precioSugerido) sinCambio.push({ name: ex.name, price });
-        else toUpdate.push({ item: ex, price });
+        const mismoPrecio = price === ex.precioSugerido;
+        const mismoCodigo = String(ex.externalCode || '') === code;
+        const mismoRubro = !rubro || norm(ex.category) === rubro;
+        if (mismoPrecio && mismoCodigo && mismoRubro) sinCambio.push({ name: ex.name, price });
+        else toUpdate.push({ item: ex, price, code, category: rubro });
       } else {
-        const cat = colCategoria ? norm(raw[colCategoria]) : '';
-        toCreate.push({ name: nombreOriginal, category: cat, price });
+        toCreate.push({ name: nombreOriginal, category: rubro, price, code });
       }
     });
     return { toUpdate, toCreate, errores, sinCambio };
@@ -236,7 +293,19 @@ export default function PriceListBuilder({
     setRows(prev => {
       const next = prev.map(r => {
         const u = toUpdate.find(x => x.item.id === r.id);
-        return u ? { ...r, precioSugerido: u.price } : r;
+        if (!u) return r;
+        const codeChanged = !!u.code && String(r.externalCode || '') !== u.code;
+        const catChanged = !!u.category && norm(r.category) !== u.category;
+        const pendingLink = (codeChanged || catChanged)
+          ? { code: u.code || r.externalCode || null, category: u.category || r.category }
+          : (r.pendingLink || null);
+        return {
+          ...r,
+          precioSugerido: u.price,
+          externalCode: u.code || r.externalCode || null,
+          category: u.category || r.category,
+          pendingLink,
+        };
       });
       const nuevos: BuilderItem[] = toCreate.map(c => ({
         id: uid(),
@@ -246,24 +315,29 @@ export default function PriceListBuilder({
         precioInicial: null,
         precioSugerido: c.price,
         isNew: true,
+        externalCode: c.code || null,
       }));
       return [...next, ...nuevos];
     });
     setShowImport(false);
-    setImportRows([]); setImportHeaders([]); setImportFileName('');
+    setImportRows([]); setImportHeaders([]); setImportFileName(''); setMaxirestMode(false);
     alert(`Importación aplicada:\n· ${toUpdate.length} precio(s) actualizado(s)\n· ${toCreate.length} producto(s) nuevo(s) agregado(s)\n\nRevisá la tabla y, cuando estés conforme, tocá "Dejar Vigente".`);
   };
 
   const confirmarVigencia = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     const cambios = rows.filter(r => r.precioSugerido !== r.precioActual);
-    if (cambios.length === 0) { alert('No hay precios modificados respecto al actual.'); return; }
+    // Filas sin cambio de precio pero que hay que vincular (código/rubro nuevos desde Maxirest)
+    const soloVinculo = rows.filter(r => r.precioSugerido === r.precioActual && !r.isNew && r.pendingLink);
+    if (cambios.length === 0 && soloVinculo.length === 0) { alert('No hay precios modificados ni vinculaciones pendientes.'); return; }
     const altas = cambios.filter(r => r.isNew).length;
     const actualizaciones = cambios.length - altas;
+    const vinculos = soloVinculo.length;
     if (!window.confirm(
       `Vas a dejar VIGENTES ${cambios.length} cambio(s) para "${menuLabel}" desde el ${fechaVigencia.split('-').reverse().join('/')}:\n` +
-      `· ${actualizaciones} precio(s) actualizado(s)\n· ${altas} producto(s) nuevo(s) que se dan de alta en la carta\n\n` +
-      `Los precios anteriores quedan guardados en el historial para comparar la evolución.\n\n¿Confirmás?`
+      `· ${actualizaciones} precio(s) actualizado(s)\n· ${altas} producto(s) nuevo(s) que se dan de alta en la carta\n` +
+      (vinculos > 0 ? `· ${vinculos} producto(s) que solo actualizan su código/rubro (sin cambio de precio)\n` : '') +
+      `\nLos precios anteriores quedan guardados en el historial para comparar la evolución.\n\n¿Confirmás?`
     )) return;
     setSaving(true);
     try {
@@ -274,6 +348,7 @@ export default function PriceListBuilder({
           const { data: nuevo, error: insErr } = await supabase.from('menu_items').insert([{
             menu_type: menuType, category: r.category, name: r.name,
             price: r.precioSugerido, last_update: fechaVigencia,
+            external_code: r.externalCode || null,
           }]).select().single();
           if (insErr) throw insErr;
           await supabase.from('menu_price_history').insert([{
@@ -281,9 +356,11 @@ export default function PriceListBuilder({
             old_price: null, new_price: r.precioSugerido, change_date: fechaVigencia,
           }]);
         } else {
-          const { error: upErr } = await supabase.from('menu_items')
-            .update({ price: r.precioSugerido, last_update: fechaVigencia })
-            .eq('id', r.id);
+          // Al actualizar el precio, además guardamos código y rubro si vinieron del archivo
+          const upd: Record<string, any> = { price: r.precioSugerido, last_update: fechaVigencia };
+          if (r.pendingLink?.code) upd.external_code = r.pendingLink.code;
+          if (r.pendingLink?.category) upd.category = r.pendingLink.category;
+          const { error: upErr } = await supabase.from('menu_items').update(upd).eq('id', r.id);
           if (upErr) throw upErr;
           await supabase.from('menu_price_history').insert([{
             menu_item_id: r.id, menu_type: menuType, category: r.category, item_name: r.name,
@@ -291,11 +368,22 @@ export default function PriceListBuilder({
           }]);
         }
       }
+      // Vinculaciones sin cambio de precio: solo se guarda código/rubro (no toca el historial)
+      for (const r of soloVinculo) {
+        const upd: Record<string, any> = {};
+        if (r.pendingLink?.code) upd.external_code = r.pendingLink.code;
+        if (r.pendingLink?.category) upd.category = r.pendingLink.category;
+        if (Object.keys(upd).length > 0) {
+          const { error: linkErr } = await supabase.from('menu_items').update(upd).eq('id', r.id);
+          if (linkErr) throw linkErr;
+        }
+      }
       // Marcar el borrador como confirmado (si venía de uno)
       if (draftId) {
         await supabase.from('price_list_drafts').update({ estado: 'confirmada', updated_at: new Date().toISOString() }).eq('id', draftId);
       }
-      alert(`Listo. ${cambios.length} precio(s) quedaron vigentes desde el ${fechaVigencia.split('-').reverse().join('/')}.`);
+      alert(`Listo. ${cambios.length} precio(s) quedaron vigentes desde el ${fechaVigencia.split('-').reverse().join('/')}` +
+        (soloVinculo.length > 0 ? ` y ${soloVinculo.length} vinculación(es) de código/rubro guardadas.` : '.'));
       onConfirmed();
       onClose();
     } catch (e: any) { alert('Error al confirmar: ' + (e.message || e)); }
@@ -373,30 +461,44 @@ export default function PriceListBuilder({
 
               {importRows.length > 0 && (
                 <>
-                  {/* Selección de columnas */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Producto</label>
-                      <select value={colProducto} onChange={e => setColProducto(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
-                        <option value="">— elegir —</option>
-                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                      </select>
+                  {maxirestMode ? (
+                    /* Archivo del sistema (Maxirest): todo automático según la carta */
+                    <div className="bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2 text-[10px] text-text-dim">
+                      <p className="font-black uppercase text-emerald-500 tracking-widest mb-0.5">Archivo Maxirest detectado</p>
+                      <p>
+                        Para <b className="text-text-main uppercase">{menuLabel}</b> tomo la columna <b className="text-text-main">{colPrecio}</b>,
+                        empareja por <b className="text-text-main">código de artículo</b> y guarda el rubro como categoría.
+                        {menuType === 'salon' && ' Se excluyen los rubros SIN GLUTEN y PEDIDOS YA (van a sus cartas).'}
+                        {menuType === 'celiacos' && ' Solo se toman los artículos del rubro SIN GLUTEN.'}
+                        {menuType === 'pedidosya' && ' Se toman todos los artículos con precio en la columna Pedidos Ya.'}
+                      </p>
                     </div>
-                    <div>
-                      <label className="text-[8px] font-black uppercase text-brand-500 tracking-widest block mb-1">Columna Precio a fijar</label>
-                      <select value={colPrecio} onChange={e => setColPrecio(e.target.value)} className="w-full bg-bg-card border border-brand-500/50 rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
-                        <option value="">— elegir —</option>
-                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                      </select>
+                  ) : (
+                    /* Archivo genérico / plantilla: elegís las columnas a mano */
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Producto</label>
+                        <select value={colProducto} onChange={e => setColProducto(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                          <option value="">— elegir —</option>
+                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-brand-500 tracking-widest block mb-1">Columna Precio a fijar</label>
+                        <select value={colPrecio} onChange={e => setColPrecio(e.target.value)} className="w-full bg-bg-card border border-brand-500/50 rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                          <option value="">— elegir —</option>
+                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Categoría (opcional)</label>
+                        <select value={colCategoria} onChange={e => setColCategoria(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
+                          <option value="">— sin categoría —</option>
+                          {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block mb-1">Columna Categoría (opcional)</label>
-                      <select value={colCategoria} onChange={e => setColCategoria(e.target.value)} className="w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500">
-                        <option value="">— sin categoría —</option>
-                        {importHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                      </select>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Resumen */}
                   {listo ? (
@@ -439,7 +541,7 @@ export default function PriceListBuilder({
                   )}
 
                   <div className="flex justify-end gap-2 pt-1">
-                    <button onClick={() => { setShowImport(false); setImportRows([]); setImportHeaders([]); setImportFileName(''); }} className="px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main">Cancelar</button>
+                    <button onClick={() => { setShowImport(false); setImportRows([]); setImportHeaders([]); setImportFileName(''); setMaxirestMode(false); }} className="px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main">Cancelar</button>
                     <button onClick={aplicarImport} disabled={!listo || (prev.toUpdate.length === 0 && prev.toCreate.length === 0)} className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
                       <CheckCircle2 size={13} /> Aplicar importación
                     </button>
