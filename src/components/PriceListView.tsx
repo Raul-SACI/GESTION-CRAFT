@@ -594,10 +594,14 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   };
 
-  // Items de la carta activa, respetando el filtro de categoría
+  // Items de la carta activa, respetando el filtro de categoría, ordenados alfabéticamente
+  // por categoría y, dentro de cada una, por producto (para que los exportados salgan prolijos).
   const itemsParaExportar = () => {
     const items = menus[activeMenu] || [];
-    return categoryFilter === 'all' ? items : items.filter(i => i.category === categoryFilter);
+    const filtrados = categoryFilter === 'all' ? items : items.filter(i => i.category === categoryFilter);
+    return [...filtrados].sort((a, b) =>
+      String(a.category || '').localeCompare(String(b.category || ''), 'es') ||
+      String(a.name || '').localeCompare(String(b.name || ''), 'es'));
   };
 
   // Valor formateado de una columna del PDF para un producto
