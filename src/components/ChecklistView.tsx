@@ -161,17 +161,16 @@ export default function ChecklistView({
 
   const toggleMarca = async (taskId: string) => {
     if (isReadOnly) return;
-    if (!selectedBranchId || selectedBranchId === 'all') {
-      alert('Elegí una sucursal para marcar las tareas.');
-      return;
-    }
+    if (!selectedBranchId) { alert('No hay sucursal seleccionada.'); return; }
+    // Si el usuario ve "todas las sucursales" (líder), las marcas se guardan bajo 'all'.
+    const marcaBranch = selectedBranchId === 'all' ? 'all' : selectedBranchId;
     const actual = marcas[taskId];
     const nuevoEstado = !actual?.done;
-    const id = `${taskId}-${selectedBranchId}-${fecha}`;
+    const id = `${taskId}-${marcaBranch}-${fecha}`;
     const { error } = await supabase.from('checklist_marks').upsert({
       id,
       task_id: taskId,
-      branch_id: selectedBranchId,
+      branch_id: marcaBranch,
       date: fecha,
       done: nuevoEstado,
       marked_by: currentUserName || '—',
@@ -301,6 +300,18 @@ export default function ChecklistView({
                         <p className="text-[8px] font-bold uppercase text-emerald-600 mt-0.5">Marcada por {marca.by}</p>
                       )}
                     </div>
+                    {(() => {
+                      const esTodas = !t.branch_id || t.branch_id === 'all';
+                      const suc = esTodas ? 'Todas' : (branches.find(b => b.id === t.branch_id)?.name || t.branch_id);
+                      return (
+                        <span className={cn(
+                          "text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 flex items-center gap-1",
+                          esTodas ? "text-text-dim bg-bg-accent border border-border-dim" : "text-brand-500 bg-brand-500/10"
+                        )}>
+                          <Users size={9} /> {suc}
+                        </span>
+                      );
+                    })()}
                     {t.time && (
                       <span className="text-[9px] font-mono font-black text-text-dim flex items-center gap-1 shrink-0">
                         <Clock size={11} /> {t.time}
