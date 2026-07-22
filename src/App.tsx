@@ -604,7 +604,7 @@ function AppContent() {
       { id: 'inventario_mensual', label: 'Inventario Mensual', icon: ClipboardCheck },
       { id: 'vajilla', label: 'Vajilla', icon: Utensils },
       { id: 'horas', label: 'Carga de Horas', icon: Clock },
-      { id: 'checklist_sucursal', label: 'Check-List', icon: CheckSquare },
+      { id: 'checklist_sucursal', label: 'Check-List Sucursal', icon: CheckSquare },
       { id: 'novedades', label: 'Novedades', icon: ClipboardList },
       { id: 'decomisos', label: 'Decomisos diarios', icon: Trash2 },
       { id: 'pedidos_internos', label: 'Pedidos Internos', icon: ShoppingCart },

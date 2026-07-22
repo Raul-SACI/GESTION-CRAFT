@@ -66,11 +66,16 @@ export default function ChecklistView({
 }: ChecklistViewProps) {
   const roleKey = String(currentUserRole || '').toLowerCase();
   const esAdmin = roleKey === 'administrador';
+  const esLider = esAdmin || roleKey.includes('lider') || roleKey.includes('líder');
   // Armar el check-list SOLO se habilita desde Gestión Líderes Operativos (scope 'lideres').
-  // En Gestión Sucursal el encargado únicamente ve y marca las tareas ya armadas.
-  const puedeArmar = scope === 'lideres' && (esAdmin || roleKey.includes('lider') || roleKey.includes('líder'));
+  const puedeArmar = scope === 'lideres' && esLider;
+  // En Gestión Sucursal, un líder NO ve su propia agenda: monitorea el check-list de un rol
+  // (encargado, cajero, jefe de cocina…) en una sucursal, para ver qué completaron y qué falta.
+  const modoMonitoreo = scope === 'sucursal' && esLider;
 
   const [activeTab, setActiveTab] = useState<'mias' | 'armar'>('mias');
+  const [monitorRol, setMonitorRol] = useState<string>('');
+  const [monitorBranch, setMonitorBranch] = useState<string>('');
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [rolesDisponibles, setRolesDisponibles] = useState<RolConfig[]>([]);
   // Rol para el que se están armando las tareas (lo elige quien administra)
@@ -123,13 +128,17 @@ export default function ChecklistView({
     setLoading(false);
   };
 
+  // Sucursal efectiva para las marcas: en monitoreo es la sucursal elegida por el líder
+  const branchMarcas = modoMonitoreo ? monitorBranch : selectedBranchId;
+
   const cargarMarcas = async () => {
+    if (!branchMarcas) { setMarcas({}); return; }
     try {
       const { data } = await supabase
         .from('checklist_marks')
         .select('*')
         .eq('date', fecha)
-        .eq('branch_id', selectedBranchId);
+        .eq('branch_id', branchMarcas);
       const map: Record<string, { id: string; done: boolean; by?: string }> = {};
       (data || []).forEach((m: any) => { map[m.task_id] = { id: m.id, done: m.done, by: m.marked_by }; });
       setMarcas(map);
@@ -137,9 +146,28 @@ export default function ChecklistView({
   };
 
   useEffect(() => { cargarTareas(); cargarRoles(); }, []);
-  useEffect(() => { cargarMarcas(); }, [fecha, selectedBranchId]);
+  useEffect(() => { cargarMarcas(); }, [fecha, branchMarcas]);
 
-  // Tareas que corresponden a este rol, este día y esta sucursal
+  // Roles que tienen al menos una tarea creada (para que el líder elija a quién monitorear).
+  // Se excluyen los roles de líder (su agenda se ve/arma desde Gestión Líderes).
+  const rolesConTareas = useMemo(() => {
+    const idsConTareas = new Set(tareas.map(t => t.role));
+    return rolesDisponibles.filter(r =>
+      idsConTareas.has(r.id) && !/lider|líder/i.test(`${r.id} ${r.name}`));
+  }, [tareas, rolesDisponibles]);
+
+  // Defaults del monitoreo: primera sucursal real y primer rol con tareas
+  useEffect(() => {
+    if (!modoMonitoreo) return;
+    if (!monitorBranch) {
+      const real = branches.find(b => b.id !== 'all');
+      if (real) setMonitorBranch(real.id);
+    }
+    if (!monitorRol && rolesConTareas.length > 0) setMonitorRol(rolesConTareas[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoMonitoreo, branches, rolesConTareas]);
+
+  // Tareas propias (rol del usuario) — vista del encargado que ejecuta
   const misTareasHoy = useMemo(() => {
     return tareas.filter(t =>
       t.role === miRol &&
@@ -147,6 +175,19 @@ export default function ChecklistView({
       (!t.branch_id || t.branch_id === 'all' || t.branch_id === selectedBranchId)
     ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
   }, [tareas, miRol, diaSemana, selectedBranchId]);
+
+  // Tareas del rol y sucursal que el líder está monitoreando
+  const tareasMonitor = useMemo(() => {
+    if (!modoMonitoreo || !monitorRol) return [];
+    return tareas.filter(t =>
+      t.role === monitorRol &&
+      t.weekday === diaSemana &&
+      (!t.branch_id || t.branch_id === 'all' || t.branch_id === monitorBranch)
+    ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+  }, [tareas, monitorRol, monitorBranch, diaSemana, modoMonitoreo]);
+
+  // Vista efectiva: monitoreo (líder) o mis tareas (rol operativo)
+  const tareasVista = modoMonitoreo ? tareasMonitor : misTareasHoy;
 
   // Tareas del rol que se está administrando (el elegido en el selector)
   const tareasQueArmo = useMemo(() => {
@@ -211,8 +252,8 @@ export default function ChecklistView({
     await cargarTareas();
   };
 
-  const cumplidas = misTareasHoy.filter(t => marcas[t.id]?.done).length;
-  const totalHoy = misTareasHoy.length;
+  const cumplidas = tareasVista.filter(t => marcas[t.id]?.done).length;
+  const totalHoy = tareasVista.length;
   const pct = totalHoy > 0 ? Math.round((cumplidas / totalHoy) * 100) : 0;
 
   return (
@@ -223,9 +264,13 @@ export default function ChecklistView({
           <div className="flex items-center gap-3">
             <div className="bg-brand-500/10 p-2.5 rounded-lg"><CheckSquare className="text-brand-500" size={20} /></div>
             <div>
-              <h2 className="text-base font-black uppercase text-text-main tracking-wider">Check-List Operativo</h2>
+              <h2 className="text-base font-black uppercase text-text-main tracking-wider">
+                {scope === 'sucursal' ? 'Check-List Sucursal' : 'Check-List Operativo'}
+              </h2>
               <p className="text-[9px] text-text-dim uppercase font-bold">
-                {scope === 'lideres' ? 'Tareas de líderes operativos' : 'Tareas de la sucursal'}
+                {scope === 'lideres'
+                  ? 'Tareas de líderes operativos'
+                  : modoMonitoreo ? 'Seguimiento del check-list por rol y sucursal' : 'Tareas de la sucursal'}
               </p>
             </div>
           </div>
@@ -258,6 +303,19 @@ export default function ChecklistView({
                 {DIAS.find(d => d.id === diaSemana)?.label}
               </span>
             </div>
+            {modoMonitoreo && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={monitorBranch} onChange={e => setMonitorBranch(e.target.value)}
+                  className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                  {branches.filter(b => b.id !== 'all').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <select value={monitorRol} onChange={e => setMonitorRol(e.target.value)}
+                  className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                  {rolesConTareas.length === 0 && <option value="">Sin roles con check-list</option>}
+                  {rolesConTareas.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+            )}
             {totalHoy > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-[9px] font-black uppercase text-text-dim">Cumplimiento</span>
@@ -271,34 +329,41 @@ export default function ChecklistView({
 
           {loading ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Cargando…</p>
-          ) : misTareasHoy.length === 0 ? (
+          ) : tareasVista.length === 0 ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">
-              No hay tareas cargadas para este día.
+              {modoMonitoreo ? 'Este rol no tiene tareas para este día.' : 'No hay tareas cargadas para este día.'}
             </p>
           ) : (
             <div className="space-y-2">
-              {misTareasHoy.map(t => {
+              {tareasVista.map(t => {
                 const marca = marcas[t.id];
                 const hecha = marca?.done;
                 return (
                   <div key={t.id}
-                    onClick={() => toggleMarca(t.id)}
+                    onClick={() => { if (!modoMonitoreo) toggleMarca(t.id); }}
                     className={cn(
-                      "flex items-center gap-3 p-3.5 rounded-lg border transition-all cursor-pointer",
-                      hecha ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim hover:border-brand-500/40"
+                      "flex items-center gap-3 p-3.5 rounded-lg border transition-all",
+                      modoMonitoreo ? "cursor-default" : "cursor-pointer",
+                      hecha
+                        ? "bg-emerald-500/5 border-emerald-500/30"
+                        : modoMonitoreo
+                          ? "bg-red-500/5 border-red-500/30"
+                          : "bg-bg-card border-border-dim hover:border-brand-500/40"
                     )}>
                     <div className={cn(
                       "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
-                      hecha ? "bg-emerald-500 border-emerald-500" : "border-border-dim"
+                      hecha ? "bg-emerald-500 border-emerald-500" : modoMonitoreo ? "border-red-500/50" : "border-border-dim"
                     )}>
                       {hecha && <Check size={13} className="text-white" strokeWidth={3} />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className={cn("text-[11px] font-bold uppercase",
                         hecha ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
-                      {marca?.by && hecha && (
+                      {marca?.by && hecha ? (
                         <p className="text-[8px] font-bold uppercase text-emerald-600 mt-0.5">Marcada por {marca.by}</p>
-                      )}
+                      ) : modoMonitoreo && !hecha ? (
+                        <p className="text-[8px] font-black uppercase text-red-500 mt-0.5">Pendiente</p>
+                      ) : null}
                     </div>
                     {(() => {
                       const esTodas = !t.branch_id || t.branch_id === 'all';
