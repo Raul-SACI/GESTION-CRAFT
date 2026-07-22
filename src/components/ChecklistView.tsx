@@ -93,7 +93,8 @@ export default function ChecklistView({
 
   // --- Formulario de alta ---
   const [nuevaTarea, setNuevaTarea] = useState('');
-  const [nuevoDia, setNuevoDia] = useState(1);
+  const [nuevosDias, setNuevosDias] = useState<number[]>([1]); // varios días de la semana
+  const toggleDia = (id: number) => setNuevosDias(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const [nuevaHora, setNuevaHora] = useState('');
   const [nuevaSucursal, setNuevaSucursal] = useState('all');
 
@@ -183,16 +184,22 @@ export default function ChecklistView({
     if (!puedeArmar) return;
     if (!rolDestino) { alert('Elegí el rol para el que armás la tarea.'); return; }
     if (!nuevaTarea.trim()) { alert('Escribí la tarea.'); return; }
-    const { error } = await supabase.from('checklist_tasks').insert({
-      id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+    if (nuevosDias.length === 0) { alert('Elegí al menos un día de la semana.'); return; }
+    // Se crea una tarea por cada día elegido (mismo texto, hora, rol y sucursal)
+    const base = {
       role: rolDestino,
       branch_id: nuevaSucursal === 'all' ? null : nuevaSucursal,
       task: nuevaTarea.trim(),
-      weekday: nuevoDia,
       time: nuevaHora || null,
       created_by: currentUserName || '—',
-      created_at: new Date().toISOString()
-    });
+      created_at: new Date().toISOString(),
+    };
+    const filas = nuevosDias.map((wd, idx) => ({
+      id: `${Date.now()}${idx}${Math.random().toString(36).slice(2, 6)}`,
+      ...base,
+      weekday: wd,
+    }));
+    const { error } = await supabase.from('checklist_tasks').insert(filas);
     if (error) { alert('Error al guardar: ' + error.message); return; }
     setNuevaTarea(''); setNuevaHora('');
     await cargarTareas();
@@ -325,28 +332,44 @@ export default function ChecklistView({
             <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
               <Plus size={14} /> Nueva tarea para {rolDestinoLabel}
             </h3>
+            <input type="text" value={nuevaTarea} onChange={e => setNuevaTarea(e.target.value)}
+              placeholder="Tarea a realizar (ej. Controlar temperatura de heladeras)"
+              className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+
+            {/* Selección de días (varios) */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Días:</span>
+              {DIAS.map(d => (
+                <button key={d.id} type="button" onClick={() => toggleDia(d.id)}
+                  className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                    nuevosDias.includes(d.id)
+                      ? "bg-brand-500 text-white border-brand-500"
+                      : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
+                  {d.short}
+                </button>
+              ))}
+              <button type="button"
+                onClick={() => setNuevosDias(nuevosDias.length === DIAS.length ? [] : DIAS.map(d => d.id))}
+                className="ml-1 px-2.5 py-1 rounded text-[9px] font-black uppercase border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all">
+                {nuevosDias.length === DIAS.length ? 'Ninguno' : 'Todos'}
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-              <input type="text" value={nuevaTarea} onChange={e => setNuevaTarea(e.target.value)}
-                placeholder="Tarea a realizar (ej. Controlar temperatura de heladeras)"
-                className="md:col-span-5 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
-              <select value={nuevoDia} onChange={e => setNuevoDia(Number(e.target.value))}
-                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
-                {DIAS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
-              </select>
               <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
-                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                className="md:col-span-3 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
               <select value={nuevaSucursal} onChange={e => setNuevaSucursal(e.target.value)}
-                className="md:col-span-2 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                className="md:col-span-6 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
                 <option value="all">Todas las sucursales</option>
                 {branches.filter(b => b.id !== 'all').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
               <button onClick={agregarTarea}
-                className="md:col-span-1 bg-brand-500 hover:bg-brand-600 text-white rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
+                className="md:col-span-3 bg-brand-500 hover:bg-brand-600 text-white rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
                 Agregar
               </button>
             </div>
             <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">
-              La tarea se repite todas las semanas el día elegido.
+              La tarea se repite todas las semanas en los días elegidos (se crea una por cada día).
             </p>
           </div>
 
