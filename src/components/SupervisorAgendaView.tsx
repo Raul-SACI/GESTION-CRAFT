@@ -81,10 +81,13 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const [showRules, setShowRules] = useState(false);
 
   // ─── MI AGENDA (tareas personales por fecha) ───
-  const esAdminOLider = String(currentUserRole || '').toLowerCase() === 'administrador'
-    || String(currentUserRole || '').toLowerCase().includes('lider');
+  const roleKey = String(currentUserRole || '').toLowerCase();
+  const esAdminOLider = roleKey === 'administrador' || roleKey.includes('lider') || roleKey.includes('líder');
   const [vista, setVista] = useState<'cobertura' | 'mi_agenda'>('cobertura');
   const [misTareas, setMisTareas] = useState<any[]>([]);
+  // Tareas del Check-List del rol del líder (para inyectarlas en su agenda) y sus marcas
+  const [clTasks, setClTasks] = useState<any[]>([]);
+  const [clMarks, setClMarks] = useState<Record<string, boolean>>({});
   // De quién se está viendo la agenda (admin/líder puede ver la de otros)
   const [agendaDe, setAgendaDe] = useState<string>('');
   const [nuevaTareaTexto, setNuevaTareaTexto] = useState('');
@@ -424,8 +427,30 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     } catch { setMisTareas([]); }
   };
 
+  // Tareas del Check-List del líder (recurrentes por día) + sus marcas de la semana visible.
+  // Se muestran en "Mi Agenda" para no cargarlas dos veces; se marcan desde el módulo Check-List.
+  const cargarChecklistAgenda = async () => {
+    if (!esMiAgenda || !roleKey) { setClTasks([]); setClMarks({}); return; }
+    const desde = fmtDate(weekMonday);
+    const hastaD = new Date(weekMonday); hastaD.setDate(hastaD.getDate() + 6);
+    const hasta = fmtDate(hastaD);
+    try {
+      const { data: tk } = await supabase.from('checklist_tasks').select('*').eq('role', roleKey);
+      setClTasks(tk || []);
+      const { data: mk } = await supabase
+        .from('checklist_marks')
+        .select('task_id, date, done')
+        .eq('branch_id', 'all')
+        .gte('date', desde).lte('date', hasta);
+      const map: Record<string, boolean> = {};
+      (mk || []).forEach((m: any) => { map[`${m.task_id}|${m.date}`] = !!m.done; });
+      setClMarks(map);
+    } catch { setClTasks([]); setClMarks({}); }
+  };
+
   useEffect(() => {
-    if (vista === 'mi_agenda') cargarMisTareas();
+    if (vista === 'mi_agenda') { cargarMisTareas(); cargarChecklistAgenda(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista, duenoAgenda, weekMonday]);
 
   useEffect(() => {
@@ -464,20 +489,32 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     await cargarMisTareas();
   };
 
-  // Tareas agrupadas por día de la semana visible
+  // Tareas agrupadas por día de la semana visible (agenda propia + tareas del Check-List del rol)
   const tareasPorDia = useMemo(() => {
     const dias: Array<{ fecha: string; label: string; tareas: any[] }> = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekMonday); d.setDate(d.getDate() + i);
       const f = fmtDate(d);
+      const wd = d.getDay(); // 0=domingo … 6=sábado (igual que checklist_tasks.weekday)
+      const reales = misTareas.filter(t => t.date === f);
+      const delChecklist = clTasks
+        .filter(t => t.weekday === wd)
+        .map(t => ({
+          id: `cl-${t.id}-${f}`,
+          task: t.task,
+          time: t.time,
+          note: null,
+          done: !!clMarks[`${t.id}|${f}`],
+          source: 'checklist' as const,
+        }));
       dias.push({
         fecha: f,
         label: `${DAYS_OF_WEEK[i]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
-        tareas: misTareas.filter(t => t.date === f).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+        tareas: [...reales, ...delChecklist].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
       });
     }
     return dias;
-  }, [misTareas, weekMonday]);
+  }, [misTareas, clTasks, clMarks, weekMonday]);
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -597,18 +634,22 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                     t.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim"
                   )}>
                     <div className="flex items-start gap-2">
-                      <button onClick={() => toggleMiTarea(t)} disabled={!puedeEditarAgenda}
+                      <button onClick={() => { if (t.source !== 'checklist') toggleMiTarea(t); }}
+                        disabled={!puedeEditarAgenda || t.source === 'checklist'}
                         className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
                           t.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim",
-                          puedeEditarAgenda ? "hover:border-brand-500 cursor-pointer" : "cursor-default opacity-70")}>
+                          (puedeEditarAgenda && t.source !== 'checklist') ? "hover:border-brand-500 cursor-pointer" : "cursor-default opacity-70")}>
                         {t.done && <CheckCircle2 size={10} className="text-white" />}
                       </button>
                       <div className="flex-1 min-w-0">
                         <p className={cn("text-[10px] font-bold uppercase leading-tight",
                           t.done ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
+                        {t.source === 'checklist' && (
+                          <span className="inline-block text-[7px] font-black uppercase text-brand-500 bg-brand-500/10 border border-brand-500/20 px-1.5 py-0.5 rounded mt-0.5">Check-List</span>
+                        )}
                         {t.note && <p className="text-[8px] font-bold text-text-dim mt-0.5">{t.note}</p>}
                       </div>
-                      {puedeEditarAgenda && (
+                      {puedeEditarAgenda && t.source !== 'checklist' && (
                         <button onClick={() => borrarMiTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
                           <Trash2 size={11} />
                         </button>
