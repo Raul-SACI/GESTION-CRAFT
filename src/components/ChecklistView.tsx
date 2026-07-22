@@ -17,6 +17,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 import LiderBibliotecaView from './LiderBibliotecaView';
+import LiderSemanaView from './LiderSemanaView';
 
 const DIAS = [
   { id: 1, label: 'Lunes', short: 'LUN' },
@@ -74,7 +75,7 @@ export default function ChecklistView({
   // (encargado, cajero, jefe de cocina…) en una sucursal, para ver qué completaron y qué falta.
   const modoMonitoreo = scope === 'sucursal' && esLider;
 
-  const [activeTab, setActiveTab] = useState<'mias' | 'armar' | 'biblioteca'>('mias');
+  const [activeTab, setActiveTab] = useState<'mias' | 'armar' | 'biblioteca' | 'semana'>('mias');
   const [monitorRol, setMonitorRol] = useState<string>('');
   const [monitorBranch, setMonitorBranch] = useState<string>('');
   const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -282,6 +283,11 @@ export default function ChecklistView({
                   activeTab === 'mias' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
                 Mi Check-List
               </button>
+              <button onClick={() => setActiveTab('semana')}
+                className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  activeTab === 'semana' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                Mi Semana
+              </button>
               <button onClick={() => setActiveTab('biblioteca')}
                 className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
                   activeTab === 'biblioteca' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
@@ -394,6 +400,11 @@ export default function ChecklistView({
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── MI SEMANA (tablero semanal) ─── */}
+      {activeTab === 'semana' && puedeArmar && (
+        <LiderSemanaView role={miRol} roleLabel={currentUserRole} ownerName={currentUserName} isReadOnly={isReadOnly} />
       )}
 
       {/* ─── BIBLIOTECA (Funciones → Tareas → Descripción) ─── */}
