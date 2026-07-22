@@ -227,29 +227,32 @@ export default function EncargadoDashboardView({
         .eq('month', month)
         .maybeSingle();
 
+      // La existencia inicial/final vive en el resumen cmv_monthly
       if (!error && data) {
         setCmvInitial(data.initial_existence || 0);
         setCmvFinal(data.final_existence || 0);
-        setCmvPurchases(data.total_purchases || 0);
-        setCmvMovements(data.total_movements || 0);
       } else {
-        // Sin datos reales
         setCmvInitial(0);
         setCmvFinal(0);
-        setCmvPurchases(0);
-        setCmvMovements(0);
       }
 
-      // Hasta qué fecha se cargaron compras/movimientos (period_end más reciente de las líneas)
+      // Compras y movimientos: se suman de las LÍNEAS reales (cmv_details), no del resumen
+      // (el resumen total_purchases/total_movements puede quedar en 0 aunque haya líneas cargadas).
+      // Además, de ahí sale hasta qué fecha están cargados (period_end más reciente).
       const { data: det } = await supabase
         .from('cmv_details')
-        .select('period_end')
+        .select('type, amount, period_end')
         .eq('branch_id', branchId)
         .eq('month', month);
+      let purchases = 0, movements = 0;
       let last: string | null = null;
       (det || []).forEach((r: any) => {
+        if (r.type === 'purchase') purchases += Number(r.amount) || 0;
+        if (r.type === 'movement') movements += Number(r.amount) || 0;
         if (r.period_end && (!last || String(r.period_end) > last)) last = String(r.period_end);
       });
+      setCmvPurchases(purchases);
+      setCmvMovements(movements);
       setCmvLastDate(last);
     } catch (err) {
       console.error('Error loading CMV from Supabase:', err);
