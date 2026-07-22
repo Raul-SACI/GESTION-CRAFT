@@ -16,6 +16,7 @@ import { CheckSquare, Plus, Trash2, Clock, Calendar, ListChecks, Check, X, Users
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
+import LiderBibliotecaView from './LiderBibliotecaView';
 
 const DIAS = [
   { id: 1, label: 'Lunes', short: 'LUN' },
@@ -73,7 +74,7 @@ export default function ChecklistView({
   // (encargado, cajero, jefe de cocina…) en una sucursal, para ver qué completaron y qué falta.
   const modoMonitoreo = scope === 'sucursal' && esLider;
 
-  const [activeTab, setActiveTab] = useState<'mias' | 'armar'>('mias');
+  const [activeTab, setActiveTab] = useState<'mias' | 'armar' | 'biblioteca'>('mias');
   const [monitorRol, setMonitorRol] = useState<string>('');
   const [monitorBranch, setMonitorBranch] = useState<string>('');
   const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -281,6 +282,11 @@ export default function ChecklistView({
                   activeTab === 'mias' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
                 Mi Check-List
               </button>
+              <button onClick={() => setActiveTab('biblioteca')}
+                className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
+                  activeTab === 'biblioteca' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                Biblioteca
+              </button>
               <button onClick={() => setActiveTab('armar')}
                 className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
                   activeTab === 'armar' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
@@ -388,6 +394,11 @@ export default function ChecklistView({
             </div>
           )}
         </div>
+      )}
+
+      {/* ─── BIBLIOTECA (Funciones → Tareas → Descripción) ─── */}
+      {activeTab === 'biblioteca' && puedeArmar && (
+        <LiderBibliotecaView role={miRol} roleLabel={currentUserRole} isReadOnly={isReadOnly} />
       )}
 
       {/* ─── ARMAR CHECK-LIST ─── */}
