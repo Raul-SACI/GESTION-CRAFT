@@ -66,8 +66,9 @@ export default function ChecklistView({
 }: ChecklistViewProps) {
   const roleKey = String(currentUserRole || '').toLowerCase();
   const esAdmin = roleKey === 'administrador';
-  // Cualquier rol que no sea encargado puede armar listas de otros roles
-  const puedeArmar = esAdmin || roleKey.includes('lider') || roleKey.includes('líder');
+  // Armar el check-list SOLO se habilita desde Gestión Líderes Operativos (scope 'lideres').
+  // En Gestión Sucursal el encargado únicamente ve y marca las tareas ya armadas.
+  const puedeArmar = scope === 'lideres' && (esAdmin || roleKey.includes('lider') || roleKey.includes('líder'));
 
   const [activeTab, setActiveTab] = useState<'mias' | 'armar'>('mias');
   const [tareas, setTareas] = useState<Tarea[]>([]);
