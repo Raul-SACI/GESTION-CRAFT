@@ -392,13 +392,17 @@ export default function ChecklistView({
                       {dia.label} ({delDia.length})
                     </p>
                     {delDia.map(t => {
-                      const suc = t.branch_id ? branches.find(b => b.id === t.branch_id)?.name : null;
+                      const esTodas = !t.branch_id || t.branch_id === 'all';
+                      const suc = esTodas ? 'Todas las sucursales' : (branches.find(b => b.id === t.branch_id)?.name || t.branch_id);
                       return (
                         <div key={t.id} className="flex items-center gap-3 bg-bg-card border border-border-dim rounded px-3 py-2">
                           <span className="flex-1 text-[11px] font-bold uppercase text-text-main">{t.task}</span>
-                          {suc && (
-                            <span className="text-[8px] font-black uppercase text-brand-500 bg-brand-500/10 px-2 py-0.5 rounded shrink-0">{suc}</span>
-                          )}
+                          <span className={cn(
+                            "text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 flex items-center gap-1",
+                            esTodas ? "text-text-dim bg-bg-accent border border-border-dim" : "text-brand-500 bg-brand-500/10"
+                          )}>
+                            <Users size={9} /> {suc}
+                          </span>
                           {t.time && (
                             <span className="text-[9px] font-mono font-black text-text-dim shrink-0">{t.time}</span>
                           )}
