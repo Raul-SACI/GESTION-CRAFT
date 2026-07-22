@@ -96,6 +96,8 @@ export default function EncargadoDashboardView({
   const [cmvFinal, setCmvFinal] = useState(0);
   const [cmvPurchases, setCmvPurchases] = useState(0);
   const [cmvMovements, setCmvMovements] = useState(0);
+  // Hasta qué fecha están cargadas las líneas de compras/movimientos (period_end más reciente)
+  const [cmvLastDate, setCmvLastDate] = useState<string | null>(null);
 
   // Deviations State
   const [wasteTotal, setWasteTotal] = useState(0);
@@ -237,6 +239,18 @@ export default function EncargadoDashboardView({
         setCmvPurchases(0);
         setCmvMovements(0);
       }
+
+      // Hasta qué fecha se cargaron compras/movimientos (period_end más reciente de las líneas)
+      const { data: det } = await supabase
+        .from('cmv_details')
+        .select('period_end')
+        .eq('branch_id', branchId)
+        .eq('month', month);
+      let last: string | null = null;
+      (det || []).forEach((r: any) => {
+        if (r.period_end && (!last || String(r.period_end) > last)) last = String(r.period_end);
+      });
+      setCmvLastDate(last);
     } catch (err) {
       console.error('Error loading CMV from Supabase:', err);
     }
@@ -1446,6 +1460,11 @@ export default function EncargadoDashboardView({
                 El CMV real = EI + Compras + Mov − EF
               </p>
             </>
+          )}
+          {cmvLastDate && (
+            <p className="text-[8px] text-amber-600 uppercase font-black mt-1.5 leading-tight">
+              Compras + Mov. cargadas hasta el {cmvLastDate.split('-').reverse().join('/')}
+            </p>
           )}
         </div>
 

@@ -61,6 +61,7 @@ interface BranchSales {
   cmv: number | null;
   // Compras + movimientos (dato crudo, siempre disponible) y si faltan las existencias
   comprasMovimientos: number | null;
+  comprasMovLastDate: string | null;  // hasta qué fecha se cargaron compras/movimientos
   existenciasCargadas: boolean;
   budgetHours: number;
   workedHours: number;
@@ -139,7 +140,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         fetchTickets(pStart, pEnd),
         supabase.from('pedidos_ya_ratings').select('*').eq('month', selectedMonth),
         supabase.from('cmv_monthly').select('*').eq('month', selectedMonth),
-        supabase.from('cmv_details').select('branch_id, type, amount').eq('month', selectedMonth),
+        supabase.from('cmv_details').select('branch_id, type, amount, period_end').eq('month', selectedMonth),
         supabase.from('hour_budgets').select('branch_id, total_hours, status, position_name').eq('month', selectedMonth).eq('status', 'approved'),
         supabase.from('hour_logs').select('branch_id, hours_actual, position, position_id, week_number').eq('month', selectedMonth),
         supabase.from('hr_hour_logs').select('branch_id, hours_rrhh, position_name, position_id, week_number').eq('month', selectedMonth)
@@ -156,7 +157,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           ticketsProjection: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
-          pyResto: null, pyCafe: null, cmv: null, comprasMovimientos: null, existenciasCargadas: false, budgetHours: 0, workedHours: 0,
+          pyResto: null, pyCafe: null, cmv: null, comprasMovimientos: null, comprasMovLastDate: null, existenciasCargadas: false, budgetHours: 0, workedHours: 0,
           hoursByPosition: {},
           semanas: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } },
           semanasPrev: { 1: { net: 0, gross: 0, tickets: 0 }, 2: { net: 0, gross: 0, tickets: 0 }, 3: { net: 0, gross: 0, tickets: 0 }, 4: { net: 0, gross: 0, tickets: 0 } }
@@ -237,25 +238,33 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       }
 
       // CMV por sucursal: existencia inicial + compras + movimientos - existencia final
-      const cmvByBranch: Record<string, { initial: number; final: number; purchases: number; movements: number; has: boolean }> = {};
+      const cmvByBranch: Record<string, { initial: number; final: number; purchases: number; movements: number; has: boolean; lastDate: string | null }> = {};
       (cmvSummary.data || []).forEach((row: any) => {
-        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false };
+        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false, lastDate: null };
         cmvByBranch[row.branch_id].initial = Number(row.initial_existence) || 0;
         cmvByBranch[row.branch_id].final = Number(row.final_existence) || 0;
         cmvByBranch[row.branch_id].has = true;
       });
       (cmvDetails.data || []).forEach((row: any) => {
-        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false };
+        if (!cmvByBranch[row.branch_id]) cmvByBranch[row.branch_id] = { initial: 0, final: 0, purchases: 0, movements: 0, has: false, lastDate: null };
         if (row.type === 'purchase') cmvByBranch[row.branch_id].purchases += Number(row.amount) || 0;
         if (row.type === 'movement') cmvByBranch[row.branch_id].movements += Number(row.amount) || 0;
+        // Fecha más reciente hasta la que hay compras/movimientos cargados
+        if (row.period_end) {
+          const pe = String(row.period_end);
+          if (!cmvByBranch[row.branch_id].lastDate || pe > (cmvByBranch[row.branch_id].lastDate as string)) {
+            cmvByBranch[row.branch_id].lastDate = pe;
+          }
+        }
         cmvByBranch[row.branch_id].has = true;
       });
       Object.keys(cmvByBranch).forEach(bid => {
         if (!agg[bid]) return;
         const c = cmvByBranch[bid];
-        if (!c.has) { agg[bid].cmv = null; agg[bid].comprasMovimientos = null; agg[bid].existenciasCargadas = false; return; }
+        if (!c.has) { agg[bid].cmv = null; agg[bid].comprasMovimientos = null; agg[bid].comprasMovLastDate = null; agg[bid].existenciasCargadas = false; return; }
         // Compras + movimientos: dato crudo, siempre disponible
         agg[bid].comprasMovimientos = c.purchases + c.movements;
+        agg[bid].comprasMovLastDate = c.lastDate;
         // Existencias cargadas = al menos una de las dos tiene valor distinto de 0
         const cargadas = (c.initial !== 0) || (c.final !== 0);
         agg[bid].existenciasCargadas = cargadas;
@@ -650,6 +659,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                         {/* Compras + Movimientos (dato crudo) */}
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">
                           {d.comprasMovimientos !== null ? fmt(d.comprasMovimientos) : <span className="text-text-dim">— sin carga</span>}
+                          {d.comprasMovLastDate && (
+                            <span className="block text-[8px] font-bold text-amber-600 uppercase mt-0.5">hasta {d.comprasMovLastDate.split('-').reverse().join('/')}</span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono font-bold">
                           {cmPct !== null
