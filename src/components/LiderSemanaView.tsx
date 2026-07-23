@@ -7,13 +7,13 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Check, X, Loader2, Copy, ChevronLeft, ChevronRight, Layers, ListChecks, CalendarDays } from 'lucide-react';
+import { Check, X, Loader2, Copy, ChevronLeft, ChevronRight, Layers, ListChecks, CalendarDays, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
 interface Funcion { id: string; role: string; name: string; }
 interface Tarea { id: string; funcion_id: string; role: string; title: string; description: string | null; }
-interface Plan { id: string; owner: string; role: string; fecha: string; tarea_id: string; done: boolean; done_by?: string | null; }
+interface Plan { id: string; owner: string; role: string; fecha: string; tarea_id: string | null; titulo?: string | null; done: boolean; done_by?: string | null; }
 
 const DIAS_LABEL = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const DIAS_SHORT = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA', 'DO'];
@@ -39,6 +39,9 @@ export default function LiderSemanaView({
   const [plan, setPlan] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Alta de tarea suelta (texto libre) en un día
+  const [adhocFecha, setAdhocFecha] = useState<string | null>(null);
+  const [adhocTitulo, setAdhocTitulo] = useState('');
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekMonday); d.setDate(d.getDate() + i); return d;
@@ -91,6 +94,23 @@ export default function LiderSemanaView({
       if (error) { alert('Error al asignar: ' + error.message); return; }
       setPlan(p => [...p, row]);
     }
+  };
+
+  const agregarAdhoc = async (fecha: string) => {
+    if (isReadOnly) return;
+    const titulo = adhocTitulo.trim();
+    if (!titulo) return;
+    const row: Plan = { id: uid(), owner: ownerName || '', role, fecha, tarea_id: null, titulo, done: false };
+    const { error } = await supabase.from('lider_plan').insert(row);
+    if (error) { alert('Error al agregar la tarea: ' + error.message); return; }
+    setPlan(p => [...p, row]);
+    setAdhocTitulo(''); setAdhocFecha(null);
+  };
+
+  const quitarPlan = async (id: string) => {
+    if (isReadOnly) return;
+    await supabase.from('lider_plan').delete().eq('id', id);
+    setPlan(p => p.filter(x => x.id !== id));
   };
 
   const toggleDone = async (p: Plan) => {
@@ -191,34 +211,60 @@ export default function LiderSemanaView({
                     </p>
                     <span className="text-[8px] font-black uppercase text-text-dim">{delDia.length} tareas</span>
                   </div>
-                  {delDia.length === 0 ? (
-                    <p className="text-[9px] font-bold uppercase text-text-dim opacity-50 py-1.5 text-center">Sin tareas asignadas</p>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {delDia.map(p => {
-                        const t = tareaById[p.tarea_id];
-                        const fn = t ? funcionById[t.funcion_id] : null;
-                        return (
-                          <div key={p.id} className={cn("flex items-start gap-2 rounded border px-2.5 py-1.5",
-                            p.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim")}>
-                            <button onClick={() => toggleDone(p)} disabled={isReadOnly}
-                              className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
-                                p.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim",
-                                isReadOnly ? "cursor-default opacity-70" : "hover:border-brand-500 cursor-pointer")}>
-                              {p.done && <Check size={10} className="text-white" strokeWidth={3} />}
-                            </button>
-                            <div className="flex-1 min-w-0">
-                              <p className={cn("text-[10px] font-bold uppercase leading-tight", p.done ? "text-text-dim line-through" : "text-text-main")}>{t ? t.title : '(tarea eliminada)'}</p>
-                              {fn && <p className="text-[7px] font-black uppercase text-text-dim/70 mt-0.5">{fn.name}</p>}
-                            </div>
-                            {!isReadOnly && (
-                              <button onClick={() => toggleAsignacion(p.tarea_id, f)} className="text-text-dim hover:text-red-500 shrink-0" title="Quitar de este día"><X size={12} /></button>
-                            )}
+                  <div className="space-y-1.5">
+                    {delDia.length === 0 && (
+                      <p className="text-[9px] font-bold uppercase text-text-dim opacity-50 py-1 text-center">Sin tareas asignadas</p>
+                    )}
+                    {delDia.map(p => {
+                      const t = p.tarea_id ? tareaById[p.tarea_id] : null;
+                      const fn = t ? funcionById[t.funcion_id] : null;
+                      const titulo = t ? t.title : (p.titulo || '(tarea)');
+                      return (
+                        <div key={p.id} className={cn("flex items-start gap-2 rounded border px-2.5 py-1.5",
+                          p.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim")}>
+                          <button onClick={() => toggleDone(p)} disabled={isReadOnly}
+                            className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                              p.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim",
+                              isReadOnly ? "cursor-default opacity-70" : "hover:border-brand-500 cursor-pointer")}>
+                            {p.done && <Check size={10} className="text-white" strokeWidth={3} />}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className={cn("text-[10px] font-bold uppercase leading-tight", p.done ? "text-text-dim line-through" : "text-text-main")}>{titulo}</p>
+                            {fn ? (
+                              <p className="text-[7px] font-black uppercase text-text-dim/70 mt-0.5">{fn.name}</p>
+                            ) : !p.tarea_id ? (
+                              <p className="text-[7px] font-black uppercase text-amber-500/80 mt-0.5">Tarea suelta</p>
+                            ) : null}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          {!isReadOnly && (
+                            <button onClick={() => quitarPlan(p.id)} className="text-text-dim hover:text-red-500 shrink-0" title="Quitar de este día"><X size={12} /></button>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {!isReadOnly && (
+                      adhocFecha === f ? (
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <input
+                            type="text"
+                            value={adhocTitulo}
+                            onChange={e => setAdhocTitulo(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') agregarAdhoc(f); if (e.key === 'Escape') { setAdhocFecha(null); setAdhocTitulo(''); } }}
+                            autoFocus
+                            placeholder="Tarea suelta para este día…"
+                            className="flex-1 bg-bg-card border border-brand-500/60 rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none"
+                          />
+                          <button onClick={() => agregarAdhoc(f)} className="text-emerald-500 hover:text-emerald-400 shrink-0"><Check size={14} /></button>
+                          <button onClick={() => { setAdhocFecha(null); setAdhocTitulo(''); }} className="text-text-dim hover:text-text-main shrink-0"><X size={14} /></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setAdhocFecha(f); setAdhocTitulo(''); }}
+                          className="w-full flex items-center justify-center gap-1 border border-dashed border-border-dim rounded px-2 py-1 text-[8px] font-black uppercase tracking-widest text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all">
+                          <Plus size={10} /> Tarea suelta
+                        </button>
+                      )
+                    )}
+                  </div>
                 </div>
               );
             })}

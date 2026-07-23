@@ -75,7 +75,8 @@ export default function ChecklistView({
   // (encargado, cajero, jefe de cocina…) en una sucursal, para ver qué completaron y qué falta.
   const modoMonitoreo = scope === 'sucursal' && esLider;
 
-  const [activeTab, setActiveTab] = useState<'mias' | 'armar' | 'biblioteca' | 'semana'>('mias');
+  // Los líderes abren en "Mi Semana" (su tablero); los roles operativos en "Mi Check-List".
+  const [activeTab, setActiveTab] = useState<'mias' | 'armar' | 'biblioteca' | 'semana'>(scope === 'lideres' ? 'semana' : 'mias');
   const [monitorRol, setMonitorRol] = useState<string>('');
   const [monitorBranch, setMonitorBranch] = useState<string>('');
   const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -278,11 +279,6 @@ export default function ChecklistView({
           </div>
           {puedeArmar && (
             <div className="flex gap-1 bg-bg-accent p-1 rounded-lg">
-              <button onClick={() => setActiveTab('mias')}
-                className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
-                  activeTab === 'mias' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
-                Mi Check-List
-              </button>
               <button onClick={() => setActiveTab('semana')}
                 className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all",
                   activeTab === 'semana' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>

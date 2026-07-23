@@ -85,9 +85,9 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const esAdminOLider = roleKey === 'administrador' || roleKey.includes('lider') || roleKey.includes('líder');
   const [vista, setVista] = useState<'cobertura' | 'mi_agenda'>('cobertura');
   const [misTareas, setMisTareas] = useState<any[]>([]);
-  // Tareas del Check-List del rol del líder (para inyectarlas en su agenda) y sus marcas
-  const [clTasks, setClTasks] = useState<any[]>([]);
-  const [clMarks, setClMarks] = useState<Record<string, boolean>>({});
+  // Tareas de "Mi Semana" (tablero del líder) para reflejarlas en la agenda + títulos de la biblioteca
+  const [planRows, setPlanRows] = useState<any[]>([]);
+  const [tareaTitulos, setTareaTitulos] = useState<Record<string, string>>({});
   // De quién se está viendo la agenda (admin/líder puede ver la de otros)
   const [agendaDe, setAgendaDe] = useState<string>('');
   const [nuevaTareaTexto, setNuevaTareaTexto] = useState('');
@@ -427,29 +427,35 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     } catch { setMisTareas([]); }
   };
 
-  // Tareas del Check-List del líder (recurrentes por día) + sus marcas de la semana visible.
-  // Se muestran en "Mi Agenda" para no cargarlas dos veces; se marcan desde el módulo Check-List.
-  const cargarChecklistAgenda = async () => {
-    if (!esMiAgenda || !roleKey) { setClTasks([]); setClMarks({}); return; }
+  // Tareas de "Mi Semana" (tabla lider_plan) del líder, para reflejarlas en su agenda.
+  // Es la misma info que el tablero: se muestran acá y se pueden marcar (sincroniza con Mi Semana).
+  const cargarPlanSemana = async () => {
+    if (!esMiAgenda || !duenoAgenda) { setPlanRows([]); return; }
     const desde = fmtDate(weekMonday);
     const hastaD = new Date(weekMonday); hastaD.setDate(hastaD.getDate() + 6);
     const hasta = fmtDate(hastaD);
     try {
-      const { data: tk } = await supabase.from('checklist_tasks').select('*').eq('role', roleKey);
-      setClTasks(tk || []);
-      const { data: mk } = await supabase
-        .from('checklist_marks')
-        .select('task_id, date, done')
-        .eq('branch_id', 'all')
-        .gte('date', desde).lte('date', hasta);
-      const map: Record<string, boolean> = {};
-      (mk || []).forEach((m: any) => { map[`${m.task_id}|${m.date}`] = !!m.done; });
-      setClMarks(map);
-    } catch { setClTasks([]); setClMarks({}); }
+      const { data: pl } = await supabase.from('lider_plan').select('*')
+        .eq('owner', duenoAgenda).gte('fecha', desde).lte('fecha', hasta);
+      setPlanRows(pl || []);
+      if (roleKey) {
+        const { data: tk } = await supabase.from('lider_tareas').select('id, title').eq('role', roleKey);
+        const map: Record<string, string> = {};
+        (tk || []).forEach((t: any) => { map[t.id] = t.title; });
+        setTareaTitulos(map);
+      }
+    } catch { setPlanRows([]); }
+  };
+
+  const togglePlanDone = async (row: any) => {
+    if (!esMiAgenda || isReadOnly) return;
+    const nuevo = !row.done;
+    await supabase.from('lider_plan').update({ done: nuevo, done_by: nuevo ? (currentUserName || '') : null, done_at: nuevo ? new Date().toISOString() : null }).eq('id', row.id);
+    setPlanRows(prev => prev.map(p => p.id === row.id ? { ...p, done: nuevo } : p));
   };
 
   useEffect(() => {
-    if (vista === 'mi_agenda') { cargarMisTareas(); cargarChecklistAgenda(); }
+    if (vista === 'mi_agenda') { cargarMisTareas(); cargarPlanSemana(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vista, duenoAgenda, weekMonday]);
 
@@ -495,26 +501,26 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekMonday); d.setDate(d.getDate() + i);
       const f = fmtDate(d);
-      const wd = d.getDay(); // 0=domingo … 6=sábado (igual que checklist_tasks.weekday)
       const reales = misTareas.filter(t => t.date === f);
-      const delChecklist = clTasks
-        .filter(t => t.weekday === wd)
-        .map(t => ({
-          id: `cl-${t.id}-${f}`,
-          task: t.task,
-          time: t.time,
+      const delPlan = planRows
+        .filter(p => p.fecha === f)
+        .map(p => ({
+          id: p.id,
+          task: p.tarea_id ? (tareaTitulos[p.tarea_id] || '(tarea)') : (p.titulo || '(tarea)'),
+          time: null,
           note: null,
-          done: !!clMarks[`${t.id}|${f}`],
-          source: 'checklist' as const,
+          done: !!p.done,
+          source: 'plan' as const,
+          planRow: p,
         }));
       dias.push({
         fecha: f,
         label: `${DAYS_OF_WEEK[i]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
-        tareas: [...reales, ...delChecklist].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
+        tareas: [...reales, ...delPlan].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')))
       });
     }
     return dias;
-  }, [misTareas, clTasks, clMarks, weekMonday]);
+  }, [misTareas, planRows, tareaTitulos, weekMonday]);
 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -634,22 +640,22 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                     t.done ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim"
                   )}>
                     <div className="flex items-start gap-2">
-                      <button onClick={() => { if (t.source !== 'checklist') toggleMiTarea(t); }}
-                        disabled={!puedeEditarAgenda || t.source === 'checklist'}
+                      <button onClick={() => { if (t.source === 'plan') togglePlanDone((t as any).planRow); else toggleMiTarea(t); }}
+                        disabled={isReadOnly || (t.source !== 'plan' && !puedeEditarAgenda)}
                         className={cn("w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all",
                           t.done ? "bg-emerald-500 border-emerald-500" : "border-border-dim",
-                          (puedeEditarAgenda && t.source !== 'checklist') ? "hover:border-brand-500 cursor-pointer" : "cursor-default opacity-70")}>
+                          !isReadOnly ? "hover:border-brand-500 cursor-pointer" : "cursor-default opacity-70")}>
                         {t.done && <CheckCircle2 size={10} className="text-white" />}
                       </button>
                       <div className="flex-1 min-w-0">
                         <p className={cn("text-[10px] font-bold uppercase leading-tight",
                           t.done ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
-                        {t.source === 'checklist' && (
-                          <span className="inline-block text-[7px] font-black uppercase text-brand-500 bg-brand-500/10 border border-brand-500/20 px-1.5 py-0.5 rounded mt-0.5">Check-List</span>
+                        {t.source === 'plan' && (
+                          <span className="inline-block text-[7px] font-black uppercase text-brand-500 bg-brand-500/10 border border-brand-500/20 px-1.5 py-0.5 rounded mt-0.5">Mi Semana</span>
                         )}
                         {t.note && <p className="text-[8px] font-bold text-text-dim mt-0.5">{t.note}</p>}
                       </div>
-                      {puedeEditarAgenda && t.source !== 'checklist' && (
+                      {puedeEditarAgenda && t.source !== 'plan' && (
                         <button onClick={() => borrarMiTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
                           <Trash2 size={11} />
                         </button>
