@@ -63,10 +63,9 @@ const columnaPrecioMaxirest = (menuType: string) => (menuType === 'pedidosya' ? 
 const filaCorrespondeAMaxirest = (menuType: string, rubro: string, precio: number | null): boolean => {
   const r = String(rubro || '').trim().toUpperCase();
   const p = precio || 0;
-  if (menuType === 'pedidosya') return p > 0;                         // cualquier rubro con precio en la columna PY
-  if (menuType === 'celiacos') return r === 'SIN GLUTEN' && p > 0;    // solo el rubro sin gluten, con su precio salón
-  // salón: todo lo que tenga precio salón, salvo lo que va a otra carta
-  return p > 0 && r !== 'SIN GLUTEN' && r !== 'PEDIDOS YA';
+  if (menuType === 'pedidosya') return p > 0;   // cualquier rubro con precio en la columna Pedidos Ya (incluye SIN GLUTEN)
+  // salón: todo lo que tenga precio de salón (incluye SIN GLUTEN, que ahora es una categoría más)
+  return p > 0 && r !== 'PEDIDOS YA';           // el rubro PEDIDOS YA son combos exclusivos de delivery
 };
 
 export default function PriceListBuilder({
@@ -492,8 +491,7 @@ export default function PriceListBuilder({
                       <p>
                         Para <b className="text-text-main uppercase">{menuLabel}</b> tomo la columna <b className="text-text-main">{colPrecio}</b>,
                         empareja por <b className="text-text-main">código de artículo</b> y guarda el rubro como categoría.
-                        {menuType === 'salon' && ' Se excluyen los rubros SIN GLUTEN y PEDIDOS YA (van a sus cartas).'}
-                        {menuType === 'celiacos' && ' Solo se toman los artículos del rubro SIN GLUTEN.'}
+                        {menuType === 'salon' && ' Se toman todos los artículos con precio de salón (incluidos los SIN GLUTEN); se excluye el rubro PEDIDOS YA (combos de delivery).'}
                         {menuType === 'pedidosya' && ' Se toman todos los artículos con precio en la columna Pedidos Ya.'}
                       </p>
                     </div>

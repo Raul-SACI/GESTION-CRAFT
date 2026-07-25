@@ -61,9 +61,9 @@ const fmtFecha = (iso: string | null | undefined): string => {
   return `${d}/${m}/${y}`;
 };
 
+// Solo 2 cartas. Los productos SIN GLUTEN son una categoría más dentro de Salón y Pedidos Ya.
 const MENU_TYPES = [
   { id: 'salon', label: 'Carta Salón', icon: UtensilsCrossed },
-  { id: 'celiacos', label: 'Carta Celíacos', icon: Layers },
   { id: 'pedidosya', label: 'Pedidos Ya', icon: FileText }
 ];
 
@@ -676,7 +676,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     setShowPdfColsModal(false);
   };
 
-  // Arma una tabla unificada de las 3 cartas: una fila por producto, con precio Salón y precio Pedidos Ya.
+  // Arma una tabla unificada de ambas cartas: una fila por producto, con precio Salón y precio Pedidos Ya.
   // Cruza el mismo producto entre cartas por código (o nombre). Los celíacos entran con su precio en Salón.
   const buildUnified = () => {
     type Row = { category: string; name: string; salon: number | null; py: number | null };
@@ -701,7 +701,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     if (filas.length === 0) { alert('No hay productos para exportar.'); return; }
     const doc = new jsPDF();
     doc.setFontSize(16); doc.setFont('helvetica', 'bold');
-    doc.text('LISTA DE PRECIOS · LAS 3 CARTAS', 14, 18);
+    doc.text('LISTA DE PRECIOS · SALÓN Y PEDIDOS YA', 14, 18);
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
     doc.text(`Generado: ${fechaHoy()} · ${filas.length} productos`, 14, 26);
     autoTable(doc, {
@@ -716,14 +716,14 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [245, 245, 245] }
     });
-    doc.save(`Lista_Precios_3_Cartas_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`Lista_Precios_Ambas_Cartas_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const exportar3CartasExcel = () => {
     const filas = buildUnified();
     if (filas.length === 0) { alert('No hay productos para exportar.'); return; }
     const aoa: any[][] = [
-      ['LISTA DE PRECIOS · LAS 3 CARTAS'],
+      ['LISTA DE PRECIOS · SALÓN Y PEDIDOS YA'],
       ['Generado', fechaHoy()],
       [],
       ['Categoría', 'Producto', 'Precio Salón', 'Precio Pedidos Ya'],
@@ -731,8 +731,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     filas.forEach(r => aoa.push([r.category || '', r.name, r.salon ?? '', r.py ?? '']));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '3 Cartas');
-    XLSX.writeFile(wb, `Lista_Precios_3_Cartas_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'Cartas');
+    XLSX.writeFile(wb, `Lista_Precios_Ambas_Cartas_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   // Descarga las 2 versiones (PDF y Excel) de la tabla unificada de las 3 cartas
@@ -939,8 +939,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </button>
           <button onClick={exportar3Cartas}
             className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
-            title="Descargar las 3 cartas juntas (PDF y Excel) con precio Salón y Pedidos Ya por producto">
-            <Layers size={13} /> 3 Cartas
+            title="Descargar ambas cartas juntas (PDF y Excel) con precio Salón y Pedidos Ya por producto">
+            <Layers size={13} /> Ambas Cartas
           </button>
           <button onClick={() => setShowSimModal(true)}
             className="bg-bg-accent border border-border-dim text-text-main px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:border-emerald-500/50 hover:text-emerald-500 transition-all flex items-center gap-1.5"
