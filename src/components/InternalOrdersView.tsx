@@ -65,6 +65,19 @@ const fmtDMY = (iso: string) => {
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
 };
+// Fecha + hora real de carga (created_at) para la leyenda "Pedido cargado el …"
+const fmtCargado = (iso?: string) => {
+  if (!iso) return '';
+  const dt = new Date(iso);
+  if (isNaN(dt.getTime())) return '';
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  let h = dt.getHours();
+  const min = String(dt.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12; if (h === 0) h = 12;
+  return `${dd}/${mm} a las ${String(h).padStart(2, '0')}:${min} ${ampm}`;
+};
 
 export default function InternalOrdersView({
   branches,
@@ -94,15 +107,23 @@ export default function InternalOrdersView({
   const [receptionLines, setReceptionLines] = useState<any[]>([]);
   const [savingReception, setSavingReception] = useState(false);
 
-  // Fecha de hoy y de entrega (día siguiente)
+  // Fecha del pedido: por defecto hoy, pero editable (ej. se carga pasada la medianoche
+  // y corresponde al día anterior). El horario real de carga se guarda aparte en created_at.
   const today = new Date();
   const todayISO = toLocalISO(today);
-  const deliveryDate = new Date(today);
-  deliveryDate.setDate(deliveryDate.getDate() + 1);
-  const deliveryISO = toLocalISO(deliveryDate);
+  const [orderDateISO, setOrderDateISO] = useState(todayISO);
 
-  // ¿Hoy es sábado? (getDay: 0=domingo, 6=sábado). El sábado no se hacen pedidos.
-  const isSaturday = today.getDay() === 6;
+  // Entrega = día siguiente a la fecha del pedido elegida
+  const deliveryISO = useMemo(() => {
+    const [y, m, d] = orderDateISO.split('-').map(Number);
+    return toLocalISO(new Date(y, m - 1, d + 1));
+  }, [orderDateISO]);
+
+  // ¿La fecha del pedido cae sábado? (getDay: 0=domingo, 6=sábado). El sábado no se hacen pedidos.
+  const isSaturday = useMemo(() => {
+    const [y, m, d] = orderDateISO.split('-').map(Number);
+    return new Date(y, m - 1, d).getDay() === 6;
+  }, [orderDateISO]);
 
   const branchName = branches.find(b => b.id === selectedBranchId)?.name || 'Sucursal';
 
@@ -399,6 +420,7 @@ export default function InternalOrdersView({
       alert(`Ya tenés ${activeSameType.length} pedidos de ${tipoLabel} sin recibir.\n\nPara no acumular pedidos, primero marcá como RECIBIDOS los pedidos de ${tipoLabel} pendientes de esta sucursal y volvé a intentar.`);
       return;
     }
+    if (orderDateISO > todayISO) { alert('La fecha del pedido no puede ser hacia adelante. Elegí hoy o un día anterior.'); return; }
     if (isSaturday) { alert('Los sábados no se cargan pedidos (el domingo no se trabaja en Almacén).'); return; }
     if (lines.length === 0) { alert('Agregá al menos un insumo al pedido.'); return; }
     if (lines.some(l => !l.quantity || l.quantity <= 0)) { alert('Todas las cantidades deben ser mayores a cero.'); return; }
@@ -422,11 +444,13 @@ export default function InternalOrdersView({
         .insert({
           branch_id: selectedBranchId,
           order_type: orderType,
-          order_date: todayISO,
+          order_date: orderDateISO,
           delivery_date: deliveryISO,
           created_by: currentUser?.name || currentUser?.username || null,
           notes: notes.trim() || null,
-          status: 'pendiente'
+          status: 'pendiente',
+          // Horario real de carga (independiente de la fecha del pedido elegida)
+          created_at: new Date().toISOString()
         })
         .select()
         .single();
@@ -450,7 +474,7 @@ export default function InternalOrdersView({
       generatePDF({
         type: orderType,
         branch: branchName,
-        orderDate: todayISO,
+        orderDate: orderDateISO,
         deliv: deliveryISO,
         by: currentUser?.name || currentUser?.username || null,
         pdfLines: lines,
@@ -459,6 +483,7 @@ export default function InternalOrdersView({
       alert('Pedido guardado y PDF generado correctamente.');
       setLines([]);
       setNotes('');
+      setOrderDateISO(todayISO);
       await loadRecentOrders();
     } catch (e: any) {
       alert('Error al guardar el pedido: ' + (e.message || e));
@@ -494,7 +519,7 @@ export default function InternalOrdersView({
           </button>
         </div>
         <p className="text-[10px] text-text-dim font-bold uppercase">
-          {branchName} · Pedido del {fmtDMY(todayISO)} para entregar el {fmtDMY(deliveryISO)}
+          {branchName} · Pedido del {fmtDMY(orderDateISO)} para entregar el {fmtDMY(deliveryISO)}
         </p>
       </div>
 
@@ -574,7 +599,12 @@ export default function InternalOrdersView({
                 <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
                   {statusInfo(o.status).label}
                 </span>
-                <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                <div className="flex-1 min-w-0 hidden md:block">
+                  <span className="text-text-dim font-bold uppercase truncate block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                  {o.created_at && (
+                    <span className="text-[8px] font-bold uppercase text-text-dim opacity-60 block">Cargado el {fmtCargado(o.created_at)}</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1 shrink-0">
                   {!isReadOnly && o.status === 'enviado' && (
                     <button onClick={() => openReception(o)} title="Marcar recibido" className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded text-[8px] font-black uppercase hover:bg-emerald-500/20 transition-all">
@@ -591,20 +621,39 @@ export default function InternalOrdersView({
         </div>
       )}
 
-      {/* Selector de tipo de pedido */}
-      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
-        <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Tipo de Pedido</label>
-        <select
-          value={orderType}
-          onChange={e => setOrderType(e.target.value as 'compras' | 'produccion')}
-          className={cn(
-            "w-full bg-bg-card border rounded-lg px-4 py-3 text-[12px] font-black uppercase tracking-wide outline-none transition-all cursor-pointer",
-            orderType === 'compras' ? "border-brand-500 text-brand-500 focus:border-brand-500" : "border-teal-500 text-teal-500 focus:border-teal-500"
-          )}
-        >
-          <option value="compras">Pedido de Compras (Almacén Central)</option>
-          <option value="produccion">Pedido a Producción (Elaborados)</option>
-        </select>
+      {/* Selector de tipo de pedido + fecha del pedido */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="md:col-span-2">
+          <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Tipo de Pedido</label>
+          <select
+            value={orderType}
+            onChange={e => setOrderType(e.target.value as 'compras' | 'produccion')}
+            className={cn(
+              "w-full bg-bg-card border rounded-lg px-4 py-3 text-[12px] font-black uppercase tracking-wide outline-none transition-all cursor-pointer",
+              orderType === 'compras' ? "border-brand-500 text-brand-500 focus:border-brand-500" : "border-teal-500 text-teal-500 focus:border-teal-500"
+            )}
+          >
+            <option value="compras">Pedido de Compras (Almacén Central)</option>
+            <option value="produccion">Pedido a Producción (Elaborados)</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Fecha del pedido</label>
+          <input
+            type="date"
+            value={orderDateISO}
+            max={todayISO}
+            onChange={e => {
+              const v = e.target.value || todayISO;
+              // No se permite una fecha hacia adelante: como máximo, hoy.
+              setOrderDateISO(v > todayISO ? todayISO : v);
+            }}
+            className="w-full bg-bg-card border border-border-dim rounded-lg px-4 py-3 text-[12px] font-mono font-black text-text-main outline-none transition-all focus:border-brand-500 cursor-pointer"
+          />
+          <p className="text-[8px] font-bold uppercase text-text-dim opacity-70 mt-1 leading-tight">
+            Ajustala si cargás pasada la medianoche (no se puede a futuro). Entrega: {fmtDMY(deliveryISO)}
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -766,7 +815,12 @@ export default function InternalOrdersView({
                 <span className={cn("font-black uppercase px-2 py-0.5 rounded shrink-0", statusInfo(o.status).color)}>
                   {statusInfo(o.status).label}
                 </span>
-                <span className="text-text-dim font-bold uppercase flex-1 truncate hidden md:block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                <div className="flex-1 min-w-0 hidden md:block">
+                  <span className="text-text-dim font-bold uppercase truncate block">Pedido {fmtDMY(o.order_date)} → entrega {fmtDMY(o.delivery_date)}</span>
+                  {o.created_at && (
+                    <span className="text-[8px] font-bold uppercase text-text-dim opacity-60 block">Cargado el {fmtCargado(o.created_at)}</span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => viewOrder(o)} title="Ver detalle y recepción" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Eye size={14} /></button>
                   <button onClick={() => redownloadOrder(o)} title="Descargar PDF" className="p-1.5 text-text-dim hover:text-emerald-500 transition-colors"><FileDown size={14} /></button>
@@ -791,6 +845,9 @@ export default function InternalOrdersView({
                   {branches.find(b => b.id === viewingOrder.order.branch_id)?.name || ''} · Pedido {fmtDMY(viewingOrder.order.order_date)} → entrega {fmtDMY(viewingOrder.order.delivery_date)}
                   {viewingOrder.order.created_by ? ` · ${viewingOrder.order.created_by}` : ''}
                 </p>
+                {viewingOrder.order.created_at && (
+                  <p className="text-[8px] text-text-dim font-bold uppercase opacity-60 mt-0.5">Cargado el {fmtCargado(viewingOrder.order.created_at)}</p>
+                )}
               </div>
               <button onClick={() => setViewingOrder(null)} className="p-1.5 text-text-dim hover:text-text-main transition-colors"><X size={18} /></button>
             </div>
