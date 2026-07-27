@@ -47,7 +47,9 @@ interface Tarea {
   role: string;
   branch_id: string | null;
   task: string;
-  weekday: number;
+  weekday: number | null;         // día de la semana (solo diarias); null en periódicas
+  tipo?: 'diaria' | 'semanal' | 'mensual';
+  turno?: 'Mañana' | 'Tarde' | null; // solo diarias
   time: string | null;
   created_by?: string;
 }
@@ -104,6 +106,8 @@ export default function ChecklistView({
   const [nuevaTarea, setNuevaTarea] = useState('');
   const [nuevosDias, setNuevosDias] = useState<number[]>([1]); // varios días de la semana
   const toggleDia = (id: number) => setNuevosDias(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const [nuevoTipo, setNuevoTipo] = useState<'diaria' | 'semanal' | 'mensual'>('diaria');
+  const [nuevoTurno, setNuevoTurno] = useState<'Mañana' | 'Tarde'>('Mañana');
   const [nuevaHora, setNuevaHora] = useState('');
   const [nuevaSucursal, setNuevaSucursal] = useState('all');
 
@@ -196,12 +200,40 @@ export default function ChecklistView({
   const tareasQueArmo = useMemo(() => {
     if (!rolDestino) return [];
     return tareas.filter(t => t.role === rolDestino)
-      .sort((a, b) => a.weekday - b.weekday || String(a.time || '').localeCompare(String(b.time || '')));
+      .sort((a, b) => (a.weekday ?? 99) - (b.weekday ?? 99) || String(a.time || '').localeCompare(String(b.time || '')));
   }, [tareas, rolDestino]);
 
   const rolDestinoLabel = useMemo(() =>
     rolesDisponibles.find(r => r.id === rolDestino)?.name || rolDestino,
     [rolesDisponibles, rolDestino]);
+
+  // Fila de una tarea en el listado de armado (reutilizable para diarias y periódicas)
+  const filaTareaArmado = (t: Tarea) => {
+    const esTodas = !t.branch_id || t.branch_id === 'all';
+    const suc = esTodas ? 'Todas las sucursales' : (branches.find(b => b.id === t.branch_id)?.name || t.branch_id);
+    return (
+      <div key={t.id} className="flex items-center gap-2 bg-bg-card border border-border-dim rounded px-3 py-2">
+        <span className="flex-1 text-[11px] font-bold uppercase text-text-main">{t.task}</span>
+        {t.turno && (
+          <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 text-amber-600 bg-amber-500/10 border border-amber-500/30">{t.turno}</span>
+        )}
+        <span className={cn(
+          "text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 flex items-center gap-1",
+          esTodas ? "text-text-dim bg-bg-accent border border-border-dim" : "text-brand-500 bg-brand-500/10"
+        )}>
+          <Users size={9} /> {suc}
+        </span>
+        {t.time && (
+          <span className="text-[9px] font-mono font-black text-text-dim shrink-0">{t.time}</span>
+        )}
+        {!isReadOnly && (
+          <button onClick={() => borrarTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const toggleMarca = async (taskId: string) => {
     if (isReadOnly) return;
@@ -228,21 +260,30 @@ export default function ChecklistView({
     if (!puedeArmar) return;
     if (!rolDestino) { alert('Elegí el rol para el que armás la tarea.'); return; }
     if (!nuevaTarea.trim()) { alert('Escribí la tarea.'); return; }
-    if (nuevosDias.length === 0) { alert('Elegí al menos un día de la semana.'); return; }
-    // Se crea una tarea por cada día elegido (mismo texto, hora, rol y sucursal)
+    if (nuevoTipo === 'diaria' && nuevosDias.length === 0) { alert('Elegí al menos un día de la semana.'); return; }
     const base = {
       role: rolDestino,
       branch_id: nuevaSucursal === 'all' ? null : nuevaSucursal,
       task: nuevaTarea.trim(),
+      tipo: nuevoTipo,
       time: nuevaHora || null,
       created_by: currentUserName || '—',
       created_at: new Date().toISOString(),
     };
-    const filas = nuevosDias.map((wd, idx) => ({
-      id: `${Date.now()}${idx}${Math.random().toString(36).slice(2, 6)}`,
-      ...base,
-      weekday: wd,
-    }));
+    let filas: any[];
+    if (nuevoTipo === 'diaria') {
+      // Una tarea por cada día elegido, con su turno
+      filas = nuevosDias.map((wd, idx) => ({
+        id: `${Date.now()}${idx}${Math.random().toString(36).slice(2, 6)}`,
+        ...base, weekday: wd, turno: nuevoTurno,
+      }));
+    } else {
+      // Periódica (semanal / mensual): una sola fila, sin día ni turno
+      filas = [{
+        id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+        ...base, weekday: null, turno: null,
+      }];
+    }
     const { error } = await supabase.from('checklist_tasks').insert(filas);
     if (error) { alert('Error al guardar: ' + error.message); return; }
     setNuevaTarea(''); setNuevaHora('');
@@ -431,24 +472,50 @@ export default function ChecklistView({
               placeholder="Tarea a realizar (ej. Controlar temperatura de heladeras)"
               className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
 
-            {/* Selección de días (varios) */}
+            {/* Tipo de tarea */}
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Días:</span>
-              {DIAS.map(d => (
-                <button key={d.id} type="button" onClick={() => toggleDia(d.id)}
-                  className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase border transition-all",
-                    nuevosDias.includes(d.id)
-                      ? "bg-brand-500 text-white border-brand-500"
-                      : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
-                  {d.short}
+              <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Tipo:</span>
+              {(['diaria', 'semanal', 'mensual'] as const).map(t => (
+                <button key={t} type="button" onClick={() => setNuevoTipo(t)}
+                  className={cn("px-3 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                    nuevoTipo === t ? "bg-brand-500 text-white border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
+                  {t}
                 </button>
               ))}
-              <button type="button"
-                onClick={() => setNuevosDias(nuevosDias.length === DIAS.length ? [] : DIAS.map(d => d.id))}
-                className="ml-1 px-2.5 py-1 rounded text-[9px] font-black uppercase border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all">
-                {nuevosDias.length === DIAS.length ? 'Ninguno' : 'Todos'}
-              </button>
             </div>
+
+            {/* Turno + días: solo para diarias */}
+            {nuevoTipo === 'diaria' && (
+              <>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Turno:</span>
+                  {(['Mañana', 'Tarde'] as const).map(tu => (
+                    <button key={tu} type="button" onClick={() => setNuevoTurno(tu)}
+                      className={cn("px-3 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                        nuevoTurno === tu ? "bg-amber-500 text-white border-amber-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-amber-500/50")}>
+                      {tu}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Días:</span>
+                  {DIAS.map(d => (
+                    <button key={d.id} type="button" onClick={() => toggleDia(d.id)}
+                      className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                        nuevosDias.includes(d.id)
+                          ? "bg-brand-500 text-white border-brand-500"
+                          : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
+                      {d.short}
+                    </button>
+                  ))}
+                  <button type="button"
+                    onClick={() => setNuevosDias(nuevosDias.length === DIAS.length ? [] : DIAS.map(d => d.id))}
+                    className="ml-1 px-2.5 py-1 rounded text-[9px] font-black uppercase border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/50 transition-all">
+                    {nuevosDias.length === DIAS.length ? 'Ninguno' : 'Todos'}
+                  </button>
+                </div>
+              </>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
               <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
@@ -464,7 +531,11 @@ export default function ChecklistView({
               </button>
             </div>
             <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">
-              La tarea se repite todas las semanas en los días elegidos (se crea una por cada día).
+              {nuevoTipo === 'diaria'
+                ? 'Diaria: se repite en los días elegidos, en el turno indicado. La hora es opcional.'
+                : nuevoTipo === 'semanal'
+                  ? 'Semanal: se cumple una vez por semana (cualquier día). La hora es opcional.'
+                  : 'Mensual: se cumple una vez por mes (cualquier día). La hora es opcional.'}
             </p>
           </div>
 
@@ -477,42 +548,42 @@ export default function ChecklistView({
               <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">
                 Todavía no cargaste ninguna tarea.
               </p>
-            ) : (
-              DIAS.map(dia => {
-                const delDia = tareasQueArmo.filter(t => t.weekday === dia.id);
-                if (delDia.length === 0) return null;
-                return (
-                  <div key={dia.id} className="space-y-1.5">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/40 pb-1">
-                      {dia.label} ({delDia.length})
-                    </p>
-                    {delDia.map(t => {
-                      const esTodas = !t.branch_id || t.branch_id === 'all';
-                      const suc = esTodas ? 'Todas las sucursales' : (branches.find(b => b.id === t.branch_id)?.name || t.branch_id);
-                      return (
-                        <div key={t.id} className="flex items-center gap-3 bg-bg-card border border-border-dim rounded px-3 py-2">
-                          <span className="flex-1 text-[11px] font-bold uppercase text-text-main">{t.task}</span>
-                          <span className={cn(
-                            "text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 flex items-center gap-1",
-                            esTodas ? "text-text-dim bg-bg-accent border border-border-dim" : "text-brand-500 bg-brand-500/10"
-                          )}>
-                            <Users size={9} /> {suc}
-                          </span>
-                          {t.time && (
-                            <span className="text-[9px] font-mono font-black text-text-dim shrink-0">{t.time}</span>
-                          )}
-                          {!isReadOnly && (
-                            <button onClick={() => borrarTarea(t.id)} className="text-text-dim hover:text-red-500 shrink-0">
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })
-            )}
+            ) : (() => {
+              const esDiaria = (t: Tarea) => t.tipo === 'diaria' || (!t.tipo && t.weekday != null);
+              const semanales = tareasQueArmo.filter(t => t.tipo === 'semanal');
+              const mensuales = tareasQueArmo.filter(t => t.tipo === 'mensual');
+              return (
+                <>
+                  {/* Diarias, agrupadas por día */}
+                  {DIAS.map(dia => {
+                    const delDia = tareasQueArmo.filter(t => esDiaria(t) && t.weekday === dia.id);
+                    if (delDia.length === 0) return null;
+                    return (
+                      <div key={dia.id} className="space-y-1.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/40 pb-1">
+                          {dia.label} ({delDia.length})
+                        </p>
+                        {delDia.map(filaTareaArmado)}
+                      </div>
+                    );
+                  })}
+                  {/* Semanales */}
+                  {semanales.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 border-b border-emerald-500/30 pb-1">Semanales ({semanales.length})</p>
+                      {semanales.map(filaTareaArmado)}
+                    </div>
+                  )}
+                  {/* Mensuales */}
+                  {mensuales.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 border-b border-blue-500/30 pb-1">Mensuales ({mensuales.length})</p>
+                      {mensuales.map(filaTareaArmado)}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
