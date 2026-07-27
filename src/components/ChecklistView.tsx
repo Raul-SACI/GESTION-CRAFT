@@ -84,7 +84,7 @@ export default function ChecklistView({
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [rolesDisponibles, setRolesDisponibles] = useState<RolConfig[]>([]);
   // Rol para el que se están armando las tareas (lo elige quien administra)
-  const [rolDestino, setRolDestino] = useState<string>('');
+  const [rolesDestino, setRolesDestino] = useState<string[]>([]); // se puede armar para varios roles a la vez
   const [marcas, setMarcas] = useState<Record<string, { id: string; done: boolean; by?: string }>>({});
   const [loading, setLoading] = useState(false);
 
@@ -109,7 +109,15 @@ export default function ChecklistView({
   const [nuevoTipo, setNuevoTipo] = useState<'diaria' | 'semanal' | 'mensual'>('diaria');
   const [nuevoTurno, setNuevoTurno] = useState<'Mañana' | 'Tarde'>('Mañana');
   const [nuevaHora, setNuevaHora] = useState('');
-  const [nuevaSucursal, setNuevaSucursal] = useState('all');
+  const [nuevasSucursales, setNuevasSucursales] = useState<string[]>(['all']); // 'all' = todas, o varias sucursales
+  const toggleSucursal = (id: string) => {
+    if (id === 'all') { setNuevasSucursales(['all']); return; }
+    setNuevasSucursales(prev => {
+      const sinAll = prev.filter(x => x !== 'all');
+      const next = sinAll.includes(id) ? sinAll.filter(x => x !== id) : [...sinAll, id];
+      return next.length === 0 ? ['all'] : next;
+    });
+  };
 
   const cargarRoles = async () => {
     try {
@@ -117,11 +125,11 @@ export default function ChecklistView({
       const roles = (data as RolConfig[]) || [];
       setRolesDisponibles(roles);
       // Preseleccionar un rol destino razonable según quién está mirando
-      if (!rolDestino && roles.length > 0) {
+      if (rolesDestino.length === 0 && roles.length > 0) {
         const buscado = scope === 'lideres'
           ? roles.find(r => String(r.id).toLowerCase().includes('lider') || String(r.name).toLowerCase().includes('líder'))
           : roles.find(r => String(r.id).toLowerCase().includes('encargado'));
-        setRolDestino(buscado?.id || roles[0].id);
+        setRolesDestino([buscado?.id || roles[0].id]);
       }
     } catch { setRolesDisponibles([]); }
   };
@@ -197,15 +205,18 @@ export default function ChecklistView({
   const tareasVista = modoMonitoreo ? tareasMonitor : misTareasHoy;
 
   // Tareas del rol que se está administrando (el elegido en el selector)
-  const tareasQueArmo = useMemo(() => {
-    if (!rolDestino) return [];
-    return tareas.filter(t => t.role === rolDestino)
-      .sort((a, b) => (a.weekday ?? 99) - (b.weekday ?? 99) || String(a.time || '').localeCompare(String(b.time || '')));
-  }, [tareas, rolDestino]);
+  // Tareas de los roles seleccionados (para el contador del encabezado)
+  const tareasQueArmo = useMemo(() =>
+    tareas.filter(t => rolesDestino.includes(t.role)),
+    [tareas, rolesDestino]);
 
-  const rolDestinoLabel = useMemo(() =>
-    rolesDisponibles.find(r => r.id === rolDestino)?.name || rolDestino,
-    [rolesDisponibles, rolDestino]);
+  const tareasDeRol = (roleId: string) => tareas.filter(t => t.role === roleId)
+    .sort((a, b) => (a.weekday ?? 99) - (b.weekday ?? 99) || String(a.time || '').localeCompare(String(b.time || '')));
+
+  const nombreRol = (roleId: string) => rolesDisponibles.find(r => r.id === roleId)?.name || roleId;
+  const rolesDestinoLabel = useMemo(() =>
+    rolesDestino.map(nombreRol).join(', ') || '—',
+    [rolesDisponibles, rolesDestino]);
 
   // Fila de una tarea en el listado de armado (reutilizable para diarias y periódicas)
   const filaTareaArmado = (t: Tarea) => {
@@ -258,32 +269,36 @@ export default function ChecklistView({
 
   const agregarTarea = async () => {
     if (!puedeArmar) return;
-    if (!rolDestino) { alert('Elegí el rol para el que armás la tarea.'); return; }
+    if (rolesDestino.length === 0) { alert('Elegí al menos un rol para el que armás la tarea.'); return; }
     if (!nuevaTarea.trim()) { alert('Escribí la tarea.'); return; }
     if (nuevoTipo === 'diaria' && nuevosDias.length === 0) { alert('Elegí al menos un día de la semana.'); return; }
-    const base = {
-      role: rolDestino,
-      branch_id: nuevaSucursal === 'all' ? null : nuevaSucursal,
-      task: nuevaTarea.trim(),
-      tipo: nuevoTipo,
-      time: nuevaHora || null,
-      created_by: currentUserName || '—',
-      created_at: new Date().toISOString(),
-    };
-    let filas: any[];
-    if (nuevoTipo === 'diaria') {
-      // Una tarea por cada día elegido, con su turno
-      filas = nuevosDias.map((wd, idx) => ({
-        id: `${Date.now()}${idx}${Math.random().toString(36).slice(2, 6)}`,
-        ...base, weekday: wd, turno: nuevoTurno,
-      }));
-    } else {
-      // Periódica (semanal / mensual): una sola fila, sin día ni turno
-      filas = [{
-        id: `${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
-        ...base, weekday: null, turno: null,
-      }];
-    }
+    // Sucursales destino: 'all' (o vacío) = una sola fila para todas; si no, una por cada sucursal
+    const sucursalesDestino: (string | null)[] = (nuevasSucursales.includes('all') || nuevasSucursales.length === 0)
+      ? [null]
+      : nuevasSucursales;
+    const filas: any[] = [];
+    let seq = 0;
+    // La misma tarea se crea para cada rol × cada sucursal seleccionados
+    rolesDestino.forEach(roleId => {
+      sucursalesDestino.forEach(branchId => {
+        const base = {
+          role: roleId,
+          branch_id: branchId,
+          task: nuevaTarea.trim(),
+          tipo: nuevoTipo,
+          time: nuevaHora || null,
+          created_by: currentUserName || '—',
+          created_at: new Date().toISOString(),
+        };
+        if (nuevoTipo === 'diaria') {
+          nuevosDias.forEach(wd => {
+            filas.push({ id: `${Date.now()}${seq++}${Math.random().toString(36).slice(2, 6)}`, ...base, weekday: wd, turno: nuevoTurno });
+          });
+        } else {
+          filas.push({ id: `${Date.now()}${seq++}${Math.random().toString(36).slice(2, 6)}`, ...base, weekday: null, turno: null });
+        }
+      });
+    });
     const { error } = await supabase.from('checklist_tasks').insert(filas);
     if (error) { alert('Error al guardar: ' + error.message); return; }
     setNuevaTarea(''); setNuevaHora('');
@@ -452,21 +467,32 @@ export default function ChecklistView({
       {/* ─── ARMAR CHECK-LIST ─── */}
       {activeTab === 'armar' && puedeArmar && (
         <div className="space-y-4">
-          {/* Selector del rol cuyo check-list se está armando */}
-          <div className="bg-bg-card border border-brand-500/30 rounded-lg p-4 flex items-center gap-3 flex-wrap">
-            <Users size={15} className="text-brand-500" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-text-main">Armar el check-list de:</span>
-            <select value={rolDestino} onChange={e => setRolDestino(e.target.value)}
-              className="flex-1 min-w-[200px] bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
-              {rolesDisponibles.length === 0 && <option value="">Sin roles configurados</option>}
-              {rolesDisponibles.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+          {/* Selector de roles (uno o varios) cuyo check-list se está armando */}
+          <div className="bg-bg-card border border-brand-500/30 rounded-lg p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Users size={15} className="text-brand-500" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-text-main">Armar el check-list de:</span>
+              <span className="text-[8px] font-bold uppercase text-text-dim">(podés elegir varios, ej. Encargado y Cajero)</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {rolesDestino.map(rid => (
+                <span key={rid} className="flex items-center gap-1 bg-brand-500/10 text-brand-500 border border-brand-500/30 rounded px-2 py-1 text-[10px] font-black uppercase">
+                  {nombreRol(rid)}
+                  <button onClick={() => setRolesDestino(prev => prev.filter(x => x !== rid))} className="hover:text-red-500"><X size={11} /></button>
+                </span>
+              ))}
+              <select value="" onChange={e => { const v = e.target.value; if (v && !rolesDestino.includes(v)) setRolesDestino(prev => [...prev, v]); }}
+                className="bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
+                <option value="">+ Agregar rol…</option>
+                {rolesDisponibles.filter(r => !rolesDestino.includes(r.id)).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Alta */}
           <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-3">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
-              <Plus size={14} /> Nueva tarea para {rolDestinoLabel}
+              <Plus size={14} /> Nueva tarea para {rolesDestinoLabel}
             </h3>
             <input type="text" value={nuevaTarea} onChange={e => setNuevaTarea(e.target.value)}
               placeholder="Tarea a realizar (ej. Controlar temperatura de heladeras)"
@@ -517,16 +543,28 @@ export default function ChecklistView({
               </>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+            {/* Sucursales (una o varias, o Todas) */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Sucursales:</span>
+              <button type="button" onClick={() => toggleSucursal('all')}
+                className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                  nuevasSucursales.includes('all') ? "bg-brand-500 text-white border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
+                Todas
+              </button>
+              {branches.filter(b => b.id !== 'all').map(b => (
+                <button key={b.id} type="button" onClick={() => toggleSucursal(b.id)}
+                  className={cn("px-2.5 py-1 rounded text-[9px] font-black uppercase border transition-all",
+                    nuevasSucursales.includes(b.id) ? "bg-brand-500 text-white border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-brand-500/50")}>
+                  {b.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
               <input type="time" value={nuevaHora} onChange={e => setNuevaHora(e.target.value)}
-                className="md:col-span-3 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
-              <select value={nuevaSucursal} onChange={e => setNuevaSucursal(e.target.value)}
-                className="md:col-span-6 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[9px] font-black uppercase text-text-main outline-none focus:border-brand-500 cursor-pointer">
-                <option value="all">Todas las sucursales</option>
-                {branches.filter(b => b.id !== 'all').map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
+                className="w-28 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
               <button onClick={agregarTarea}
-                className="md:col-span-3 bg-brand-500 hover:bg-brand-600 text-white rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
+                className="flex-1 min-w-[120px] bg-brand-500 hover:bg-brand-600 text-white rounded px-3 py-2 text-[9px] font-black uppercase transition-all">
                 Agregar
               </button>
             </div>
@@ -539,52 +577,52 @@ export default function ChecklistView({
             </p>
           </div>
 
-          {/* Listado agrupado por día */}
-          <div className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
-              <ListChecks size={14} /> Check-List de {rolDestinoLabel} ({tareasQueArmo.length})
-            </h3>
-            {tareasQueArmo.length === 0 ? (
-              <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">
-                Todavía no cargaste ninguna tarea.
-              </p>
-            ) : (() => {
-              const esDiaria = (t: Tarea) => t.tipo === 'diaria' || (!t.tipo && t.weekday != null);
-              const semanales = tareasQueArmo.filter(t => t.tipo === 'semanal');
-              const mensuales = tareasQueArmo.filter(t => t.tipo === 'mensual');
-              return (
-                <>
-                  {/* Diarias, agrupadas por día */}
-                  {DIAS.map(dia => {
-                    const delDia = tareasQueArmo.filter(t => esDiaria(t) && t.weekday === dia.id);
-                    if (delDia.length === 0) return null;
-                    return (
-                      <div key={dia.id} className="space-y-1.5">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/40 pb-1">
-                          {dia.label} ({delDia.length})
-                        </p>
-                        {delDia.map(filaTareaArmado)}
+          {/* Listado: un bloque por cada rol seleccionado */}
+          {rolesDestino.map(roleId => {
+            const lista = tareasDeRol(roleId);
+            const esDiaria = (t: Tarea) => t.tipo === 'diaria' || (!t.tipo && t.weekday != null);
+            const semanales = lista.filter(t => t.tipo === 'semanal');
+            const mensuales = lista.filter(t => t.tipo === 'mensual');
+            return (
+              <div key={roleId} className="bg-bg-sidebar border border-border-dim rounded-lg p-5 space-y-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2">
+                  <ListChecks size={14} /> Check-List de {nombreRol(roleId)} ({lista.length})
+                </h3>
+                {lista.length === 0 ? (
+                  <p className="text-center text-[10px] font-bold uppercase text-text-dim py-6">
+                    Todavía no cargaste ninguna tarea para este rol.
+                  </p>
+                ) : (
+                  <>
+                    {DIAS.map(dia => {
+                      const delDia = lista.filter(t => esDiaria(t) && t.weekday === dia.id);
+                      if (delDia.length === 0) return null;
+                      return (
+                        <div key={dia.id} className="space-y-1.5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/40 pb-1">
+                            {dia.label} ({delDia.length})
+                          </p>
+                          {delDia.map(filaTareaArmado)}
+                        </div>
+                      );
+                    })}
+                    {semanales.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 border-b border-emerald-500/30 pb-1">Semanales ({semanales.length})</p>
+                        {semanales.map(filaTareaArmado)}
                       </div>
-                    );
-                  })}
-                  {/* Semanales */}
-                  {semanales.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500 border-b border-emerald-500/30 pb-1">Semanales ({semanales.length})</p>
-                      {semanales.map(filaTareaArmado)}
-                    </div>
-                  )}
-                  {/* Mensuales */}
-                  {mensuales.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 border-b border-blue-500/30 pb-1">Mensuales ({mensuales.length})</p>
-                      {mensuales.map(filaTareaArmado)}
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-          </div>
+                    )}
+                    {mensuales.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 border-b border-blue-500/30 pb-1">Mensuales ({mensuales.length})</p>
+                        {mensuales.map(filaTareaArmado)}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </motion.div>
