@@ -277,18 +277,33 @@ export default function ChecklistView({
     await cargarMarcas();
   };
 
-  // Tareas del rol y sucursal que el líder está monitoreando
+  // Tareas del rol y sucursal que el líder está monitoreando (diarias del turno elegido)
   const tareasMonitor = useMemo(() => {
     if (!modoMonitoreo || !monitorRol) return [];
     return tareas.filter(t =>
       t.role === monitorRol &&
       t.weekday === diaSemana &&
+      (!t.turno || t.turno === miTurno) &&
       (!t.branch_id || t.branch_id === 'all' || t.branch_id === monitorBranch)
     ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
-  }, [tareas, monitorRol, monitorBranch, diaSemana, modoMonitoreo]);
+  }, [tareas, monitorRol, monitorBranch, diaSemana, miTurno, modoMonitoreo]);
+
+  // Periódicas (semanales/mensuales) del rol monitoreado
+  const periodicasMonitor = useMemo(() => {
+    if (!modoMonitoreo || !monitorRol) return [];
+    return tareas.filter(t =>
+      t.role === monitorRol &&
+      (t.tipo === 'semanal' || t.tipo === 'mensual') &&
+      (!t.branch_id || t.branch_id === 'all' || t.branch_id === monitorBranch)
+    ).sort((a, b) => String(a.task).localeCompare(String(b.task)));
+  }, [tareas, monitorRol, monitorBranch, modoMonitoreo]);
 
   // Vista efectiva: monitoreo (líder) o mis tareas (rol operativo)
   const tareasVista = modoMonitoreo ? tareasMonitor : misTareasHoy;
+  // Periódicas a mostrar según el modo
+  const periodicasVista = modoMonitoreo ? periodicasMonitor : misPeriodicas;
+  const semanalesVista = useMemo(() => periodicasVista.filter(t => t.tipo === 'semanal'), [periodicasVista]);
+  const mensualesVista = useMemo(() => periodicasVista.filter(t => t.tipo === 'mensual'), [periodicasVista]);
 
   // Tareas del rol que se está administrando (el elegido en el selector)
   // Tareas de los roles seleccionados (para el contador del encabezado)
@@ -453,9 +468,9 @@ export default function ChecklistView({
                 {DIAS.find(d => d.id === diaSemana)?.label}
               </span>
             </div>
-            {!modoMonitoreo && (
+            {(
               <div className="flex items-center gap-1.5">
-                <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Mi turno:</span>
+                <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">{modoMonitoreo ? 'Turno:' : 'Mi turno:'}</span>
                 {(['Mañana', 'Tarde'] as const).map(tu => (
                   <button key={tu} type="button" onClick={() => setMiTurno(tu)}
                     className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase border transition-all",
@@ -491,9 +506,9 @@ export default function ChecklistView({
 
           {loading ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Cargando…</p>
-          ) : tareasVista.length === 0 && (modoMonitoreo || misPeriodicas.length === 0) ? (
+          ) : tareasVista.length === 0 && periodicasVista.length === 0 ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">
-              {modoMonitoreo ? 'Este rol no tiene tareas para este día.' : 'No hay tareas cargadas para este día.'}
+              {modoMonitoreo ? 'Este rol no tiene tareas cargadas.' : 'No hay tareas cargadas para este día.'}
             </p>
           ) : tareasVista.length === 0 ? (
             <p className="text-[9px] font-bold uppercase text-text-dim px-1">Sin tareas diarias para el {miTurno === 'Mañana' ? 'turno mañana' : 'turno tarde'} de este día.</p>
@@ -552,12 +567,12 @@ export default function ChecklistView({
             </div>
           )}
 
-          {/* ─── PERIÓDICAS (semanales / mensuales): el subordinado las tilda una vez por período ─── */}
-          {!modoMonitoreo && (misSemanales.length > 0 || misMensuales.length > 0) && (
+          {/* ─── PERIÓDICAS (semanales / mensuales): tilda el subordinado · el líder solo monitorea ─── */}
+          {(semanalesVista.length > 0 || mensualesVista.length > 0) && (
             <div className="space-y-4 pt-2">
               {([
-                { titulo: 'Semanales', desc: 'Una vez por semana', lista: misSemanales, color: 'emerald' },
-                { titulo: 'Mensuales', desc: 'Una vez por mes', lista: misMensuales, color: 'blue' },
+                { titulo: 'Semanales', desc: 'Una vez por semana', lista: semanalesVista, color: 'emerald' },
+                { titulo: 'Mensuales', desc: 'Una vez por mes', lista: mensualesVista, color: 'blue' },
               ] as const).filter(g => g.lista.length > 0).map(grupo => (
                 <div key={grupo.titulo} className="space-y-2">
                   <p className={cn("text-[9px] font-black uppercase tracking-widest border-b pb-1",
@@ -569,14 +584,19 @@ export default function ChecklistView({
                     const hecha = !!marca;
                     return (
                       <div key={t.id}
-                        onClick={() => togglePeriodica(t)}
+                        onClick={() => { if (!modoMonitoreo) togglePeriodica(t); }}
                         className={cn(
-                          "flex items-center gap-3 p-3.5 rounded-lg border transition-all cursor-pointer",
-                          hecha ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim hover:border-brand-500/40"
+                          "flex items-center gap-3 p-3.5 rounded-lg border transition-all",
+                          modoMonitoreo ? "cursor-default" : "cursor-pointer",
+                          hecha
+                            ? "bg-emerald-500/5 border-emerald-500/30"
+                            : modoMonitoreo
+                              ? "bg-red-500/5 border-red-500/30"
+                              : "bg-bg-card border-border-dim hover:border-brand-500/40"
                         )}>
                         <div className={cn(
                           "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
-                          hecha ? "bg-emerald-500 border-emerald-500" : "border-border-dim"
+                          hecha ? "bg-emerald-500 border-emerald-500" : modoMonitoreo ? "border-red-500/50" : "border-border-dim"
                         )}>
                           {hecha && <Check size={13} className="text-white" strokeWidth={3} />}
                         </div>
@@ -585,10 +605,10 @@ export default function ChecklistView({
                             hecha ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
                           {hecha ? (
                             <p className="text-[8px] font-bold uppercase text-emerald-600 mt-0.5">
-                              Cumplida {marca.date === fecha ? 'hoy' : `el ${marca.date}`}{marca.marked_by ? ` · ${marca.marked_by}` : ''}
+                              Cumplida {marca.date === fecha ? 'hoy' : `el ${String(marca.date).split('-').reverse().slice(0, 2).join('/')}`}{marca.marked_by ? ` · ${marca.marked_by}` : ''}
                             </p>
                           ) : (
-                            <p className="text-[8px] font-black uppercase text-text-dim mt-0.5">Pendiente del período</p>
+                            <p className={cn("text-[8px] font-black uppercase mt-0.5", modoMonitoreo ? "text-red-500" : "text-text-dim")}>Pendiente del período</p>
                           )}
                         </div>
                         {(() => {
