@@ -86,7 +86,12 @@ export default function ChecklistView({
   // Rol para el que se están armando las tareas (lo elige quien administra)
   const [rolesDestino, setRolesDestino] = useState<string[]>([]); // se puede armar para varios roles a la vez
   const [marcas, setMarcas] = useState<Record<string, { id: string; done: boolean; by?: string }>>({});
+  // Marcas de todo el período visible (semana + mes) para saber si una periódica ya se cumplió
+  const [marcasMes, setMarcasMes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Turno con el que trabaja el subordinado (elige el suyo al abrir su check-list)
+  const [miTurno, setMiTurno] = useState<'Mañana' | 'Tarde'>('Mañana');
 
   // Las tareas que ve/marca este usuario son las de SU propio rol
   const miRol = roleKey;
@@ -100,6 +105,26 @@ export default function ChecklistView({
   const diaSemana = useMemo(() => {
     const [y, m, d] = fecha.split('-').map(Number);
     return new Date(y, m - 1, d).getDay();
+  }, [fecha]);
+
+  const ymd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  // Semana (Lunes→Domingo) que contiene la fecha elegida → para periódicas semanales
+  const rangoSemana = useMemo(() => {
+    const [y, m, d] = fecha.split('-').map(Number);
+    const base = new Date(y, m - 1, d);
+    const dow = base.getDay(); // 0=Dom … 6=Sáb
+    const haciaLunes = dow === 0 ? -6 : 1 - dow;
+    const lunes = new Date(y, m - 1, d + haciaLunes);
+    const domingo = new Date(lunes.getFullYear(), lunes.getMonth(), lunes.getDate() + 6);
+    return { desde: ymd(lunes), hasta: ymd(domingo) };
+  }, [fecha]);
+
+  // Mes que contiene la fecha elegida → para periódicas mensuales
+  const rangoMes = useMemo(() => {
+    const [y, m] = fecha.split('-').map(Number);
+    return { desde: ymd(new Date(y, m - 1, 1)), hasta: ymd(new Date(y, m, 0)) };
   }, [fecha]);
 
   // --- Formulario de alta ---
@@ -160,8 +185,24 @@ export default function ChecklistView({
     } catch { setMarcas({}); }
   };
 
+  // Carga las marcas de todo el período visible (unión de la semana y el mes de la fecha)
+  const cargarMarcasMes = async () => {
+    if (!branchMarcas) { setMarcasMes([]); return; }
+    const desde = rangoSemana.desde < rangoMes.desde ? rangoSemana.desde : rangoMes.desde;
+    const hasta = rangoSemana.hasta > rangoMes.hasta ? rangoSemana.hasta : rangoMes.hasta;
+    try {
+      const { data } = await supabase
+        .from('checklist_marks')
+        .select('*')
+        .eq('branch_id', branchMarcas)
+        .gte('date', desde)
+        .lte('date', hasta);
+      setMarcasMes(data || []);
+    } catch { setMarcasMes([]); }
+  };
+
   useEffect(() => { cargarTareas(); cargarRoles(); }, []);
-  useEffect(() => { cargarMarcas(); }, [fecha, branchMarcas]);
+  useEffect(() => { cargarMarcas(); cargarMarcasMes(); }, [fecha, branchMarcas]);
 
   // Roles que tienen al menos una tarea creada (para que el líder elija a quién monitorear).
   // Se excluyen los roles de líder (su agenda se ve/arma desde Gestión Líderes).
@@ -187,9 +228,54 @@ export default function ChecklistView({
     return tareas.filter(t =>
       t.role === miRol &&
       t.weekday === diaSemana &&
+      (!t.turno || t.turno === miTurno) &&
       (!t.branch_id || t.branch_id === 'all' || t.branch_id === selectedBranchId)
     ).sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
-  }, [tareas, miRol, diaSemana, selectedBranchId]);
+  }, [tareas, miRol, diaSemana, miTurno, selectedBranchId]);
+
+  // Periódicas (semanales/mensuales) del rol del subordinado — no dependen del día ni del turno
+  const misPeriodicas = useMemo(() => {
+    if (modoMonitoreo) return [];
+    return tareas.filter(t =>
+      t.role === miRol &&
+      (t.tipo === 'semanal' || t.tipo === 'mensual') &&
+      (!t.branch_id || t.branch_id === 'all' || t.branch_id === selectedBranchId)
+    ).sort((a, b) => String(a.task).localeCompare(String(b.task)));
+  }, [tareas, miRol, selectedBranchId, modoMonitoreo]);
+  const misSemanales = useMemo(() => misPeriodicas.filter(t => t.tipo === 'semanal'), [misPeriodicas]);
+  const misMensuales = useMemo(() => misPeriodicas.filter(t => t.tipo === 'mensual'), [misPeriodicas]);
+
+  // ¿Una periódica ya se cumplió dentro de su período? Devuelve la marca (o null)
+  const periodicaHecha = (t: Tarea) => {
+    const rango = t.tipo === 'mensual' ? rangoMes : rangoSemana;
+    return marcasMes.find((m: any) => m.task_id === t.id && m.done && m.date >= rango.desde && m.date <= rango.hasta) || null;
+  };
+
+  const togglePeriodica = async (t: Tarea) => {
+    if (isReadOnly) return;
+    if (!selectedBranchId) { alert('No hay sucursal seleccionada.'); return; }
+    const marcaBranch = selectedBranchId === 'all' ? 'all' : selectedBranchId;
+    const hecha = periodicaHecha(t);
+    if (hecha) {
+      // Destildar: se apaga la marca cumplida del período
+      const { error } = await supabase.from('checklist_marks').update({ done: false }).eq('id', hecha.id);
+      if (error) { alert('Error al guardar: ' + error.message); return; }
+    } else {
+      const id = `${t.id}-${marcaBranch}-${fecha}`;
+      const { error } = await supabase.from('checklist_marks').upsert({
+        id,
+        task_id: t.id,
+        branch_id: marcaBranch,
+        date: fecha,
+        done: true,
+        marked_by: currentUserName || '—',
+        marked_at: new Date().toISOString()
+      }, { onConflict: 'task_id,branch_id,date' });
+      if (error) { alert('Error al guardar: ' + error.message); return; }
+    }
+    await cargarMarcasMes();
+    await cargarMarcas();
+  };
 
   // Tareas del rol y sucursal que el líder está monitoreando
   const tareasMonitor = useMemo(() => {
@@ -367,6 +453,18 @@ export default function ChecklistView({
                 {DIAS.find(d => d.id === diaSemana)?.label}
               </span>
             </div>
+            {!modoMonitoreo && (
+              <div className="flex items-center gap-1.5">
+                <span className="text-[8px] font-black uppercase text-text-dim tracking-widest mr-1">Mi turno:</span>
+                {(['Mañana', 'Tarde'] as const).map(tu => (
+                  <button key={tu} type="button" onClick={() => setMiTurno(tu)}
+                    className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase border transition-all",
+                      miTurno === tu ? "bg-amber-500 text-white border-amber-500" : "bg-bg-accent text-text-dim border-border-dim hover:border-amber-500/50")}>
+                    {tu}
+                  </button>
+                ))}
+              </div>
+            )}
             {modoMonitoreo && (
               <div className="flex items-center gap-2 flex-wrap">
                 <select value={monitorBranch} onChange={e => setMonitorBranch(e.target.value)}
@@ -393,13 +491,15 @@ export default function ChecklistView({
 
           {loading ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Cargando…</p>
-          ) : tareasVista.length === 0 ? (
+          ) : tareasVista.length === 0 && (modoMonitoreo || misPeriodicas.length === 0) ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">
               {modoMonitoreo ? 'Este rol no tiene tareas para este día.' : 'No hay tareas cargadas para este día.'}
             </p>
+          ) : tareasVista.length === 0 ? (
+            <p className="text-[9px] font-bold uppercase text-text-dim px-1">Sin tareas diarias para el {miTurno === 'Mañana' ? 'turno mañana' : 'turno tarde'} de este día.</p>
           ) : (
             <div className="space-y-2">
-              {tareasVista.map(t => {
+              {tareasVista.map((t: Tarea) => {
                 const marca = marcas[t.id];
                 const hecha = marca?.done;
                 return (
@@ -449,6 +549,70 @@ export default function ChecklistView({
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {/* ─── PERIÓDICAS (semanales / mensuales): el subordinado las tilda una vez por período ─── */}
+          {!modoMonitoreo && (misSemanales.length > 0 || misMensuales.length > 0) && (
+            <div className="space-y-4 pt-2">
+              {([
+                { titulo: 'Semanales', desc: 'Una vez por semana', lista: misSemanales, color: 'emerald' },
+                { titulo: 'Mensuales', desc: 'Una vez por mes', lista: misMensuales, color: 'blue' },
+              ] as const).filter(g => g.lista.length > 0).map(grupo => (
+                <div key={grupo.titulo} className="space-y-2">
+                  <p className={cn("text-[9px] font-black uppercase tracking-widest border-b pb-1",
+                    grupo.color === 'emerald' ? "text-emerald-500 border-emerald-500/30" : "text-blue-500 border-blue-500/30")}>
+                    {grupo.titulo} · {grupo.desc} ({grupo.lista.length})
+                  </p>
+                  {grupo.lista.map((t: Tarea) => {
+                    const marca = periodicaHecha(t);
+                    const hecha = !!marca;
+                    return (
+                      <div key={t.id}
+                        onClick={() => togglePeriodica(t)}
+                        className={cn(
+                          "flex items-center gap-3 p-3.5 rounded-lg border transition-all cursor-pointer",
+                          hecha ? "bg-emerald-500/5 border-emerald-500/30" : "bg-bg-card border-border-dim hover:border-brand-500/40"
+                        )}>
+                        <div className={cn(
+                          "w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
+                          hecha ? "bg-emerald-500 border-emerald-500" : "border-border-dim"
+                        )}>
+                          {hecha && <Check size={13} className="text-white" strokeWidth={3} />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn("text-[11px] font-bold uppercase",
+                            hecha ? "text-text-dim line-through" : "text-text-main")}>{t.task}</p>
+                          {hecha ? (
+                            <p className="text-[8px] font-bold uppercase text-emerald-600 mt-0.5">
+                              Cumplida {marca.date === fecha ? 'hoy' : `el ${marca.date}`}{marca.marked_by ? ` · ${marca.marked_by}` : ''}
+                            </p>
+                          ) : (
+                            <p className="text-[8px] font-black uppercase text-text-dim mt-0.5">Pendiente del período</p>
+                          )}
+                        </div>
+                        {(() => {
+                          const esTodas = !t.branch_id || t.branch_id === 'all';
+                          const suc = esTodas ? 'Todas' : (branches.find(b => b.id === t.branch_id)?.name || t.branch_id);
+                          return (
+                            <span className={cn(
+                              "text-[8px] font-black uppercase px-2 py-0.5 rounded shrink-0 flex items-center gap-1",
+                              esTodas ? "text-text-dim bg-bg-accent border border-border-dim" : "text-brand-500 bg-brand-500/10"
+                            )}>
+                              <Users size={9} /> {suc}
+                            </span>
+                          );
+                        })()}
+                        {t.time && (
+                          <span className="text-[9px] font-mono font-black text-text-dim flex items-center gap-1 shrink-0">
+                            <Clock size={11} /> {t.time}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </div>
