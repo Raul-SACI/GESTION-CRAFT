@@ -384,9 +384,13 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
           const loadedRows: BudgetRow[] = data.map((r: any) => ({
             id: r.id || `sb-${Math.random().toString(36).substr(2,9)}`,
             branchId: r.branch_id,
-            roleId: r.position_id?.replace(/_(?:ma[nñ]ana|tarde|manana)$/, '') || r.position_id,
+            roleId: r.position_id?.replace(/_(?:ma[nñ]?ana|tarde)$/i, '') || r.position_id,
             roleLabel: r.position_name || r.position_id,
-            shift: r.shift || 'Tarde',
+            // El turno se toma de la columna shift; si viene vacía, se deduce del position_id
+            // (Mañana queda como '_maana' porque la ñ se quita al armar el id).
+            shift: (r.shift === 'Mañana' || r.shift === 'Tarde')
+              ? r.shift
+              : (/_ma[nñ]?ana$/i.test(String(r.position_id || '')) ? 'Mañana' : 'Tarde'),
             hoursPerDay: r.hours_per_day || 8,
             hourlyRate: r.hourly_rate || 0,
             countGroupA: 1,
