@@ -519,16 +519,26 @@ export default function ProfitLossView({
                         );
                       }
                       const isSub = def.type === 'subtotal';
+                      const esFinal = def.key === 'ganancia_final';
+                      // Recuadro verde (positivo) o rojo (negativo) con emoji para el resultado final
+                      const cajaResultado = (n: number) => (
+                        n === 0 ? <span className="text-text-dim">-</span> : (
+                          <span className={cn("inline-flex items-center gap-1 px-2 py-1 rounded border font-mono text-[11px] font-black",
+                            n > 0 ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/50" : "bg-red-500/15 text-red-500 border-red-500/50")}>
+                            <span>{n > 0 ? '😄' : '😟'}</span> {fmtCell(n)}
+                          </span>
+                        )
+                      );
                       return (
-                        <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black")}>
+                        <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black", esFinal && "bg-bg-accent/30")}>
                           <td className={cn("px-4 py-2 text-[11px] sticky left-0 bg-bg-sidebar", isSub ? "font-black text-text-main uppercase" : "text-text-dim")} style={{ paddingLeft: `${16 + (def.indent || 0) * 16}px` }}>
                             {def.label}
                           </td>
                           {monthsLoaded.map(m => {
                             const val = computedByMonth[m][def.key]?.realPesos || 0;
                             return (
-                              <td key={m} className={cn("px-4 py-2 text-right font-mono text-[11px]", val < 0 ? "text-red-400" : isSub ? "text-text-main" : "text-text-dim")}>
-                                {fmtCell(val)}
+                              <td key={m} className={cn("px-4 py-2 text-right font-mono text-[11px]", !esFinal && (val < 0 ? "text-red-400" : isSub ? "text-text-main" : "text-text-dim"))}>
+                                {esFinal ? cajaResultado(val) : fmtCell(val)}
                               </td>
                             );
                           })}
@@ -536,8 +546,8 @@ export default function ProfitLossView({
                             const acc = monthsLoaded.reduce((s, m) => s + (computedByMonth[m][def.key]?.realPesos || 0), 0);
                             return (
                               <td className={cn("px-4 py-2 text-right font-mono text-[11px] font-black border-l-2 border-brand-500/40 bg-brand-500/5",
-                                acc < 0 ? "text-red-400" : "text-text-main")}>
-                                {fmtCell(acc)}
+                                !esFinal && (acc < 0 ? "text-red-400" : "text-text-main"))}>
+                                {esFinal ? cajaResultado(acc) : fmtCell(acc)}
                               </td>
                             );
                           })()}
