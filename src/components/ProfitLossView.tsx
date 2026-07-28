@@ -489,7 +489,9 @@ export default function ProfitLossView({
                       <td className={cn("px-3 py-2 text-right font-mono text-text-dim bg-bg-accent/20")}>{fmtMoney(v.projUsd, true)}</td>
                       <td className="px-3 py-2 text-right font-mono text-text-dim bg-bg-accent/20">{projPctV ? projPctV.toFixed(1) + '%' : '-'}</td>
                       <td className={cn("px-3 py-2 text-right font-mono border-l-2 border-brand-500/40", realP < 0 ? "text-red-400" : "text-text-main")}>
-                        {fmtMoney(realP)}
+                        {def.type === 'input' && !isReadOnly ? (
+                          <EditableMoneyCell value={lines[def.key]?.realPesos || 0} onChange={(raw) => updateLine(def.key, 'realPesos', raw)} />
+                        ) : fmtMoney(realP)}
                       </td>
                       <td className={cn("px-3 py-2 text-right font-mono text-text-dim")}>{fmtMoney(v.realUsd, true)}</td>
                       <td className="px-3 py-2 text-right font-mono text-text-dim">{realPctV ? realPctV.toFixed(1) + '%' : '-'}</td>
@@ -508,7 +510,7 @@ export default function ProfitLossView({
       )}
       {tab === 'statement' && (
       <p className="text-[9px] text-text-dim font-bold uppercase text-center opacity-60">
-        Podés editar manualmente cada renglón del PROYECTADO. El REAL se carga importando el Excel. Los subtotales se recalculan solos. Acordate de tocar GUARDAR para persistir los cambios.
+        Podés editar manualmente cada renglón del PROYECTADO y del REAL (o cargar el Real importando el Excel). Los subtotales se recalculan solos. Acordate de tocar GUARDAR para persistir los cambios.
       </p>
       )}
     </motion.div>
