@@ -5,9 +5,12 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Loader2, TrendingUp, TrendingDown, Minus, Save } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, Minus, Save, FileSpreadsheet, FileText } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import {
   PL_STRUCTURE, SUBTOTAL_COMPONENTS, GANANCIA_BRUTA_COMPONENTS, OPERATIVA_COMPONENTS,
   OPERATIVA_NETA_COMPONENTS, FINAL_COMPONENTS, VARIABLE_COST_KEYS
@@ -261,8 +264,77 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   const comparableMonths = yoyRows.filter(r => r.oldMd && r.newMd).map(r => MONTHS_ES[parseInt(r.mm) - 1]);
   const isPartialYear = yearOld != null && comparableMonths.length > 0 && comparableMonths.length < 12;
 
+  // ───────── Exportaciones de KPIs ─────────
+  const labelOfKey = (key: string) => labelOf(key);
+  // Comparación de gastos seleccionados (mismo cálculo que la tabla)
+  const buildGastosRows = () => selectedExpenses.map(key => {
+    let oldSum = 0, oldVentas = 0, newSum = 0, newVentas = 0;
+    yoyRows.forEach(r => {
+      if (r.oldMd && r.newMd) { oldSum += adjustOld(Math.abs(r.oldMd.lines[key] || 0), r.mm); oldVentas += adjustOld(r.oldMd.ventas, r.mm); }
+      if (r.newMd) { newSum += Math.abs(r.newMd.lines[key] || 0); newVentas += r.newMd.ventas; }
+    });
+    const oldPct = oldVentas !== 0 ? (oldSum / oldVentas) * 100 : 0;
+    const newPct = newVentas !== 0 ? (newSum / newVentas) * 100 : 0;
+    const varV = oldSum !== 0 ? ((newSum - oldSum) / Math.abs(oldSum)) * 100 : null;
+    return { label: labelOfKey(key), oldSum, oldPct, newSum, newPct, varV };
+  });
+  // Evolución mensual (ventas, ganancia, margen)
+  const buildEvolucionRows = () => allMonths.map(m => ({
+    mes: monthLabel(m.month), ventas: m.ventas, ganancia: m.ganancia,
+    margen: m.ventas !== 0 ? (m.ganancia / m.ventas) * 100 : 0,
+  }));
+  const money = (n: number) => (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-AR');
+  const scopeSuffix = scope && scope !== 'consolidated' ? scope : 'Consolidado';
+
+  const exportKpisExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const g = [[`Gastos a Analizar · ${yearOld || '—'} vs ${yearNew} (ajustado por inflación)`], [],
+      ['Concepto', `${yearOld || 'Año ant.'} (ajustado) $`, '% s/Ventas', `${yearNew} $`, '% s/Ventas', 'Variación %']];
+    buildGastosRows().forEach(r => g.push([r.label, Math.round(r.oldSum), +r.oldPct.toFixed(1), Math.round(r.newSum), +r.newPct.toFixed(1), r.varV !== null ? +r.varV.toFixed(1) : '—'] as any));
+    const wsG = XLSX.utils.aoa_to_sheet(g); wsG['!cols'] = [{ wch: 38 }, { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsG, 'Gastos a Analizar');
+    const e = [['Evolución mensual (Real)'], [], ['Mes', 'Ventas', 'Ganancia Final', 'Margen %']];
+    buildEvolucionRows().forEach(r => e.push([r.mes, Math.round(r.ventas), Math.round(r.ganancia), +r.margen.toFixed(1)] as any));
+    const wsE = XLSX.utils.aoa_to_sheet(e); wsE['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, wsE, 'Evolución mensual');
+    XLSX.writeFile(wb, `KPIs_EERR_${scopeSuffix.replace(/\s+/g, '_')}_${yearNew}.xlsx`);
+  };
+
+  const exportKpisPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(13); doc.text('KPIs · Estado de Resultados', 14, 14);
+    doc.setFontSize(9); doc.text(`Gastos a Analizar · ${yearOld || '—'} vs ${yearNew} (ajustado por inflación)`, 14, 20);
+    autoTable(doc, {
+      head: [['Concepto', `${yearOld || 'Ant.'} (ajust.)`, '% Vtas', `${yearNew}`, '% Vtas', 'Var. %']],
+      body: buildGastosRows().map(r => [r.label, r.oldSum ? money(r.oldSum) : '—', r.oldSum ? r.oldPct.toFixed(1) + '%' : '—', r.newSum ? money(r.newSum) : '—', r.newSum ? r.newPct.toFixed(1) + '%' : '—', r.varV !== null ? (r.varV > 0 ? '+' : '') + r.varV.toFixed(1) + '%' : '—']),
+      startY: 25, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31], fontSize: 8 },
+      columnStyles: { 0: { cellWidth: 60 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    });
+    const y2 = (doc as any).lastAutoTable.finalY + 8;
+    doc.setFontSize(11); doc.text('Evolución mensual (Real)', 14, y2);
+    autoTable(doc, {
+      head: [['Mes', 'Ventas', 'Ganancia Final', 'Margen %']],
+      body: buildEvolucionRows().map(r => [r.mes, money(r.ventas), money(r.ganancia), r.margen.toFixed(1) + '%']),
+      startY: y2 + 4, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31], fontSize: 8 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+    });
+    doc.save(`KPIs_EERR_${scopeSuffix.replace(/\s+/g, '_')}_${yearNew}.pdf`);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Exportaciones de KPIs */}
+      <div className="flex items-center justify-end gap-2">
+        <button onClick={exportKpisExcel}
+          className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-emerald-500/20 transition-all flex items-center gap-2">
+          <FileSpreadsheet size={14} /> Excel
+        </button>
+        <button onClick={exportKpisPDF}
+          className="bg-red-500/10 border border-red-500/30 text-red-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-red-500/20 transition-all flex items-center gap-2">
+          <FileText size={14} /> PDF
+        </button>
+      </div>
+
       {/* Aviso si el mes elegido no tiene Estado de Resultado cargado */}
       {mesPESinDatos && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">

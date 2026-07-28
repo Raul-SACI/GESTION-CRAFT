@@ -4,8 +4,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Calendar, FileUp, FileDown, Loader2, Save } from 'lucide-react';
+import { BarChart3, Calendar, FileUp, FileDown, FileSpreadsheet, FileText, Loader2, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
@@ -294,6 +296,106 @@ export default function ProfitLossView({
     setSaving(false);
   };
 
+  // ───────────── Exportaciones (Estado de Resultados y Meses del Año) ─────────────
+  const MES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  const scopeNameExp = scope === 'consolidated' ? 'Consolidado (Todas)' : (branches.find(b => b.id === scope)?.name || scope);
+  const nMoney = (n: number) => (n === 0 ? 0 : Math.round(n));
+  const money = (n: number) => (n === 0 ? '-' : (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('es-AR'));
+
+  // Filas del Estado de Resultados: [Concepto, Proy $, Proy USD, Proy %, Real $, Real USD, Real %, Var %]
+  const buildStatementRows = () => {
+    const rows: { label: string; isHeader: boolean; vals: (string | number)[] }[] = [];
+    PL_STRUCTURE.forEach(def => {
+      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, vals: [] }); return; }
+      const v = computed[def.key] || emptyLine();
+      const projPctV = pct(v.projPesos, ventasNetasProj);
+      const realPctV = pct(v.realPesos, ventasNetasReal);
+      const varPct = v.projPesos !== 0 && v.realPesos !== 0 ? ((v.realPesos - v.projPesos) / Math.abs(v.projPesos)) * 100 : null;
+      rows.push({
+        label: (def.indent ? '   ' : '') + def.label, isHeader: false,
+        vals: [
+          nMoney(v.projPesos), nMoney(v.projUsd), projPctV ? projPctV.toFixed(1) + '%' : '-',
+          nMoney(v.realPesos), nMoney(v.realUsd), realPctV ? realPctV.toFixed(1) + '%' : '-',
+          varPct !== null ? (varPct > 0 ? '+' : '') + varPct.toFixed(1) + '%' : '-',
+        ],
+      });
+    });
+    return rows;
+  };
+
+  const exportStatementExcel = () => {
+    const header = ['Concepto', 'Proyectado $', 'Proyectado USD', 'Proy. % s/Ventas', 'Real $', 'Real USD', 'Real % s/Ventas', 'Variación %'];
+    const aoa: any[][] = [
+      [`Estado de Resultados · ${scopeNameExp} · ${selectedMonth}`],
+      [], header,
+    ];
+    buildStatementRows().forEach(r => aoa.push(r.isHeader ? [r.label] : [r.label.trim(), ...r.vals]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 40 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'EERR');
+    XLSX.writeFile(wb, `EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}.xlsx`);
+  };
+
+  const exportStatementPDF = () => {
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(13); doc.text('Estado de Resultados', 14, 14);
+    doc.setFontSize(9); doc.text(`${scopeNameExp} · ${selectedMonth}`, 14, 20);
+    const body = buildStatementRows().map(r => r.isHeader
+      ? [{ content: r.label, colSpan: 8, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
+      : [r.label.trim(), ...r.vals.map(v => typeof v === 'number' ? money(v) : v)]);
+    autoTable(doc, {
+      head: [['Concepto', 'Proy. $', 'Proy. USD', 'Proy. %', 'Real $', 'Real USD', 'Real %', 'Var. %']],
+      body: body as any, startY: 25, styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
+      columnStyles: { 0: { cellWidth: 60 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+    });
+    doc.save(`EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}.pdf`);
+  };
+
+  // Filas de Meses del Año (Real): [Concepto, ...meses, Acumulado]
+  const buildYearlyData = () => {
+    const monthsLoaded = Object.keys(yearlyData).sort();
+    const computedByMonth: Record<string, LinesMap> = {};
+    monthsLoaded.forEach(m => { computedByMonth[m] = computeFromLines(yearlyData[m]); });
+    const cols = ['Concepto', ...monthsLoaded.map(m => MES_ABBR[parseInt(m.slice(5, 7)) - 1]), 'Acumulado'];
+    const rows: { label: string; isHeader: boolean; vals: number[] }[] = [];
+    PL_STRUCTURE.forEach(def => {
+      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, vals: [] }); return; }
+      const monthVals = monthsLoaded.map(m => computedByMonth[m][def.key]?.realPesos || 0);
+      const acc = monthVals.reduce((s, n) => s + n, 0);
+      rows.push({ label: (def.indent ? '   ' : '') + def.label, isHeader: false, vals: [...monthVals, acc] });
+    });
+    return { cols, rows, monthsLoaded };
+  };
+
+  const exportYearlyExcel = () => {
+    const { cols, rows } = buildYearlyData();
+    const aoa: any[][] = [[`Estado de Resultados por mes (Real) · ${scopeNameExp} · Año ${selectedMonth.slice(0, 4)}`], [], cols];
+    rows.forEach(r => aoa.push(r.isHeader ? [r.label] : [r.label.trim(), ...r.vals.map(nMoney)]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 40 }, ...cols.slice(1).map(() => ({ wch: 16 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Meses');
+    XLSX.writeFile(wb, `EERR_meses_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth.slice(0, 4)}.xlsx`);
+  };
+
+  const exportYearlyPDF = () => {
+    const { cols, rows } = buildYearlyData();
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(13); doc.text('Estado de Resultados por mes (Real)', 14, 14);
+    doc.setFontSize(9); doc.text(`${scopeNameExp} · Año ${selectedMonth.slice(0, 4)}`, 14, 20);
+    const body = rows.map(r => r.isHeader
+      ? [{ content: r.label, colSpan: cols.length, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
+      : [r.label.trim(), ...r.vals.map(money)]);
+    autoTable(doc, {
+      head: [cols], body: body as any, startY: 25, styles: { fontSize: 7, cellPadding: 1.5 },
+      headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
+      columnStyles: { 0: { cellWidth: 48 } },
+    });
+    doc.save(`EERR_meses_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth.slice(0, 4)}.pdf`);
+  };
+
   const scopeName = scope === 'consolidated' ? 'Consolidado (Todas)' : (branches.find(b => b.id === scope)?.name || scope);
 
   return (
@@ -330,6 +432,18 @@ export default function ProfitLossView({
               <button onClick={handleSave} disabled={saving}
                 className="bg-brand-500 text-black px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-60 flex items-center gap-2">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
+              </button>
+            </>
+          )}
+          {(tab === 'statement' || tab === 'yearly') && (
+            <>
+              <button onClick={tab === 'yearly' ? exportYearlyExcel : exportStatementExcel}
+                className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-emerald-500/20 transition-all flex items-center gap-2">
+                <FileSpreadsheet size={14} /> Excel
+              </button>
+              <button onClick={tab === 'yearly' ? exportYearlyPDF : exportStatementPDF}
+                className="bg-red-500/10 border border-red-500/30 text-red-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-red-500/20 transition-all flex items-center gap-2">
+                <FileText size={14} /> PDF
               </button>
             </>
           )}
