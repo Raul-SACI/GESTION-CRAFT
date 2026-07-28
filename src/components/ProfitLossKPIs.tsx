@@ -30,9 +30,17 @@ const monthLabel = (m: string) => { const [y, mm] = m.split('-'); return `${MONT
 // Gastos seleccionados por defecto
 const DEFAULT_EXPENSE_KEYS = ['cmv', 'sueldos_rel', 'alquileres_expensas', 'gastos_legales', 'consumo_energia', 'gastos_indumentaria'];
 
-// Todos los conceptos analizables (líneas input + subtotales), con su label
-const ANALYZABLE = PL_STRUCTURE.filter(d => d.type === 'input' || d.type === 'subtotal').map(d => ({ key: d.key, label: d.label }));
+// Todos los conceptos analizables (líneas input + subtotales), con su label.
+// isGroup = es una agrupación/subtotal (suma de otros conceptos), no un ítem individual.
+const ANALYZABLE = PL_STRUCTURE.filter(d => d.type === 'input' || d.type === 'subtotal').map(d => ({ key: d.key, label: d.label, isGroup: d.type === 'subtotal' }));
 const labelOf = (key: string) => ANALYZABLE.find(a => a.key === key)?.label || key;
+const isGroupKey = (key: string) => ANALYZABLE.find(a => a.key === key)?.isGroup || false;
+// Texto explicativo de qué compone cada agrupación (para el tooltip)
+const groupTooltip = (key: string) => {
+  const parts = SUBTOTAL_COMPONENTS[key];
+  if (!parts || parts.length === 0) return 'Agrupación: suma de varios conceptos';
+  return 'Suma de: ' + parts.map(labelOf).join(', ');
+};
 
 // Calcula el punto de equilibrio económico a partir de un mapa de líneas (key -> monto en pesos).
 // Convención de signos del EERR: ventas positivas, egresos negativos.
@@ -475,14 +483,30 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
         </div>
         {showExpensePicker && (
           <div className="px-5 py-3 border-b border-border-dim bg-bg-accent/10">
-            <p className="text-[9px] font-black uppercase text-text-dim mb-2">Tildá los conceptos que querés analizar:</p>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <p className="text-[9px] font-black uppercase text-text-dim">Tildá los conceptos que querés analizar:</p>
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1 text-[8px] font-black uppercase text-text-dim">
+                  <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-500 border border-brand-500/30">Grupo</span> Agrupación
+                </span>
+                <span className="flex items-center gap-1 text-[8px] font-black uppercase text-text-dim">
+                  <span className="w-2 h-2 rounded-full bg-text-dim/40" /> Ítem
+                </span>
+              </div>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-1.5 max-h-64 overflow-y-auto">
               {ANALYZABLE.map(a => (
-                <label key={a.key} className="flex items-center gap-2 cursor-pointer">
+                <label key={a.key} className={cn("flex items-center gap-2 cursor-pointer rounded px-1 py-0.5",
+                  a.isGroup && "bg-brand-500/5")}>
                   <input type="checkbox" checked={selectedExpenses.includes(a.key)}
                     onChange={(e) => setSelectedExpenses(prev => e.target.checked ? [...prev, a.key] : prev.filter(k => k !== a.key))}
                     className="w-3.5 h-3.5 accent-brand-500 shrink-0" />
-                  <span className="text-[10px] font-bold text-text-main truncate">{a.label}</span>
+                  {a.isGroup
+                    ? <span title={groupTooltip(a.key)} className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-500 border border-brand-500/30 shrink-0">Grupo</span>
+                        <span className="text-[10px] font-black text-text-main uppercase truncate">{a.label}</span>
+                      </span>
+                    : <span className="text-[10px] font-bold text-text-dim truncate pl-1">{a.label}</span>}
                 </label>
               ))}
             </div>
@@ -516,9 +540,15 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
                 const oldPct = oldVentas !== 0 ? (oldSum / oldVentas) * 100 : 0;
                 const newPct = newVentas !== 0 ? (newSum / newVentas) * 100 : 0;
                 const varV = oldSum !== 0 ? ((newSum - oldSum) / Math.abs(oldSum)) * 100 : null;
+                const esGrupo = isGroupKey(key);
                 return (
-                  <tr key={key} className="border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10">
-                    <td className="px-4 py-2 font-black uppercase text-text-main">{labelOf(key)}</td>
+                  <tr key={key} className={cn("border-b border-border-dim/30 text-[11px] hover:bg-bg-accent/10", esGrupo && "bg-brand-500/5")}>
+                    <td className="px-4 py-2 font-black uppercase text-text-main">
+                      <span className="flex items-center gap-2">
+                        {esGrupo && <span title={groupTooltip(key)} className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-brand-500/15 text-brand-500 border border-brand-500/30 shrink-0">Grupo</span>}
+                        <span className={esGrupo ? "" : "font-bold text-text-dim normal-case"}>{labelOf(key)}</span>
+                      </span>
+                    </td>
                     <td className="px-4 py-2 text-right font-mono text-text-dim">
                       {oldSum ? fmt(oldSum) : '—'}{oldSum ? <span className="text-[8px] block">{oldPct.toFixed(1)}%</span> : null}
                     </td>
