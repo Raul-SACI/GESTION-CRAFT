@@ -493,12 +493,21 @@ export default function ProfitLossView({
             const computedByMonth: Record<string, LinesMap> = {};
             monthsLoaded.forEach(m => { computedByMonth[m] = computeFromLines(yearlyData[m]); });
             const fmtCell = (n: number) => n === 0 ? '-' : '$' + Math.round(n).toLocaleString('es-AR');
+            const fmtUsd = (n: number) => n === 0 ? '' : 'US$' + Math.round(n).toLocaleString('es-AR');
+            // Ventas netas por mes y acumulada (base para el % sobre ventas)
+            const ventasMes: Record<string, number> = {};
+            monthsLoaded.forEach(m => { ventasMes[m] = computedByMonth[m]['ventas_netas']?.realPesos || 0; });
+            const ventasAcc = monthsLoaded.reduce((s, m) => s + ventasMes[m], 0);
+            const pctSobre = (val: number, base: number) => base !== 0 ? (val / base) * 100 : 0;
             return (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse min-w-[700px]">
                   <thead>
                     <tr className="bg-bg-accent/40 border-b border-border-dim">
-                      <th className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest sticky left-0 bg-bg-accent/40">Concepto (Real)</th>
+                      <th className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest sticky left-0 bg-bg-accent/40">
+                        Concepto (Real)
+                        <span className="block text-[7px] font-bold text-text-dim/60 normal-case tracking-normal">cada celda: $ · US$ · % s/ventas</span>
+                      </th>
                       {monthsLoaded.map(m => (
                         <th key={m} className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">
                           {MES_ABBR[parseInt(m.slice(5,7)) - 1]}
@@ -529,25 +538,33 @@ export default function ProfitLossView({
                           </span>
                         )
                       );
+                      // Celda apilada: pesos (principal) + dólares + % sobre ventas
+                      const celda = (valP: number, valU: number, base: number, acumulada: boolean) => (
+                        <div className="flex flex-col items-end leading-tight">
+                          {esFinal ? cajaResultado(valP) : <span className={cn(valP < 0 ? "text-red-400" : isSub || acumulada ? "text-text-main" : "text-text-dim")}>{fmtCell(valP)}</span>}
+                          {valU ? <span className="text-[8px] text-text-dim/80 mt-0.5">{fmtUsd(valU)}</span> : null}
+                          {valP && base ? <span className="text-[8px] text-text-dim/70">{pctSobre(valP, base).toFixed(1)}%</span> : null}
+                        </div>
+                      );
                       return (
                         <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black", esFinal && "bg-bg-accent/30")}>
                           <td className={cn("px-4 py-2 text-[11px] sticky left-0 bg-bg-sidebar", isSub ? "font-black text-text-main uppercase" : "text-text-dim")} style={{ paddingLeft: `${16 + (def.indent || 0) * 16}px` }}>
                             {def.label}
                           </td>
                           {monthsLoaded.map(m => {
-                            const val = computedByMonth[m][def.key]?.realPesos || 0;
+                            const cell = computedByMonth[m][def.key] || emptyLine();
                             return (
-                              <td key={m} className={cn("px-4 py-2 text-right font-mono text-[11px]", !esFinal && (val < 0 ? "text-red-400" : isSub ? "text-text-main" : "text-text-dim"))}>
-                                {esFinal ? cajaResultado(val) : fmtCell(val)}
+                              <td key={m} className="px-4 py-2 text-right font-mono text-[11px] align-top">
+                                {celda(cell.realPesos, cell.realUsd, ventasMes[m], false)}
                               </td>
                             );
                           })}
                           {(() => {
-                            const acc = monthsLoaded.reduce((s, m) => s + (computedByMonth[m][def.key]?.realPesos || 0), 0);
+                            const accP = monthsLoaded.reduce((s, m) => s + (computedByMonth[m][def.key]?.realPesos || 0), 0);
+                            const accU = monthsLoaded.reduce((s, m) => s + (computedByMonth[m][def.key]?.realUsd || 0), 0);
                             return (
-                              <td className={cn("px-4 py-2 text-right font-mono text-[11px] font-black border-l-2 border-brand-500/40 bg-brand-500/5",
-                                !esFinal && (acc < 0 ? "text-red-400" : "text-text-main"))}>
-                                {esFinal ? cajaResultado(acc) : fmtCell(acc)}
+                              <td className="px-4 py-2 text-right font-mono text-[11px] font-black border-l-2 border-brand-500/40 bg-brand-500/5 align-top">
+                                {celda(accP, accU, ventasAcc, true)}
                               </td>
                             );
                           })()}
