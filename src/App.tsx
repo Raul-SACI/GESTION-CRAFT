@@ -105,6 +105,7 @@ const ConsumoView = lazy(() => import('./components/ConsumoView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const ChecklistView = lazy(() => import('./components/ChecklistView'));
+const RecetasLideresView = lazy(() => import('./components/RecetasLideresView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
@@ -554,7 +555,7 @@ function AppContent() {
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
-    'checklist_sucursal', 'checklist_lideres',
+    'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
     'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
@@ -623,6 +624,7 @@ function AppContent() {
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
       { id: 'checklist_lideres', label: 'Check-List', icon: CheckSquare },
+      { id: 'recetas_lideres', label: 'Recetas', icon: BookOpen },
     ],
     'Centro de Producción': [
       { id: 'produccion_mes', label: 'Producción del mes', icon: Factory },
@@ -1652,6 +1654,7 @@ function AppContent() {
               {activeTab === 'config_salones' && <SalonConfigView key="config_salones" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'checklist_sucursal' && <ChecklistView key="checklist_sucursal" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="sucursal" />}
               {activeTab === 'checklist_lideres' && <ChecklistView key="checklist_lideres" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="lideres" />}
+              {activeTab === 'recetas_lideres' && <RecetasLideresView key="recetas_lideres" items={items} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'horas' && <HourControlView key="horas" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'stock' && (
                 <StockView 
