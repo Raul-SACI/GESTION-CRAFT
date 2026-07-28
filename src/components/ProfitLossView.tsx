@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Calendar, FileUp, Loader2, Save } from 'lucide-react';
+import { BarChart3, Calendar, FileUp, FileDown, Loader2, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
@@ -144,6 +144,28 @@ export default function ProfitLossView({
   const ventasNetasProj = computed['ventas_netas']?.projPesos || 0;
   const ventasNetasReal = computed['ventas_netas']?.realPesos || 0;
   const pct = (val: number, base: number) => base !== 0 ? (val / base) * 100 : 0;
+
+  // Descarga una planilla modelo (mismo formato que espera el importador) para completar y subir.
+  const descargarPlantilla = () => {
+    const header = ['Concepto', 'Proyectado $', 'Proyectado USD', '', 'Real $', 'Real USD'];
+    const aoa: any[][] = [header];
+    PL_STRUCTURE.forEach(d => {
+      // Encabezados y subtotales se muestran como referencia (se recalculan solos al importar).
+      const esCalculado = d.type !== 'input';
+      aoa.push([
+        d.label,
+        esCalculado ? '(se calcula)' : '',
+        '', '',
+        esCalculado ? '(se calcula)' : '',
+        '',
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 42 }, { wch: 14 }, { wch: 14 }, { wch: 3 }, { wch: 14 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'EERR');
+    XLSX.writeFile(wb, `plantilla_EERR_${selectedMonth}.xlsx`);
+  };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
@@ -297,6 +319,10 @@ export default function ProfitLossView({
           </div>
           {!isReadOnly && (
             <>
+              <button onClick={descargarPlantilla}
+                className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main hover:border-brand-500/50 transition-all flex items-center gap-2">
+                <FileDown size={14} /> Plantilla
+              </button>
               <label className={cn("bg-bg-accent border border-border-dim rounded px-3 py-2 text-[10px] font-black uppercase text-text-main cursor-pointer hover:border-brand-500/50 transition-all flex items-center gap-2", importing && "opacity-60 pointer-events-none")}>
                 {importing ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />} Importar Excel
                 <input type="file" accept=".xlsx,.xls" onChange={handleImport} className="hidden" disabled={importing} />
