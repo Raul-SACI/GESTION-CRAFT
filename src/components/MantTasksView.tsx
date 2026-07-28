@@ -160,12 +160,39 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
 
   const assetById = useMemo(() => { const m: Record<string, Asset> = {}; assets.forEach(a => { m[a.id] = a; }); return m; }, [assets]);
 
+  const branchOf = (t: Task) => t.branch || (t.asset_id ? assetById[t.asset_id]?.branch : '') || '';
+
   const filtered = useMemo(() => tasks.filter(t => {
-    const tb = t.branch || (t.asset_id ? assetById[t.asset_id]?.branch : '') || '';
+    const tb = branchOf(t);
     if (fBranch && tb !== fBranch) return false;
     if (fStatus && t.status !== fStatus) return false;
     return true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [tasks, fBranch, fStatus, assetById]);
+
+  // Color estable por sucursal (para identificarla rápido en el calendario)
+  const BRANCH_PALETTE = ['#6366f1', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#0ea5e9', '#84cc16', '#e11d48', '#eab308', '#06b6d4'];
+  const branchColor = useMemo(() => {
+    const m: Record<string, string> = {};
+    [...branches].sort().forEach((b, i) => { m[b] = BRANCH_PALETTE[i % BRANCH_PALETTE.length]; });
+    return m;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branches]);
+  // Abreviatura corta de la sucursal (iniciales de palabras o primeras 3 letras)
+  const abrevSuc = (name?: string) => {
+    const c = (name || '').trim();
+    if (!c) return '';
+    const w = c.split(/\s+/).filter(Boolean);
+    if (w.length >= 2) return (w[0][0] + w[1][0] + (w[2] ? w[2][0] : '')).toUpperCase();
+    return c.slice(0, 3).toUpperCase();
+  };
+
+  // Modal con la lista completa de tareas de un día
+  const [dayDetail, setDayDetail] = useState<string | null>(null);
+  const fmtDMY = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+  const DIAS_SEM = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const nombreDiaDe = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return DIAS_SEM[new Date(y, m - 1, d).getDay()]; };
+  const tareasDeFecha = (iso: string) => filtered.filter(t => t.scheduled_date === iso);
 
   const saveTask = async () => {
     if (!editing) return;
@@ -298,26 +325,36 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
                 const tdia = tareasDia(d);
                 const esHoy = ds === hoy;
                 return (
-                  <div key={d} className={cn("min-h-[90px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden",
-                    esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10")}>
-                    <span className={cn("text-[10px] font-black", esHoy ? "text-brand-500" : "text-text-dim")}>{d}</span>
+                  <div key={d} onClick={() => tdia.length > 0 && setDayDetail(ds)}
+                    className={cn("min-h-[90px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden transition-colors",
+                      tdia.length > 0 && "cursor-pointer hover:border-brand-500/60",
+                      esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10")}>
+                    <div className="flex items-center justify-between">
+                      <span className={cn("text-[10px] font-black", esHoy ? "text-brand-500" : "text-text-dim")}>{d}</span>
+                      {tdia.length > 0 && <span className="text-[8px] font-black text-text-dim bg-bg-accent rounded px-1">{tdia.length}</span>}
+                    </div>
                     <div className="flex flex-col gap-0.5 overflow-y-auto">
-                      {tdia.slice(0, 4).map(t => (
-                        <button key={t.id} onClick={() => setEditing(t)}
-                          className="text-left text-[8px] font-bold uppercase truncate px-1 py-0.5 rounded hover:opacity-80 transition-opacity"
-                          style={{ backgroundColor: ST_BORDER[t.status] + '22', color: ST_BORDER[t.status] }}
-                          title={t.description}>
-                          {t.description || t.task_type}
-                        </button>
-                      ))}
-                      {tdia.length > 4 && <span className="text-[8px] font-bold text-text-dim px-1">+{tdia.length - 4} más</span>}
+                      {tdia.slice(0, 4).map(t => {
+                        const tb = branchOf(t);
+                        return (
+                          <button key={t.id} onClick={e => { e.stopPropagation(); setEditing(t); }}
+                            className="flex items-center gap-1 text-left text-[8px] font-bold uppercase px-1 py-0.5 rounded hover:opacity-80 transition-opacity"
+                            style={{ backgroundColor: ST_BORDER[t.status] + '22', color: ST_BORDER[t.status] }}
+                            title={`${tb ? tb + ' · ' : ''}${t.description}`}>
+                            {tb && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: branchColor[tb] || '#94a3b8' }} />}
+                            <span className="truncate">{tb ? `${abrevSuc(tb)} · ` : ''}{t.description || t.task_type}</span>
+                          </button>
+                        );
+                      })}
+                      {tdia.length > 4 && <span className="text-[8px] font-bold text-brand-500 px-1">+{tdia.length - 4} más</span>}
                     </div>
                   </div>
                 );
               })}
             </div>
-            {/* Referencia de colores */}
+            {/* Referencia de colores: estado (fondo del chip) */}
             <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-border-dim/40">
+              <span className="text-[8px] font-black uppercase text-text-dim/60 tracking-widest self-center">Estado:</span>
               {STATUSES.map(s => (
                 <div key={s} className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded" style={{ backgroundColor: ST_BORDER[s] }} />
@@ -325,6 +362,18 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
                 </div>
               ))}
             </div>
+            {/* Referencia de colores: sucursal (puntito del chip) */}
+            {branches.length > 0 && (
+              <div className="flex flex-wrap gap-3 mt-2">
+                <span className="text-[8px] font-black uppercase text-text-dim/60 tracking-widest self-center">Sucursal:</span>
+                {[...branches].sort().map(b => (
+                  <div key={b} className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: branchColor[b] || '#94a3b8' }} />
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">{abrevSuc(b)} · {b}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -380,6 +429,74 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
       })}
       {filtered.length === 0 && (
         <div className="py-16 text-center text-[10px] font-black uppercase text-text-dim">No hay tareas para mostrar</div>
+      )}
+
+      {/* Modal: lista completa de tareas de un día */}
+      {dayDetail && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDayDetail(null)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-border-dim">
+              <div className="flex items-center gap-2">
+                <CalendarDays size={18} className="text-brand-500" />
+                <div>
+                  <h3 className="text-sm font-black uppercase text-text-main tracking-wide">{nombreDiaDe(dayDetail)} {fmtDMY(dayDetail)}</h3>
+                  <p className="text-[9px] text-text-dim font-bold uppercase">{tareasDeFecha(dayDetail).length} tarea(s){fBranch ? ` · ${fBranch}` : ''}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => { setEditing({ ...emptyTask(fBranch || branches[0] || ''), scheduled_date: dayDetail }); setDayDetail(null); }}
+                  className="flex items-center gap-1.5 bg-brand-500 text-white px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600">
+                  <Plus size={13} /> Nueva
+                </button>
+                <button onClick={() => setDayDetail(null)} className="p-1.5 text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+            </div>
+            <div className="p-4 overflow-y-auto custom-scrollbar space-y-2">
+              {tareasDeFecha(dayDetail).length === 0 ? (
+                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">No hay tareas para este día.</p>
+              ) : tareasDeFecha(dayDetail).map(t => {
+                const a = t.asset_id ? assetById[t.asset_id] : null;
+                const tb = branchOf(t);
+                const isGen = t.task_type === 'general';
+                return (
+                  <div key={t.id} className="bg-bg-sidebar border border-border-dim rounded-lg p-3 flex justify-between items-start gap-3"
+                    style={{ borderLeftWidth: '3px', borderLeftColor: ST_BORDER[t.status] }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {tb && (
+                          <span className="flex items-center gap-1 text-[8px] font-black uppercase px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: (branchColor[tb] || '#94a3b8') + '22', color: branchColor[tb] || '#64748b' }}>
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: branchColor[tb] || '#94a3b8' }} /> {tb}
+                          </span>
+                        )}
+                        <span className={cn("text-[8px] px-2 py-0.5 rounded font-black uppercase", ST_CLR[t.status])}>{ST_LBL[t.status]}</span>
+                        {t.priority === 'urgente' && <span className="text-[8px] bg-red-500/15 text-red-500 px-2 py-0.5 rounded font-black uppercase">Urgente</span>}
+                        {isGen
+                          ? <span className="text-[8px] bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded font-black uppercase">General</span>
+                          : a?.name && <span className="text-[9px] font-black text-text-main uppercase">{a.name}</span>}
+                      </div>
+                      <p className="text-[12px] text-text-main">{t.description}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className={cn("text-[8px] px-1.5 py-0.5 rounded font-black uppercase", t.responsible === 'interno' ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500')}>
+                          {t.responsible === 'interno' ? 'Técnico interno' : `Externo: ${t.external_entity || 'Tercerizado'}`}
+                        </span>
+                        {t.created_by && <span className="text-[8px] text-text-dim font-bold uppercase">{t.created_by}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)}
+                        className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[9px] font-bold text-text-main outline-none">
+                        {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
+                      </select>
+                      <button onClick={() => { setEditing({ ...t }); setDayDetail(null); }} title="Editar" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Pencil size={14} /></button>
+                      <button onClick={() => deleteTask(t)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal alta/edición */}
