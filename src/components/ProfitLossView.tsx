@@ -353,45 +353,64 @@ export default function ProfitLossView({
     doc.save(`EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}.pdf`);
   };
 
-  // Filas de Meses del Año (Real): [Concepto, ...meses, Acumulado]
+  const fmtUsdExp = (n: number) => (n === 0 ? '' : 'US$' + Math.abs(Math.round(n)).toLocaleString('es-AR'));
+  interface YearCell { p: number; u: number; pct: number; }
+  // Filas de Meses del Año (Real) con pesos, dólares y % sobre ventas
   const buildYearlyData = () => {
     const monthsLoaded = Object.keys(yearlyData).sort();
     const computedByMonth: Record<string, LinesMap> = {};
     monthsLoaded.forEach(m => { computedByMonth[m] = computeFromLines(yearlyData[m]); });
-    const cols = ['Concepto', ...monthsLoaded.map(m => MES_ABBR[parseInt(m.slice(5, 7)) - 1]), 'Acumulado'];
-    const rows: { label: string; isHeader: boolean; vals: number[] }[] = [];
+    const ventasMes: Record<string, number> = {};
+    monthsLoaded.forEach(m => { ventasMes[m] = computedByMonth[m]['ventas_netas']?.realPesos || 0; });
+    const ventasAcc = monthsLoaded.reduce((s, m) => s + ventasMes[m], 0);
+    const rows: { label: string; isHeader: boolean; cells: YearCell[]; acc: YearCell }[] = [];
     PL_STRUCTURE.forEach(def => {
-      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, vals: [] }); return; }
-      const monthVals = monthsLoaded.map(m => computedByMonth[m][def.key]?.realPesos || 0);
-      const acc = monthVals.reduce((s, n) => s + n, 0);
-      rows.push({ label: (def.indent ? '   ' : '') + def.label, isHeader: false, vals: [...monthVals, acc] });
+      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, cells: [], acc: { p: 0, u: 0, pct: 0 } }); return; }
+      const cells: YearCell[] = monthsLoaded.map(m => {
+        const c = computedByMonth[m][def.key] || emptyLine();
+        return { p: c.realPesos, u: c.realUsd, pct: ventasMes[m] ? (c.realPesos / ventasMes[m]) * 100 : 0 };
+      });
+      const accP = cells.reduce((s, c) => s + c.p, 0), accU = cells.reduce((s, c) => s + c.u, 0);
+      rows.push({ label: (def.indent ? '   ' : '') + def.label, isHeader: false, cells, acc: { p: accP, u: accU, pct: ventasAcc ? (accP / ventasAcc) * 100 : 0 } });
     });
-    return { cols, rows, monthsLoaded };
+    return { monthsLoaded, rows };
   };
 
   const exportYearlyExcel = () => {
-    const { cols, rows } = buildYearlyData();
-    const aoa: any[][] = [[`Estado de Resultados por mes (Real) · ${scopeNameExp} · Año ${selectedMonth.slice(0, 4)}`], [], cols];
-    rows.forEach(r => aoa.push(r.isHeader ? [r.label] : [r.label.trim(), ...r.vals.map(nMoney)]));
+    const { monthsLoaded, rows } = buildYearlyData();
+    const header = ['Concepto'];
+    monthsLoaded.forEach(m => { const lbl = MES_ABBR[parseInt(m.slice(5, 7)) - 1]; header.push(`${lbl} $`, `${lbl} US$`, `${lbl} %`); });
+    header.push('Acum. $', 'Acum. US$', 'Acum. %');
+    const aoa: any[][] = [[`Estado de Resultados por mes (Real) · ${scopeNameExp} · Año ${selectedMonth.slice(0, 4)}`], [], header];
+    rows.forEach(r => {
+      if (r.isHeader) { aoa.push([r.label]); return; }
+      const line: any[] = [r.label.trim()];
+      r.cells.forEach(c => line.push(nMoney(c.p), Math.round(c.u), c.p ? +c.pct.toFixed(1) : ''));
+      line.push(nMoney(r.acc.p), Math.round(r.acc.u), r.acc.p ? +r.acc.pct.toFixed(1) : '');
+      aoa.push(line);
+    });
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 40 }, ...cols.slice(1).map(() => ({ wch: 16 }))];
+    ws['!cols'] = [{ wch: 40 }, ...header.slice(1).map(() => ({ wch: 13 }))];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Meses');
     XLSX.writeFile(wb, `EERR_meses_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth.slice(0, 4)}.xlsx`);
   };
 
   const exportYearlyPDF = () => {
-    const { cols, rows } = buildYearlyData();
+    const { monthsLoaded, rows } = buildYearlyData();
+    const cols = ['Concepto', ...monthsLoaded.map(m => MES_ABBR[parseInt(m.slice(5, 7)) - 1]), 'Acumulado'];
+    // Cada celda del PDF apila $ / US$ / % en líneas
+    const stack = (c: YearCell) => c.p === 0 ? '-' : [money(c.p), fmtUsdExp(c.u), c.p ? c.pct.toFixed(1) + '%' : ''].filter(Boolean).join('\n');
     const doc = new jsPDF({ orientation: 'landscape' });
     doc.setFontSize(13); doc.text('Estado de Resultados por mes (Real)', 14, 14);
-    doc.setFontSize(9); doc.text(`${scopeNameExp} · Año ${selectedMonth.slice(0, 4)}`, 14, 20);
+    doc.setFontSize(9); doc.text(`${scopeNameExp} · Año ${selectedMonth.slice(0, 4)} · cada celda: $ / US$ / % s/ventas`, 14, 20);
     const body = rows.map(r => r.isHeader
       ? [{ content: r.label, colSpan: cols.length, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
-      : [r.label.trim(), ...r.vals.map(money)]);
+      : [r.label.trim(), ...r.cells.map(stack), stack(r.acc)]);
     autoTable(doc, {
-      head: [cols], body: body as any, startY: 25, styles: { fontSize: 7, cellPadding: 1.5 },
+      head: [cols], body: body as any, startY: 25, styles: { fontSize: 6, cellPadding: 1 },
       headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
-      columnStyles: { 0: { cellWidth: 48 } },
+      columnStyles: { 0: { cellWidth: 42 } },
     });
     doc.save(`EERR_meses_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth.slice(0, 4)}.pdf`);
   };
