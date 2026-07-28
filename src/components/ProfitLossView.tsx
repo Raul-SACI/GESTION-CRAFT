@@ -390,6 +390,9 @@ export default function ProfitLossView({
                           {MES_ABBR[parseInt(m.slice(5,7)) - 1]}
                         </th>
                       ))}
+                      <th className="px-4 py-3 text-[10px] font-black uppercase text-brand-500 tracking-widest text-right border-l-2 border-brand-500/40 bg-brand-500/5">
+                        Acumulado
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -397,7 +400,7 @@ export default function ProfitLossView({
                       if (def.type === 'header') {
                         return (
                           <tr key={def.key} className="bg-brand-500/5">
-                            <td colSpan={monthsLoaded.length + 1} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
+                            <td colSpan={monthsLoaded.length + 2} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
                           </tr>
                         );
                       }
@@ -415,6 +418,15 @@ export default function ProfitLossView({
                               </td>
                             );
                           })}
+                          {(() => {
+                            const acc = monthsLoaded.reduce((s, m) => s + (computedByMonth[m][def.key]?.realPesos || 0), 0);
+                            return (
+                              <td className={cn("px-4 py-2 text-right font-mono text-[11px] font-black border-l-2 border-brand-500/40 bg-brand-500/5",
+                                acc < 0 ? "text-red-400" : "text-text-main")}>
+                                {fmtCell(acc)}
+                              </td>
+                            );
+                          })()}
                         </tr>
                       );
                     })}
