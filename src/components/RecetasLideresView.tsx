@@ -40,9 +40,19 @@ interface RecipeItem {
   code: string | null;
   item_name: string;
   unit: string | null;
-  quantity: number | null;
+  quantity: number | string | null; // durante la edición puede ser texto (ej. "0,084")
   sort_order?: number;
 }
+
+// Convierte lo escrito (acepta coma o punto decimal) a número. "0,084" → 0.084
+const parseQty = (v: number | string | null | undefined): number | null => {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return isNaN(v) ? null : v;
+  const s = String(v).trim();
+  if (s === '') return null;
+  const n = parseFloat(s.replace(/\./g, s.includes(',') ? '' : '.').replace(',', '.'));
+  return isNaN(n) ? null : n;
+};
 
 const TIPOS: { id: Tipo; label: string; icon: any; color: string }[] = [
   { id: 'produccion', label: 'Producción', icon: ChefHat, color: 'text-teal-500' },
@@ -75,11 +85,12 @@ function compressImage(file: File): Promise<string> {
   });
 }
 
-const fmtQty = (q: number | null | undefined) => {
-  if (q === null || q === undefined || q === ('' as any)) return '';
-  const n = Number(q);
-  if (!isFinite(n)) return '';
-  return String(n);
+const fmtQty = (q: number | string | null | undefined) => {
+  if (q === null || q === undefined) return '';
+  // Si ya es texto (mientras se escribe), mostrarlo tal cual para permitir la coma
+  if (typeof q === 'string') return q;
+  if (!isFinite(q)) return '';
+  return String(q);
 };
 
 export default function RecetasLideresView({
@@ -236,7 +247,7 @@ export default function RecetasLideresView({
         code: it.code?.trim() || null,
         item_name: it.item_name.trim(),
         unit: it.unit?.trim() || null,
-        quantity: it.quantity === null || it.quantity === undefined || (it.quantity as any) === '' ? null : Number(it.quantity),
+        quantity: parseQty(it.quantity),
         sort_order: idx + 1,
       }));
       if (rows.length > 0) { const { error: e2 } = await supabase.from('op_recipe_items').insert(rows); if (e2) throw e2; }
@@ -358,7 +369,7 @@ export default function RecetasLideresView({
     return items.filter(i => i.name.toLowerCase().includes(q) || String(i.code || '').includes(q)).slice(0, 8);
   }, [ingSearch, items]);
 
-  const draftCosto = draftItems.reduce((a, it) => a + (costByCode.get(String(it.code)) || 0) * (Number(it.quantity) || 0), 0);
+  const draftCosto = draftItems.reduce((a, it) => a + (costByCode.get(String(it.code)) || 0) * (parseQty(it.quantity) || 0), 0);
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
@@ -589,7 +600,7 @@ export default function RecetasLideresView({
                           placeholder="cód." className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500" />
                         <input value={it.unit || ''} onChange={e => setItem(i, 'unit', e.target.value)}
                           placeholder="UM" className="col-span-3 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
-                        <input type="number" step="any" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value === '' ? null : parseFloat(e.target.value))}
+                        <input type="text" inputMode="decimal" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value)}
                           placeholder="0" className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
                         <button onClick={() => quitarItem(i)} type="button" className="col-span-1 text-text-dim hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
                       </div>
