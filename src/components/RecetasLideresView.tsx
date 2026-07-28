@@ -13,7 +13,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, Search, X, Save, Loader2, Upload, ImagePlus,
-  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks
+  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
@@ -31,6 +31,7 @@ interface Recipe {
   unit: string | null;
   photo: string | null;
   notes: string | null;
+  active?: boolean;
 }
 interface RecipeItem {
   id?: string;
@@ -95,6 +96,7 @@ export default function RecetasLideresView({
   const [itemsByRecipe, setItemsByRecipe] = useState<Record<string, RecipeItem[]>>({});
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [estadoFiltro, setEstadoFiltro] = useState<'activas' | 'inactivas' | 'todas'>('activas');
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -138,16 +140,25 @@ export default function RecetasLideresView({
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [tipo]);
 
+  // ¿La receta se considera activa? (por defecto sí, para las importadas sin el campo)
+  const esActiva = (r: Recipe) => r.active !== false;
+  const nActivas = useMemo(() => recipes.filter(esActiva).length, [recipes]);
+  const nInactivas = recipes.length - nActivas;
+
   const recetasFiltradas = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return recipes;
-    return recipes.filter(r =>
-      r.name.toLowerCase().includes(q) ||
-      String(r.code || '').toLowerCase().includes(q) ||
-      String(r.seccion || '').toLowerCase().includes(q) ||
-      (itemsByRecipe[r.id] || []).some(it => it.item_name.toLowerCase().includes(q))
-    );
-  }, [recipes, search, itemsByRecipe]);
+    return recipes.filter(r => {
+      if (estadoFiltro === 'activas' && !esActiva(r)) return false;
+      if (estadoFiltro === 'inactivas' && esActiva(r)) return false;
+      if (!q) return true;
+      return (
+        r.name.toLowerCase().includes(q) ||
+        String(r.code || '').toLowerCase().includes(q) ||
+        String(r.seccion || '').toLowerCase().includes(q) ||
+        (itemsByRecipe[r.id] || []).some(it => it.item_name.toLowerCase().includes(q))
+      );
+    });
+  }, [recipes, search, itemsByRecipe, estadoFiltro]);
 
   // Agrupar carta por sección
   const grupos = useMemo(() => {
@@ -162,7 +173,7 @@ export default function RecetasLideresView({
 
   // ── Editor ──
   const abrirNueva = () => {
-    setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null });
+    setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true });
     setDraftItems([]);
     setIngSearch('');
   };
@@ -210,6 +221,7 @@ export default function RecetasLideresView({
         unit: editing.unit?.trim() || null,
         photo: tipo === 'carta' ? (editing.photo || null) : null,
         notes: editing.notes?.trim() || null,
+        active: editing.active !== false,
         created_by: currentUserName || '—',
         updated_at: new Date().toISOString(),
       };
@@ -242,6 +254,14 @@ export default function RecetasLideresView({
     await supabase.from('op_recipe_items').delete().eq('recipe_id', r.id);
     await supabase.from('op_recipes').delete().eq('id', r.id);
     await cargar();
+  };
+
+  // Activar / inactivar sin abrir el editor (la receta queda en la base)
+  const toggleActiva = async (r: Recipe) => {
+    const nuevo = !esActiva(r);
+    setRecipes(prev => prev.map(x => x.id === r.id ? { ...x, active: nuevo } : x)); // optimista
+    const { error } = await supabase.from('op_recipes').update({ active: nuevo, updated_at: new Date().toISOString() }).eq('id', r.id);
+    if (error) { alert('Error al cambiar estado: ' + error.message); await cargar(); }
   };
 
   // ── Importador desde Excel (mismo formato de la planilla) ──
@@ -384,6 +404,23 @@ export default function RecetasLideresView({
         })}
       </div>
 
+      {/* Filtro por estado */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          { id: 'activas', label: `Activas (${nActivas})` },
+          { id: 'inactivas', label: `Inactivas (${nInactivas})` },
+          { id: 'todas', label: `Todas (${recipes.length})` },
+        ] as const).map(f => (
+          <button key={f.id} onClick={() => setEstadoFiltro(f.id)}
+            className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest border transition-all",
+              estadoFiltro === f.id
+                ? (f.id === 'inactivas' ? "bg-text-dim text-white border-text-dim" : "bg-emerald-500 text-white border-emerald-500")
+                : "bg-bg-card text-text-dim border-border-dim hover:border-brand-500/40")}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {/* Buscador */}
       <div className="flex items-center gap-2 bg-bg-card border border-border-dim rounded-lg px-3 py-2">
         <Search size={15} className="text-text-dim shrink-0" />
@@ -408,7 +445,7 @@ export default function RecetasLideresView({
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {recs.map(r => (
                   <RecipeCard key={r.id} r={r} nItems={(itemsByRecipe[r.id] || []).length} costo={costoReceta(r)}
-                    onEdit={() => abrirEditar(r)} onDelete={() => borrar(r)} isReadOnly={isReadOnly} withPhoto />
+                    activa={esActiva(r)} onEdit={() => abrirEditar(r)} onDelete={() => borrar(r)} onToggle={() => toggleActiva(r)} isReadOnly={isReadOnly} withPhoto />
                 ))}
               </div>
             </div>
@@ -418,7 +455,7 @@ export default function RecetasLideresView({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {recetasFiltradas.map(r => (
             <RecipeCard key={r.id} r={r} nItems={(itemsByRecipe[r.id] || []).length} costo={costoReceta(r)}
-              onEdit={() => abrirEditar(r)} onDelete={() => borrar(r)} isReadOnly={isReadOnly} />
+              activa={esActiva(r)} onEdit={() => abrirEditar(r)} onDelete={() => borrar(r)} onToggle={() => toggleActiva(r)} isReadOnly={isReadOnly} />
           ))}
         </div>
       )}
@@ -436,6 +473,24 @@ export default function RecetasLideresView({
             </div>
 
             <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              {/* Estado activa / inactiva */}
+              <div className="flex items-center gap-2 flex-wrap bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-2">
+                <span className="text-[9px] font-black uppercase text-text-dim tracking-widest mr-1">Estado:</span>
+                {([
+                  { v: true, label: 'Activa' },
+                  { v: false, label: 'Inactiva' },
+                ] as const).map(o => (
+                  <button key={String(o.v)} type="button" onClick={() => setEditing({ ...editing, active: o.v })}
+                    className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase border transition-all",
+                      (editing.active !== false) === o.v
+                        ? (o.v ? "bg-emerald-500 text-white border-emerald-500" : "bg-text-dim text-white border-text-dim")
+                        : "bg-bg-card text-text-dim border-border-dim hover:border-brand-500/40")}>
+                    {o.label}
+                  </button>
+                ))}
+                <span className="text-[8px] font-bold uppercase text-text-dim opacity-70">Inactiva = queda guardada pero no se usa</span>
+              </div>
+
               {/* Datos del producto */}
               <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-3">
@@ -560,20 +615,30 @@ export default function RecetasLideresView({
 }
 
 const RecipeCard: React.FC<{
-  r: Recipe; nItems: number; costo: number; onEdit: () => void; onDelete: () => void; isReadOnly?: boolean; withPhoto?: boolean;
-}> = ({ r, nItems, costo, onEdit, onDelete, isReadOnly, withPhoto }) => {
+  r: Recipe; nItems: number; costo: number; activa: boolean; onEdit: () => void; onDelete: () => void; onToggle: () => void; isReadOnly?: boolean; withPhoto?: boolean;
+}> = ({ r, nItems, costo, activa, onEdit, onDelete, onToggle, isReadOnly, withPhoto }) => {
   return (
-    <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden hover:border-brand-500/40 transition-all group">
+    <div className={cn("bg-bg-sidebar border rounded-lg overflow-hidden hover:border-brand-500/40 transition-all group",
+      activa ? "border-border-dim" : "border-border-dim/60 opacity-70")}>
       {withPhoto && (
-        <div className="h-28 bg-bg-accent flex items-center justify-center overflow-hidden">
-          {r.photo ? <img src={r.photo} alt={r.name} className="w-full h-full object-cover" />
+        <div className="h-28 bg-bg-accent flex items-center justify-center overflow-hidden relative">
+          {r.photo ? <img src={r.photo} alt={r.name} className={cn("w-full h-full object-cover", !activa && "grayscale")} />
             : <UtensilsCrossed size={26} className="text-text-dim/40" />}
+          {!activa && <span className="absolute top-1.5 left-1.5 text-[7px] font-black uppercase px-1.5 py-0.5 rounded bg-text-dim text-white">Inactiva</span>}
         </div>
       )}
       <div className="p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1 cursor-pointer" onClick={onEdit}>
-            <p className="text-[11px] font-black uppercase text-text-main leading-tight truncate">{r.name}</p>
+            <div className="flex items-center gap-1.5">
+              {!withPhoto && (
+                <span className={cn("text-[7px] font-black uppercase px-1.5 py-0.5 rounded shrink-0",
+                  activa ? "bg-emerald-500/15 text-emerald-600" : "bg-text-dim/15 text-text-dim")}>
+                  {activa ? 'Activa' : 'Inactiva'}
+                </span>
+              )}
+              <p className="text-[11px] font-black uppercase text-text-main leading-tight truncate">{r.name}</p>
+            </div>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {r.code && <span className="text-[8px] font-mono font-bold text-text-dim">{r.code}</span>}
               {r.unit && <span className="text-[8px] font-black uppercase text-text-dim">{r.unit}</span>}
@@ -583,8 +648,12 @@ const RecipeCard: React.FC<{
           </div>
           {!isReadOnly && (
             <div className="flex flex-col gap-1 shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
-              <button onClick={onEdit} className="text-text-dim hover:text-brand-500"><Pencil size={13} /></button>
-              <button onClick={onDelete} className="text-text-dim hover:text-red-500"><Trash2 size={13} /></button>
+              <button onClick={onEdit} title="Editar" className="text-text-dim hover:text-brand-500"><Pencil size={13} /></button>
+              <button onClick={onToggle} title={activa ? 'Inactivar' : 'Activar'}
+                className={cn("transition-colors", activa ? "text-text-dim hover:text-text-main" : "text-emerald-500 hover:text-emerald-600")}>
+                {activa ? <ToggleRight size={15} /> : <ToggleLeft size={15} />}
+              </button>
+              <button onClick={onDelete} title="Eliminar" className="text-text-dim hover:text-red-500"><Trash2 size={13} /></button>
             </div>
           )}
         </div>
