@@ -50,6 +50,7 @@ const SYSTEM_MODULES = [
   { id: 'supervisiones_operativas', label: 'Supervisiones', category: 'Gestión Líderes Operativos' },
   { id: 'registro_supervision', label: 'Registro de Supervisión', category: 'Gestión Líderes Operativos' },
   { id: 'checklist_lideres', label: 'Check-List (Líderes)', category: 'Gestión Líderes Operativos' },
+  { id: 'recetas_lideres', label: 'Recetas', category: 'Gestión Líderes Operativos' },
   { id: 'produccion_mes', label: 'Producción del Mes', category: 'Centro de Producción' },
   { id: 'produccion_stock_control', label: 'Control Stock Insumos', category: 'Centro de Producción' },
   { id: 'inventario_mensual_prod', label: 'Inventario Mensual (Producción)', category: 'Centro de Producción' },
