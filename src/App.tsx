@@ -106,6 +106,7 @@ const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const ChecklistView = lazy(() => import('./components/ChecklistView'));
 const RecetasLideresView = lazy(() => import('./components/RecetasLideresView'));
+const MktTasksView = lazy(() => import('./components/MktTasksView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
@@ -556,7 +557,7 @@ function AppContent() {
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
-    'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
+    'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -673,6 +674,7 @@ function AppContent() {
       { id: 'mant_config', label: 'Configuración', icon: Settings },
     ],
     'Marketing & Comercial': [
+      { id: 'mkt_tareas', label: 'Tareas y Reuniones', icon: ClipboardList },
       { id: 'mkt_giftcard', label: 'Gift Card', icon: Gift },
       { id: 'mkt_cuentas', label: 'Cuentas y Contraseñas', icon: Key },
       { id: 'mkt_drive', label: 'Drive MKT', icon: FileText },
@@ -1593,6 +1595,9 @@ function AppContent() {
               )}
               {activeTab === 'mant_config' && (
                 <MantConfigView />
+              )}
+              {activeTab === 'mkt_tareas' && (
+                <MktTasksView key="mkt_tareas" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'mkt_giftcard' && (
                 <GiftCardView key="mkt_giftcard" currentUser={{ name: currentUser.name }} isReadOnly={isCurrentTabReadOnly} />
