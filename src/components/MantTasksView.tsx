@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, Plus, Trash2, Pencil, X, ClipboardList, CalendarDays, ChevronLeft, ChevronRight, Wrench } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, X, ClipboardList, CalendarDays, ChevronLeft, ChevronRight, Wrench, Search } from 'lucide-react';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
@@ -48,6 +48,8 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
   const [fBranch, setFBranch] = useState('');
   const [fStatus, setFStatus] = useState('');
   const [fAsset, setFAsset] = useState(''); // filtro por bien/activo
+  const [assetQuery, setAssetQuery] = useState(''); // texto del buscador de bienes
+  const [assetOpen, setAssetOpen] = useState(false); // desplegable del buscador abierto
   const [reparaciones, setReparaciones] = useState<any[]>([]); // costos registrados (tabla reparaciones)
   const [editing, setEditing] = useState<Partial<Task> | null>(null);
   // Vista: lista (tablero) o almanaque (calendario)
@@ -291,11 +293,41 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
           <option value="">Todos los estados</option>
           {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
         </select>
-        <select value={fAsset} onChange={e => setFAsset(e.target.value)}
-          className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none max-w-[220px]">
-          <option value="">Todos los bienes</option>
-          {assetsFiltro.map(a => <option key={a.id} value={a.id}>{a.name}{fBranch ? '' : ` · ${a.branch}`}</option>)}
-        </select>
+        {/* Buscador de bien/activo con autocompletado */}
+        <div className="relative">
+          <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2">
+            <Search size={13} className="text-text-dim shrink-0" />
+            <input
+              value={fAsset ? (assetById[fAsset]?.name || '') : assetQuery}
+              onChange={e => { setFAsset(''); setAssetQuery(e.target.value); setAssetOpen(true); }}
+              onFocus={() => setAssetOpen(true)}
+              onBlur={() => setTimeout(() => setAssetOpen(false), 150)}
+              placeholder="Buscar bien…"
+              className="bg-transparent px-2 py-2 text-[11px] font-bold text-text-main outline-none w-[200px]" />
+            {(fAsset || assetQuery) && (
+              <button onMouseDown={e => e.preventDefault()} onClick={() => { setFAsset(''); setAssetQuery(''); setAssetOpen(false); }}
+                className="text-text-dim hover:text-red-500 shrink-0"><X size={13} /></button>
+            )}
+          </div>
+          {assetOpen && (
+            <div className="absolute z-20 mt-1 w-[260px] max-h-64 overflow-y-auto bg-bg-card border border-border-dim rounded-lg shadow-xl">
+              <button onMouseDown={e => e.preventDefault()} onClick={() => { setFAsset(''); setAssetQuery(''); setAssetOpen(false); }}
+                className="w-full text-left px-3 py-2 text-[10px] font-black uppercase text-text-dim hover:bg-bg-accent border-b border-border-dim/40">
+                Todos los bienes
+              </button>
+              {assetsFiltro.filter(a => a.name.toLowerCase().includes(assetQuery.toLowerCase())).slice(0, 60).map(a => (
+                <button key={a.id} onMouseDown={e => e.preventDefault()} onClick={() => { setFAsset(a.id); setAssetQuery(''); setAssetOpen(false); }}
+                  className="w-full text-left px-3 py-2 hover:bg-bg-accent flex items-center gap-2 border-b border-border-dim/30 last:border-0">
+                  <span className="text-[10px] font-bold uppercase text-text-main flex-1 truncate">{a.name}</span>
+                  {!fBranch && <span className="text-[8px] font-black uppercase text-text-dim shrink-0">{a.branch}</span>}
+                </button>
+              ))}
+              {assetsFiltro.filter(a => a.name.toLowerCase().includes(assetQuery.toLowerCase())).length === 0 && (
+                <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">Sin resultados</p>
+              )}
+            </div>
+          )}
+        </div>
         <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">{filtered.length} tarea(s)</span>
         <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
           <button onClick={() => setVista('lista')}
