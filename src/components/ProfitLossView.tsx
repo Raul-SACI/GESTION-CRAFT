@@ -78,10 +78,15 @@ export default function ProfitLossView({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [tab, setTab] = useState<'statement' | 'project' | 'kpis' | 'yearly'>('statement');
+  const [tab, setTab] = useState<'statement' | 'project' | 'kpis' | 'yearly' | 'interanual'>('statement');
   // Datos por mes del año en curso (para la vista comparativa)
   const [yearlyData, setYearlyData] = useState<Record<string, LinesMap>>({});
   const [yearlyLoading, setYearlyLoading] = useState(false);
+  // Comparativo interanual: datos de dos años + inflación mensual
+  const [interData, setInterData] = useState<Record<string, LinesMap>>({});
+  const [inflationMap, setInflationMap] = useState<Record<string, number>>({});
+  const [interLoading, setInterLoading] = useState(false);
+  const [interMetric, setInterMetric] = useState<'pesos' | 'pct'>('pesos');
 
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
 
@@ -124,6 +129,48 @@ export default function ProfitLossView({
   };
 
   useEffect(() => { if (tab === 'yearly') loadYearly(); }, [tab, scope, selectedMonth]);
+
+  // Carga dos años (el del mes elegido y el anterior) + la inflación mensual, para el comparativo interanual
+  const loadInteranual = async () => {
+    setInterLoading(true);
+    try {
+      const year = parseInt(selectedMonth.slice(0, 4));
+      const { data } = await supabase.from('income_statements').select('*')
+        .eq('scope', scope).gte('month', `${year - 1}-01`).lte('month', `${year}-12`);
+      const byMonth: Record<string, LinesMap> = {};
+      (data || []).forEach((rec: any) => {
+        const arr = typeof rec.lines === 'string' ? JSON.parse(rec.lines) : rec.lines;
+        const map: LinesMap = {};
+        (arr || []).forEach((l: any) => { map[l.key] = { projPesos: l.projPesos || 0, projUsd: l.projUsd || 0, realPesos: l.realPesos || 0, realUsd: l.realUsd || 0 }; });
+        byMonth[rec.month] = map;
+      });
+      setInterData(byMonth);
+      const { data: infl } = await supabase.from('monthly_inflation').select('*');
+      const im: Record<string, number> = {};
+      (infl || []).forEach((r: any) => { im[r.month] = Number(r.inflation_pct) || 0; });
+      setInflationMap(im);
+    } catch (e) { console.error('Error cargando interanual:', e); setInterData({}); }
+    setInterLoading(false);
+  };
+
+  useEffect(() => { if (tab === 'interanual') loadInteranual(); }, [tab, scope, selectedMonth]);
+
+  // Factor de inflación acumulada entre dos meses (mismo criterio que en KPIs)
+  const inflationFactor = (fromMonth: string, toMonth: string): number => {
+    if (fromMonth >= toMonth) return 1;
+    let factor = 1;
+    let [y, m] = fromMonth.split('-').map(Number);
+    const advance = () => { m++; if (m > 12) { m = 1; y++; } };
+    advance();
+    while (true) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      factor *= (1 + (inflationMap[key] || 0) / 100);
+      if (key === toMonth) break;
+      advance();
+      if (y > 3000) break;
+    }
+    return factor;
+  };
 
   // Computa inputs + subtotales para un mapa de líneas dado (reutilizable por mes)
   const computeFromLines = (srcLines: LinesMap): LinesMap => {
@@ -493,6 +540,11 @@ export default function ProfitLossView({
             tab === 'yearly' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
           Meses del Año
         </button>
+        <button onClick={() => setTab('interanual')}
+          className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+            tab === 'interanual' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+          Interanual
+        </button>
       </div>
 
       {tab === 'kpis' ? (
@@ -593,6 +645,132 @@ export default function ProfitLossView({
                   </tbody>
                 </table>
               </div>
+            );
+          })()}
+        </div>
+      ) : tab === 'interanual' ? (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+          {interLoading ? (
+            <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
+          ) : (() => {
+            const year = parseInt(selectedMonth.slice(0, 4));
+            const prevY = year - 1;
+            const curMonths = Object.keys(interData).filter(k => k.startsWith(`${year}-`)).sort();
+            if (curMonths.length === 0) {
+              return <div className="py-16 text-center text-text-dim text-[11px] font-black uppercase">No hay Estados de Resultado cargados para el año {year}.</div>;
+            }
+            const compCur: Record<string, LinesMap> = {};
+            const compPrev: Record<string, LinesMap | null> = {};
+            curMonths.forEach(ck => {
+              compCur[ck] = computeFromLines(interData[ck]);
+              const pk = `${prevY}-${ck.slice(5, 7)}`;
+              compPrev[ck] = interData[pk] ? computeFromLines(interData[pk]) : null;
+            });
+            const fmtP = (n: number) => n === 0 ? '-' : (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-AR');
+            const hayComparativo = curMonths.some(ck => compPrev[ck]);
+            return (
+              <>
+                <div className="flex items-center justify-between flex-wrap gap-2 px-5 py-3 border-b border-border-dim bg-bg-accent/20">
+                  <div>
+                    <p className="text-[11px] font-black uppercase text-text-main tracking-widest">Comparativo Interanual · {year} vs {prevY}</p>
+                    <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Cada mes contra el mismo mes del año anterior, ajustado por inflación. La inflación mensual se carga en la pestaña KPIs.</p>
+                  </div>
+                  <div className="flex items-center gap-1 bg-bg-accent rounded p-1">
+                    {([['pesos', 'Δ en $ real'], ['pct', 'Δ en puntos % s/ventas']] as const).map(([m, lbl]) => (
+                      <button key={m} onClick={() => setInterMetric(m)}
+                        className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all", interMetric === m ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {!hayComparativo && (
+                  <div className="px-5 py-2 bg-amber-500/10 border-b border-amber-500/30">
+                    <p className="text-[9px] font-bold uppercase text-amber-600">No hay datos del año {prevY} para comparar. Se muestra solo el valor actual. Cargá el EERR de {prevY} para ver el comparativo.</p>
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-bg-accent/40 border-b border-border-dim">
+                        <th className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest sticky left-0 bg-bg-accent/40">
+                          Concepto (Real)
+                          <span className="block text-[7px] font-bold text-text-dim/60 normal-case tracking-normal">actual · {prevY} ajustado · variación</span>
+                        </th>
+                        {curMonths.map(ck => (
+                          <th key={ck} className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">
+                            {MES_ABBR[parseInt(ck.slice(5, 7)) - 1]} {year}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {PL_STRUCTURE.map(def => {
+                        if (def.type === 'header') {
+                          return (
+                            <tr key={def.key} className="bg-brand-500/5">
+                              <td colSpan={curMonths.length + 1} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
+                            </tr>
+                          );
+                        }
+                        const isSub = def.type === 'subtotal';
+                        return (
+                          <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black")}>
+                            <td className={cn("px-4 py-2 text-[11px] sticky left-0 bg-bg-sidebar", isSub ? "font-black text-text-main uppercase" : "text-text-dim")} style={{ paddingLeft: `${16 + (def.indent || 0) * 16}px` }}>
+                              {def.label}
+                            </td>
+                            {curMonths.map(ck => {
+                              const mm = ck.slice(5, 7);
+                              const cur = compCur[ck][def.key] || emptyLine();
+                              const prevMap = compPrev[ck];
+                              const prev = prevMap ? (prevMap[def.key] || emptyLine()) : null;
+                              const factor = inflationFactor(`${prevY}-${mm}`, ck);
+                              const actualP = cur.realPesos;
+                              const ventasCur = compCur[ck]['ventas_netas']?.realPesos || 0;
+                              const actPct = ventasCur ? (actualP / ventasCur) * 100 : 0;
+                              const priorAdjP = prev ? prev.realPesos * factor : null;
+                              const ventasPrev = prevMap ? (prevMap['ventas_netas']?.realPesos || 0) : 0;
+                              const priorPct = prev && ventasPrev ? (prev.realPesos / ventasPrev) * 100 : null;
+                              const dPesos = priorAdjP != null ? actualP - priorAdjP : null;
+                              const favorable = dPesos != null ? dPesos > 0 : null;
+                              let deltaText = '—';
+                              if (priorAdjP != null) {
+                                if (interMetric === 'pesos') {
+                                  deltaText = Math.abs(priorAdjP) > 0 ? (dPesos! > 0 ? '+' : '') + ((dPesos! / Math.abs(priorAdjP)) * 100).toFixed(1) + '%' : '—';
+                                } else {
+                                  deltaText = priorPct != null ? ((actPct - priorPct) > 0 ? '+' : '') + (actPct - priorPct).toFixed(1) + ' pp' : '—';
+                                }
+                              }
+                              return (
+                                <td key={ck} className="px-4 py-2 text-right font-mono text-[11px] align-top">
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span className={cn(actualP < 0 ? "text-red-400" : isSub ? "text-text-main" : "text-text-dim")}>
+                                      {fmtP(actualP)}{ventasCur ? <span className="text-text-dim/60"> · {actPct.toFixed(1)}%</span> : null}
+                                    </span>
+                                    {priorAdjP != null ? (
+                                      <span className="text-[8px] text-text-dim/70 mt-0.5">
+                                        {prevY}: {fmtP(priorAdjP)}{priorPct != null ? ` · ${priorPct.toFixed(1)}%` : ''}
+                                      </span>
+                                    ) : <span className="text-[8px] text-text-dim/40 mt-0.5">sin {prevY}</span>}
+                                    {priorAdjP != null && (
+                                      <span className={cn("text-[9px] font-black mt-0.5", favorable == null ? "text-text-dim" : favorable ? "text-emerald-500" : "text-red-500")}>
+                                        {deltaText}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[8px] text-text-dim font-bold uppercase px-5 py-2 opacity-60">
+                  Verde = el concepto mejoró el resultado (más ingresos o menos gastos, en términos reales) vs el mismo mes del año anterior. Rojo = empeoró.
+                </p>
+              </>
             );
           })()}
         </div>
