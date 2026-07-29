@@ -93,7 +93,12 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
       // Filter by branch - administracion sees all, encargado sees their branch
       if (mode !== 'administracion') {
         if (branchId && branchId !== 'all') {
-          query = query.eq('branch_id', branchId);
+          if (branchId === '__mkt__') {
+            query = query.eq('branch_id', branchId);
+          } else {
+            // Una sucursal ve sus documentos + los compartidos para "Todas" (branch_id = 'all')
+            query = query.in('branch_id', [branchId, 'all']);
+          }
         }
       }
 
@@ -145,7 +150,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           name: newLinkName.trim(),
           type: 'link',
           parent_id: currentFolderId,
-          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+          branch_id: branchId && branchId !== 'all' ? branchId : (mode === 'administracion' ? 'admin' : 'all'),
           category: 'link',
           url: url
         }
@@ -174,7 +179,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
           name: newFolderName,
           type: 'folder',
           parent_id: currentFolderId,
-          branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+          branch_id: branchId && branchId !== 'all' ? branchId : (mode === 'administracion' ? 'admin' : 'all'),
           category: 'folder', // Satisfy real Supabase schema NOT NULL constraint
           url: 'folder'       // Satisfy real Supabase schema NOT NULL constraint
         }
@@ -220,7 +225,7 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
               name: file.name,
               type: 'file',
               parent_id: currentFolderId,
-              branch_id: mode === 'encargado' && branchId !== 'all' ? branchId : null,
+              branch_id: branchId && branchId !== 'all' ? branchId : (mode === 'administracion' ? 'admin' : 'all'),
               storage_path: path,
               file_size: file.size,
               content_type: file.type,
