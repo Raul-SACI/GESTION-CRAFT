@@ -538,7 +538,7 @@ export default function ProfitLossView({
         <button onClick={() => setTab('yearly')}
           className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
             tab === 'yearly' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
-          Meses del Año
+          Acumulado Anual
         </button>
         <button onClick={() => setTab('interanual')}
           className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
