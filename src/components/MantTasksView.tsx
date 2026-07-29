@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, Plus, Trash2, Pencil, X, ClipboardList, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Plus, Trash2, Pencil, X, ClipboardList, CalendarDays, ChevronLeft, ChevronRight, Wrench } from 'lucide-react';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
 
@@ -47,6 +47,8 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
 
   const [fBranch, setFBranch] = useState('');
   const [fStatus, setFStatus] = useState('');
+  const [fAsset, setFAsset] = useState(''); // filtro por bien/activo
+  const [reparaciones, setReparaciones] = useState<any[]>([]); // costos registrados (tabla reparaciones)
   const [editing, setEditing] = useState<Partial<Task> | null>(null);
   // Vista: lista (tablero) o almanaque (calendario)
   const [vista, setVista] = useState<'lista' | 'calendario'>('lista');
@@ -65,12 +67,14 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
         }
         return all;
       };
-      const [t, a, planes, descartadas] = await Promise.all([
+      const [t, a, planes, descartadas, reps] = await Promise.all([
         getAll('tareas', '*'),
         getAll('activos', 'id, name, branch'),
         getAll('mantenimientos', '*'),
         getAll('tareas_descartadas', '*'),
+        getAll('reparaciones', 'id, asset_id, total_cost, date').catch(() => []),
       ]);
+      setReparaciones((reps as any[]) || []);
 
       // --- Generación automática de tareas desde los planes preventivos ---
       // Por cada plan, se proyectan las fechas (next_date ± intervalo) dentro del año en curso.
@@ -166,9 +170,28 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
     const tb = branchOf(t);
     if (fBranch && tb !== fBranch) return false;
     if (fStatus && t.status !== fStatus) return false;
+    if (fAsset && t.asset_id !== fAsset) return false;
     return true;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [tasks, fBranch, fStatus, assetById]);
+  }), [tasks, fBranch, fStatus, fAsset, assetById]);
+
+  // Activos disponibles para el filtro (opcionalmente acotados a la sucursal elegida)
+  const assetsFiltro = useMemo(() =>
+    assets.filter(a => !fBranch || a.branch === fBranch).sort((x, y) => x.name.localeCompare(y.name)),
+    [assets, fBranch]);
+
+  // Resumen del bien elegido: reparaciones, última intervención y costo total
+  const resumenBien = useMemo(() => {
+    if (!fAsset) return null;
+    const act = assetById[fAsset];
+    const tareasBien = tasks.filter(t => t.asset_id === fAsset);
+    const resueltas = tareasBien.filter(t => t.status === 'resuelto');
+    const fechas = tareasBien.map(t => t.scheduled_date).filter(Boolean).sort();
+    const ultima = fechas.length ? fechas[fechas.length - 1] : null;
+    const repsBien = reparaciones.filter(r => r.asset_id === fAsset);
+    const costoTotal = repsBien.reduce((s, r) => s + (parseFloat(r.total_cost) || 0), 0);
+    return { act, total: tareasBien.length, resueltas: resueltas.length, ultima, costoTotal, nReps: repsBien.length };
+  }, [fAsset, tasks, reparaciones, assetById]);
 
   // Color estable por sucursal (para identificarla rápido en el calendario)
   const BRANCH_PALETTE = ['#6366f1', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#0ea5e9', '#84cc16', '#e11d48', '#eab308', '#06b6d4'];
@@ -268,6 +291,11 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
           <option value="">Todos los estados</option>
           {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
         </select>
+        <select value={fAsset} onChange={e => setFAsset(e.target.value)}
+          className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none max-w-[220px]">
+          <option value="">Todos los bienes</option>
+          {assetsFiltro.map(a => <option key={a.id} value={a.id}>{a.name}{fBranch ? '' : ` · ${a.branch}`}</option>)}
+        </select>
         <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">{filtered.length} tarea(s)</span>
         <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
           <button onClick={() => setVista('lista')}
@@ -286,6 +314,37 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
           <Plus size={14} /> Nueva tarea
         </button>
       </div>
+
+      {/* Resumen del bien elegido */}
+      {resumenBien && (
+        <div className="bg-bg-card border border-brand-500/30 rounded-xl p-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Wrench size={16} className="text-brand-500 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[12px] font-black uppercase text-text-main truncate">{resumenBien.act?.name || 'Bien'}</p>
+                <p className="text-[8px] font-bold uppercase text-text-dim">{resumenBien.act?.branch || '—'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-5 flex-wrap">
+              <div className="text-center">
+                <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Reparaciones</p>
+                <p className="text-base font-mono font-black text-text-main">{resumenBien.total}<span className="text-[9px] text-emerald-500 ml-1">{resumenBien.resueltas} ok</span></p>
+              </div>
+              <div className="text-center">
+                <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Última intervención</p>
+                <p className="text-[12px] font-mono font-black text-text-main">{resumenBien.ultima ? fmtDMY(resumenBien.ultima) : '—'}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Costo total</p>
+                <p className="text-[12px] font-mono font-black text-brand-500">{resumenBien.nReps > 0 ? '$' + Math.round(resumenBien.costoTotal).toLocaleString('es-AR') : 'Sin costos'}</p>
+                {resumenBien.nReps > 0 && <p className="text-[7px] font-bold uppercase text-text-dim">{resumenBien.nReps} registro(s)</p>}
+              </div>
+              <button onClick={() => setFAsset('')} className="text-text-dim hover:text-red-500" title="Quitar filtro"><X size={16} /></button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Vista calendario */}
       {vista === 'calendario' && (() => {
