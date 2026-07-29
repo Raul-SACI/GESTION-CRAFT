@@ -26,11 +26,13 @@ interface MktTask {
   responsible: string | null;
   date: string;              // día de la tarea
   due_date: string | null;   // fecha de terminación
-  hours: number | null;      // horas dedicadas
+  hours: number | null;      // horas dedicadas (suma del registro por día)
+  estimated_hours: number | null; // horas estimadas
   progress: number | null;   // % de cumplimiento
   status: string;            // pendiente | en_proceso | completada
   created_by?: string | null;
 }
+interface HourEntry { id?: string; task_id?: string; date: string; hours: number | string; note?: string | null; }
 interface MktMeeting {
   id: string;
   title: string;
@@ -53,8 +55,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 
 export default function MktTasksView({ currentUserName, isReadOnly }: { currentUserName?: string; isReadOnly?: boolean }) {
   const [tab, setTab] = useState<'tareas' | 'reuniones'>('tareas');
+  const [vistaTareas, setVistaTareas] = useState<'lista' | 'calendario'>('lista');
   const [tasks, setTasks] = useState<MktTask[]>([]);
   const [meetings, setMeetings] = useState<MktMeeting[]>([]);
+  const [hoursByTask, setHoursByTask] = useState<Record<string, number>>({}); // total de horas dedicadas por tarea
   const [responsables, setResponsables] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -65,14 +69,16 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
 
   // Editor de tarea / reunión
   const [editTask, setEditTask] = useState<Partial<MktTask> | null>(null);
+  const [draftHours, setDraftHours] = useState<HourEntry[]>([]); // registro de horas de la tarea en edición
   const [editMeeting, setEditMeeting] = useState<Partial<MktMeeting> | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Calendario de reuniones
+  // Calendario (reuniones y tareas)
   const [calMonth, setCalMonth] = useState<string>(() => todayISO().slice(0, 7));
   const [dayDetail, setDayDetail] = useState<string | null>(null);
+  const [calTareasMonth, setCalTareasMonth] = useState<string>(() => todayISO().slice(0, 7));
 
-  const emptyTask = (): Partial<MktTask> => ({ title: '', description: '', responsible: responsables[0] || '', date: todayISO(), due_date: '', hours: null, progress: 0, status: 'pendiente' });
+  const emptyTask = (): Partial<MktTask> => ({ title: '', description: '', responsible: responsables[0] || '', date: todayISO(), due_date: '', hours: null, estimated_hours: null, progress: 0, status: 'pendiente' });
   const emptyMeeting = (date?: string): Partial<MktMeeting> => ({ title: '', date: date || todayISO(), time: '', participants: '', location: '', notes: '' });
 
   const cargarResponsables = async () => {
@@ -90,14 +96,31 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
   const cargar = async () => {
     setLoading(true);
     try {
-      const [{ data: t }, { data: m }] = await Promise.all([
+      const [{ data: t }, { data: m }, { data: h }] = await Promise.all([
         supabase.from('mkt_tasks').select('*').order('date', { ascending: false }),
         supabase.from('mkt_meetings').select('*').order('date'),
+        supabase.from('mkt_task_hours').select('task_id, hours'),
       ]);
       setTasks((t as MktTask[]) || []);
       setMeetings((m as MktMeeting[]) || []);
-    } catch { setTasks([]); setMeetings([]); }
+      const map: Record<string, number> = {};
+      (h || []).forEach((r: any) => { map[r.task_id] = (map[r.task_id] || 0) + (Number(r.hours) || 0); });
+      setHoursByTask(map);
+    } catch { setTasks([]); setMeetings([]); setHoursByTask({}); }
     setLoading(false);
+  };
+
+  // Total de horas dedicadas a una tarea (suma del registro por día)
+  const horasDe = (id?: string) => (id && hoursByTask[id] != null ? hoursByTask[id] : 0);
+
+  // Abrir editor cargando su registro de horas
+  const abrirTarea = async (t?: MktTask) => {
+    if (!t) { setEditTask(emptyTask()); setDraftHours([]); return; }
+    setEditTask({ ...t });
+    try {
+      const { data } = await supabase.from('mkt_task_hours').select('*').eq('task_id', t.id).order('date');
+      setDraftHours((data as HourEntry[]) || []);
+    } catch { setDraftHours([]); }
   };
 
   useEffect(() => { cargarResponsables(); cargar(); }, []);
@@ -114,11 +137,13 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
 
   // Resumen
   const resumen = useMemo(() => {
-    const horas = tareasFiltradas.reduce((s, t) => s + (Number(t.hours) || 0), 0);
+    const horas = tareasFiltradas.reduce((s, t) => s + horasDe(t.id), 0);
+    const estim = tareasFiltradas.reduce((s, t) => s + (Number(t.estimated_hours) || 0), 0);
     const prom = tareasFiltradas.length ? Math.round(tareasFiltradas.reduce((s, t) => s + (Number(t.progress) || 0), 0) / tareasFiltradas.length) : 0;
     const comp = tareasFiltradas.filter(t => t.status === 'completada').length;
-    return { horas, prom, comp, total: tareasFiltradas.length };
-  }, [tareasFiltradas]);
+    return { horas, estim, prom, comp, total: tareasFiltradas.length };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tareasFiltradas, hoursByTask]);
 
   const guardarTarea = async () => {
     if (!editTask) return;
@@ -127,19 +152,41 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
     try {
       const id = editTask.id || `mt_${Date.now()}${Math.random().toString(36).slice(2, 5)}`;
       const prog = Math.max(0, Math.min(100, Number(editTask.progress) || 0));
+      // Registro de horas por día → total dedicado
+      const entradas = draftHours.filter(h => h.date && (Number(h.hours) || 0) > 0);
+      const totalHoras = entradas.reduce((s, h) => s + (Number(h.hours) || 0), 0);
       const payload = {
         id, title: editTask.title.trim(), description: editTask.description?.trim() || null,
         responsible: editTask.responsible || null, date: editTask.date || todayISO(),
-        due_date: editTask.due_date || null, hours: editTask.hours === null || editTask.hours === undefined || (editTask.hours as any) === '' ? null : Number(editTask.hours),
+        due_date: editTask.due_date || null,
+        hours: totalHoras,
+        estimated_hours: editTask.estimated_hours === null || editTask.estimated_hours === undefined || (editTask.estimated_hours as any) === '' ? null : Number(editTask.estimated_hours),
         progress: prog, status: prog >= 100 ? 'completada' : (editTask.status || 'pendiente'),
         created_by: currentUserName || '—', updated_at: new Date().toISOString(),
       };
       const { error } = await supabase.from('mkt_tasks').upsert(payload, { onConflict: 'id' });
       if (error) throw error;
-      setEditTask(null); await cargar();
+      // Reemplazar el registro de horas de la tarea
+      await supabase.from('mkt_task_hours').delete().eq('task_id', id);
+      if (entradas.length > 0) {
+        const rows = entradas.map((h, i) => ({
+          id: `${id}_h${i + 1}_${Math.random().toString(36).slice(2, 5)}`,
+          task_id: id, date: h.date, hours: Number(h.hours) || 0, note: h.note?.toString().trim() || null,
+          created_by: currentUserName || '—',
+        }));
+        const { error: e2 } = await supabase.from('mkt_task_hours').insert(rows);
+        if (e2) throw e2;
+      }
+      setEditTask(null); setDraftHours([]); await cargar();
     } catch (e: any) { alert('Error al guardar: ' + (e.message || e)); }
     setSaving(false);
   };
+
+  // Helpers del registro de horas en el editor
+  const addHora = () => setDraftHours(prev => [...prev, { date: editTask?.date || todayISO(), hours: '' }]);
+  const setHora = (i: number, field: keyof HourEntry, value: any) => setDraftHours(prev => prev.map((h, idx) => idx === i ? { ...h, [field]: value } : h));
+  const delHora = (i: number) => setDraftHours(prev => prev.filter((_, idx) => idx !== i));
+  const totalDraftHoras = draftHours.reduce((s, h) => s + (Number(h.hours) || 0), 0);
 
   const borrarTarea = async (t: MktTask) => {
     if (!window.confirm(`¿Eliminar la tarea "${t.title}"?`)) return;
@@ -217,8 +264,18 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
               <option value="">Todos los estados</option>
               {STATUS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
+            <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
+              <button onClick={() => setVistaTareas('lista')}
+                className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5", vistaTareas === 'lista' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                <ClipboardList size={12} /> Lista
+              </button>
+              <button onClick={() => setVistaTareas('calendario')}
+                className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5", vistaTareas === 'calendario' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                <CalendarDays size={12} /> Calendario
+              </button>
+            </div>
             {!isReadOnly && (
-              <button onClick={() => setEditTask(emptyTask())}
+              <button onClick={() => abrirTarea()}
                 className="ml-auto bg-brand-500 text-white px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2">
                 <Plus size={14} /> Nueva tarea
               </button>
@@ -229,7 +286,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { lbl: 'Tareas', val: resumen.total, icon: ClipboardList },
-              { lbl: 'Horas dedicadas', val: resumen.horas.toLocaleString('es-AR'), icon: Clock },
+              { lbl: 'Horas dedicadas / estim.', val: `${resumen.horas.toLocaleString('es-AR')} / ${resumen.estim.toLocaleString('es-AR')}`, icon: Clock },
               { lbl: 'Cumplimiento promedio', val: resumen.prom + '%', icon: CheckCircle2 },
               { lbl: 'Completadas', val: resumen.comp, icon: CheckCircle2 },
             ].map((c, i) => (
@@ -240,8 +297,67 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
             ))}
           </div>
 
+          {/* Vista CALENDARIO de tareas */}
+          {vistaTareas === 'calendario' && (() => {
+            const [cy, cm] = calTareasMonth.split('-').map(Number);
+            const primerDia = new Date(cy, cm - 1, 1);
+            const diasEnMes = new Date(cy, cm, 0).getDate();
+            const offset = (primerDia.getDay() + 6) % 7;
+            const celdas: (number | null)[] = [];
+            for (let i = 0; i < offset; i++) celdas.push(null);
+            for (let d = 1; d <= diasEnMes; d++) celdas.push(d);
+            const tareasDia = (d: number) => {
+              const ds = `${cy}-${String(cm).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+              return tareasFiltradas.filter(t => t.date === ds);
+            };
+            const cambiar = (delta: number) => { const nd = new Date(cy, cm - 1 + delta, 1); setCalTareasMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`); };
+            const hoy = todayISO();
+            return (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <button onClick={() => cambiar(-1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronLeft size={18} /></button>
+                  <h3 className="text-[12px] font-black uppercase text-text-main tracking-widest">{MESES[cm - 1]} {cy}</h3>
+                  <button onClick={() => cambiar(1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronRight size={18} /></button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <div key={d} className="text-center text-[8px] font-black uppercase text-text-dim tracking-widest py-1">{d}</div>)}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {celdas.map((d, i) => {
+                    if (d === null) return <div key={`e${i}`} className="min-h-[92px]" />;
+                    const ds = `${cy}-${String(cm).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const td = tareasDia(d);
+                    const esHoy = ds === hoy;
+                    return (
+                      <div key={d} className={cn("min-h-[92px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden", esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10")}>
+                        <div className="flex items-center justify-between">
+                          <span className={cn("text-[10px] font-black", esHoy ? "text-brand-500" : "text-text-dim")}>{d}</span>
+                          {td.length > 0 && <span className="text-[8px] font-black text-text-dim bg-bg-accent rounded px-1">{td.length}</span>}
+                        </div>
+                        <div className="flex flex-col gap-0.5 overflow-y-auto">
+                          {td.slice(0, 4).map(t => {
+                            const si = statusInfo(t.status);
+                            return (
+                              <button key={t.id} onClick={() => abrirTarea(t)} title={`${t.title} · ${t.responsible || ''}`}
+                                className="flex items-center gap-1 text-left text-[8px] font-bold uppercase px-1 py-0.5 rounded hover:opacity-80"
+                                style={{ backgroundColor: si.dot + '22', color: si.dot }}>
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: si.dot }} />
+                                <span className="truncate">{t.title}</span>
+                              </button>
+                            );
+                          })}
+                          {td.length > 4 && <span className="text-[8px] font-bold text-brand-500 px-1">+{td.length - 4} más</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Lista de tareas */}
-          {loading ? (
+          {vistaTareas === 'lista' && (loading ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">Cargando…</p>
           ) : tareasFiltradas.length === 0 ? (
             <p className="text-center text-[10px] font-bold uppercase text-text-dim py-12">No hay tareas cargadas.{!isReadOnly && ' Usá "Nueva tarea".'}</p>
@@ -263,7 +379,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                         <div className="flex items-center gap-4 mt-2 flex-wrap text-[9px] font-bold uppercase text-text-dim">
                           <span className="flex items-center gap-1"><CalendarDays size={11} /> Día: {fmtDMY(t.date)}</span>
                           <span>Termina: {fmtDMY(t.due_date)}</span>
-                          <span className="flex items-center gap-1"><Clock size={11} /> {Number(t.hours) || 0} h</span>
+                          <span className="flex items-center gap-1"><Clock size={11} /> {horasDe(t.id)} h{t.estimated_hours ? ` / ${Number(t.estimated_hours)} est.` : ''}</span>
                         </div>
                         {/* Barra de cumplimiento */}
                         <div className="flex items-center gap-2 mt-2">
@@ -275,7 +391,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                       </div>
                       {!isReadOnly && (
                         <div className="flex flex-col gap-1 shrink-0">
-                          <button onClick={() => setEditTask({ ...t })} className="text-text-dim hover:text-brand-500"><Pencil size={14} /></button>
+                          <button onClick={() => abrirTarea(t)} className="text-text-dim hover:text-brand-500"><Pencil size={14} /></button>
                           <button onClick={() => borrarTarea(t)} className="text-text-dim hover:text-red-500"><Trash2 size={14} /></button>
                         </div>
                       )}
@@ -284,7 +400,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                 );
               })}
             </div>
-          )}
+          ))}
         </>
       )}
 
@@ -437,15 +553,45 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                     className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
                 <div>
-                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Horas dedicadas</label>
-                  <input type="number" step="any" value={editTask.hours ?? ''} onChange={e => setEditTask({ ...editTask, hours: e.target.value === '' ? null : parseFloat(e.target.value) })}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Horas estimadas</label>
+                  <input type="number" step="any" value={editTask.estimated_hours ?? ''} onChange={e => setEditTask({ ...editTask, estimated_hours: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                    placeholder="Ej. 5" className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
                 <div>
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">% Cumplimiento: {Math.max(0, Math.min(100, Number(editTask.progress) || 0))}%</label>
                   <input type="range" min={0} max={100} step={5} value={Number(editTask.progress) || 0} onChange={e => setEditTask({ ...editTask, progress: parseInt(e.target.value) })}
                     className="w-full accent-brand-500" />
                 </div>
+              </div>
+
+              {/* Registro de horas por día */}
+              <div className="border border-border-dim rounded-lg p-3 bg-bg-accent/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2"><Clock size={13} /> Horas dedicadas por día</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-black text-text-main">
+                      Total: {totalDraftHoras} h{editTask.estimated_hours ? ` / ${Number(editTask.estimated_hours)} est.` : ''}
+                    </span>
+                    <button type="button" onClick={addHora} className="text-[8px] font-black uppercase text-white bg-brand-500 hover:bg-brand-600 rounded px-2 py-1 flex items-center gap-1"><Plus size={11} /> Agregar</button>
+                  </div>
+                </div>
+                {draftHours.length === 0 ? (
+                  <p className="text-[9px] font-bold uppercase text-text-dim py-1">Todavía no registraste horas. Agregá una entrada por cada día trabajado.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {draftHours.map((h, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input type="date" value={h.date} onChange={e => setHora(i, 'date', e.target.value)}
+                          className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                        <input type="number" step="any" value={h.hours} onChange={e => setHora(i, 'hours', e.target.value)}
+                          placeholder="hs" className="w-16 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                        <input value={h.note || ''} onChange={e => setHora(i, 'note', e.target.value)}
+                          placeholder="Nota (opcional)" className="flex-1 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] text-text-main outline-none focus:border-brand-500" />
+                        <button type="button" onClick={() => delHora(i)} className="text-text-dim hover:text-red-500 shrink-0"><Trash2 size={13} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center justify-end gap-2 p-4 border-t border-border-dim">
