@@ -71,10 +71,12 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
     setLoading(true);
     try {
       if (mode === 'encargado' && branchId === 'all' && currentFolderId === null) {
-        // Special case: Root of Encargado mode with "All Branches"
-        // We show virtual branch folders (or real ones if we had a better schema)
-        // For now, let's just use the branches list to show "folders"
-        setDocuments([]); // We'll handle this in the render
+        // Raíz de "Todas": además de las carpetas virtuales por sucursal, mostramos
+        // los documentos/carpetas compartidos para todas (branch_id = 'all').
+        const { data: shared } = await supabase.from('documents').select('*')
+          .is('parent_id', null).eq('branch_id', 'all')
+          .order('type', { ascending: false }).order('name');
+        setDocuments(shared || []);
         setLoading(false);
         return;
       }
@@ -421,24 +423,56 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
             <p className="text-[10px] font-bold uppercase tracking-widest">Cargando archivos...</p>
           </div>
         ) : (mode === 'encargado' && branchId === 'all' && currentFolderId === null) ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-             {branches.map(b => (
-               <motion.div 
-                 key={b.id}
-                 initial={{ opacity: 0, y: 10 }}
-                 animate={{ opacity: 1, y: 0 }}
-                 className="group relative glass-card p-4 flex flex-col items-center text-center cursor-pointer hover:border-brand-500 bg-brand-500/5 transition-all"
-                 onClick={() => onBranchSelect?.(b.id)}
-               >
-                 <div className="mb-3 transform group-hover:scale-110 transition-transform">
-                   <Folder className="text-brand-500 fill-brand-500/20" size={32} />
-                 </div>
-                 <p className="text-[10px] font-black text-text-main uppercase leading-tight">
-                   {b.name}
-                 </p>
-                 <p className="text-[8px] text-text-dim uppercase mt-1">Carpeta Sucursal</p>
-               </motion.div>
-             ))}
+          <div className="space-y-6">
+            {/* Compartido para todas las sucursales (branch_id = 'all') */}
+            {filteredDocuments.length > 0 && (
+              <div>
+                <p className="text-[9px] font-black uppercase text-brand-500 tracking-widest mb-2">Compartido · Todas las sucursales</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {filteredDocuments.map((doc) => (
+                    <motion.div
+                      key={doc.id}
+                      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                      className={cn("group relative glass-card p-4 flex flex-col items-center text-center cursor-pointer hover:border-brand-500/50 transition-all", doc.type === 'folder' ? "bg-brand-500/5" : "bg-bg-card")}
+                      onDoubleClick={() => {
+                        if (doc.type === 'folder') handleNavigateInto(doc);
+                        else if (doc.type === 'link') { if (doc.url) window.open(doc.url, '_blank', 'noopener,noreferrer'); }
+                        else if (isPreviewable(doc.name)) handlePreview(doc);
+                        else handleDownload(doc);
+                      }}
+                    >
+                      <div className="mb-3 transform group-hover:scale-110 transition-transform">{getFileIcon(doc)}</div>
+                      <p className="text-[10px] font-bold text-text-main uppercase line-clamp-2 leading-tight break-all">{doc.name}</p>
+                      <p className="text-[8px] text-text-dim uppercase mt-1">{doc.type === 'folder' ? 'Carpeta compartida' : 'Compartido'}</p>
+                      {!isReadOnly && (
+                        <button onClick={(e) => { e.stopPropagation(); handleDelete(doc); }}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-text-dim hover:text-red-500 transition-opacity"><Trash2 size={13} /></button>
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Carpetas por sucursal */}
+            <div>
+              <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Por sucursal</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                {branches.map(b => (
+                  <motion.div
+                    key={b.id}
+                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="group relative glass-card p-4 flex flex-col items-center text-center cursor-pointer hover:border-brand-500 bg-brand-500/5 transition-all"
+                    onClick={() => onBranchSelect?.(b.id)}
+                  >
+                    <div className="mb-3 transform group-hover:scale-110 transition-transform">
+                      <Folder className="text-brand-500 fill-brand-500/20" size={32} />
+                    </div>
+                    <p className="text-[10px] font-black text-text-main uppercase leading-tight">{b.name}</p>
+                    <p className="text-[8px] text-text-dim uppercase mt-1">Carpeta Sucursal</p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : filteredDocuments.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center opacity-50">
