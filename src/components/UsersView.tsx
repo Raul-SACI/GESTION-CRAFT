@@ -70,7 +70,7 @@ const SYSTEM_MODULES = [
   { id: 'consumo', label: 'CMV Mensual Sucursal', category: 'Administración' },
   { id: 'control_desvios', label: 'Control de Desvíos', category: 'Administración' },
   { id: 'maestros', label: 'Maestros (Insumos y Productos)', category: 'Administración' },
-  { id: 'recetas', label: 'Recetas', category: 'Administración' },
+  { id: 'recetas', label: 'Recetas para Desvíos', category: 'Administración' },
   { id: 'supervision_banderas', label: 'Supervisiones y Banderas', category: 'Administración' },
   { id: 'pedidos_ya', label: 'Pedidos Ya', category: 'Administración' },
   { id: 'papeles_administracion', label: 'Papeles Importantes (Admin)', category: 'Administración' },

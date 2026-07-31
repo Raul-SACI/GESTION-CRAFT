@@ -651,7 +651,7 @@ function AppContent() {
       { id: 'consumo', label: 'CMV Mensual Sucursal', icon: Calculator },
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
       { id: 'maestros', label: 'Maestros', icon: Database },
-      { id: 'recetas', label: 'Recetas', icon: BookOpen },
+      { id: 'recetas', label: 'Recetas para Desvíos', icon: BookOpen },
       { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
       { id: 'pedidos_ya', label: 'Pedidos Ya', icon: Star },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
