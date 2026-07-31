@@ -107,6 +107,7 @@ const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const ChecklistView = lazy(() => import('./components/ChecklistView'));
 const RecetasLideresView = lazy(() => import('./components/RecetasLideresView'));
 const MktTasksView = lazy(() => import('./components/MktTasksView'));
+const ActasDireccionView = lazy(() => import('./components/ActasDireccionView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
@@ -557,7 +558,7 @@ function AppContent() {
     'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
-    'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal'
+    'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -657,6 +658,7 @@ function AppContent() {
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
     ],
     'Gerencia General': [
+      { id: 'actas_direccion', label: 'Actas de Dirección', icon: ClipboardList },
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
       { id: 'control_agendas', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
@@ -1598,6 +1600,9 @@ function AppContent() {
               )}
               {activeTab === 'mkt_tareas' && (
                 <MktTasksView key="mkt_tareas" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'actas_direccion' && (
+                <ActasDireccionView key="actas_direccion" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'mkt_giftcard' && (
                 <GiftCardView key="mkt_giftcard" currentUser={{ name: currentUser.name }} isReadOnly={isCurrentTabReadOnly} />
