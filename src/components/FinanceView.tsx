@@ -281,6 +281,7 @@ export default function FinanceView({
   const [currentDateStr, setCurrentDateStr] = useState(() => toLocalISO(new Date()));
   
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
+  const [cuotaVista, setCuotaVista] = useState<'todas' | 'pend'>('todas'); // indicador cuotas por mes/semana
   const [dataLoaded, setDataLoaded] = useState(false);
 
   const savePayments = async (newPayments: ScheduledPayment[]) => {
@@ -1401,6 +1402,26 @@ export default function FinanceView({
     const countPending = loanPayments.filter(p => p.status !== 'paid').length;
     const countPaid = loanPayments.filter(p => p.status === 'paid').length;
     return { totalPending, totalPaid, countPending, countPaid };
+  }, [payments]);
+
+  // Cuotas agrupadas por mes y por semana (1-7, 8-14, 15-21, 22-fin).
+  // Sirve para ver cuánta plata del flujo se destina a pago de cuotas por período.
+  const cuotasCalendario = useMemo(() => {
+    const loan = payments.filter(p => p.category === 'loan' && p.dueDate);
+    type Mes = { wTotal: number[]; wPend: number[]; total: number; pend: number; count: number };
+    const byMonth: Record<string, Mes> = {};
+    loan.forEach(p => {
+      const [y, m, d] = String(p.dueDate).split('-').map(Number);
+      if (!y || !m || !d) return;
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      if (!byMonth[key]) byMonth[key] = { wTotal: [0, 0, 0, 0], wPend: [0, 0, 0, 0], total: 0, pend: 0, count: 0 };
+      const wi = d <= 7 ? 0 : d <= 14 ? 1 : d <= 21 ? 2 : 3;
+      const amt = Number(p.amount) || 0;
+      byMonth[key].wTotal[wi] += amt; byMonth[key].total += amt; byMonth[key].count += 1;
+      if (p.status !== 'paid') { byMonth[key].wPend[wi] += amt; byMonth[key].pend += amt; }
+    });
+    const months = Object.keys(byMonth).sort();
+    return { byMonth, months };
   }, [payments]);
 
   const bankEntityStats = useMemo(() => {
@@ -2822,6 +2843,82 @@ export default function FinanceView({
                     </p>
                     <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Cuotas pagadas del total registrado</p>
                   </div>
+                </div>
+
+                {/* ===== Cuotas por mes y por semana ===== */}
+                <div className="bg-bg-card border border-border-dim p-5 rounded-xl shadow-lg space-y-3">
+                  <div className="flex items-center justify-between border-b border-border-dim/40 pb-2.5 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 bg-brand-500/10 rounded text-brand-500"><Calendar size={14} /></div>
+                      <div>
+                        <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">Cuotas por mes y por semana</h3>
+                        <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Cuánto del flujo se destina a cuotas · semanas: 1-7 · 8-14 · 15-21 · 22-fin</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 bg-bg-accent rounded p-1">
+                      {([['todas', 'Todas'], ['pend', 'Solo pendientes']] as const).map(([v, l]) => (
+                        <button key={v} onClick={() => setCuotaVista(v)}
+                          className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all", cuotaVista === v ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                          {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {cuotasCalendario.months.length === 0 ? (
+                    <p className="text-center text-[10px] font-bold uppercase text-text-dim py-6">No hay cuotas cargadas.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[640px]">
+                        <thead>
+                          <tr className="text-[8px] font-black uppercase text-text-dim tracking-widest border-b border-border-dim">
+                            <th className="px-3 py-2">Mes</th>
+                            <th className="px-3 py-2 text-right">Sem 1 <span className="opacity-50">(1-7)</span></th>
+                            <th className="px-3 py-2 text-right">Sem 2 <span className="opacity-50">(8-14)</span></th>
+                            <th className="px-3 py-2 text-right">Sem 3 <span className="opacity-50">(15-21)</span></th>
+                            <th className="px-3 py-2 text-right">Sem 4 <span className="opacity-50">(22-fin)</span></th>
+                            <th className="px-3 py-2 text-right border-l border-border-dim/40 text-brand-500">Total mes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {cuotasCalendario.months.map(mk => {
+                            const md = cuotasCalendario.byMonth[mk];
+                            const weeks = cuotaVista === 'pend' ? md.wPend : md.wTotal;
+                            const total = cuotaVista === 'pend' ? md.pend : md.total;
+                            const [yy, mm] = mk.split('-');
+                            const nombreMes = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'][parseInt(mm) - 1];
+                            const money = (n: number) => n === 0 ? '-' : '$' + Math.round(n).toLocaleString('es-AR');
+                            return (
+                              <tr key={mk} className="border-b border-border-dim/20 text-[11px]">
+                                <td className="px-3 py-2 font-black uppercase text-text-main">{nombreMes} {yy}</td>
+                                {weeks.map((w, i) => (
+                                  <td key={i} className="px-3 py-2 text-right font-mono text-text-dim">{money(w)}</td>
+                                ))}
+                                <td className="px-3 py-2 text-right font-mono font-black text-brand-500 border-l border-border-dim/40">{money(total)}</td>
+                              </tr>
+                            );
+                          })}
+                          {/* Totales generales */}
+                          {(() => {
+                            const totW = [0, 0, 0, 0]; let totM = 0;
+                            cuotasCalendario.months.forEach(mk => {
+                              const md = cuotasCalendario.byMonth[mk];
+                              const weeks = cuotaVista === 'pend' ? md.wPend : md.wTotal;
+                              weeks.forEach((w, i) => totW[i] += w);
+                              totM += cuotaVista === 'pend' ? md.pend : md.total;
+                            });
+                            const money = (n: number) => n === 0 ? '-' : '$' + Math.round(n).toLocaleString('es-AR');
+                            return (
+                              <tr className="bg-bg-accent/30 text-[11px] font-black">
+                                <td className="px-3 py-2 uppercase text-text-main">Total</td>
+                                {totW.map((w, i) => <td key={i} className="px-3 py-2 text-right font-mono text-text-main">{money(w)}</td>)}
+                                <td className="px-3 py-2 text-right font-mono text-brand-500 border-l border-border-dim/40">{money(totM)}</td>
+                              </tr>
+                            );
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
                 {/* Consolidado por Entidad Financiera */}
