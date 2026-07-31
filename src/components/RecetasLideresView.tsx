@@ -215,6 +215,7 @@ export default function RecetasLideresView({
   };
 
   const guardar = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. Solo podés ver las recetas.'); return; }
     if (!editing) return;
     if (!editing.name.trim()) { alert('Poné el nombre del producto.'); return; }
     if (draftItems.length === 0) { alert('Agregá al menos un insumo.'); return; }
@@ -478,7 +479,7 @@ export default function RecetasLideresView({
             {/* Header editor */}
             <div className="flex items-center justify-between p-4 border-b border-border-dim">
               <h3 className="text-sm font-black uppercase text-text-main tracking-wide flex items-center gap-2">
-                <Pencil size={16} className="text-brand-500" /> {editing.id ? 'Editar receta' : 'Nueva receta'} · {TIPOS.find(t => t.id === tipo)?.label}
+                <Pencil size={16} className="text-brand-500" /> {isReadOnly ? 'Ver receta' : editing.id ? 'Editar receta' : 'Nueva receta'} · {TIPOS.find(t => t.id === tipo)?.label}
               </h3>
               <button onClick={cerrarEditor} className="p-1.5 text-text-dim hover:text-text-main"><X size={18} /></button>
             </div>
@@ -491,7 +492,7 @@ export default function RecetasLideresView({
                   { v: true, label: 'Activa' },
                   { v: false, label: 'Inactiva' },
                 ] as const).map(o => (
-                  <button key={String(o.v)} type="button" onClick={() => setEditing({ ...editing, active: o.v })}
+                  <button key={String(o.v)} type="button" disabled={isReadOnly} onClick={() => setEditing({ ...editing, active: o.v })}
                     className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase border transition-all",
                       (editing.active !== false) === o.v
                         ? (o.v ? "bg-emerald-500 text-white border-emerald-500" : "bg-text-dim text-white border-text-dim")
@@ -506,24 +507,24 @@ export default function RecetasLideresView({
               <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-3">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Nombre del producto *</label>
-                  <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                  <input readOnly={isReadOnly} value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
                     className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
                 <div className="md:col-span-1">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Código</label>
-                  <input value={editing.code || ''} onChange={e => setEditing({ ...editing, code: e.target.value })}
+                  <input readOnly={isReadOnly} value={editing.code || ''} onChange={e => setEditing({ ...editing, code: e.target.value })}
                     className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">U.M. producto</label>
-                  <input value={editing.unit || ''} onChange={e => setEditing({ ...editing, unit: e.target.value })}
+                  <input readOnly={isReadOnly} value={editing.unit || ''} onChange={e => setEditing({ ...editing, unit: e.target.value })}
                     placeholder="UNIDAD / KG…"
                     className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
                 {tipo === 'carta' && (
                   <div className="md:col-span-6">
                     <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección de la carta</label>
-                    <input value={editing.seccion || ''} onChange={e => setEditing({ ...editing, seccion: e.target.value })}
+                    <input readOnly={isReadOnly} value={editing.seccion || ''} onChange={e => setEditing({ ...editing, seccion: e.target.value })}
                       placeholder="Ej. ALL DAY BREAKFAST, PIZZAS CLÁSICAS…"
                       className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                   </div>
@@ -536,9 +537,13 @@ export default function RecetasLideresView({
                   {editing.photo ? (
                     <div className="relative">
                       <img src={editing.photo} alt="plato" className="w-28 h-28 object-cover rounded-lg border border-border-dim" />
-                      <button onClick={() => setEditing({ ...editing, photo: null })}
-                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X size={12} /></button>
+                      {!isReadOnly && (
+                        <button onClick={() => setEditing({ ...editing, photo: null })}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1"><X size={12} /></button>
+                      )}
                     </div>
+                  ) : isReadOnly ? (
+                    <div className="w-28 h-28 rounded-lg border border-border-dim flex items-center justify-center text-text-dim/40"><ImagePlus size={22} /></div>
                   ) : (
                     <label className="w-28 h-28 rounded-lg border-2 border-dashed border-border-dim flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-brand-500/50 text-text-dim">
                       <ImagePlus size={22} />
@@ -546,9 +551,11 @@ export default function RecetasLideresView({
                       <input type="file" accept="image/*" className="hidden" onChange={e => onFoto(e.target.files?.[0])} />
                     </label>
                   )}
-                  <p className="text-[9px] font-bold uppercase text-text-dim opacity-70 leading-relaxed">
-                    Foto del plato terminado.<br />Se comprime y se guarda en la app.
-                  </p>
+                  {!isReadOnly && (
+                    <p className="text-[9px] font-bold uppercase text-text-dim opacity-70 leading-relaxed">
+                      Foto del plato terminado.<br />Se comprime y se guarda en la app.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -560,6 +567,7 @@ export default function RecetasLideresView({
                 </div>
 
                 {/* Buscador de insumos del maestro */}
+                {!isReadOnly && (
                 <div className="relative">
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
@@ -582,10 +590,11 @@ export default function RecetasLideresView({
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* Filas de insumos */}
                 {draftItems.length === 0 ? (
-                  <p className="text-center text-[9px] font-bold uppercase text-text-dim py-4">Todavía no agregaste insumos.</p>
+                  <p className="text-center text-[9px] font-bold uppercase text-text-dim py-4">{isReadOnly ? 'Esta receta no tiene insumos.' : 'Todavía no agregaste insumos.'}</p>
                 ) : (
                   <div className="space-y-1.5">
                     <div className="hidden md:grid grid-cols-12 gap-2 px-2 text-[8px] font-black uppercase text-text-dim tracking-widest">
@@ -594,15 +603,17 @@ export default function RecetasLideresView({
                     </div>
                     {draftItems.map((it, i) => (
                       <div key={i} className="grid grid-cols-12 gap-2 items-center bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5">
-                        <input value={it.item_name} onChange={e => setItem(i, 'item_name', e.target.value)}
+                        <input readOnly={isReadOnly} value={it.item_name} onChange={e => setItem(i, 'item_name', e.target.value)}
                           className="col-span-12 md:col-span-5 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
-                        <input value={it.code || ''} onChange={e => setItem(i, 'code', e.target.value)}
+                        <input readOnly={isReadOnly} value={it.code || ''} onChange={e => setItem(i, 'code', e.target.value)}
                           placeholder="cód." className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500" />
-                        <input value={it.unit || ''} onChange={e => setItem(i, 'unit', e.target.value)}
+                        <input readOnly={isReadOnly} value={it.unit || ''} onChange={e => setItem(i, 'unit', e.target.value)}
                           placeholder="UM" className="col-span-3 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
-                        <input type="text" inputMode="decimal" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value)}
+                        <input readOnly={isReadOnly} type="text" inputMode="decimal" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value)}
                           placeholder="0" className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
-                        <button onClick={() => quitarItem(i)} type="button" className="col-span-1 text-text-dim hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
+                        {!isReadOnly
+                          ? <button onClick={() => quitarItem(i)} type="button" className="col-span-1 text-text-dim hover:text-red-500 flex justify-center"><Trash2 size={14} /></button>
+                          : <span className="col-span-1" />}
                       </div>
                     ))}
                   </div>
@@ -611,12 +622,17 @@ export default function RecetasLideresView({
             </div>
 
             {/* Footer editor */}
-            <div className="flex items-center justify-end gap-2 p-4 border-t border-border-dim">
-              <button onClick={cerrarEditor} className="px-4 py-2 rounded text-[9px] font-black uppercase text-text-dim hover:text-text-main border border-border-dim">Cancelar</button>
-              <button onClick={guardar} disabled={saving}
-                className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50">
-                {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar receta
-              </button>
+            <div className="flex items-center justify-between gap-2 p-4 border-t border-border-dim">
+              {isReadOnly ? <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">Solo lectura · no podés modificar</span> : <span />}
+              <div className="flex items-center gap-2">
+                <button onClick={cerrarEditor} className="px-4 py-2 rounded text-[9px] font-black uppercase text-text-dim hover:text-text-main border border-border-dim">{isReadOnly ? 'Cerrar' : 'Cancelar'}</button>
+                {!isReadOnly && (
+                  <button onClick={guardar} disabled={saving}
+                    className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-5 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50">
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar receta
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
