@@ -7,6 +7,8 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentCalendar from './PaymentCalendar';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   DollarSign, 
   Wallet, 
@@ -1423,6 +1425,53 @@ export default function FinanceView({
     const months = Object.keys(byMonth).sort();
     return { byMonth, months };
   }, [payments]);
+
+  // Filas para exportar la tabla de cuotas por mes/semana según la vista elegida
+  const buildCuotasRows = () => {
+    const MES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const totW = [0, 0, 0, 0]; let totM = 0;
+    const rows = cuotasCalendario.months.map(mk => {
+      const md = cuotasCalendario.byMonth[mk];
+      const weeks = cuotaVista === 'pend' ? md.wPend : md.wTotal;
+      const total = cuotaVista === 'pend' ? md.pend : md.total;
+      const [yy, mm] = mk.split('-');
+      weeks.forEach((w, i) => totW[i] += w); totM += total;
+      return { mes: `${MES[parseInt(mm) - 1]} ${yy}`, weeks: weeks.map(w => Math.round(w)), total: Math.round(total) };
+    });
+    return { rows, totW: totW.map(w => Math.round(w)), totM: Math.round(totM) };
+  };
+  const cuotasFileBase = () => `cuotas_bancarias_${cuotaVista === 'pend' ? 'pendientes' : 'todas'}`;
+
+  const exportCuotasExcel = () => {
+    const { rows, totW, totM } = buildCuotasRows();
+    const header = ['Mes', 'Sem 1 (1-7)', 'Sem 2 (8-14)', 'Sem 3 (15-21)', 'Sem 4 (22-fin)', 'Total mes'];
+    const aoa: any[][] = [[`Cuotas bancarias por mes y por semana · ${cuotaVista === 'pend' ? 'Solo pendientes' : 'Todas'}`], [], header];
+    rows.forEach(r => aoa.push([r.mes, ...r.weeks, r.total]));
+    aoa.push(['TOTAL', ...totW, totM]);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Cuotas');
+    XLSX.writeFile(wb, `${cuotasFileBase()}.xlsx`);
+  };
+
+  const exportCuotasPDF = () => {
+    const { rows, totW, totM } = buildCuotasRows();
+    const money = (n: number) => n === 0 ? '-' : '$' + n.toLocaleString('es-AR');
+    const doc = new jsPDF();
+    doc.setFontSize(13); doc.text('Cuotas bancarias por mes y por semana', 14, 14);
+    doc.setFontSize(9); doc.text(`${cuotaVista === 'pend' ? 'Solo pendientes' : 'Todas las cuotas'} · Semanas: 1-7 · 8-14 · 15-21 · 22-fin`, 14, 20);
+    autoTable(doc, {
+      head: [['Mes', 'Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Total mes']],
+      body: [
+        ...rows.map(r => [r.mes, ...r.weeks.map(money), money(r.total)]),
+        [{ content: 'TOTAL', styles: { fontStyle: 'bold' } as any }, ...totW.map(w => ({ content: money(w), styles: { fontStyle: 'bold' } as any })), { content: money(totM), styles: { fontStyle: 'bold' } as any }],
+      ] as any,
+      startY: 25, styles: { fontSize: 9, cellPadding: 2 }, headStyles: { fillColor: [193, 18, 31] },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    });
+    doc.save(`${cuotasFileBase()}.pdf`);
+  };
 
   const bankEntityStats = useMemo(() => {
     const loanPayments = payments.filter(p => p.category === 'loan');
@@ -2855,13 +2904,23 @@ export default function FinanceView({
                         <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Cuánto del flujo se destina a cuotas · semanas: 1-7 · 8-14 · 15-21 · 22-fin</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 bg-bg-accent rounded p-1">
-                      {([['todas', 'Todas'], ['pend', 'Solo pendientes']] as const).map(([v, l]) => (
-                        <button key={v} onClick={() => setCuotaVista(v)}
-                          className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all", cuotaVista === v ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
-                          {l}
-                        </button>
-                      ))}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1 bg-bg-accent rounded p-1">
+                        {([['todas', 'Todas'], ['pend', 'Solo pendientes']] as const).map(([v, l]) => (
+                          <button key={v} onClick={() => setCuotaVista(v)}
+                            className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all", cuotaVista === v ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                            {l}
+                          </button>
+                        ))}
+                      </div>
+                      {cuotasCalendario.months.length > 0 && (
+                        <>
+                          <button onClick={exportCuotasExcel}
+                            className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded px-3 py-1.5 text-[9px] font-black uppercase hover:bg-emerald-500/20 transition-all">Excel</button>
+                          <button onClick={exportCuotasPDF}
+                            className="bg-red-500/10 border border-red-500/30 text-red-600 rounded px-3 py-1.5 text-[9px] font-black uppercase hover:bg-red-500/20 transition-all">PDF</button>
+                        </>
+                      )}
                     </div>
                   </div>
                   {cuotasCalendario.months.length === 0 ? (
