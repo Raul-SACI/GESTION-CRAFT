@@ -2248,6 +2248,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
 
               {/* Maestro Recetas Sucursales */}
               <RecipeMastersManager tipo="sucursal" title="Maestro Recetas Sucursales" color="orange" isReadOnly={isReadOnly} />
+
+              {/* Maestro Secciones Carta */}
+              <RecipeMastersManager tipo="seccion_carta" title="Maestro Secciones Carta" color="sky" simpleName isReadOnly={isReadOnly} />
             </div>
           </motion.div>
         )}

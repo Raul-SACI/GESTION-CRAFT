@@ -11,11 +11,12 @@ import { supabase } from '../lib/supabase';
 
 interface MasterRow { id: string; tipo: string; name: string; unit: string | null; code: string | null; }
 
-export default function RecipeMastersManager({ tipo, title, color = 'purple', isReadOnly }: {
-  tipo: 'produccion' | 'sucursal';
+export default function RecipeMastersManager({ tipo, title, color = 'purple', isReadOnly, simpleName = false }: {
+  tipo: 'produccion' | 'sucursal' | 'seccion_carta';
   title: string;
-  color?: 'purple' | 'orange';
+  color?: 'purple' | 'orange' | 'sky';
   isReadOnly?: boolean;
+  simpleName?: boolean; // solo campo Nombre (ej. secciones de la carta)
 }) {
   const [rows, setRows] = useState<MasterRow[]>([]);
   const [form, setForm] = useState<{ name: string; unit: string; code: string }>({ name: '', unit: '', code: '' });
@@ -25,6 +26,8 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
 
   const c = color === 'orange'
     ? { text: 'text-orange-500', border: 'border-orange-500', bg: 'bg-orange-500', bgSoft: 'bg-orange-500/5', borderSoft: 'border-orange-500/20', hover: 'hover:bg-orange-600' }
+    : color === 'sky'
+    ? { text: 'text-sky-500', border: 'border-sky-500', bg: 'bg-sky-500', bgSoft: 'bg-sky-500/5', borderSoft: 'border-sky-500/20', hover: 'hover:bg-sky-600' }
     : { text: 'text-purple-500', border: 'border-purple-500', bg: 'bg-purple-500', bgSoft: 'bg-purple-500/5', borderSoft: 'border-purple-500/20', hover: 'hover:bg-purple-600' };
 
   const cargar = async () => {
@@ -131,22 +134,26 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       {!isReadOnly && (
         <div className={cn("p-4 rounded border space-y-3", c.bgSoft, c.borderSoft)}>
           <div className="grid grid-cols-6 gap-3">
-            <div className="col-span-3 space-y-1">
+            <div className={cn("space-y-1", simpleName ? "col-span-6" : "col-span-3")}>
               <label className="text-[9px] font-black text-text-dim uppercase">Nombre</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                 className={cn("w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none uppercase font-black focus:" + c.border)}
-                placeholder="BOLLO DE PIZZA…" />
+                placeholder={simpleName ? 'PIZZAS CLÁSICAS…' : 'BOLLO DE PIZZA…'} />
             </div>
-            <div className="col-span-2 space-y-1">
-              <label className="text-[9px] font-black text-text-dim uppercase">Unidad</label>
-              <input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}
-                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none font-black uppercase" placeholder="UNIDAD / KG…" />
-            </div>
-            <div className="col-span-1 space-y-1">
-              <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
-              <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
-                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none font-black uppercase" placeholder="—" />
-            </div>
+            {!simpleName && (
+              <>
+                <div className="col-span-2 space-y-1">
+                  <label className="text-[9px] font-black text-text-dim uppercase">Unidad</label>
+                  <input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}
+                    className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none font-black uppercase" placeholder="UNIDAD / KG…" />
+                </div>
+                <div className="col-span-1 space-y-1">
+                  <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
+                  <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
+                    className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none font-black uppercase" placeholder="—" />
+                </div>
+              </>
+            )}
           </div>
           <button onClick={guardar} disabled={busy}
             className={cn("w-full text-white py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-50", c.bg, c.hover)}>
@@ -172,7 +179,7 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
           <div key={r.id} className="flex items-center justify-between p-3.5 rounded border bg-bg-accent/40 border-border-dim hover:border-brand-500/30 transition-all">
             <div className="min-w-0">
               <p className="text-[11px] font-black text-text-main uppercase truncate">{r.name}</p>
-              <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{r.unit || 'sin unidad'}{r.code ? ` · ${r.code}` : ''}</p>
+              {!simpleName && <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{r.unit || 'sin unidad'}{r.code ? ` · ${r.code}` : ''}</p>}
             </div>
             {!isReadOnly && (
               <div className="flex items-center gap-2 shrink-0">

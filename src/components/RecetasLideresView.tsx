@@ -116,6 +116,8 @@ export default function RecetasLideresView({
   const [recipeMasters, setRecipeMasters] = useState<{ tipo: string; name: string; unit: string | null; code: string | null }[]>([]);
   const [prodSearch, setProdSearch] = useState('');
   const [prodOpen, setProdOpen] = useState(false);
+  const [secSearch, setSecSearch] = useState('');
+  const [secOpen, setSecOpen] = useState(false);
 
   // Editor
   const [editing, setEditing] = useState<Recipe | null>(null);
@@ -185,6 +187,14 @@ export default function RecetasLideresView({
     return base.slice(0, 60);
   }, [prodSearch, masterOptions]);
 
+  // Secciones de la carta (Maestro Secciones Carta)
+  const seccionesMaster = useMemo(() => recipeMasters.filter(m => m.tipo === 'seccion_carta').map(m => m.name), [recipeMasters]);
+  const secSugerencias = useMemo(() => {
+    const q = secSearch.trim().toLowerCase();
+    const base = q ? seccionesMaster.filter(s => s.toLowerCase().includes(q)) : seccionesMaster;
+    return base.slice(0, 60);
+  }, [secSearch, seccionesMaster]);
+
   // ¿La receta se considera activa? (por defecto sí, para las importadas sin el campo)
   const esActiva = (r: Recipe) => r.active !== false;
   const nActivas = useMemo(() => recipes.filter(esActiva).length, [recipes]);
@@ -220,14 +230,14 @@ export default function RecetasLideresView({
   const abrirNueva = () => {
     setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true });
     setDraftItems([]);
-    setIngSearch(''); setProdSearch(''); setProdOpen(false);
+    setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
   const abrirEditar = (r: Recipe) => {
     setEditing({ ...r });
     setDraftItems((itemsByRecipe[r.id] || []).map(it => ({ ...it })));
-    setIngSearch(''); setProdSearch(''); setProdOpen(false);
+    setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
-  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); };
+  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); };
 
   const agregarInsumoMaestro = (it: StockItem) => {
     setDraftItems(prev => [...prev, {
@@ -256,6 +266,14 @@ export default function RecetasLideresView({
     if (!editing.id && !masterOptions.some(o => o.name.trim().toLowerCase() === editing.name.trim().toLowerCase())) {
       alert(`El producto debe existir en el ${masterLabel}. Elegilo de la lista.`);
       return;
+    }
+    // En Carta, la sección debe existir en el Maestro Secciones Carta (si hay secciones cargadas)
+    if (tipo === 'carta' && !editing.id && seccionesMaster.length > 0) {
+      const sec = (editing.seccion || '').trim().toLowerCase();
+      if (!sec || !seccionesMaster.some(s => s.trim().toLowerCase() === sec)) {
+        alert('Elegí una sección del Maestro Secciones Carta.');
+        return;
+      }
     }
     if (draftItems.length === 0) { alert('Agregá al menos un insumo.'); return; }
     if (draftItems.some(it => !it.item_name.trim())) { alert('Todos los insumos deben tener nombre.'); return; }
@@ -591,10 +609,36 @@ export default function RecetasLideresView({
                 </div>
                 {tipo === 'carta' && (
                   <div className="md:col-span-6">
-                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección de la carta</label>
-                    <input readOnly={isReadOnly} value={editing.seccion || ''} onChange={e => setEditing({ ...editing, seccion: e.target.value })}
-                      placeholder="Ej. ALL DAY BREAKFAST, PIZZAS CLÁSICAS…"
-                      className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">
+                      Sección de la carta <span className="text-text-dim/60 normal-case">(del Maestro Secciones Carta)</span>
+                    </label>
+                    {!isReadOnly ? (
+                      <div className="relative">
+                        <input
+                          value={secOpen ? secSearch : (editing.seccion || '')}
+                          onChange={e => { setSecSearch(e.target.value); setSecOpen(true); setEditing({ ...editing, seccion: '' }); }}
+                          onFocus={() => { setSecOpen(true); setSecSearch(''); }}
+                          onBlur={() => setTimeout(() => setSecOpen(false), 150)}
+                          placeholder="Buscá y elegí la sección…"
+                          className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                        {secOpen && (
+                          <div className="absolute z-20 mt-1 w-full bg-bg-card border border-border-dim rounded-lg shadow-xl max-h-56 overflow-y-auto">
+                            {secSugerencias.length === 0 ? (
+                              <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">Sin secciones cargadas. Cargalas en Maestros.</p>
+                            ) : secSugerencias.map((s, idx) => (
+                              <button key={`${s}-${idx}`} type="button" onMouseDown={e => e.preventDefault()}
+                                onClick={() => { setEditing({ ...editing, seccion: s }); setSecSearch(''); setSecOpen(false); }}
+                                className="w-full text-left px-3 py-2 hover:bg-bg-accent border-b border-border-dim/30 last:border-0">
+                                <span className="text-[10px] font-bold uppercase text-text-main">{s}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <input readOnly value={editing.seccion || ''}
+                        className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                    )}
                   </div>
                 )}
               </div>
