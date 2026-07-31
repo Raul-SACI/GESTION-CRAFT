@@ -157,7 +157,8 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
     const name = nuevaArea.trim();
     if (!name) return;
     if (areas.some(a => a.name.trim().toLowerCase() === name.toLowerCase())) { alert('Ya existe esa área.'); return; }
-    await supabase.from('direccion_areas').insert({ id: `ar_${Date.now()}${Math.random().toString(36).slice(2, 5)}`, name, sort_order: (areas.length + 1) });
+    const { error } = await supabase.from('direccion_areas').insert({ id: `ar_${Date.now()}${Math.random().toString(36).slice(2, 5)}`, name, sort_order: (areas.length + 1) });
+    if (error) { alert('No se pudo guardar el área: ' + error.message); return; }
     setNuevaArea(''); await cargar();
   };
   const borrarArea = async (a: Area) => {
