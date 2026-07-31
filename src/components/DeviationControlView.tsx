@@ -1708,39 +1708,43 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                          </button>
                                       </div>
                                    </div>
-                                   <div className="pt-5">
-                                     <button 
-                                       onClick={() => removeIngredientFromRecipe(selectedProductId, line.itemId)}
-                                       className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-red-500/10 rounded"
-                                       title="Eliminar insumo de receta"
-                                     >
-                                        <X size={16} />
-                                     </button>
-                                   </div>
+                                   {!isReadOnly && (
+                                     <div className="pt-5">
+                                       <button
+                                         onClick={() => removeIngredientFromRecipe(selectedProductId, line.itemId)}
+                                         className="text-text-dim hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all p-2 hover:bg-red-500/10 rounded"
+                                         title="Eliminar insumo de receta"
+                                       >
+                                          <X size={16} />
+                                       </button>
+                                     </div>
+                                   )}
                                 </div>
                              </div>
                            );
                          })}
                          
-                         <div className="pt-4 space-y-4">
-                            <div className="relative">
-                              <Plus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-500" />
-                              <select 
-                                onChange={(e) => {
-                                  if (e.target.value) {
-                                    addIngredientToRecipe(selectedProductId, e.target.value);
-                                    e.target.value = '';
-                                  }
-                                }}
-                                className="w-full pl-9 pr-4 py-3 bg-bg-accent border-2 border-dashed border-border-dim rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 outline-none transition-all appearance-none cursor-pointer"
-                              >
-                                 <option value="">VINCULAR NUEVO INSUMO A ESTE PRODUCTO...</option>
-                                 {items.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
-                                   <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
-                                 ))}
-                              </select>
-                            </div>
-                         </div>
+                         {!isReadOnly && (
+                           <div className="pt-4 space-y-4">
+                              <div className="relative">
+                                <Plus size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-500" />
+                                <select
+                                  onChange={(e) => {
+                                    if (e.target.value) {
+                                      addIngredientToRecipe(selectedProductId, e.target.value);
+                                      e.target.value = '';
+                                    }
+                                  }}
+                                  className="w-full pl-9 pr-4 py-3 bg-bg-accent border-2 border-dashed border-border-dim rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 outline-none transition-all appearance-none cursor-pointer"
+                                >
+                                   <option value="">VINCULAR NUEVO INSUMO A ESTE PRODUCTO...</option>
+                                   {items.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
+                                     <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
+                                   ))}
+                                </select>
+                              </div>
+                           </div>
+                         )}
                       </div>
                     </>
                   ) : (
