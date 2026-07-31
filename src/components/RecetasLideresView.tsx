@@ -111,6 +111,11 @@ export default function RecetasLideresView({
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Maestro de Productos (para elegir el plato en Platos de la Carta)
+  const [productos, setProductos] = useState<{ id: string; name: string; category?: string }[]>([]);
+  const [prodSearch, setProdSearch] = useState('');
+  const [prodOpen, setProdOpen] = useState(false);
+
   // Editor
   const [editing, setEditing] = useState<Recipe | null>(null);
   const [draftItems, setDraftItems] = useState<RecipeItem[]>([]);
@@ -151,6 +156,23 @@ export default function RecetasLideresView({
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [tipo]);
 
+  // Carga el Maestro de Productos una vez (para el selector de Platos de la Carta)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('products').select('id, name, category').order('name');
+        setProductos((data as any[]) || []);
+      } catch { setProductos([]); }
+    })();
+  }, []);
+
+  // Sugerencias del maestro de productos según la búsqueda
+  const prodSugerencias = useMemo(() => {
+    const q = prodSearch.trim().toLowerCase();
+    if (!q) return productos.slice(0, 60);
+    return productos.filter(p => p.name.toLowerCase().includes(q)).slice(0, 60);
+  }, [prodSearch, productos]);
+
   // ¿La receta se considera activa? (por defecto sí, para las importadas sin el campo)
   const esActiva = (r: Recipe) => r.active !== false;
   const nActivas = useMemo(() => recipes.filter(esActiva).length, [recipes]);
@@ -186,14 +208,14 @@ export default function RecetasLideresView({
   const abrirNueva = () => {
     setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true });
     setDraftItems([]);
-    setIngSearch('');
+    setIngSearch(''); setProdSearch(''); setProdOpen(false);
   };
   const abrirEditar = (r: Recipe) => {
     setEditing({ ...r });
     setDraftItems((itemsByRecipe[r.id] || []).map(it => ({ ...it })));
-    setIngSearch('');
+    setIngSearch(''); setProdSearch(''); setProdOpen(false);
   };
-  const cerrarEditor = () => { setEditing(null); setDraftItems([]); };
+  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); };
 
   const agregarInsumoMaestro = (it: StockItem) => {
     setDraftItems(prev => [...prev, {
@@ -217,7 +239,12 @@ export default function RecetasLideresView({
   const guardar = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. Solo podés ver las recetas.'); return; }
     if (!editing) return;
-    if (!editing.name.trim()) { alert('Poné el nombre del producto.'); return; }
+    if (!editing.name.trim()) { alert(tipo === 'carta' ? 'Elegí el plato del Maestro de Productos.' : 'Poné el nombre del producto.'); return; }
+    // En Platos de la Carta, el plato debe existir en el Maestro de Productos
+    if (tipo === 'carta' && !editing.id && !productos.some(p => p.name.trim().toLowerCase() === editing.name.trim().toLowerCase())) {
+      alert('El plato debe existir en el Maestro de Productos. Elegilo de la lista.');
+      return;
+    }
     if (draftItems.length === 0) { alert('Agregá al menos un insumo.'); return; }
     if (draftItems.some(it => !it.item_name.trim())) { alert('Todos los insumos deben tener nombre.'); return; }
     setSaving(true);
@@ -506,9 +533,37 @@ export default function RecetasLideresView({
               {/* Datos del producto */}
               <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-3">
-                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Nombre del producto *</label>
-                  <input readOnly={isReadOnly} value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">
+                    Nombre del producto * {tipo === 'carta' && <span className="text-text-dim/60 normal-case">(del Maestro de Productos)</span>}
+                  </label>
+                  {tipo === 'carta' && !isReadOnly ? (
+                    <div className="relative">
+                      <input
+                        value={prodOpen ? prodSearch : (editing.name || '')}
+                        onChange={e => { setProdSearch(e.target.value); setProdOpen(true); setEditing({ ...editing, name: '' }); }}
+                        onFocus={() => { setProdOpen(true); setProdSearch(''); }}
+                        onBlur={() => setTimeout(() => setProdOpen(false), 150)}
+                        placeholder="Buscá y elegí el plato del maestro…"
+                        className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                      {prodOpen && (
+                        <div className="absolute z-20 mt-1 w-full bg-bg-card border border-border-dim rounded-lg shadow-xl max-h-56 overflow-y-auto">
+                          {prodSugerencias.length === 0 ? (
+                            <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">Sin resultados en el maestro</p>
+                          ) : prodSugerencias.map(p => (
+                            <button key={p.id} type="button" onMouseDown={e => e.preventDefault()}
+                              onClick={() => { setEditing({ ...editing, name: p.name }); setProdSearch(''); setProdOpen(false); }}
+                              className="w-full text-left px-3 py-2 hover:bg-bg-accent flex items-center gap-2 border-b border-border-dim/30 last:border-0">
+                              <span className="text-[10px] font-bold uppercase text-text-main flex-1 truncate">{p.name}</span>
+                              {p.category && <span className="text-[8px] font-black uppercase text-text-dim shrink-0">{p.category}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <input readOnly={isReadOnly} value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                      className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  )}
                 </div>
                 <div className="md:col-span-1">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Código</label>
