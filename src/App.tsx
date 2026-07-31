@@ -1324,8 +1324,9 @@ function AppContent() {
             // Filtro del buscador de módulos (por nombre, sin acentos)
             const norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
             const q = norm(moduleSearch.trim());
+            const matchSeccion = q ? norm(sectionName).includes(q) : false;
             const filteredItems = q
-              ? permittedItems.filter(item => norm(item.label).includes(q))
+              ? (matchSeccion ? permittedItems : permittedItems.filter(item => norm(item.label).includes(q)))
               : permittedItems;
 
             if (filteredItems.length === 0) return null;
