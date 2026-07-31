@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import RecipeMastersManager from './RecipeMastersManager';
 import { 
   BarChart3, 
   Settings2, 
@@ -2241,6 +2242,12 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   ))}
                 </div>
               </div>
+
+              {/* Maestro Recetas Producción */}
+              <RecipeMastersManager tipo="produccion" title="Maestro Recetas Producción" color="purple" isReadOnly={isReadOnly} />
+
+              {/* Maestro Recetas Sucursales */}
+              <RecipeMastersManager tipo="sucursal" title="Maestro Recetas Sucursales" color="orange" isReadOnly={isReadOnly} />
             </div>
           </motion.div>
         )}
