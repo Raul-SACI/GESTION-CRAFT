@@ -111,8 +111,9 @@ export default function RecetasLideresView({
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Maestro de Productos (para elegir el plato en Platos de la Carta)
+  // Maestros para elegir el nombre del producto según el tipo de receta
   const [productos, setProductos] = useState<{ id: string; name: string; category?: string }[]>([]);
+  const [recipeMasters, setRecipeMasters] = useState<{ tipo: string; name: string; unit: string | null; code: string | null }[]>([]);
   const [prodSearch, setProdSearch] = useState('');
   const [prodOpen, setProdOpen] = useState(false);
 
@@ -156,22 +157,33 @@ export default function RecetasLideresView({
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [tipo]);
 
-  // Carga el Maestro de Productos una vez (para el selector de Platos de la Carta)
+  // Carga los maestros una vez: Productos (para Carta) y Recetas Producción/Sucursal
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase.from('products').select('id, name, category').order('name');
-        setProductos((data as any[]) || []);
-      } catch { setProductos([]); }
+        const [{ data: prods }, { data: masters }] = await Promise.all([
+          supabase.from('products').select('id, name, category').order('name'),
+          supabase.from('recipe_masters').select('tipo, name, unit, code').order('name'),
+        ]);
+        setProductos((prods as any[]) || []);
+        setRecipeMasters((masters as any[]) || []);
+      } catch { setProductos([]); setRecipeMasters([]); }
     })();
   }, []);
 
-  // Sugerencias del maestro de productos según la búsqueda
+  // Maestro que corresponde al tipo actual (nombre + unidad + código)
+  const masterLabel = tipo === 'carta' ? 'Maestro de Productos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
+  const masterOptions = useMemo(() => {
+    if (tipo === 'carta') return productos.map(p => ({ name: p.name, unit: '', code: '', category: p.category || '' }));
+    return recipeMasters.filter(m => m.tipo === tipo).map(m => ({ name: m.name, unit: m.unit || '', code: m.code || '', category: '' }));
+  }, [tipo, productos, recipeMasters]);
+
+  // Sugerencias del maestro según la búsqueda
   const prodSugerencias = useMemo(() => {
     const q = prodSearch.trim().toLowerCase();
-    if (!q) return productos.slice(0, 60);
-    return productos.filter(p => p.name.toLowerCase().includes(q)).slice(0, 60);
-  }, [prodSearch, productos]);
+    const base = q ? masterOptions.filter(o => o.name.toLowerCase().includes(q)) : masterOptions;
+    return base.slice(0, 60);
+  }, [prodSearch, masterOptions]);
 
   // ¿La receta se considera activa? (por defecto sí, para las importadas sin el campo)
   const esActiva = (r: Recipe) => r.active !== false;
@@ -239,10 +251,10 @@ export default function RecetasLideresView({
   const guardar = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. Solo podés ver las recetas.'); return; }
     if (!editing) return;
-    if (!editing.name.trim()) { alert(tipo === 'carta' ? 'Elegí el plato del Maestro de Productos.' : 'Poné el nombre del producto.'); return; }
-    // En Platos de la Carta, el plato debe existir en el Maestro de Productos
-    if (tipo === 'carta' && !editing.id && !productos.some(p => p.name.trim().toLowerCase() === editing.name.trim().toLowerCase())) {
-      alert('El plato debe existir en el Maestro de Productos. Elegilo de la lista.');
+    if (!editing.name.trim()) { alert(`Elegí el producto del ${masterLabel}.`); return; }
+    // El nombre debe existir en el maestro correspondiente (solo al crear una receta nueva)
+    if (!editing.id && !masterOptions.some(o => o.name.trim().toLowerCase() === editing.name.trim().toLowerCase())) {
+      alert(`El producto debe existir en el ${masterLabel}. Elegilo de la lista.`);
       return;
     }
     if (draftItems.length === 0) { alert('Agregá al menos un insumo.'); return; }
@@ -534,26 +546,27 @@ export default function RecetasLideresView({
               <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div className="md:col-span-3">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">
-                    Nombre del producto * {tipo === 'carta' && <span className="text-text-dim/60 normal-case">(del Maestro de Productos)</span>}
+                    Nombre del producto * <span className="text-text-dim/60 normal-case">(del {masterLabel})</span>
                   </label>
-                  {tipo === 'carta' && !isReadOnly ? (
+                  {!isReadOnly ? (
                     <div className="relative">
                       <input
                         value={prodOpen ? prodSearch : (editing.name || '')}
                         onChange={e => { setProdSearch(e.target.value); setProdOpen(true); setEditing({ ...editing, name: '' }); }}
                         onFocus={() => { setProdOpen(true); setProdSearch(''); }}
                         onBlur={() => setTimeout(() => setProdOpen(false), 150)}
-                        placeholder="Buscá y elegí el plato del maestro…"
+                        placeholder="Buscá y elegí del maestro…"
                         className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                       {prodOpen && (
                         <div className="absolute z-20 mt-1 w-full bg-bg-card border border-border-dim rounded-lg shadow-xl max-h-56 overflow-y-auto">
                           {prodSugerencias.length === 0 ? (
-                            <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">Sin resultados en el maestro</p>
-                          ) : prodSugerencias.map(p => (
-                            <button key={p.id} type="button" onMouseDown={e => e.preventDefault()}
-                              onClick={() => { setEditing({ ...editing, name: p.name }); setProdSearch(''); setProdOpen(false); }}
+                            <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">Sin resultados en el maestro. Cargalo en Maestros.</p>
+                          ) : prodSugerencias.map((p, idx) => (
+                            <button key={`${p.name}-${idx}`} type="button" onMouseDown={e => e.preventDefault()}
+                              onClick={() => { setEditing({ ...editing, name: p.name, ...(p.unit ? { unit: p.unit } : {}), ...(p.code ? { code: p.code } : {}) }); setProdSearch(''); setProdOpen(false); }}
                               className="w-full text-left px-3 py-2 hover:bg-bg-accent flex items-center gap-2 border-b border-border-dim/30 last:border-0">
                               <span className="text-[10px] font-bold uppercase text-text-main flex-1 truncate">{p.name}</span>
+                              {p.unit && <span className="text-[8px] font-black uppercase text-text-dim shrink-0">{p.unit}</span>}
                               {p.category && <span className="text-[8px] font-black uppercase text-text-dim shrink-0">{p.category}</span>}
                             </button>
                           ))}
@@ -561,7 +574,7 @@ export default function RecetasLideresView({
                       )}
                     </div>
                   ) : (
-                    <input readOnly={isReadOnly} value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                    <input readOnly value={editing.name}
                       className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                   )}
                 </div>
