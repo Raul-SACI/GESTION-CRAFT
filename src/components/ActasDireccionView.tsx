@@ -363,55 +363,194 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
 
   const exportarPDF = (a: Acta) => {
     const doc = new jsPDF();
-    doc.setFontSize(14); doc.text('Acta de Reunión de Dirección', 14, 16);
-    doc.setFontSize(10); doc.text(`Fecha: ${fmtDMY(a.date)}`, 14, 24);
-    doc.setFontSize(9);
-    const parts = a.participants.length ? a.participants.join(', ') : 'Sin registrar';
-    const partLines = doc.splitTextToSize(`Participantes: ${parts}`, 180);
-    doc.text(partLines, 14, 30);
-    let y = 30 + partLines.length * 5 + 4;
-    const comps: BoardRow[] = [];
-    a.temas.forEach((t, i) => {
-      if (y > 265) { doc.addPage(); y = 16; }
-      doc.setFontSize(10); doc.setFont(undefined as any, 'bold');
-      doc.text(`${i + 1}. ${t.titulo || '(sin título)'}`, 14, y); y += 5;
-      doc.setFont(undefined as any, 'normal'); doc.setFontSize(9);
-      if (t.detalle) { const dl = doc.splitTextToSize(t.detalle, 178); doc.text(dl, 18, y); y += dl.length * 4.5 + 1; }
-      t.items.forEach(it => {
-        if (y > 275) { doc.addPage(); y = 16; }
-        const mark = it.charlado ? '[x]' : '[ ]';
-        const il = doc.splitTextToSize(`${mark} ${it.texto || '(item)'}`, 174);
-        doc.text(il, 20, y); y += il.length * 4.5;
-        if (it.charlado && it.conclusion) {
-          const respNames = it.responsables.map(r => r.name).join(', ');
-          const cl = doc.splitTextToSize(`→ Conclusión/Compromiso: ${it.conclusion}${respNames ? ' · Resp: ' + respNames : ''}${it.dueDate ? ' · Límite: ' + fmtDMY(it.dueDate) : ''}`, 168);
-          doc.setTextColor(90); doc.text(cl, 26, y); doc.setTextColor(0); y += cl.length * 4.5 + 1;
-          if (it.conclusion.trim()) {
-            it.responsables.forEach(r => {
-              comps.push({ key: `${it.id}_${r.id}`, acta_id: a.id, acta_date: a.date, tema: t.titulo, descripcion: it.conclusion, responsable: r.name, due_date: it.dueDate, status: r.taskId && taskStatus[r.taskId] === 'done' ? 'resuelto' : 'pendiente', source: 'item' });
-            });
-          }
-        }
-        y += 1;
+    const M = 14;            // margen
+    const PW = 210, PH = 297;
+    const CW = PW - M * 2;   // ancho de contenido
+    const BOTTOM = 280;      // límite antes del footer
+    // Paleta
+    const BRAND: [number, number, number] = [193, 18, 31];
+    const DARK: [number, number, number] = [33, 37, 41];
+    const GRAY: [number, number, number] = [110, 116, 122];
+    const EMER: [number, number, number] = [16, 150, 100];
+    const F = 'helvetica';
+
+    let y = 0;
+
+    const ensure = (h: number) => { if (y + h > BOTTOM) { doc.addPage(); y = 20; } };
+
+    // ── Cabecera de marca ──
+    const drawHeaderBand = () => {
+      doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(F, 'bold'); doc.setFontSize(9);
+      doc.text('GESTIÓN CRAFT', M, 12);
+      doc.setFontSize(16);
+      doc.text('ACTA DE REUNIÓN DE DIRECCIÓN', M, 21);
+      doc.setFont(F, 'normal'); doc.setFontSize(8);
+      doc.text('Gerencia General', M, 26.5);
+      // Fecha a la derecha, en recuadro
+      doc.setFont(F, 'bold'); doc.setFontSize(9);
+      doc.text('REUNIÓN', PW - M, 13, { align: 'right' });
+      doc.setFontSize(13);
+      doc.text(fmtDMY(a.date), PW - M, 20, { align: 'right' });
+    };
+    drawHeaderBand();
+    y = 38;
+
+    // ── Participantes ──
+    doc.setFont(F, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...BRAND);
+    doc.text('PARTICIPANTES', M, y); y += 4.5;
+    doc.setFont(F, 'normal'); doc.setFontSize(9.5); doc.setTextColor(...DARK);
+    const parts = a.participants.length ? a.participants.join('  ·  ') : 'Sin registrar';
+    const pl = doc.splitTextToSize(parts, CW);
+    doc.text(pl, M, y); y += pl.length * 4.8 + 3;
+    doc.setDrawColor(225, 227, 229); doc.setLineWidth(0.3); doc.line(M, y, PW - M, y); y += 7;
+
+    // ── Helpers de dibujo ──
+    const drawCheckbox = (x: number, cy: number, checked: boolean) => {
+      if (checked) {
+        doc.setFillColor(...EMER); doc.setDrawColor(...EMER); doc.setLineWidth(0.4);
+        doc.roundedRect(x, cy, 3.6, 3.6, 0.7, 0.7, 'F');
+        doc.setDrawColor(255, 255, 255); doc.setLineWidth(0.6);
+        doc.line(x + 0.9, cy + 1.9, x + 1.5, cy + 2.6);
+        doc.line(x + 1.5, cy + 2.6, x + 2.8, cy + 1.0);
+      } else {
+        doc.setDrawColor(180, 184, 188); doc.setLineWidth(0.4);
+        doc.roundedRect(x, cy, 3.6, 3.6, 0.7, 0.7, 'S');
+      }
+    };
+    // Fila de chips de responsables con wrap
+    const drawChips = (names: { name: string; done: boolean }[], x0: number, startY: number, maxRight: number) => {
+      let cx = x0, cy = startY;
+      doc.setFontSize(7);
+      names.forEach(({ name, done }) => {
+        const label = name.toUpperCase();
+        const w = doc.getTextWidth(label) + 5;
+        if (cx + w > maxRight) { cx = x0; cy += 6; }
+        if (done) { doc.setFillColor(223, 244, 235); } else { doc.setFillColor(252, 228, 231); }
+        doc.roundedRect(cx, cy - 3.1, w, 4.8, 1.2, 1.2, 'F');
+        doc.setTextColor(done ? EMER[0] : BRAND[0], done ? EMER[1] : BRAND[1], done ? EMER[2] : BRAND[2]);
+        doc.setFont(F, 'bold');
+        doc.text(label + (done ? '  OK' : ''), cx + 2.5, cy);
+        cx += w + 2.5;
       });
-      y += 2;
+      return cy + 3;
+    };
+
+    const comps: BoardRow[] = [];
+
+    // ── Temas ──
+    a.temas.forEach((t, i) => {
+      ensure(14);
+      // Badge de número + título
+      doc.setFillColor(...BRAND); doc.roundedRect(M, y - 4.6, 6.5, 6.5, 1.3, 1.3, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont(F, 'bold'); doc.setFontSize(9);
+      doc.text(String(i + 1), M + 3.25, y, { align: 'center' });
+      doc.setTextColor(...DARK); doc.setFontSize(12);
+      const tt = doc.splitTextToSize(t.titulo || '(sin título)', CW - 10);
+      doc.text(tt, M + 9.5, y); y += tt.length * 5.4 + 1.5;
+      // Detalle del tema (gris)
+      if (t.detalle) {
+        doc.setFont(F, 'normal'); doc.setFontSize(9); doc.setTextColor(...GRAY);
+        const dl = doc.splitTextToSize(t.detalle, CW - 6);
+        ensure(dl.length * 4.4 + 2);
+        doc.text(dl, M + 4, y); y += dl.length * 4.4 + 1.5;
+      }
+
+      // Items
+      t.items.forEach(it => {
+        ensure(8);
+        drawCheckbox(M + 4, y - 3.1, it.charlado);
+        doc.setFont(F, it.charlado ? 'bold' : 'normal'); doc.setFontSize(9.5);
+        doc.setTextColor(...DARK);
+        const il = doc.splitTextToSize(it.texto || '(item)', CW - 16);
+        doc.text(il, M + 10.5, y); y += il.length * 4.8;
+
+        if (it.charlado && it.conclusion.trim()) {
+          const bx = M + 10.5;
+          const boxW = CW - 10.5;
+          const innerW = boxW - 8;
+          doc.setFont(F, 'normal'); doc.setFontSize(8.8);
+          const cl = doc.splitTextToSize(it.conclusion.trim(), innerW);
+          const hasResp = it.responsables.length > 0;
+          const chipRows = hasResp ? 1 : 0; // aprox; wrap se ajusta abajo
+          const boxH = 5.5 + cl.length * 4.2 + (hasResp ? 6.5 : 0) + (it.dueDate ? 4.5 : 0) + 3 + chipRows * 0;
+          ensure(boxH + 2);
+          // Caja
+          doc.setFillColor(247, 248, 249); doc.roundedRect(bx, y - 2.5, boxW, boxH, 1.6, 1.6, 'F');
+          doc.setFillColor(...EMER); doc.rect(bx, y - 2.5, 1.4, boxH, 'F');
+          let by = y + 1.5;
+          doc.setFont(F, 'bold'); doc.setFontSize(7); doc.setTextColor(...EMER);
+          doc.text('CONCLUSIÓN / COMPROMISO', bx + 4, by); by += 4;
+          doc.setFont(F, 'normal'); doc.setFontSize(8.8); doc.setTextColor(...DARK);
+          doc.text(cl, bx + 4, by); by += cl.length * 4.2 + 1.5;
+          if (hasResp) {
+            doc.setFont(F, 'bold'); doc.setFontSize(6.8); doc.setTextColor(...GRAY);
+            doc.text('RESPONSABLES', bx + 4, by); by += 3;
+            by = drawChips(it.responsables.map(r => ({ name: r.name, done: !!(r.taskId && taskStatus[r.taskId] === 'done') })), bx + 4, by, bx + boxW - 4);
+            by += 1;
+          }
+          if (it.dueDate) {
+            doc.setFont(F, 'bold'); doc.setFontSize(7.2); doc.setTextColor(...BRAND);
+            doc.text(`LÍMITE: ${fmtDMY(it.dueDate)}`, bx + 4, by + 1);
+          }
+          y += boxH + 2.5;
+
+          it.responsables.forEach(r => {
+            comps.push({ key: `${it.id}_${r.id}`, acta_id: a.id, acta_date: a.date, tema: t.titulo, descripcion: it.conclusion, responsable: r.name, due_date: it.dueDate, status: r.taskId && taskStatus[r.taskId] === 'done' ? 'resuelto' : 'pendiente', source: 'item' });
+          });
+        }
+        y += 1.5;
+      });
+      y += 3.5;
     });
+
+    // ── Tabla resumen de compromisos ──
     if (comps.length) {
-      if (y > 250) { doc.addPage(); y = 16; }
-      doc.setFontSize(10); doc.setFont(undefined as any, 'bold'); doc.text('Compromisos / Tareas', 14, y); y += 3;
-      doc.setFont(undefined as any, 'normal');
+      ensure(20);
+      doc.setFont(F, 'bold'); doc.setFontSize(11); doc.setTextColor(...BRAND);
+      doc.text('RESUMEN DE COMPROMISOS', M, y); y += 2;
       autoTable(doc, {
         head: [['Compromiso', 'Responsable', 'Límite', 'Estado']],
-        body: comps.map(c => [c.descripcion, c.responsable || '—', c.due_date ? fmtDMY(c.due_date) : '—', stInfo(c.status).label]),
-        startY: y + 2, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31] },
-        columnStyles: { 0: { cellWidth: 90 } },
+        body: comps.map(c => [c.descripcion, c.responsable || '-', c.due_date ? fmtDMY(c.due_date) : '-', c.status === 'resuelto' ? 'Realizado' : 'Pendiente']),
+        startY: y + 3,
+        margin: { left: M, right: M },
+        styles: { fontSize: 8.5, cellPadding: 2.5, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+        headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8 },
+        alternateRowStyles: { fillColor: [249, 250, 251] as any },
+        columnStyles: { 0: { cellWidth: 86 }, 1: { cellWidth: 46 }, 2: { cellWidth: 24, halign: 'center' }, 3: { cellWidth: 22, halign: 'center' } },
+        didParseCell: (data: any) => {
+          if (data.section === 'body' && data.column.index === 3) {
+            const done = data.cell.raw === 'Realizado';
+            data.cell.styles.textColor = done ? EMER : BRAND;
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
       });
+      y = (doc as any).lastAutoTable.finalY + 8;
     }
+
+    // ── Notas ──
     if (a.notes) {
-      const afterY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 6 : y;
-      doc.setFontSize(9); doc.setFont(undefined as any, 'bold'); doc.text('Notas:', 14, afterY);
-      doc.setFont(undefined as any, 'normal'); doc.text(doc.splitTextToSize(a.notes, 180), 14, afterY + 5);
+      ensure(16);
+      doc.setFont(F, 'bold'); doc.setFontSize(8); doc.setTextColor(...BRAND);
+      doc.text('NOTAS GENERALES', M, y); y += 4;
+      doc.setFont(F, 'normal'); doc.setFontSize(9); doc.setTextColor(...DARK);
+      const nl = doc.splitTextToSize(a.notes, CW - 6);
+      doc.setFillColor(247, 248, 249); doc.roundedRect(M, y - 2.5, CW, nl.length * 4.4 + 5, 1.6, 1.6, 'F');
+      doc.text(nl, M + 4, y + 2); y += nl.length * 4.4 + 6;
     }
+
+    // ── Footer en todas las páginas ──
+    const pageCount = doc.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(230, 231, 233); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
+      doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+      doc.text(`Acta de Dirección · Reunión ${fmtDMY(a.date)}`, M, PH - 8);
+      doc.text(`Página ${p} de ${pageCount}`, PW - M, PH - 8, { align: 'right' });
+    }
+
     doc.save(`acta_direccion_${a.date}.pdf`);
   };
 
