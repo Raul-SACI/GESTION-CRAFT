@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   Building2, Calendar, TrendingUp, TrendingDown, Star, DollarSign,
@@ -113,8 +113,20 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
     [operativeBranches]
   );
 
+  // Estabilización: no revelamos la tabla hasta que dos lecturas seguidas den lo mismo.
+  // Mientras los datos siguen cambiando (p. ej. una importación de ventas en curso),
+  // se mantiene el skeleton gris. Refs para no re-disparar el efecto.
+  const stableSigRef = useRef<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRoundsRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
+    // Reinicia el control de estabilización al cambiar de mes/sucursales
+    stableSigRef.current = null;
+    pollRoundsRef.current = 0;
+    const POLL_MS = 3500;      // cada cuánto re-consulta mientras el dato no se estabiliza
+    const MAX_ROUNDS = 10;     // tope de re-intentos (~35s) para no quedar en gris para siempre
     const load = async () => {
       setLoading(true);
       const prevMonth = prevMonthOf(selectedMonth);
@@ -341,11 +353,44 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       });
       setValidatedWeeksByBranch(vwByBranch);
 
-      setData(Object.values(agg));
-      setLoading(false);
+      const rows = Object.values(agg);
+      // Dejamos los datos listos en el estado, pero solo REVELAMOS (loading=false)
+      // cuando la lectura se repite igual (los datos dejaron de cambiar).
+      setData(rows);
+
+      // Firma de los datos: totales + días cargados por sucursal. Si esto no cambia
+      // entre dos lecturas, asumimos que la carga terminó y mostramos la tabla.
+      const sig = JSON.stringify({
+        net: Math.round(rows.reduce((s, r) => s + r.netCurrent, 0)),
+        gross: Math.round(rows.reduce((s, r) => s + r.grossCurrent, 0)),
+        tickets: rows.reduce((s, r) => s + r.ticketsCurrent, 0),
+        dias: rows.map(r => `${r.branchId}:${r.diasCargados}`).sort().join('|'),
+      });
+
+      if (cancelled) return;
+
+      if (stableSigRef.current !== null && sig === stableSigRef.current) {
+        // Dos lecturas iguales seguidas -> dato estable -> mostrar
+        setLoading(false);
+        return;
+      }
+
+      // Cambió (o es la primera lectura): guardamos y volvemos a consultar en unos segundos
+      stableSigRef.current = sig;
+      pollRoundsRef.current += 1;
+      if (pollRoundsRef.current >= MAX_ROUNDS) {
+        // Tope alcanzado: mostramos lo que haya para no dejar el gris eternamente
+        setLoading(false);
+        return;
+      }
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = setTimeout(() => { if (!cancelled) load(); }, POLL_MS);
     };
     load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
+    };
   }, [selectedMonth, operativeBranchesKey]);
 
   const shown = useMemo(
