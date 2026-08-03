@@ -103,8 +103,16 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
     () => branches.filter(b => !/almac/i.test(b.name)),
     [branches]
   );
+  // Clave estable con los IDs de sucursal. Evita que el efecto se vuelva a disparar
+  // (y recargue/parpadee los datos) solo porque el array "branches" cambió de referencia
+  // en un re-render del padre, aunque las sucursales sean exactamente las mismas.
+  const operativeBranchesKey = useMemo(
+    () => operativeBranches.map(b => b.id).join(','),
+    [operativeBranches]
+  );
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
       const prevMonth = prevMonthOf(selectedMonth);
@@ -145,6 +153,10 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         supabase.from('hour_logs').select('branch_id, hours_actual, position, position_id, week_number').eq('month', selectedMonth),
         supabase.from('hr_hour_logs').select('branch_id, hours_rrhh, position_name, position_id, week_number').eq('month', selectedMonth)
       ]);
+
+      // Si mientras se cargaba cambió el mes/las sucursales (o se salió de la vista),
+      // descartamos este resultado para que una carga vieja no pise a la nueva.
+      if (cancelled) return;
 
       const agg: Record<string, BranchSales> = {};
       operativeBranches.forEach(b => {
@@ -329,7 +341,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       setLoading(false);
     };
     load();
-  }, [selectedMonth, operativeBranches]);
+    return () => { cancelled = true; };
+  }, [selectedMonth, operativeBranchesKey]);
 
   const shown = useMemo(
     () => selectedBranch === 'all' ? data : data.filter(d => d.branchId === selectedBranch),
