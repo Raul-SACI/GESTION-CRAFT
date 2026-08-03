@@ -29,15 +29,18 @@ const uid = (p: string) => `${p}_${Date.now().toString(36)}${Math.random().toStr
 
 interface Area { id: string; name: string; sort_order?: number; }
 interface AppUser { id: string; name: string; }
+interface Responsable {
+  id: string;        // id del usuario (profile)
+  name: string;      // nombre para mostrar / PDF
+  taskId: string | null; // id de la tarea creada para ESE usuario
+}
 interface TemaItem {
   id: string;
   texto: string;                 // el punto tratado dentro del tema
   charlado: boolean;             // se tilda cuando ya se habló
   conclusion: string;            // conclusión / compromiso (aparece al tildar)
-  responsableId: string | null;  // id del usuario responsable (genera la tarea)
-  responsableName: string | null;
+  responsables: Responsable[];   // uno o varios usuarios; cada uno recibe su tarea
   dueDate: string | null;
-  taskId: string | null;         // id de la tarea creada en 'tasks'
 }
 interface Tema { titulo: string; detalle: string; items: TemaItem[]; }
 interface Acta {
@@ -72,10 +75,11 @@ const normTema = (t: any): Tema => ({
     texto: it.texto || '',
     charlado: !!it.charlado,
     conclusion: it.conclusion || '',
-    responsableId: it.responsableId ?? null,
-    responsableName: it.responsableName ?? null,
+    // Compatibilidad: items viejos tenían un único responsableId/taskId
+    responsables: Array.isArray(it.responsables)
+      ? it.responsables.map((r: any) => ({ id: r.id, name: r.name || '', taskId: r.taskId ?? null }))
+      : (it.responsableId ? [{ id: it.responsableId, name: it.responsableName || '', taskId: it.taskId ?? null }] : []),
     dueDate: it.dueDate ?? null,
-    taskId: it.taskId ?? null,
   })) : [],
 });
 
@@ -121,7 +125,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
 
       // Estado de las tareas vinculadas a los items (para reflejar "Realizado")
       const taskIds: string[] = [];
-      actasNorm.forEach(a => a.temas.forEach(t => t.items.forEach(it => { if (it.taskId) taskIds.push(it.taskId); })));
+      actasNorm.forEach(a => a.temas.forEach(t => t.items.forEach(it => it.responsables.forEach(r => { if (r.taskId) taskIds.push(r.taskId); }))));
       if (taskIds.length > 0) {
         const { data: tks } = await supabase.from('tasks').select('id, status').in('id', taskIds);
         const map: Record<string, string> = {};
@@ -145,12 +149,15 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
   const itemComps = useMemo(() => {
     const rows: BoardRow[] = [];
     actas.forEach(a => a.temas.forEach(t => t.items.forEach(it => {
-      if (it.charlado && it.conclusion.trim() && it.responsableName) {
-        const done = it.taskId ? taskStatus[it.taskId] === 'done' : false;
-        rows.push({
-          key: it.id, acta_id: a.id, acta_date: a.date, tema: t.titulo || null,
-          descripcion: it.conclusion, responsable: it.responsableName,
-          due_date: it.dueDate, status: done ? 'resuelto' : 'pendiente', source: 'item',
+      if (it.charlado && it.conclusion.trim() && it.responsables.length > 0) {
+        // Una fila por responsable, cada uno con su propio estado
+        it.responsables.forEach(r => {
+          const done = r.taskId ? taskStatus[r.taskId] === 'done' : false;
+          rows.push({
+            key: `${it.id}_${r.id}`, acta_id: a.id, acta_date: a.date, tema: t.titulo || null,
+            descripcion: it.conclusion, responsable: r.name,
+            due_date: it.dueDate, status: done ? 'resuelto' : 'pendiente', source: 'item',
+          });
         });
       }
     })));
@@ -181,7 +188,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
   const delTema = (i: number) => setEditing(e => {
     if (!e) return e;
     const tema = e.temas[i];
-    const ids = tema.items.map(it => it.taskId).filter(Boolean) as string[];
+    const ids = tema.items.flatMap(it => it.responsables.map(r => r.taskId)).filter(Boolean) as string[];
     if (ids.length) setDeletedTaskIds(prev => [...prev, ...ids]);
     return { ...e, temas: e.temas.filter((_, idx) => idx !== i) };
   });
@@ -196,16 +203,34 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
   const delItem = (ti: number, ii: number) => setEditing(e => {
     if (!e) return e;
     const it = e.temas[ti].items[ii];
-    if (it?.taskId) setDeletedTaskIds(prev => [...prev, it.taskId as string]);
+    const ids = (it?.responsables || []).map(r => r.taskId).filter(Boolean) as string[];
+    if (ids.length) setDeletedTaskIds(prev => [...prev, ...ids]);
     return { ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: t.items.filter((_, jdx) => jdx !== ii) } : t) };
   });
   const toggleCharlado = (ti: number, ii: number) => setEditing(e => e ? ({
     ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: t.items.map((it, jdx) => jdx === ii ? { ...it, charlado: !it.charlado } : it) } : t)
   }) : e);
 
-  const setResponsable = (ti: number, ii: number, userId: string) => {
-    const u = users.find(x => x.id === userId) || null;
-    setItem(ti, ii, { responsableId: userId || null, responsableName: u?.name || null });
+  const addResponsable = (ti: number, ii: number, userId: string) => {
+    if (!userId) return;
+    const u = users.find(x => x.id === userId);
+    if (!u) return;
+    setEditing(e => e ? ({
+      ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: t.items.map((it, jdx) => {
+        if (jdx !== ii) return it;
+        if (it.responsables.some(r => r.id === userId)) return it; // ya está
+        return { ...it, responsables: [...it.responsables, { id: u.id, name: u.name, taskId: null }] };
+      }) } : t)
+    }) : e);
+  };
+  const removeResponsable = (ti: number, ii: number, userId: string) => {
+    setEditing(e => {
+      if (!e) return e;
+      const it = e.temas[ti].items[ii];
+      const r = it?.responsables.find(x => x.id === userId);
+      if (r?.taskId) setDeletedTaskIds(prev => [...prev, r.taskId as string]);
+      return { ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: t.items.map((x, jdx) => jdx === ii ? { ...x, responsables: x.responsables.filter(rr => rr.id !== userId) } : x) } : t) };
+    });
   };
 
   const guardar = async () => {
@@ -218,37 +243,40 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
       const actaId = editing.id || uid('ac');
 
       // Clon profundo de temas para sincronizar taskIds
-      const temas: Tema[] = editing.temas.map(t => ({ ...t, items: t.items.map(it => ({ ...it })) }));
+      const temas: Tema[] = editing.temas.map(t => ({ ...t, items: t.items.map(it => ({ ...it, responsables: it.responsables.map(r => ({ ...r })) })) }));
 
       // Borrar tareas de items/temas eliminados
       for (const tid of deletedTaskIds) {
         try { await supabase.from('tasks').delete().eq('id', tid); } catch { /* ignore */ }
       }
 
-      // Sincronizar tareas de los items
+      // Sincronizar tareas de los items (una tarea por responsable)
       for (const t of temas) {
         for (const it of t.items) {
-          const qualifies = it.charlado && !!it.responsableId && it.conclusion.trim().length > 0;
-          const taskPayload: any = {
+          const qualifies = it.charlado && it.conclusion.trim().length > 0 && it.responsables.length > 0;
+          const basePayload = {
             description: it.conclusion.trim() || it.texto.trim() || 'Compromiso de reunión',
             notes: `Compromiso de reunión de dirección (${fmtDMY(editing.date)})${t.titulo ? ' · Tema: ' + t.titulo : ''}`,
-            branch_id: 'all', target_role: 'all', target_user: it.responsableId,
+            branch_id: 'all', target_role: 'all',
             due_date: it.dueDate || null, priority: 'normal', recurrence: 'none', recurrence_day: null,
           };
-          if (qualifies) {
-            if (!it.taskId) {
-              const { data, error } = await supabase.from('tasks')
-                .insert({ ...taskPayload, status: 'pending', created_by: currentUserName || '—' })
-                .select().single();
-              if (!error && data) it.taskId = data.id;
-            } else {
-              // No tocamos el status: la persona lo completa en Tareas Pendientes
-              await supabase.from('tasks').update(taskPayload).eq('id', it.taskId);
+          for (const r of it.responsables) {
+            if (qualifies) {
+              const payloadR: any = { ...basePayload, target_user: r.id };
+              if (!r.taskId) {
+                const { data, error } = await supabase.from('tasks')
+                  .insert({ ...payloadR, status: 'pending', created_by: currentUserName || '—' })
+                  .select().single();
+                if (!error && data) r.taskId = data.id;
+              } else {
+                // No tocamos el status: cada persona lo completa en Tareas Pendientes
+                await supabase.from('tasks').update(payloadR).eq('id', r.taskId);
+              }
+            } else if (r.taskId) {
+              // El item dejó de derivar en tareas -> borrar la de cada responsable
+              try { await supabase.from('tasks').delete().eq('id', r.taskId); } catch { /* ignore */ }
+              r.taskId = null;
             }
-          } else if (it.taskId) {
-            // Dejó de ser una tarea asignada -> borrar
-            try { await supabase.from('tasks').delete().eq('id', it.taskId); } catch { /* ignore */ }
-            it.taskId = null;
           }
         }
       }
@@ -272,7 +300,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
     if (!window.confirm(`¿Eliminar el acta del ${fmtDMY(a.date)}? Se borran también sus compromisos y las tareas que generó.`)) return;
     // Borrar tareas vinculadas a los items
     const ids: string[] = [];
-    a.temas.forEach(t => t.items.forEach(it => { if (it.taskId) ids.push(it.taskId); }));
+    a.temas.forEach(t => t.items.forEach(it => it.responsables.forEach(r => { if (r.taskId) ids.push(r.taskId); })));
     for (const tid of ids) { try { await supabase.from('tasks').delete().eq('id', tid); } catch { /* ignore */ } }
     await supabase.from('direccion_compromisos').delete().eq('acta_id', a.id);
     await supabase.from('direccion_actas').delete().eq('id', a.id);
@@ -355,10 +383,13 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
         const il = doc.splitTextToSize(`${mark} ${it.texto || '(item)'}`, 174);
         doc.text(il, 20, y); y += il.length * 4.5;
         if (it.charlado && it.conclusion) {
-          const cl = doc.splitTextToSize(`→ Conclusión/Compromiso: ${it.conclusion}${it.responsableName ? ' · Resp: ' + it.responsableName : ''}${it.dueDate ? ' · Límite: ' + fmtDMY(it.dueDate) : ''}`, 168);
+          const respNames = it.responsables.map(r => r.name).join(', ');
+          const cl = doc.splitTextToSize(`→ Conclusión/Compromiso: ${it.conclusion}${respNames ? ' · Resp: ' + respNames : ''}${it.dueDate ? ' · Límite: ' + fmtDMY(it.dueDate) : ''}`, 168);
           doc.setTextColor(90); doc.text(cl, 26, y); doc.setTextColor(0); y += cl.length * 4.5 + 1;
-          if (it.charlado && it.conclusion.trim() && it.responsableName) {
-            comps.push({ key: it.id, acta_id: a.id, acta_date: a.date, tema: t.titulo, descripcion: it.conclusion, responsable: it.responsableName, due_date: it.dueDate, status: it.taskId && taskStatus[it.taskId] === 'done' ? 'resuelto' : 'pendiente', source: 'item' });
+          if (it.conclusion.trim()) {
+            it.responsables.forEach(r => {
+              comps.push({ key: `${it.id}_${r.id}`, acta_id: a.id, acta_date: a.date, tema: t.titulo, descripcion: it.conclusion, responsable: r.name, due_date: it.dueDate, status: r.taskId && taskStatus[r.taskId] === 'done' ? 'resuelto' : 'pendiente', source: 'item' });
+            });
           }
         }
         y += 1;
@@ -595,7 +626,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
                     {/* Items del tema */}
                     <div className="space-y-2 pl-1">
                       {t.items.map((it, ii) => {
-                        const taskDone = it.taskId ? taskStatus[it.taskId] === 'done' : false;
+                        const doneCount = it.responsables.filter(r => r.taskId && taskStatus[r.taskId] === 'done').length;
                         return (
                           <div key={it.id} className="bg-bg-card border border-border-dim rounded-lg p-2.5 space-y-2">
                             <div className="flex items-start gap-2">
@@ -616,12 +647,28 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
                                   placeholder="Qué se concluyó y qué hay que hacer…" className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[10px] text-text-main outline-none focus:border-emerald-500 resize-none" />
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div>
-                                    <label className="text-[8px] font-black uppercase text-text-dim block mb-0.5">Responsable (usuario)</label>
-                                    <select disabled={isReadOnly} value={it.responsableId || ''} onChange={e => setResponsable(ti, ii, e.target.value)}
-                                      className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[10px] font-bold text-text-main outline-none">
-                                      <option value="">Sin tarea (solo conclusión)…</option>
-                                      {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                                    </select>
+                                    <label className="text-[8px] font-black uppercase text-text-dim block mb-0.5">Responsables (usuarios)</label>
+                                    {/* Chips de responsables elegidos */}
+                                    {it.responsables.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mb-1">
+                                        {it.responsables.map(r => {
+                                          const rDone = r.taskId && taskStatus[r.taskId] === 'done';
+                                          return (
+                                            <span key={r.id} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-black uppercase border", rDone ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30" : "bg-brand-500/10 text-brand-500 border-brand-500/30")}>
+                                              <UserIcon size={9} /> {r.name}{rDone ? ' ✓' : ''}
+                                              {!isReadOnly && <button type="button" onClick={() => removeResponsable(ti, ii, r.id)} className="hover:text-red-500"><X size={10} /></button>}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {!isReadOnly && (
+                                      <select disabled={isReadOnly} value="" onChange={e => { addResponsable(ti, ii, e.target.value); e.currentTarget.value = ''; }}
+                                        className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[10px] font-bold text-text-main outline-none">
+                                        <option value="">+ Agregar responsable…</option>
+                                        {users.filter(u => !it.responsables.some(r => r.id === u.id)).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                      </select>
+                                    )}
                                   </div>
                                   <div>
                                     <label className="text-[8px] font-black uppercase text-text-dim block mb-0.5">Fecha límite</label>
@@ -629,12 +676,12 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
                                       className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[10px] font-mono font-bold text-text-main outline-none" />
                                   </div>
                                 </div>
-                                {it.responsableId ? (
+                                {it.responsables.length > 0 ? (
                                   <p className="text-[8px] font-bold uppercase text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                                    <CheckCircle2 size={10} /> {it.taskId ? (taskDone ? 'Tarea REALIZADA por el responsable' : 'Genera tarea en Tareas Pendientes (pendiente)') : 'Se creará una tarea al guardar'}
+                                    <CheckCircle2 size={10} /> Genera {it.responsables.length} tarea(s) en Tareas Pendientes · {doneCount}/{it.responsables.length} realizada(s)
                                   </p>
                                 ) : (
-                                  <p className="text-[8px] font-bold uppercase text-text-dim">Sin responsable: queda como conclusión, no genera tarea.</p>
+                                  <p className="text-[8px] font-bold uppercase text-text-dim">Sin responsables: queda como conclusión, no genera tareas.</p>
                                 )}
                               </div>
                             )}
