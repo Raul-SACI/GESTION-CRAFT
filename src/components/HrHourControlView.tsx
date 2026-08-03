@@ -332,7 +332,14 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           const byRole: Record<string, number> = {};
           budgets.forEach((b: any) => {
             const weekKey = `week${selectedWeek}` as 'week1'|'week2'|'week3'|'week4'|'week5';
-            const planned = Number(b[weekKey] || b.planned_hours || 0);
+            // La Semana 4 abarca del 22 al cierre de mes, así que incluye también la 5ª semana del calendario.
+            let planned: number;
+            if (selectedWeek === 4) {
+              planned = (Number(b['week4']) || 0) + (Number(b['week5']) || 0);
+              if (planned === 0) planned = Number(b.planned_hours || 0);
+            } else {
+              planned = Number(b[weekKey] || b.planned_hours || 0);
+            }
             const roleId = budgetNameToRoleId(b.position_name);
             if (roleId) {
               budgetMap[roleId] = (budgetMap[roleId] || 0) + planned;
