@@ -54,6 +54,8 @@ interface BranchSales {
   ticketsPrev: number;
   projection: number;
   ticketsProjection: number;
+  // Cantidad de días distintos con ventas cargadas en el mes (para detectar días faltantes)
+  diasCargados: number;
   googleRating: number;
   googleVotes: number;
   pyResto: number | null;
@@ -167,6 +169,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           netPrev: 0, grossPrev: 0, ticketsPrev: 0,
           projection: 0,
           ticketsProjection: 0,
+          diasCargados: 0,
           googleRating: (b as any).googleRating || 0,
           googleVotes: (b as any).googleRatingCount || 0,
           pyResto: null, pyCafe: null, cmv: null, comprasMovimientos: null, comprasMovLastDate: null, existenciasCargadas: false, budgetHours: 0, workedHours: 0,
@@ -219,6 +222,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       const daysInMonth = new Date(cy, cm, 0).getDate();
       Object.values(agg).forEach(a => {
         const ud = daysWithData[a.branchId]?.size || 0;
+        a.diasCargados = ud;
         a.projection = ud > 0 ? (a.netCurrent / ud) * daysInMonth : 0;
         a.ticketsProjection = ud > 0 ? (a.ticketsCurrent / ud) * daysInMonth : 0;
       });
@@ -372,6 +376,16 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   // (ver carga de prevTickets), así que la comparación es exacta día a día.
   const isPartial = loadInfo.daysLoaded > 0 && loadInfo.daysLoaded < loadInfo.daysPrevMonth;
 
+  // Sucursales con menos días cargados que el consolidado: su proyección no coincide
+  // con lo real porque el sistema la estira al mes completo.
+  const sucursalesConFaltantes = useMemo(() => {
+    if (loadInfo.daysLoaded <= 0) return [];
+    return shown
+      .map(d => ({ name: d.branchName, faltan: loadInfo.daysLoaded - d.diasCargados }))
+      .filter(x => x.faltan > 0)
+      .sort((a, b) => b.faltan - a.faltan);
+  }, [shown, loadInfo.daysLoaded]);
+
   // Etiqueta de fecha de carga (DD/MM/AAAA)
   const lastDateLabel = useMemo(() => {
     if (!loadInfo.lastDate) return null;
@@ -466,6 +480,26 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             </div>
           )}
 
+          {sucursalesConFaltantes.length > 0 && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-start gap-3">
+              <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+              <div className="text-[10px] leading-relaxed">
+                <span className="font-black uppercase tracking-wider text-red-600 dark:text-red-400">
+                  Proyección estirada por días faltantes
+                </span>
+                <span className="text-text-dim font-bold normal-case">
+                  {' '}— en {sucursalesConFaltantes.length === 1 ? 'esta sucursal la proyección no coincide' : 'estas sucursales la proyección no coincide'} con lo real porque {sucursalesConFaltantes.length === 1 ? 'le faltan días' : 'les faltan días'} cargados (el sistema la estira al mes completo):
+                </span>
+                <span className="block text-text-main font-bold normal-case mt-1">
+                  {sucursalesConFaltantes.map(s => `${s.name} (faltan ${s.faltan} día${s.faltan === 1 ? '' : 's'})`).join(' · ')}
+                </span>
+                <span className="block text-text-dim font-medium normal-case mt-0.5">
+                  Cargá esos días para que la proyección coincida. Si la sucursal estuvo cerrada esos días, es esperable que no coincida.
+                </span>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
@@ -534,9 +568,22 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       <React.Fragment key={d.branchId}>
                       <tr className="text-[11px] font-medium hover:bg-bg-accent/30 cursor-pointer" onClick={() => setExpandedRows(p => ({ ...p, [d.branchId]: !p[d.branchId] }))}>
                         <td className="px-3 py-2.5 font-black uppercase text-text-main">
-                          <span className="inline-flex items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 flex-wrap">
                             {expandedRows[d.branchId] ? <ChevronDown size={13} className="text-brand-500" /> : <ChevronRight size={13} className="text-text-dim" />}
                             {d.branchName}
+                            {(() => {
+                              const faltan = loadInfo.daysLoaded - d.diasCargados;
+                              if (faltan <= 0) return null;
+                              return (
+                                <span
+                                  onClick={(e) => e.stopPropagation()}
+                                  title={`Esta sucursal tiene ${d.diasCargados} de ${loadInfo.daysLoaded} días cargados. Faltan ${faltan} día(s), por eso la proyección no coincide con lo real (el sistema la estira al mes completo). Cargá esos días o, si estuvo cerrada, tenelo en cuenta.`}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase tracking-wider normal-case cursor-help"
+                                >
+                                  <AlertTriangle size={10} /> Faltan {faltan} día{faltan === 1 ? '' : 's'}
+                                </span>
+                              );
+                            })()}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.netCurrent)}</td>
