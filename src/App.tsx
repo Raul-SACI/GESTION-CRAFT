@@ -56,6 +56,7 @@ import {
   ArrowUp,
   ArrowDown,
   Landmark,
+  FileCheck2,
   Gift,
   Crown,
   Lock,
@@ -125,6 +126,7 @@ const PasswordManagementView = lazy(() => import('./components/PasswordManagemen
 const HrHourControlView = lazy(() => import('./components/HrHourControlView'));
 const EstimatedCashFlowView = lazy(() => import('./components/EstimatedCashFlowView'));
 const PaymentScheduleView = lazy(() => import('./components/PaymentScheduleView'));
+const ChequesEmitidosView = lazy(() => import('./components/ChequesEmitidosView'));
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
@@ -555,7 +557,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
-    'ventas', 'caja_central', 'recordatorios_pago', 'tareas', 'notas_personales',
+    'ventas', 'caja_central', 'cheques_emitidos', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
     'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion'
@@ -645,6 +647,7 @@ function AppContent() {
     ],
     'Tesorería': [
       { id: 'caja_central', label: 'Caja Central', icon: Landmark },
+      { id: 'cheques_emitidos', label: 'Cheques Emitidos', icon: FileCheck2 },
       { id: 'recordatorios_pago', label: 'Recordatorios de Pago', icon: Bell },
     ],
     'Administración': [
@@ -702,6 +705,7 @@ function AppContent() {
         const iconMap: Record<string, any> = {
           socios_dashboard: Landmark,
           caja_central: Landmark,
+          cheques_emitidos: FileCheck2,
           recordatorios_pago: Bell,
           dashboard: LayoutDashboard,
           tareas: ClipboardCheck,
@@ -1641,6 +1645,9 @@ function AppContent() {
               )}
               {activeTab === 'caja_central' && (
                 <CajaCentralView branches={branches} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'cheques_emitidos' && (
+                <ChequesEmitidosView key="cheques_emitidos" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'recordatorios_pago' && (
                 <PaymentRemindersView isReadOnly={isCurrentTabReadOnly} />

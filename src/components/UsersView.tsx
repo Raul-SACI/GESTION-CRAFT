@@ -63,6 +63,7 @@ const SYSTEM_MODULES = [
   { id: 'tareas', label: 'Tareas Pendientes', category: 'Gestión Sucursal' },
   { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', category: 'Finanzas' },
   { id: 'caja_central', label: 'Caja Central', category: 'Tesorería' },
+  { id: 'cheques_emitidos', label: 'Cheques Emitidos', category: 'Tesorería' },
   { id: 'recordatorios_pago', label: 'Recordatorios de Pago', category: 'Tesorería' },
   { id: 'tareas', label: 'Tareas Pendientes', category: 'Agenda Personal' },
   { id: 'notas_personales', label: 'Notas Personales', category: 'Agenda Personal' },

@@ -48,6 +48,9 @@ const SEED_PAYMENTS: ScheduledPayment[] = [
 
 export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly?: boolean } = {}) {
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
+  // Cheques emitidos (Tesorería) que impactan como pasivo en su fecha de pago.
+  // Se muestran como filas virtuales (no editables aquí; se gestionan en Cheques Emitidos).
+  const [chequeRows, setChequeRows] = useState<ScheduledPayment[]>([]);
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterPeriodType, setFilterPeriodType] = useState<'week' | 'month' | 'all'>('week');
@@ -92,6 +95,31 @@ export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly
       }
     };
     load();
+  }, []);
+
+  // Cargar cheques emitidos como pasivos virtuales (fecha de pago = vencimiento)
+  useEffect(() => {
+    const loadCheques = async () => {
+      const { data, error } = await supabase
+        .from('cheques_emitidos')
+        .select('*')
+        .neq('estado', 'anulado');
+      if (!error && data) {
+        setChequeRows(data.map((c: any) => ({
+          id: 'chq_' + c.id,
+          description: `CHEQUE ${c.tipo === 'echeq' ? 'E-CHEQ' : 'FÍSICO'} → ${c.destinatario}`,
+          dueDate: c.fecha_pago,
+          amount: Number(c.monto) || 0,
+          status: c.estado === 'pagado' ? 'paid' : 'pending',
+          category: 'loan',
+          bank: (c.banco || 'SANTANDER').toUpperCase(),
+          isCheque: true,
+        } as any)));
+      } else {
+        setChequeRows([]);
+      }
+    };
+    loadCheques();
   }, []);
 
   const savePayments = async (updatedList: ScheduledPayment[]) => {
@@ -152,7 +180,7 @@ export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly
 
   // Filtered Payments list
   const processedPayments = useMemo(() => {
-    let list = [...payments];
+    let list = [...payments, ...chequeRows];
 
     // Filter by selected period
     if (filterPeriodType === 'week') {
@@ -179,7 +207,7 @@ export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly
 
     // Sort by Due Date
     return list.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  }, [payments, search, filterCategory, filterPeriodType]);
+  }, [payments, chequeRows, search, filterCategory, filterPeriodType]);
 
   // Dashboard Stats Calculations
   const stats = useMemo(() => {
@@ -441,13 +469,20 @@ export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly
                 const labelConf = CATEGORY_LABELS[p.category] || CATEGORY_LABELS.other;
                 const isWeirdLoan = p.category === 'loan';
                 const isWeirdTax = p.category === 'tax';
-                
+                const isCheque = (p as any).isCheque === true;
+
                 return (
                   <tr key={p.id} className="hover:bg-bg-accent/15 transition-colors group">
                     <td className="px-6 py-4">
                       <p className="text-[11px] font-black text-text-main uppercase tracking-tight">{p.description}</p>
                       <div className="flex gap-2 items-center mt-1">
-                        <span className="text-[8px] font-bold text-text-dim uppercase">ID: {p.id}</span>
+                        {isCheque ? (
+                          <span className="text-[8px] bg-brand-500/10 text-brand-400 border border-brand-500/20 px-1 rounded uppercase font-black">
+                            CHEQUE · {p.bank || 'SANTANDER'}
+                          </span>
+                        ) : (
+                          <span className="text-[8px] font-bold text-text-dim uppercase">ID: {p.id}</span>
+                        )}
                         {isWeirdLoan && p.bank && (
                           <span className="text-[8px] bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1 rounded uppercase font-black">
                             ENTIDAD: {p.bank}
@@ -472,39 +507,56 @@ export default function PaymentScheduleView({ isReadOnly = false }: { isReadOnly
                       ${p.amount.toLocaleString('es-AR')}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={async () => {
-                          const newStatus = p.status === 'paid' ? 'pending' : 'paid';
-                          await supabase.from('payment_schedule').update({ status: newStatus }).eq('id', p.id);
-                          setPayments(payments.map(item => item.id === p.id ? { ...item, status: newStatus as any } : item));
-                        }}
-                        className={cn(
-                          "inline-flex items-center gap-1 px-2.5 py-0.5 rounded border text-[9px] font-black uppercase tracking-tighter cursor-pointer select-none transition-all",
-                          p.status === 'paid' 
-                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/25" 
-                            : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/25 animate-pulse"
-                        )}
-                      >
-                        {p.status === 'paid' ? 'PAGADO' : 'PENDIENTE'}
-                      </button>
+                      {isCheque ? (
+                        <span className={cn(
+                          "inline-flex items-center gap-1 px-2.5 py-0.5 rounded border text-[9px] font-black uppercase tracking-tighter select-none",
+                          p.status === 'paid'
+                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            : "bg-orange-500/10 border-orange-500/20 text-orange-400"
+                        )}>
+                          {p.status === 'paid' ? 'PAGADO' : 'PENDIENTE'}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={async () => {
+                            const newStatus = p.status === 'paid' ? 'pending' : 'paid';
+                            await supabase.from('payment_schedule').update({ status: newStatus }).eq('id', p.id);
+                            setPayments(payments.map(item => item.id === p.id ? { ...item, status: newStatus as any } : item));
+                          }}
+                          className={cn(
+                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded border text-[9px] font-black uppercase tracking-tighter cursor-pointer select-none transition-all",
+                            p.status === 'paid'
+                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/25"
+                              : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/25 animate-pulse"
+                          )}
+                        >
+                          {p.status === 'paid' ? 'PAGADO' : 'PENDIENTE'}
+                        </button>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <div className="flex justify-center items-center gap-1.5">
-                        <button 
-                          onClick={() => openEditModal(p)}
-                          className="p-1 border border-border-dim/60 hover:border-brand-500/50 rounded hover:text-brand-500 text-text-dim transition-all"
-                          title="Editar"
-                        >
-                          <Edit2 size={11} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteCommitment(p.id)}
-                          className="p-1 border border-border-dim/60 hover:border-red-500/50 rounded hover:text-red-500 text-text-dim transition-all"
-                          title="Eliminar"
-                        >
-                          <Trash2 size={11} />
-                        </button>
-                      </div>
+                      {isCheque ? (
+                        <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider italic" title="Se gestiona en Tesorería › Cheques Emitidos">
+                          Ver en Cheques
+                        </span>
+                      ) : (
+                        <div className="flex justify-center items-center gap-1.5">
+                          <button
+                            onClick={() => openEditModal(p)}
+                            className="p-1 border border-border-dim/60 hover:border-brand-500/50 rounded hover:text-brand-500 text-text-dim transition-all"
+                            title="Editar"
+                          >
+                            <Edit2 size={11} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCommitment(p.id)}
+                            className="p-1 border border-border-dim/60 hover:border-red-500/50 rounded hover:text-red-500 text-text-dim transition-all"
+                            title="Eliminar"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

@@ -22,6 +22,7 @@ import {
   Banknote,
   PiggyBank,
   CheckCircle2,
+  FileCheck2,
   Clock,
   BarChart,
   X,
@@ -285,6 +286,8 @@ export default function FinanceView({
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
   const [cuotaVista, setCuotaVista] = useState<'todas' | 'pend'>('todas'); // indicador cuotas por mes/semana
   const [dataLoaded, setDataLoaded] = useState(false);
+  // Cheques emitidos (Santander) — impactan como pasivo bancario en su fecha de pago.
+  const [chequesLoan, setChequesLoan] = useState<ScheduledPayment[]>([]);
 
   const savePayments = async (newPayments: ScheduledPayment[]) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -538,6 +541,32 @@ export default function FinanceView({
     return () => { cancelled = true; };
   }, []);
 
+  // Cargar cheques emitidos (Santander) como pasivos bancarios virtuales (solo modo bank)
+  useEffect(() => {
+    if (mode !== 'bank') return;
+    let cancelled = false;
+    const loadCheques = async () => {
+      const { data, error } = await supabase
+        .from('cheques_emitidos')
+        .select('*')
+        .neq('estado', 'anulado');
+      if (!cancelled && !error && data) {
+        setChequesLoan(data.map((c: any) => ({
+          id: 'chq_' + c.id,
+          description: `CHEQUE ${c.tipo === 'echeq' ? 'E-CHEQ' : 'FÍSICO'} → ${c.destinatario}`,
+          dueDate: c.fecha_pago,
+          amount: Number(c.monto) || 0,
+          status: c.estado === 'pagado' ? 'paid' : 'pending',
+          category: 'loan',
+          bank: (c.banco || 'SANTANDER').toUpperCase(),
+          isCheque: true,
+        } as any)));
+      }
+    };
+    loadCheques();
+    return () => { cancelled = true; };
+  }, [mode]);
+
   // Global initial balances are 0 now because we use the 'balance_start' entry row
   const initialBalances: Record<string, number> = useMemo(() => {
     return ACCOUNTS.reduce((acc, account) => ({ ...acc, [account.id]: 0 }), {});
@@ -545,11 +574,11 @@ export default function FinanceView({
 
   // Filter payments based on mode
   const filteredPayments = useMemo(() => {
-    if (mode === 'bank') return payments.filter(p => p.category === 'loan');
+    if (mode === 'bank') return [...payments.filter(p => p.category === 'loan'), ...chequesLoan];
     if (mode === 'tax') return payments.filter(p => p.category === 'tax');
     if (mode === 'legal') return payments.filter(p => p.category === 'legal');
     return payments;
-  }, [payments, mode]);
+  }, [payments, chequesLoan, mode]);
 
   const [notes, setNotes] = useState<TreasuryNote[]>([
     { id: '1', text: 'Recordar que los días 15 de cada mes vence el alquiler de la sucursal Barrio Norte.', color: 'border-brand-500' },
@@ -1368,14 +1397,18 @@ export default function FinanceView({
   };
 
   const searchedPayments = useMemo(() => {
-    if (!searchQuery) return filteredPayments;
+    // La Cartera editable de préstamos excluye los cheques (se gestionan en Tesorería › Cheques
+    // Emitidos). Los cheques igual impactan en el total pendiente, en las cuotas de la semana y
+    // en el calendario de pasivos vía filteredPayments/bankStats.
+    const base = filteredPayments.filter(p => !(p as any).isCheque);
+    if (!searchQuery) return base;
     const q = searchQuery.toLowerCase();
     // Fecha formateada (dd/mm/aaaa) para poder buscar por fecha tal como se ve
     const fmtFechaBusq = (iso?: string) => {
       if (!iso) return '';
       try { return new Date(iso + 'T12:00:00').toLocaleDateString('es-AR'); } catch { return iso; }
     };
-    return filteredPayments.filter(p => {
+    return base.filter(p => {
       return (
         p.description?.toLowerCase().includes(q) ||
         p.bank?.toLowerCase().includes(q) ||
@@ -1398,13 +1431,21 @@ export default function FinanceView({
   }, [filteredPayments, searchQuery]);
 
   const bankStats = useMemo(() => {
-    const loanPayments = payments.filter(p => p.category === 'loan');
+    const loanPayments = [...payments.filter(p => p.category === 'loan'), ...chequesLoan];
     const totalPending = loanPayments.filter(p => p.status !== 'paid').reduce((sum, p) => sum + p.amount, 0);
     const totalPaid = loanPayments.filter(p => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
     const countPending = loanPayments.filter(p => p.status !== 'paid').length;
     const countPaid = loanPayments.filter(p => p.status === 'paid').length;
     return { totalPending, totalPaid, countPending, countPaid };
-  }, [payments]);
+  }, [payments, chequesLoan]);
+
+  // Aporte de los cheques emitidos (Santander) al pasivo bancario
+  const chequesStats = useMemo(() => {
+    const pend = chequesLoan.filter(c => c.status !== 'paid');
+    const totalPend = pend.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    const proxima = [...pend].sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))[0];
+    return { totalPend, count: pend.length, proxima: proxima?.dueDate || null };
+  }, [chequesLoan]);
 
   // Cuotas agrupadas por mes y por semana (1-7, 8-14, 15-21, 22-fin).
   // Sirve para ver cuánta plata del flujo se destina a pago de cuotas por período.
@@ -2893,6 +2934,22 @@ export default function FinanceView({
                     <p className="text-[8px] text-text-dim mt-2 uppercase font-bold">Cuotas pagadas del total registrado</p>
                   </div>
                 </div>
+
+                {/* Cheques emitidos (Santander) incluidos en el pasivo bancario */}
+                {chequesStats.count > 0 && (
+                  <div className="bg-brand-500/5 border border-brand-500/20 rounded-xl px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <FileCheck2 size={15} className="text-brand-500" />
+                      <span className="text-[10px] font-black text-text-main uppercase tracking-widest">Cheques Emitidos (Santander)</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-text-dim uppercase tracking-widest">
+                      {chequesStats.count} pendiente(s) · <span className="font-mono font-black text-brand-500">${chequesStats.totalPend.toLocaleString('es-AR')}</span>
+                    </span>
+                    <span className="text-[9px] text-text-dim uppercase font-bold tracking-widest ml-auto italic">
+                      Incluidos en la deuda pendiente · se gestionan en Tesorería › Cheques Emitidos
+                    </span>
+                  </div>
+                )}
 
                 {/* ===== Cuotas por mes y por semana ===== */}
                 <div className="bg-bg-card border border-border-dim p-5 rounded-xl shadow-lg space-y-3">
