@@ -455,9 +455,40 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       </div>
 
       {loading ? (
-        <div className="py-32 flex flex-col items-center justify-center text-text-dim">
-          <Loader2 size={36} className="animate-spin text-brand-500" />
-          <p className="mt-4 text-[10px] font-black uppercase tracking-widest">Cargando datos consolidados…</p>
+        <div className="space-y-6 animate-pulse">
+          {/* Aviso de carga */}
+          <div className="flex items-center gap-2 text-text-dim">
+            <Loader2 size={16} className="animate-spin text-brand-500" />
+            <span className="text-[10px] font-black uppercase tracking-widest">Cargando datos consolidados… no se muestran cifras hasta terminar</span>
+          </div>
+
+          {/* Skeleton de las 4 tarjetas de totales */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-3">
+                <div className="h-2.5 w-24 rounded bg-text-dim/15" />
+                <div className="h-7 w-36 rounded bg-text-dim/20" />
+                <div className="h-2 w-20 rounded bg-text-dim/10" />
+              </div>
+            ))}
+          </div>
+
+          {/* Skeleton de la tabla por sucursal */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-4">
+            <div className="h-3 w-48 rounded bg-text-dim/20" />
+            <div className="space-y-2.5">
+              {[0, 1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="flex items-center gap-4">
+                  <div className="h-3 w-40 rounded bg-text-dim/15" />
+                  <div className="flex-1" />
+                  <div className="h-3 w-24 rounded bg-text-dim/15" />
+                  <div className="h-3 w-20 rounded bg-text-dim/10" />
+                  <div className="h-3 w-24 rounded bg-text-dim/15" />
+                  <div className="h-3 w-24 rounded bg-emerald-500/15" />
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
         <>
