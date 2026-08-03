@@ -598,8 +598,10 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
       (budgets || []).forEach((b: any) => {
         const roleId = budgetNameToRoleId(b.position_name);
         if (!roleId) return;
+        // Sumar TODAS las semanas del mes (Julio puede tener 5). Igual que el presupuestador.
         let sum = 0;
-        for (let w = 1; w <= 4; w++) sum += Number(b[`week${w}`] || b.planned_hours || 0);
+        for (let w = 1; w <= 5; w++) sum += Number(b[`week${w}`]) || 0;
+        if (sum === 0) sum = Number(b.planned_hours || 0); // presupuesto sin desglose semanal
         budM[roleId] = (budM[roleId] || 0) + sum;
       });
       // Reales RRHH mensual por rol = suma de las 4 semanas guardadas
