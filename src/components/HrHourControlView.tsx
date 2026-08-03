@@ -133,6 +133,10 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
   const [selectedMonth, setSelectedMonth] = useState('2026-05'); // Default back to May 2026
   const [selectedWeek, setSelectedWeek] = useState<number>(1); // 1, 2, 3, or 4
   const [records, setRecords] = useState<HrHourRecord[]>([]);
+  // Consolidado mensual (las 4 semanas juntas)
+  const [showMensual, setShowMensual] = useState(false);
+  const [mensualData, setMensualData] = useState<Array<{ role: string; label: string; planned: number; real: number; devH: number; devPesos: number }>>([]);
+  const [mensualLoading, setMensualLoading] = useState(false);
   // Presupuesto de la semana por puesto (roleId -> horas), para el total sin duplicar por empleado
   const [budgetByRole, setBudgetByRole] = useState<Record<string, number>>({});
   const [salaryScale, setSalaryScale] = useState<any[]>(() => {
@@ -579,8 +583,49 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
     }).sort((a, b) => a.label.localeCompare(b.label));
   }, [records, budgetByRole]);
 
+  // Consolidado mensual: suma de las 4 semanas (presupuesto y reales RRHH) por puesto
+  const roleLabelsMap: Record<string, string> = {
+    encargado: 'Encargado', jefe_cocina: 'Jefe de Cocina', segundo_cocina: 'Segundo de Cocina',
+    cocinero: 'Cocinero', caja: 'Caja', barra: 'Barra', mozos: 'Mozos', runners: 'Runners', bacha: 'Bacha'
+  };
+  const abrirMensual = async () => {
+    setShowMensual(true); setMensualLoading(true);
+    try {
+      // Presupuesto mensual por rol = suma de las 4 semanas (misma lógica que la semanal)
+      const { data: budgets } = await supabase.from('hour_budgets').select('*')
+        .eq('branch_id', selectedBranch).eq('month', selectedMonth).eq('status', 'approved');
+      const budM: Record<string, number> = {};
+      (budgets || []).forEach((b: any) => {
+        const roleId = budgetNameToRoleId(b.position_name);
+        if (!roleId) return;
+        let sum = 0;
+        for (let w = 1; w <= 4; w++) sum += Number(b[`week${w}`] || b.planned_hours || 0);
+        budM[roleId] = (budM[roleId] || 0) + sum;
+      });
+      // Reales RRHH mensual por rol = suma de las 4 semanas guardadas
+      const { data: logs } = await supabase.from('hr_hour_logs').select('position_name, position_id, hours_rrhh, week_number')
+        .eq('branch_id', selectedBranch).eq('month', selectedMonth);
+      const realM: Record<string, number> = {};
+      (logs || []).forEach((l: any) => {
+        const roleId = budgetNameToRoleId(l.position_name || '') || budgetNameToRoleId(l.position_id || '') || (l.position_id || '');
+        realM[roleId] = (realM[roleId] || 0) + Number(l.hours_rrhh || 0);
+      });
+      const allRoles = new Set<string>([...Object.keys(budM), ...Object.keys(realM)]);
+      const rows = Array.from(allRoles).map(role => {
+        const planned = budM[role] || 0;
+        const real = realM[role] || 0;
+        const rate = getPositionRateFromMaestro(role, roleLabelsMap[role] || role, salaryScale, selectedBranch) || 0;
+        const devH = real - planned;
+        return { role, label: roleLabelsMap[role] || role, planned, real, devH, devPesos: devH * rate };
+      }).sort((a, b) => a.label.localeCompare(b.label));
+      setMensualData(rows);
+    } catch (e: any) { alert('Error cargando el consolidado mensual: ' + (e.message || e)); }
+    setMensualLoading(false);
+  };
+  const mesLabel = (() => { const [y, m] = selectedMonth.split('-'); const MES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']; return `${MES[parseInt(m) - 1]} ${y}`; })();
+
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
@@ -742,6 +787,19 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
               );
             })}
           </div>
+
+          {/* Tarjeta: consolidado mensual (4 semanas juntas) */}
+          <button onClick={abrirMensual}
+            className="w-full mt-1 flex items-center justify-between gap-3 p-4 border border-brand-500/40 bg-brand-500/[0.04] rounded-lg hover:border-brand-500 hover:bg-brand-500/[0.07] transition-all text-left">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-brand-500/10 rounded border border-brand-500/20"><Calendar size={16} className="text-brand-500" /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase text-brand-500 tracking-wider">Mes completo · 4 semanas juntas</p>
+                <p className="text-[8px] font-bold text-text-dim uppercase tracking-wider mt-0.5">Consolidado mensual del desvío por puesto (presupuesto vs reales RRHH)</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-black uppercase text-brand-500 flex items-center gap-1 shrink-0">Ver consolidado <ChevronRight size={13} /></span>
+          </button>
         </div>
       </div>
 
@@ -1107,6 +1165,70 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
         </ul>
       </div>
         </>
+      )}
+
+      {/* Modal: Consolidado Mensual (4 semanas juntas) */}
+      {showMensual && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setShowMensual(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-border-dim">
+              <div className="flex items-center gap-2">
+                <Calendar size={18} className="text-brand-500" />
+                <div>
+                  <h3 className="text-sm font-black uppercase text-text-main tracking-wide">Consolidado Mensual · {mesLabel}</h3>
+                  <p className="text-[8px] font-bold uppercase text-text-dim">{currentBranchName} · suma de las 4 semanas · presupuesto vs reales RRHH</p>
+                </div>
+              </div>
+              <button onClick={() => setShowMensual(false)} className="p-1.5 text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+            <div className="p-4 overflow-y-auto custom-scrollbar">
+              {mensualLoading ? (
+                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">Cargando consolidado…</p>
+              ) : mensualData.length === 0 ? (
+                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">Sin datos de presupuesto ni horas para este mes.</p>
+              ) : (() => {
+                const tP = mensualData.reduce((s, d) => s + d.planned, 0);
+                const tR = mensualData.reduce((s, d) => s + d.real, 0);
+                const tDh = tR - tP;
+                const tDp = mensualData.reduce((s, d) => s + d.devPesos, 0);
+                return (
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                        <th className="px-3 py-2">Puesto</th>
+                        <th className="px-3 py-2 text-center">Planificadas</th>
+                        <th className="px-3 py-2 text-center">Reales RRHH</th>
+                        <th className="px-3 py-2 text-center">Desvío Hs</th>
+                        <th className="px-3 py-2 text-right">Desvío Pesos</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim/40">
+                      {mensualData.map(d => (
+                        <tr key={d.role} className="text-[11px] font-medium">
+                          <td className="px-3 py-2 font-black uppercase text-text-main">{d.label}</td>
+                          <td className="px-3 py-2 text-center font-mono text-text-dim">{d.planned.toFixed(1)}h</td>
+                          <td className="px-3 py-2 text-center font-mono text-text-main">{d.real.toFixed(1)}h</td>
+                          <td className={cn("px-3 py-2 text-center font-mono font-bold", Math.abs(d.devH) < 0.05 ? "text-text-dim" : d.devH > 0 ? "text-red-400" : "text-emerald-400")}>{d.devH > 0 ? '+' : ''}{d.devH.toFixed(1)}h</td>
+                          <td className={cn("px-3 py-2 text-right font-mono font-bold", Math.abs(d.devPesos) < 1 ? "text-text-dim" : d.devPesos > 0 ? "text-red-400" : "text-emerald-400")}>{d.devPesos === 0 ? '$0' : `${d.devPesos > 0 ? '+' : '-'}$${Math.abs(Math.round(d.devPesos)).toLocaleString('es-AR')}`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-border-dim bg-bg-accent/20 text-[11px] font-black">
+                        <td className="px-3 py-2.5 uppercase text-text-main">Total mes</td>
+                        <td className="px-3 py-2.5 text-center font-mono text-text-main">{tP.toFixed(1)}h</td>
+                        <td className="px-3 py-2.5 text-center font-mono text-text-main">{tR.toFixed(1)}h</td>
+                        <td className={cn("px-3 py-2.5 text-center font-mono", Math.abs(tDh) < 0.05 ? "text-text-dim" : tDh > 0 ? "text-red-400" : "text-emerald-400")}>{tDh > 0 ? '+' : ''}{tDh.toFixed(1)}h</td>
+                        <td className={cn("px-3 py-2.5 text-right font-mono", tDp > 0 ? "text-red-400" : "text-emerald-400")}>{tDp === 0 ? '$0' : `${tDp > 0 ? '+' : '-'}$${Math.abs(Math.round(tDp)).toLocaleString('es-AR')}`}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                );
+              })()}
+              <p className="text-[8px] font-bold uppercase text-text-dim opacity-60 mt-3">Los reales RRHH son la suma de lo auditado y guardado en cada una de las 4 semanas. Si falta guardar alguna semana, no se suma.</p>
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   );
