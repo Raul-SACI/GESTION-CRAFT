@@ -196,7 +196,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
 
   // Items dentro de un tema
   const addItem = (ti: number) => setEditing(e => e ? ({
-    ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: [...t.items, { id: uid('it'), texto: '', charlado: false, conclusion: '', responsableId: null, responsableName: null, dueDate: null, taskId: null }] } : t)
+    ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: [...t.items, { id: uid('it'), texto: '', charlado: false, conclusion: '', responsables: [], dueDate: null }] } : t)
   }) : e);
   const setItem = (ti: number, ii: number, patch: Partial<TemaItem>) => setEditing(e => e ? ({
     ...e, temas: e.temas.map((t, idx) => idx === ti ? { ...t, items: t.items.map((it, jdx) => jdx === ii ? { ...it, ...patch } : it) } : t)
