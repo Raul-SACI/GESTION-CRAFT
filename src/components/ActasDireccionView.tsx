@@ -100,6 +100,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
   // Filtros del tablero
   const [fResp, setFResp] = useState('');
   const [fEstado, setFEstado] = useState('pendientes'); // pendientes | todos | resueltos
+  const [fFecha, setFFecha] = useState(''); // fecha de acta ('' = todas)
 
   // Alta de área
   const [nuevaArea, setNuevaArea] = useState('');
@@ -346,14 +347,22 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
     return Array.from(set).sort();
   }, [boardRows]);
 
+  // Fechas de acta presentes (más recientes primero)
+  const fechasList = useMemo(() => {
+    const set = new Set<string>();
+    boardRows.forEach(r => { if (r.acta_date) set.add(r.acta_date); });
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [boardRows]);
+
   const compFiltrados = useMemo(() => {
     return boardRows.filter(r => {
       if (fResp && r.responsable !== fResp) return false;
+      if (fFecha && r.acta_date !== fFecha) return false;
       if (fEstado === 'pendientes' && r.status === 'resuelto') return false;
       if (fEstado === 'resueltos' && r.status !== 'resuelto') return false;
       return true;
     }).sort((a, b) => String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')));
-  }, [boardRows, fResp, fEstado]);
+  }, [boardRows, fResp, fFecha, fEstado]);
 
   const pendientesPorResp = useMemo(() => {
     const m: Record<string, number> = {};
@@ -628,6 +637,10 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
             <select value={fResp} onChange={e => setFResp(e.target.value)} className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none">
               <option value="">Todos los responsables</option>
               {responsablesList.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <select value={fFecha} onChange={e => setFFecha(e.target.value)} className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none">
+              <option value="">Todas las fechas de acta</option>
+              {fechasList.map(f => <option key={f} value={f}>Reunión {fmtDMY(f)}</option>)}
             </select>
             <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
               {([['pendientes', 'Pendientes'], ['todos', 'Todos'], ['resueltos', 'Resueltos']] as const).map(([v, l]) => (
