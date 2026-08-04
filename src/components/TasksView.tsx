@@ -320,7 +320,9 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
 
   // ¿La tarea recurrente aplica para una fecha dada?
   const recurrenceAppliesOn = (t: Task, dateStr: string): boolean => {
-    if (t.recurrence === 'none') return t.dueDate === dateStr || (!t.dueDate);
+    // No recurrente: aplica si no tiene fecha, o si vence hoy o ya está vencida
+    // (así las tareas vencidas siguen apareciendo en la agenda del día, no se esconden).
+    if (t.recurrence === 'none') return !t.dueDate || t.dueDate <= dateStr;
     const d = new Date(dateStr + 'T12:00:00');
     if (t.recurrence === 'daily') return true;
     if (t.recurrence === 'weekly') return d.getDay() === (t.recurrenceDay ?? 1);
@@ -367,7 +369,10 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
   };
 
   const toggleComplete = async (t: Task) => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    // Una persona SIEMPRE puede completar su propia tarea asignada, aunque el módulo
+    // Tareas sea de solo lectura para su rol. El bloqueo aplica solo a tareas ajenas.
+    const isOwn = !!t.targetUser && t.targetUser === currentUser.id;
+    if (isReadOnly && !isOwn) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     const today = todayStr();
     try {
       if (t.recurrence === 'none') {
@@ -587,7 +592,7 @@ export default function TasksView({ branches, currentUser, isReadOnly = false, c
           <div className="divide-y divide-border-dim/40">
             {visibleManual.map(({ task: t, completedToday }) => (
               <div key={t.id} className={cn("flex items-center gap-4 px-4 py-3 group", completedToday && "opacity-60")}>
-                {!isReadOnly && (
+                {(!isReadOnly || (!!t.targetUser && t.targetUser === currentUser.id)) && (
                   <button onClick={() => toggleComplete(t)}
                     className={cn("shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
                       completedToday ? "bg-emerald-500 border-emerald-500 text-white" : "border-border-dim hover:border-emerald-500")}>
