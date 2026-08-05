@@ -813,7 +813,7 @@ export default function PerformanceAdminView({
 
         {/* Role Toggle Selector */}
         <div className="flex p-1 bg-bg-sidebar rounded-lg border border-border-dim w-fit shadow-sm">
-          {(['encargado', 'jefe_cocina', 'segundo_cocina'] as const).map((role) => (
+          {(['encargado', 'jefe_cocina'] as const).map((role) => (
             <button
               key={role}
               onClick={() => setActiveRole(role)}
