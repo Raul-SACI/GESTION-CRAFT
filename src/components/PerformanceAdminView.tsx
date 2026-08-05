@@ -21,13 +21,19 @@ import {
   ChevronUp,
   GripVertical,
   Building2,
-  CalendarDays
+  CalendarDays,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '../lib/utils';
 import { Branch, PerformanceRoleConfig, PerformanceVariable, PerformanceTier, PerformanceReport, PerformanceVariableResult } from '../types';
 import { supabase } from '../lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
+
+const MESES_PDF = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const mesLabelPDF = (ym: string) => { const [y, m] = ym.split('-'); return `${MESES_PDF[parseInt(m) - 1] || m} de ${y}`; };
 
 export default function PerformanceAdminView({ 
   branches, 
@@ -928,6 +934,88 @@ export default function PerformanceAdminView({
   const currentConfig = configs[activeRole];
   const currentReport = reports[activeRole];
 
+  // Exportar PDF con los objetivos y premios del mes (rol + sucursal en pantalla)
+  const exportConfigPDF = () => {
+    const M = 14, PW = 210, PH = 297, CW = PW - 2 * M;
+    const BRAND: [number, number, number] = [193, 18, 31];
+    const DARK: [number, number, number] = [33, 37, 41];
+    const GRAY: [number, number, number] = [110, 116, 122];
+    const F = 'helvetica';
+    const branch = branches.find(b => b.id === localBranchId)?.name || 'Sucursal';
+    const roleLabel = activeRole === 'encargado' ? 'Encargado' : activeRole === 'jefe_cocina' ? 'Jefe de Cocina' : 'Segundo de Cocina';
+    const cfg = currentConfig;
+    const fmt = (n: number) => Number(n || 0).toLocaleString('es-AR');
+    // La fuente base del PDF (Helvetica/WinAnsi) no soporta símbolos como ★, los
+    // pasamos a texto y limpiamos cualquier otro caracter no soportado.
+    const unitPdf = (u: string) => (u || '').replace(/★/g, 'estrellas').replace(/[^\x00-\xFF]/g, '').trim();
+
+    const doc = new jsPDF();
+    // Cabecera de marca
+    doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 12);
+    doc.setFontSize(15); doc.text('OBJETIVOS Y PREMIOS DEL MES', M, 21);
+    doc.setFont(F, 'normal'); doc.setFontSize(8); doc.text('Programa de incentivos', M, 26.5);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text(roleLabel.toUpperCase(), PW - M, 12, { align: 'right' });
+    doc.setFontSize(11); doc.text(branch.toUpperCase(), PW - M, 18, { align: 'right' });
+    doc.setFont(F, 'normal'); doc.setFontSize(9); doc.text(mesLabelPDF(selectedMonth), PW - M, 24, { align: 'right' });
+
+    let y = 40;
+    doc.setFont(F, 'normal'); doc.setFontSize(9); doc.setTextColor(...GRAY);
+    const intro = doc.splitTextToSize('Estos son los objetivos del mes y el premio que se obtiene al alcanzar cada escala. El premio de cada variable es acumulable con el de las demás.', CW);
+    doc.text(intro, M, y); y += intro.length * 4.6 + 4;
+
+    cfg.variables.forEach((v, i) => {
+      const isMoney = /\$|peso/i.test(v.unit);
+      const rows = [...v.tiers].map(t => [
+        isMoney ? `$${fmt(t.threshold)}` : `${fmt(t.threshold)} ${unitPdf(v.unit)}`.trim(),
+        `$${fmt(t.prize)}`,
+      ]);
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFont(F, 'bold'); doc.setFontSize(11); doc.setTextColor(...DARK);
+      doc.text(`${i + 1}. ${v.name}`, M, y);
+      doc.setFont(F, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...BRAND);
+      doc.text(v.isLowerBetter ? 'MENOS ES MEJOR' : 'MÁS ES MEJOR', PW - M, y, { align: 'right' });
+      y += 2;
+      autoTable(doc, {
+        head: [['Objetivo a alcanzar', 'Premio']],
+        body: rows.length ? rows : [['Sin escalas cargadas', '-']],
+        startY: y + 2, margin: { left: M, right: M },
+        styles: { fontSize: 9, cellPadding: 2.5, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+        headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8.5 },
+        alternateRowStyles: { fillColor: [249, 250, 251] as any },
+        columnStyles: { 0: { cellWidth: CW - 45 }, 1: { cellWidth: 45, halign: 'right', fontStyle: 'bold', textColor: [16, 120, 80] as any } },
+      });
+      y = (doc as any).lastAutoTable.finalY + 7;
+    });
+
+    if (cfg.variables.length === 0) {
+      doc.setTextColor(...GRAY); doc.setFontSize(10);
+      doc.text('No hay variables configuradas para este rol y mes.', M, y); y += 8;
+    }
+
+    // Penalidad por bandera roja
+    if (y > 262) { doc.addPage(); y = 20; }
+    const noteH = 15;
+    doc.setFillColor(247, 248, 249); doc.roundedRect(M, y - 2, CW, noteH, 1.6, 1.6, 'F');
+    doc.setFillColor(...BRAND); doc.rect(M, y - 2, 1.4, noteH, 'F');
+    doc.setFont(F, 'bold'); doc.setFontSize(8); doc.setTextColor(...BRAND);
+    doc.text('PENALIDAD POR BANDERA ROJA', M + 5, y + 3.5);
+    doc.setFont(F, 'normal'); doc.setFontSize(9.5); doc.setTextColor(...DARK);
+    doc.text(`Se descuenta $${fmt(cfg.redFlagPenalty || 0)} por cada bandera roja registrada en el mes.`, M + 5, y + 9);
+
+    // Footer con paginado
+    const pc = doc.getNumberOfPages();
+    for (let p = 1; p <= pc; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(230, 231, 233); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
+      doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+      doc.text(`Objetivos y Premios · ${branch} · ${mesLabelPDF(selectedMonth)} · ${roleLabel}`, M, PH - 8);
+      doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+    }
+    doc.save(`premios_${roleLabel.replace(/ /g, '_')}_${branch.replace(/ /g, '_')}_${selectedMonth}.pdf`);
+  };
+
   return (
     <div className="space-y-6 pb-20">
       {/* Header */}
@@ -990,6 +1078,17 @@ export default function PerformanceAdminView({
             >
               <CalendarDays size={14} className="stroke-[2.5]" />
               <span>Copiar al Mes Siguiente</span>
+            </button>
+          )}
+
+          {localBranchId !== 'all' && activeTab === 'config' && (
+            <button
+              onClick={exportConfigPDF}
+              className="px-3.5 py-1.5 bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Exportar los objetivos y premios de este rol/mes en PDF para enviar a los usuarios"
+            >
+              <FileText size={14} className="stroke-[2.5]" />
+              <span>Exportar PDF</span>
             </button>
           )}
         </div>
