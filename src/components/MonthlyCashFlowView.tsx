@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Upload, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight, TrendingUp, LayoutDashboard, AlertTriangle, Target } from 'lucide-react';
+import { BarChart3, Upload, Download, Loader2, ArrowUpRight, ArrowDownRight, Calendar, Trash2, ChevronDown, ChevronRight, TrendingUp, LayoutDashboard, AlertTriangle, Target } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart
 } from 'recharts';
@@ -16,6 +16,39 @@ import { supabase } from '../lib/supabase';
 
 // Etiquetas que aparecen en la columna de TOTALES solo en filas de encabezado de sección
 const HEADER_AG = new Set(['ingresos iniciales','ingresos','alquileres','servicios','compras','sueldos','impuestos','g. bancarios','otros g.','inversiones']);
+
+// Estructura por defecto de la plantilla, cuando todavía no hay ningún mes cargado
+// del cual copiar las cuentas reales. Los títulos importan (definen si la sección es
+// de ingresos, de saldo inicial o de inversiones); la etiqueta solo marca el corte.
+const PLANTILLA_SECCIONES: Array<{ titulo: string; tag: string; rubros: string[] }> = [
+  { titulo: 'SALDO INICIAL', tag: 'ingresos iniciales', rubros: ['Caja', 'Banco', 'Mercado Pago'] },
+  { titulo: 'INGRESOS', tag: 'ingresos', rubros: ['Ventas Salón', 'Ventas Delivery', 'Otros Ingresos'] },
+  { titulo: 'ALQUILERES', tag: 'alquileres', rubros: ['Alquiler Local'] },
+  { titulo: 'SERVICIOS', tag: 'servicios', rubros: ['Luz', 'Gas', 'Agua', 'Internet'] },
+  { titulo: 'COMPRAS', tag: 'compras', rubros: ['Mercadería', 'Bebidas', 'Descartables'] },
+  { titulo: 'SUELDOS', tag: 'sueldos', rubros: ['Sueldos', 'Cargas Sociales'] },
+  { titulo: 'IMPUESTOS', tag: 'impuestos', rubros: ['IVA', 'Ingresos Brutos', 'Municipal'] },
+  { titulo: 'G. BANCARIOS', tag: 'g. bancarios', rubros: ['Comisiones', 'Mantenimiento de Cuenta'] },
+  { titulo: 'OTROS G.', tag: 'otros g.', rubros: ['Varios'] },
+  { titulo: 'INVERSIONES Y CUOTAS PRESTAMO', tag: 'inversiones', rubros: ['Cuota Préstamo'] },
+];
+
+// La etiqueta de la columna TOTALES solo sirve para que el importador detecte que la
+// fila abre una sección: cualquier valor de HEADER_AG sirve. Se elige el más parecido
+// al título nada más que para que la planilla se lea bien.
+const tagParaTitulo = (titulo: string): string => {
+  const t = (titulo || '').toLowerCase();
+  if (t.includes('saldo inicial')) return 'ingresos iniciales';
+  if (t.startsWith('ingreso')) return 'ingresos';
+  if (t.includes('alquiler')) return 'alquileres';
+  if (t.includes('servicio')) return 'servicios';
+  if (t.includes('compra')) return 'compras';
+  if (t.includes('sueldo')) return 'sueldos';
+  if (t.includes('impuesto')) return 'impuestos';
+  if (t.includes('banc')) return 'g. bancarios';
+  if (t.includes('inversion')) return 'inversiones';
+  return 'otros g.';
+};
 
 interface Rubro { nombre: string; total: number; dias: Record<number, number>; }
 interface Seccion { titulo: string; rubros: Rubro[]; total: number; }
@@ -311,6 +344,99 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
     e.target.value = '';
   };
 
+  // ===== Plantilla modelo para cargar los meses que faltan =====
+  // Se arma con la MISMA estructura que espera handleImport. Si ya hay un mes cargado,
+  // se copian sus secciones y cuentas (con los importes vacíos) para no tener que
+  // reescribir el plan de cuentas; si no hay ninguno, se usa el modelo por defecto.
+  const descargarPlantilla = () => {
+    const sugerido = `${importYear}-${String(importMonth).padStart(2, '0')}`;
+    const mesInput = window.prompt(
+      '¿Para qué mes querés la plantilla?\n\nEscribilo en formato AAAA-MM (año-mes).\nSe generan las columnas de días que tiene ese mes.\nEjemplos: 2026-01 para Enero 2026, 2026-02 para Febrero 2026.',
+      sugerido
+    );
+    if (!mesInput) return;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mesInput.trim())) {
+      alert('Mes inválido. Usá el formato AAAA-MM, por ejemplo 2026-02.');
+      return;
+    }
+    const month = mesInput.trim();
+    const [y, m] = month.split('-').map(Number);
+    const cantDias = new Date(y, m, 0).getDate();
+    const dias = Array.from({ length: cantDias }, (_, i) => i + 1);
+
+    // Estructura: la del mes que se está viendo, o el modelo por defecto
+    const base = data && data.secciones?.length
+      ? data.secciones.map(s => ({
+          titulo: s.titulo,
+          tag: tagParaTitulo(s.titulo),
+          rubros: s.rubros.map(r => r.nombre)
+        }))
+      : PLANTILLA_SECCIONES;
+    const copiadaDeMes = Boolean(data && data.secciones?.length);
+
+    const vacias = () => dias.map(() => null);
+    const grid: any[][] = [];
+
+    // Fila 0: DIA + los días + TOTALES (el importador corta en la primera celda con "TOTAL")
+    grid.push(['DIA', ...dias, 'TOTALES']);
+
+    // Resumen superior. Tiene que ir ANTES de la primera sección: el importador solo lo
+    // reconoce mientras no haya abierto ninguna.
+    ['Saldo Inicial', 'Total Ingresos', 'Total Egresos', 'Neto', 'Acumulado', 'Ajustes']
+      .forEach(lbl => grid.push([lbl, ...vacias(), null]));
+
+    grid.push([]); // separador visual, el importador ignora las filas sin etiqueta
+
+    base.forEach(sec => {
+      // Encabezado de sección: título en la columna A y la etiqueta en TOTALES
+      grid.push([sec.titulo, ...vacias(), sec.tag]);
+      sec.rubros.forEach(nombre => grid.push([nombre, ...vacias(), null]));
+      grid.push([`TOTAL ${sec.titulo}`, ...vacias(), null]);
+      grid.push([]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(grid);
+    ws['!cols'] = [{ wch: 34 }, ...dias.map(() => ({ wch: 11 })), { wch: 16 }];
+
+    // Hoja aparte con las reglas del formato, para que la planilla no se rompa al editarla
+    const ayuda: any[][] = [
+      ['PLANTILLA DE FLUJO DE CAJA MENSUAL'],
+      [`Generada para: ${monthLabel(month)} (${cantDias} días)`],
+      [copiadaDeMes
+        ? `Las secciones y cuentas se copiaron de la planilla de ${monthLabel(selectedMonth)} que ya tenés cargada.`
+        : 'Todavía no hay ninguna planilla cargada, así que las secciones y cuentas son un modelo de ejemplo.'],
+      [],
+      ['CÓMO COMPLETARLA'],
+      ['1', 'Cargá los importes de cada cuenta en la columna del día que corresponde.'],
+      ['2', 'Podés renombrar, agregar o borrar cuentas dentro de cada sección.'],
+      ['3', 'Los egresos se pueden cargar en positivo o en negativo: el sistema usa el valor absoluto.'],
+      ['4', 'Las celdas vacías o en cero simplemente no se cargan.'],
+      ['5', 'Cuando termines, subila con el botón "Importar Excel" y elegí el mes.'],
+      [],
+      ['QUÉ NO HAY QUE TOCAR'],
+      ['A', 'La fila 1: tiene que seguir siendo DIA, los números de día y TOTALES al final.'],
+      ['B', 'La última columna (TOTALES) en las filas de encabezado de sección.'],
+      ['', 'Ese texto es lo que le indica al sistema dónde empieza cada sección.'],
+      ['', `Valores válidos: ${Array.from(HEADER_AG).join(' · ')}`],
+      ['C', 'Las 6 filas de resumen de arriba (Saldo Inicial, Total Ingresos, Total Egresos,'],
+      ['', 'Neto, Acumulado, Ajustes) tienen que quedar ANTES de la primera sección.'],
+      ['D', 'Las filas que empiezan con la palabra TOTAL se leen como el total de la sección,'],
+      ['', 'así que no le pongas ese nombre a una cuenta.'],
+      [],
+      ['NOMBRES DE SECCIÓN CON SIGNIFICADO'],
+      ['', 'Si el título contiene "SALDO INICIAL" se trata como saldos de cuentas, no como movimiento.'],
+      ['', 'Si el título empieza con "INGRESO" se suma como ingreso; el resto se toma como egreso.'],
+      ['', 'Si el título contiene "INVERSION" aparece además en el detalle de inversiones.'],
+    ];
+    const wsAyuda = XLSX.utils.aoa_to_sheet(ayuda);
+    wsAyuda['!cols'] = [{ wch: 5 }, { wch: 100 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'FLUJO DE CAJA');
+    XLSX.utils.book_append_sheet(wb, wsAyuda, 'INSTRUCCIONES');
+    XLSX.writeFile(wb, `plantilla_flujo_caja_${month}.xlsx`);
+  };
+
   const eliminarMes = async () => {
     if (isReadOnly || !selectedMonth) return;
     if (!window.confirm(`¿Eliminar la planilla de ${monthLabel(selectedMonth)}?`)) return;
@@ -367,6 +493,11 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
               <Trash2 size={14} /> Eliminar
             </button>
           )}
+          <button onClick={descargarPlantilla}
+            className="flex items-center gap-1.5 bg-bg-card border border-border-dim text-text-main px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:border-brand-500 hover:text-brand-500 transition-all"
+            title="Descargar una plantilla Excel vacía con el formato que espera el importador">
+            <Download size={14} /> Plantilla
+          </button>
           <label className={cn("flex items-center gap-2 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-600 transition-all", importing && "opacity-50 pointer-events-none")}>
             {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importar Excel
             <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} disabled={importing || isReadOnly} />
