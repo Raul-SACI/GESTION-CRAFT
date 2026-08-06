@@ -167,6 +167,15 @@ export interface PerformanceRoleConfig {
   variables: PerformanceVariable[];
   salesGoal: number; // Required for some calculations
   redFlagPenalty: number;
+  blackFlagPenalty: number; // amount to deduct per black flag (negative customer comment)
+}
+
+// Bandera negra: comentario negativo de un cliente. A diferencia de la roja, que es
+// solo un contador, cada bandera negra queda documentada con su fecha y su motivo.
+export interface PerformanceBlackFlag {
+  id: string;
+  date: string; // YYYY-MM-DD
+  reason: string;
 }
 
 export interface PerformanceVariableResult {
@@ -185,6 +194,7 @@ export interface PerformanceReport {
   results: PerformanceVariableResult[];
   actualSales: number;
   redFlagsCount: number;
+  blackFlags: PerformanceBlackFlag[]; // la cantidad se deriva del largo de la lista
   totalCalculatedPrize: number;
 }
 

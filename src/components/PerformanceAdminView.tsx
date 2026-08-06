@@ -28,7 +28,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { cn } from '../lib/utils';
-import { Branch, PerformanceRoleConfig, PerformanceVariable, PerformanceTier, PerformanceReport, PerformanceVariableResult } from '../types';
+import { Branch, PerformanceRoleConfig, PerformanceVariable, PerformanceTier, PerformanceReport, PerformanceVariableResult, PerformanceBlackFlag } from '../types';
 import { supabase } from '../lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -68,7 +68,8 @@ export default function PerformanceAdminView({
       role: 'encargado',
       variables: [],
       salesGoal: 0,
-      redFlagPenalty: 15000
+      redFlagPenalty: 15000,
+      blackFlagPenalty: 0
     },
     jefe_cocina: {
       id: '',
@@ -77,7 +78,8 @@ export default function PerformanceAdminView({
       role: 'jefe_cocina',
       variables: [],
       salesGoal: 0,
-      redFlagPenalty: 15000
+      redFlagPenalty: 15000,
+      blackFlagPenalty: 0
     },
     segundo_cocina: {
       id: '',
@@ -86,14 +88,15 @@ export default function PerformanceAdminView({
       role: 'segundo_cocina',
       variables: [],
       salesGoal: 0,
-      redFlagPenalty: 15000
+      redFlagPenalty: 15000,
+      blackFlagPenalty: 0
     }
   });
 
   const [reports, setReports] = useState<Record<'encargado' | 'jefe_cocina' | 'segundo_cocina', PerformanceReport>>({
-    encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-    jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-    segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
+    encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 },
+    jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 },
+    segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 }
   });
 
   const [allConfigs, setAllConfigs] = useState<any[]>([]);
@@ -153,7 +156,8 @@ export default function PerformanceAdminView({
           role: 'encargado',
           variables: [],
           salesGoal: 0,
-          redFlagPenalty: 15000
+          redFlagPenalty: 15000,
+          blackFlagPenalty: 0
         },
         jefe_cocina: {
           id: '',
@@ -162,7 +166,8 @@ export default function PerformanceAdminView({
           role: 'jefe_cocina',
           variables: [],
           salesGoal: 0,
-          redFlagPenalty: 15000
+          redFlagPenalty: 15000,
+          blackFlagPenalty: 0
         },
         segundo_cocina: {
           id: '',
@@ -171,14 +176,15 @@ export default function PerformanceAdminView({
           role: 'segundo_cocina',
           variables: [],
           salesGoal: 0,
-          redFlagPenalty: 15000
+          redFlagPenalty: 15000,
+          blackFlagPenalty: 0
         }
       };
 
       const initializedReports = fallbackReports || {
-        encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-        jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 },
-        segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, totalCalculatedPrize: 0 }
+        encargado: { id: '', branchId: localBranchId, month: selectedMonth, role: 'encargado', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 },
+        jefe_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 },
+        segundo_cocina: { id: '', branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina', results: [], actualSales: 0, redFlagsCount: 0, blackFlags: [], totalCalculatedPrize: 0 }
       };
 
       // Force proper branchId and month keys on restore
@@ -217,7 +223,8 @@ export default function PerformanceAdminView({
               role: item.role,
               variables: item.variables || [],
               salesGoal: item.sales_goal || 0,
-              redFlagPenalty: item.red_flag_penalty || 15000
+              redFlagPenalty: item.red_flag_penalty || 15000,
+              blackFlagPenalty: item.black_flag_penalty || 0
             };
           });
         }
@@ -244,6 +251,7 @@ export default function PerformanceAdminView({
               results: item.results || [],
               actualSales: item.actual_sales || 0,
               redFlagsCount: item.red_flags_count || 0,
+              blackFlags: Array.isArray(item.black_flags) ? item.black_flags : [],
               totalCalculatedPrize: item.total_calculated_prize || 0
             };
           });
@@ -271,6 +279,52 @@ export default function PerformanceAdminView({
     return bestTier ? bestTier.prize : 0;
   };
 
+  // ---- Banderas negras (comentarios negativos de clientes) ----
+  // Se cargan una por una con su fecha y su motivo. La cantidad sale del largo
+  // de la lista, asi la penalidad siempre coincide con lo que quedo documentado.
+  const defaultBlackFlagDate = () => {
+    const today = new Date().toISOString().substring(0, 10);
+    // Si estamos cargando un mes que no es el actual, arrancamos el dia 1 de ese mes
+    return today.startsWith(selectedMonth) ? today : `${selectedMonth}-01`;
+  };
+
+  // Limita el selector de fecha al mes que se esta cargando
+  const blackFlagDateRange = () => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const lastDay = new Date(y, m, 0).getDate();
+    return { min: `${selectedMonth}-01`, max: `${selectedMonth}-${String(lastDay).padStart(2, '0')}` };
+  };
+
+  const addBlackFlag = () => {
+    const rep = reports[activeRole];
+    setReports({
+      ...reports,
+      [activeRole]: {
+        ...rep,
+        blackFlags: [...(rep.blackFlags || []), { id: uuidv4(), date: defaultBlackFlagDate(), reason: '' }]
+      }
+    });
+  };
+
+  const updateBlackFlag = (id: string, patch: Partial<PerformanceBlackFlag>) => {
+    const rep = reports[activeRole];
+    setReports({
+      ...reports,
+      [activeRole]: {
+        ...rep,
+        blackFlags: (rep.blackFlags || []).map(f => (f.id === id ? { ...f, ...patch } : f))
+      }
+    });
+  };
+
+  const removeBlackFlag = (id: string) => {
+    const rep = reports[activeRole];
+    setReports({
+      ...reports,
+      [activeRole]: { ...rep, blackFlags: (rep.blackFlags || []).filter(f => f.id !== id) }
+    });
+  };
+
   const handleSaveResults = async () => {
     setSaving(true);
     try {
@@ -286,7 +340,12 @@ export default function PerformanceAdminView({
         });
         
         const totalPrizes = resultsWithPrizes.reduce((sum, r) => sum + r.achievedPrize, 0);
-        const penalty = (rep.redFlagsCount || 0) * (config.redFlagPenalty || 0);
+        // La cantidad de banderas negras se deriva de la lista documentada, no de un
+        // contador aparte, para que la penalidad nunca quede desfasada de los motivos.
+        const blackFlags = rep.blackFlags || [];
+        const redPenalty = (rep.redFlagsCount || 0) * (config.redFlagPenalty || 0);
+        const blackPenalty = blackFlags.length * (config.blackFlagPenalty || 0);
+        const penalty = redPenalty + blackPenalty;
         const isSalesMet = (rep.actualSales || 0) >= (config.salesGoal || 1);
         const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;
 
@@ -297,6 +356,7 @@ export default function PerformanceAdminView({
           results: resultsWithPrizes,
           actual_sales: rep.actualSales,
           red_flags_count: rep.redFlagsCount,
+          black_flags: blackFlags,
           total_calculated_prize: finalPrize
         };
       });
@@ -478,12 +538,12 @@ export default function PerformanceAdminView({
       const jefeVars = scaleVariables(0.5);     // 50% del encargado
       const segundoVars = scaleVariables(0.4);  // 40% del encargado (= 80% del jefe)
 
-      const jefeConfig = { ...configs.jefe_cocina, branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina' as const, variables: jefeVars, redFlagPenalty: base.redFlagPenalty, salesGoal: base.salesGoal };
-      const segundoConfig = { ...configs.segundo_cocina, branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina' as const, variables: segundoVars, redFlagPenalty: base.redFlagPenalty, salesGoal: base.salesGoal };
+      const jefeConfig = { ...configs.jefe_cocina, branchId: localBranchId, month: selectedMonth, role: 'jefe_cocina' as const, variables: jefeVars, redFlagPenalty: base.redFlagPenalty, blackFlagPenalty: base.blackFlagPenalty, salesGoal: base.salesGoal };
+      const segundoConfig = { ...configs.segundo_cocina, branchId: localBranchId, month: selectedMonth, role: 'segundo_cocina' as const, variables: segundoVars, redFlagPenalty: base.redFlagPenalty, blackFlagPenalty: base.blackFlagPenalty, salesGoal: base.salesGoal };
 
       const payloads = [
-        { branch_id: localBranchId, month: selectedMonth, role: 'jefe_cocina', variables: jefeVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty },
-        { branch_id: localBranchId, month: selectedMonth, role: 'segundo_cocina', variables: segundoVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty }
+        { branch_id: localBranchId, month: selectedMonth, role: 'jefe_cocina', variables: jefeVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty, black_flag_penalty: base.blackFlagPenalty },
+        { branch_id: localBranchId, month: selectedMonth, role: 'segundo_cocina', variables: segundoVars, sales_goal: base.salesGoal, red_flag_penalty: base.redFlagPenalty, black_flag_penalty: base.blackFlagPenalty }
       ];
 
       const { error } = await supabase
@@ -524,7 +584,8 @@ export default function PerformanceAdminView({
         role: cfg.role,
         variables: cfg.variables,
         sales_goal: cfg.salesGoal,
-        red_flag_penalty: cfg.redFlagPenalty
+        red_flag_penalty: cfg.redFlagPenalty,
+        black_flag_penalty: cfg.blackFlagPenalty || 0
       }));
 
       // Cache locally
@@ -597,7 +658,8 @@ export default function PerformanceAdminView({
           }))
         })),
         sales_goal: cfg.salesGoal,
-        red_flag_penalty: cfg.redFlagPenalty
+        red_flag_penalty: cfg.redFlagPenalty,
+        black_flag_penalty: cfg.blackFlagPenalty || 0
       }));
 
       // Cache locally
@@ -688,6 +750,7 @@ export default function PerformanceAdminView({
         // Load target branch existing values from localStorage as fallback
         let localFallbackGoal = 0;
         let localFallbackPenalty = 15000;
+        let localFallbackBlackPenalty = 0;
         try {
           const storageKey = `craft_performance_config_${targetBranchId}_${selectedMonth}`;
           const localString = localStorage.getItem(storageKey);
@@ -696,19 +759,26 @@ export default function PerformanceAdminView({
             if (parsed[activeRole]) {
               localFallbackGoal = parsed[activeRole].salesGoal || 0;
               localFallbackPenalty = parsed[activeRole].redFlagPenalty || 15000;
+              localFallbackBlackPenalty = parsed[activeRole].blackFlagPenalty || 0;
             }
           }
         } catch (e) {
           console.error('Local storage merge error during copy:', e);
         }
 
-        const finalGoal = copySalesGoal 
-          ? currentConfig.salesGoal 
+        const finalGoal = copySalesGoal
+          ? currentConfig.salesGoal
           : (existing?.sales_goal !== undefined ? Number(existing.sales_goal) : localFallbackGoal);
 
-        const finalPenalty = copyRedFlagPenalty 
-          ? currentConfig.redFlagPenalty 
+        const finalPenalty = copyRedFlagPenalty
+          ? currentConfig.redFlagPenalty
           : (existing?.red_flag_penalty !== undefined ? Number(existing.red_flag_penalty) : localFallbackPenalty);
+
+        // La misma casilla decide ambas penalidades: separarlas confundiria mas
+        // de lo que aporta, ya que las dos son "el costo de una bandera".
+        const finalBlackPenalty = copyRedFlagPenalty
+          ? (currentConfig.blackFlagPenalty || 0)
+          : (existing?.black_flag_penalty !== undefined ? Number(existing.black_flag_penalty) : localFallbackBlackPenalty);
 
         return {
           branch_id: targetBranchId,
@@ -716,7 +786,8 @@ export default function PerformanceAdminView({
           role: activeRole,
           variables: currentConfig.variables,
           sales_goal: finalGoal,
-          red_flag_penalty: finalPenalty
+          red_flag_penalty: finalPenalty,
+          black_flag_penalty: finalBlackPenalty
         };
       });
 
@@ -738,8 +809,8 @@ export default function PerformanceAdminView({
         
         // Initialize or load target's full configuration object
         let targetFullConfig = {
-          encargado: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'encargado', variables: [], salesGoal: 0, redFlagPenalty: 15000 },
-          jefe_cocina: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'jefe_cocina', variables: [], salesGoal: 0, redFlagPenalty: 15000 }
+          encargado: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'encargado', variables: [], salesGoal: 0, redFlagPenalty: 15000, blackFlagPenalty: 0 },
+          jefe_cocina: { id: '', branchId: targetBranchId, month: selectedMonth, role: 'jefe_cocina', variables: [], salesGoal: 0, redFlagPenalty: 15000, blackFlagPenalty: 0 }
         };
 
         try {
@@ -761,7 +832,8 @@ export default function PerformanceAdminView({
             role: activeRole,
             variables: payloadForThisBranch.variables,
             salesGoal: payloadForThisBranch.sales_goal,
-            redFlagPenalty: payloadForThisBranch.red_flag_penalty
+            redFlagPenalty: payloadForThisBranch.red_flag_penalty,
+            blackFlagPenalty: payloadForThisBranch.black_flag_penalty
           };
         }
 
@@ -850,12 +922,13 @@ export default function PerformanceAdminView({
 
       // Tabla resumen: una fila por sucursal, incluyendo las no configuradas
       autoTable(doc, {
-        head: [['Sucursal', 'Ubicación', 'Estado', 'Variables', 'Premio máx.', 'Bandera roja']],
+        head: [['Sucursal', 'Ubicación', 'Estado', 'Variables', 'Premio máx.', 'Bandera roja', 'Bandera negra']],
         body: pdfBranches.map(b => {
           const c = cfgOf(b.id);
           const vars: any[] = c?.variables || [];
           const estado = !c ? 'No configurado' : vars.length === 0 ? 'Sin variables' : 'Configurado';
           const penalty = c?.red_flag_penalty !== undefined ? c.red_flag_penalty : 15000;
+          const blackPenalty = c?.black_flag_penalty !== undefined ? c.black_flag_penalty : 0;
           return [
             b.name,
             b.location || 'Tucumán',
@@ -863,6 +936,8 @@ export default function PerformanceAdminView({
             c ? String(vars.length) : '-',
             c && vars.length ? `$${fmt(maxPrizeOf(vars))}` : '-',
             c ? `-$${fmt(penalty)}` : '-',
+            // Sin valor cargado se muestra un guion: "-$0" se lee como si fuera un monto
+            c && blackPenalty > 0 ? `-$${fmt(blackPenalty)}` : '-',
           ];
         }),
         startY: y, margin: { left: M, right: M },
@@ -874,6 +949,7 @@ export default function PerformanceAdminView({
           3: { halign: 'center' },
           4: { halign: 'right', fontStyle: 'bold', textColor: [16, 120, 80] as any },
           5: { halign: 'right', textColor: [190, 60, 60] as any },
+          6: { halign: 'right', textColor: DARK as any },
         },
       });
       y = (doc as any).lastAutoTable.finalY + 9;
@@ -920,8 +996,9 @@ export default function PerformanceAdminView({
         y = (doc as any).lastAutoTable.finalY + 4;
 
         doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+        const bfp = c.black_flag_penalty !== undefined ? Number(c.black_flag_penalty) : 0;
         doc.text(
-          `Penalidad por bandera roja: -$${fmt(c.red_flag_penalty !== undefined ? c.red_flag_penalty : 15000)} por cada una registrada en el mes.`,
+          `Penalidades por cada bandera registrada en el mes: roja -$${fmt(c.red_flag_penalty !== undefined ? c.red_flag_penalty : 15000)} · negra ${bfp > 0 ? `-$${fmt(bfp)}` : 'sin valor cargado'}.`,
           M, y
         );
         y += 9;
@@ -1022,6 +1099,7 @@ export default function PerformanceAdminView({
               {activeBranches.map(branch => {
                 const config = allConfigs.find(c => c.branch_id === branch.id && c.role === activeRole);
                 const redFlagPenalty = config?.red_flag_penalty !== undefined ? config.red_flag_penalty : 15000;
+                const blackFlagPenalty = config?.black_flag_penalty !== undefined ? config.black_flag_penalty : 0;
                 const variablesList: any[] = config?.variables || [];
 
                 return (
@@ -1037,6 +1115,14 @@ export default function PerformanceAdminView({
                           <div className="text-right">
                             <span className="block text-[7px] text-text-dim font-black uppercase tracking-widest">Bandera Roja</span>
                             <span className="text-[11px] font-mono font-black text-red-400">-${redFlagPenalty.toLocaleString('es-AR')}</span>
+                          </div>
+                        )}
+                        {config && (
+                          <div className="text-right">
+                            <span className="block text-[7px] text-text-dim font-black uppercase tracking-widest">Bandera Negra</span>
+                            <span className={cn("text-[11px] font-mono font-black", blackFlagPenalty > 0 ? "text-text-main" : "text-text-dim/50")}>
+                              -${blackFlagPenalty.toLocaleString('es-AR')}
+                            </span>
                           </div>
                         )}
                         <button
@@ -1160,15 +1246,18 @@ export default function PerformanceAdminView({
       doc.text('No hay variables configuradas para este rol y mes.', M, y); y += 8;
     }
 
-    // Penalidad por bandera roja
-    if (y > 262) { doc.addPage(); y = 20; }
-    const noteH = 15;
+    // Penalidades por banderas (rojas y negras)
+    if (y > 252) { doc.addPage(); y = 20; }
+    const noteH = 25;
     doc.setFillColor(247, 248, 249); doc.roundedRect(M, y - 2, CW, noteH, 1.6, 1.6, 'F');
     doc.setFillColor(...BRAND); doc.rect(M, y - 2, 1.4, noteH, 'F');
     doc.setFont(F, 'bold'); doc.setFontSize(8); doc.setTextColor(...BRAND);
-    doc.text('PENALIDAD POR BANDERA ROJA', M + 5, y + 3.5);
+    doc.text('PENALIDADES POR BANDERAS', M + 5, y + 3.5);
     doc.setFont(F, 'normal'); doc.setFontSize(9.5); doc.setTextColor(...DARK);
-    doc.text(`Se descuenta $${fmt(cfg.redFlagPenalty || 0)} por cada bandera roja registrada en el mes.`, M + 5, y + 9);
+    doc.text(`Bandera roja: se descuenta $${fmt(cfg.redFlagPenalty || 0)} por cada una registrada en el mes.`, M + 5, y + 9.5);
+    doc.text(`Bandera negra: se descuenta $${fmt(cfg.blackFlagPenalty || 0)} por cada comentario negativo de un cliente.`, M + 5, y + 15.5);
+    doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+    doc.text('Cada bandera negra queda registrada con su fecha y su motivo.', M + 5, y + 20.5);
 
     // Footer con paginado
     const pc = doc.getNumberOfPages();
@@ -1493,13 +1582,95 @@ export default function PerformanceAdminView({
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-text-dim uppercase block">Cantidad Banderas Rojas</label>
-                    <input 
+                    <input
                       type="number"
                       value={currentReport.redFlagsCount}
                       onChange={(e) => setReports({ ...reports, [activeRole]: { ...currentReport, redFlagsCount: parseInt(e.target.value) || 0 } })}
                       className="w-full bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-lg font-black text-red-500 outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Banderas negras: cada una queda documentada con su fecha y su motivo */}
+                <div className="pt-6 border-t border-border-dim space-y-3">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <span className="text-[10px] font-black text-text-dim uppercase flex items-center gap-1.5">
+                        <Flag size={13} className="text-text-main" />
+                        Banderas Negras
+                      </span>
+                      <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider mt-1 leading-relaxed">
+                        Comentarios negativos de clientes. Dejá registrado cuándo y por qué se colocó cada una.
+                      </p>
+                    </div>
+                    <button
+                      onClick={addBlackFlag}
+                      className="px-3 py-1.5 bg-text-main/10 hover:bg-text-main hover:text-bg-sidebar border border-border-dim text-text-main rounded text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <Plus size={13} className="stroke-[3]" />
+                      Agregar bandera
+                    </button>
+                  </div>
+
+                  {(currentReport.blackFlags || []).length === 0 ? (
+                    <div className="flex items-center justify-center py-6 bg-bg-sidebar/60 border border-dashed border-border-dim rounded-lg">
+                      <span className="text-[9px] text-text-dim font-black uppercase tracking-wider">
+                        Sin banderas negras cargadas para {selectedMonth}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(currentReport.blackFlags || []).map((flag, idx) => (
+                        <div key={flag.id} className="bg-bg-sidebar border border-border-dim rounded-lg p-3 space-y-2">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-black text-text-dim shrink-0 w-6">#{idx + 1}</span>
+                            <input
+                              type="date"
+                              value={flag.date}
+                              min={blackFlagDateRange().min}
+                              max={blackFlagDateRange().max}
+                              onChange={(e) => updateBlackFlag(flag.id, { date: e.target.value })}
+                              className="bg-bg-accent border border-border-dim rounded px-2.5 py-1.5 text-[11px] font-black text-text-main outline-none focus:border-text-main cursor-pointer"
+                            />
+                            <button
+                              onClick={() => removeBlackFlag(flag.id)}
+                              title="Eliminar esta bandera"
+                              className="ml-auto p-1.5 text-text-dim hover:text-red-500 transition-colors shrink-0 cursor-pointer"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <textarea
+                            value={flag.reason}
+                            onChange={(e) => updateBlackFlag(flag.id, { reason: e.target.value })}
+                            rows={2}
+                            placeholder="Motivo: qué pasó, qué comentó el cliente, dónde se registró la queja…"
+                            className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-text-main resize-y placeholder:text-text-dim/60 placeholder:font-normal"
+                          />
+                          {!flag.reason.trim() && (
+                            <span className="text-[9px] text-amber-500 font-black uppercase tracking-wider">
+                              ⚠️ Falta el motivo
+                            </span>
+                          )}
+                        </div>
+                      ))}
+
+                      <div className="flex items-center justify-between gap-3 bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-2.5">
+                        <span className="text-[9px] font-black text-text-dim uppercase tracking-wider">
+                          {(currentReport.blackFlags || []).length} bandera{(currentReport.blackFlags || []).length === 1 ? '' : 's'} × ${(currentConfig.blackFlagPenalty || 0).toLocaleString('es-AR')}
+                        </span>
+                        <span className="text-[13px] font-mono font-black text-red-500">
+                          -${((currentReport.blackFlags || []).length * (currentConfig.blackFlagPenalty || 0)).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+
+                      {(currentConfig.blackFlagPenalty || 0) === 0 && (
+                        <span className="text-[9px] text-amber-500 font-black uppercase tracking-wider block">
+                          ⚠️ La penalidad por bandera negra de este rol está en $0. Cargala en la pestaña Configuración.
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="p-6 bg-bg-accent/40 border-t border-border-dim flex justify-end">
@@ -1528,7 +1699,7 @@ export default function PerformanceAdminView({
                 <label className="text-[10px] font-black text-text-dim uppercase ml-1">Penalidad Banderas Rojas ($)</label>
                 <div className="relative">
                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-dim font-black">$</span>
-                   <input 
+                   <input
                     type="number"
                     value={currentConfig.redFlagPenalty}
                     onChange={(e) => setConfigs({
@@ -1538,6 +1709,25 @@ export default function PerformanceAdminView({
                     className="w-full bg-bg-sidebar border border-border-dim rounded pl-8 pr-4 py-3 text-lg font-black text-red-500 focus:border-red-500 outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5 pt-4 border-t border-border-dim/40">
+                <label className="text-[10px] font-black text-text-dim uppercase ml-1">Penalidad Banderas Negras ($)</label>
+                <div className="relative">
+                   <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-dim font-black">$</span>
+                   <input
+                    type="number"
+                    value={currentConfig.blackFlagPenalty ?? 0}
+                    onChange={(e) => setConfigs({
+                      ...configs,
+                      [activeRole]: { ...currentConfig, blackFlagPenalty: parseFloat(e.target.value) || 0 }
+                    })}
+                    className="w-full bg-bg-sidebar border border-border-dim rounded pl-8 pr-4 py-3 text-lg font-black text-text-main focus:border-text-main outline-none"
+                  />
+                </div>
+                <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider leading-relaxed ml-1 mt-1.5">
+                  Comentarios negativos de clientes. El valor es propio de este rol y de este mes: podés poner uno distinto para el encargado y para el jefe, y cambiarlo mes a mes.
+                </p>
               </div>
             </div>
           </div>
@@ -1674,9 +1864,9 @@ export default function PerformanceAdminView({
                     className="mt-0.5 rounded border border-border-dim/80 text-blue-500 focus:ring-0 cursor-pointer w-4 h-4 bg-bg-accent"
                   />
                   <div>
-                    <span className="text-[11px] font-bold text-text-main uppercase block leading-tight mt-0.5">Copiar Penalidad de Banderas Rojas</span>
+                    <span className="text-[11px] font-bold text-text-main uppercase block leading-tight mt-0.5">Copiar Penalidades de Banderas</span>
                     <span className="text-[9px] text-text-dim font-bold uppercase block leading-relaxed mt-1">
-                      Copia el costo por bandera roja para este rol.
+                      Copia el costo por bandera roja y por bandera negra para este rol.
                     </span>
                   </div>
                 </label>
