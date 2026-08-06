@@ -11,6 +11,8 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 
@@ -754,10 +756,318 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
 
   const COLORS = ['#e31e24', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
+  // ===== Exportación a PDF para presentar a socios =====
+  // Estilo de marca compartido con los demás PDF del sistema.
+  const PDF_BRAND: [number, number, number] = [193, 18, 31];
+  const PDF_DARK: [number, number, number] = [33, 37, 41];
+  const PDF_GRAY: [number, number, number] = [110, 116, 122];
+  const PDF_GREEN: [number, number, number] = [16, 120, 80];
+  const PDF_RED: [number, number, number] = [190, 60, 60];
+  const PDF_FONT = 'helvetica';
+
+  // La fuente base (Helvetica/WinAnsi) no soporta em-dash ni otros simbolos: se limpian.
+  const pdfTxt = (s: string) => String(s ?? '').replace(/—/g, '-').replace(/[^\x00-\xFF]/g, '').trim();
+  // Importes sin el simbolo $ repetido en cada celda (va aclarado en el encabezado)
+  const pdfNum = (n: number) => (n || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Cabecera de marca comun a los dos informes. Devuelve la Y donde sigue el contenido.
+  const pdfHeader = (doc: any, PW: number, M: number, titulo: string, subtitulo: string, derecha: string) => {
+    doc.setFillColor(...PDF_BRAND); doc.rect(0, 0, PW, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 12);
+    doc.setFontSize(15); doc.text(titulo, M, 21);
+    doc.setFont(PDF_FONT, 'normal'); doc.setFontSize(8); doc.text(subtitulo, M, 26.5);
+    doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(9); doc.text('INFORME PARA SOCIOS', PW - M, 12, { align: 'right' });
+    doc.setFontSize(11); doc.text(derecha, PW - M, 18, { align: 'right' });
+    doc.setFont(PDF_FONT, 'normal'); doc.setFontSize(8);
+    doc.text(`Emitido el ${new Date().toLocaleDateString('es-AR')}`, PW - M, 24, { align: 'right' });
+    return 40;
+  };
+
+  // Nota al pie del punto de equilibrio. Aclara de donde sale el numero (se recalcula
+  // desde las cuentas, no es la fila "Total Egresos" de la planilla) y que cuentas se
+  // dejaron afuera: sin eso el informe no es reproducible por quien lo lee.
+  const pdfNotaEquilibrio = (doc: any, M: number, CW: number, y: number) => {
+    const nombres = Array.from(cuentasExcluidas).map(pdfTxt).join(', ');
+    const base = 'El punto de equilibrio se recalcula sumando las cuentas de ingreso y egreso del mes, '
+      + 'por lo que puede no coincidir con la fila Total Egresos de la planilla importada.';
+    const txtCompleto = cuentasExcluidas.size > 0
+      ? `${base} Se excluyeron ${cuentasExcluidas.size} cuenta(s): ${nombres}.`
+      : base;
+    doc.setFont(PDF_FONT, 'italic'); doc.setFontSize(7.5); doc.setTextColor(...PDF_GRAY);
+    const txt = doc.splitTextToSize(txtCompleto, CW);
+    doc.text(txt, M, y);
+    return y + txt.length * 3.6 + 3;
+  };
+
+  const pdfFooter = (doc: any, PW: number, PH: number, M: number, pie: string) => {
+    const pc = doc.getNumberOfPages();
+    for (let p = 1; p <= pc; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(230, 231, 233); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
+      doc.setFont(PDF_FONT, 'normal'); doc.setFontSize(7); doc.setTextColor(...PDF_GRAY);
+      doc.text(pie, M, PH - 8);
+      doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+    }
+  };
+
+  const baseTable = {
+    styles: { fontSize: 8.5, cellPadding: 2.2, textColor: PDF_DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+    headStyles: { fillColor: PDF_BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold' as const, fontSize: 8 },
+    alternateRowStyles: { fillColor: [249, 250, 251] as any },
+  };
+
+  // ---- Informe del mes seleccionado ----
+  const exportarPDFMes = () => {
+    const PW = 210, PH = 297, M = 14, CW = PW - 2 * M;
+    const doc = new jsPDF();
+    let y = pdfHeader(doc, PW, M,
+      'ANÁLISIS DE FLUJO DE CAJA',
+      'Resumen del mes: equilibrio, tramos, movimiento diario e inversiones',
+      pdfTxt(monthLabel(currentMonth.month)));
+
+    // Titulares del mes
+    const ingresosMes = currentMonth.resumenTotales?.['total ingresos'] || 0;
+    const egresosMes = currentMonth.resumenTotales?.['total egresos'] || 0;
+    autoTable(doc, {
+      head: [['Indicador', 'Valor']],
+      body: [
+        ['Total de ingresos del mes', `$${pdfNum(ingresosMes)}`],
+        ['Total de egresos del mes', `$${pdfNum(egresosMes)}`],
+        ['Neto del mes', `$${pdfNum(ingresosMes - egresosMes)}`],
+        ['Acumulado', `$${pdfNum(currentMonth.resumenTotales?.['acumulado'] || 0)}`],
+        ['Tramo más ajustado', `Días ${peorTramo.label} · $${pdfNum(peorTramo.neto)}`],
+        ['Mejor mes de la serie (neto)', `${pdfTxt(mejorMes?.mes || '-')} · $${pdfNum(mejorMes?.neto || 0)}`],
+        ['Peor mes de la serie (neto)', `${pdfTxt(peorMes?.mes || '-')} · $${pdfNum(peorMes?.neto || 0)}`],
+      ],
+      startY: y, margin: { left: M, right: M }, ...baseTable,
+      columnStyles: { 0: { cellWidth: CW - 70 }, 1: { cellWidth: 70, halign: 'right', fontStyle: 'bold' } },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+
+    // Punto de equilibrio
+    doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
+    doc.text('Punto de equilibrio', M, y); y += 3;
+    if (puntoEquilibrio) {
+      autoTable(doc, {
+        head: [['Concepto', 'Valor']],
+        body: [
+          ['Estado', puntoEquilibrio.alcanzado
+            ? `Alcanzado el día ${puntoEquilibrio.dia} (${puntoEquilibrio.pctDelMes}% del mes)`
+            : 'No alcanzado en el mes'],
+          ['Egresos totales a cubrir', `$${pdfNum(puntoEquilibrio.egresosTotales)}`],
+          ['Ingresos totales del mes', `$${pdfNum(puntoEquilibrio.ingresosTotales)}`],
+          [puntoEquilibrio.alcanzado ? 'Excedente sobre el equilibrio' : 'Faltante para el equilibrio',
+            `$${pdfNum(puntoEquilibrio.alcanzado
+              ? puntoEquilibrio.ingresosTotales - puntoEquilibrio.egresosTotales
+              : puntoEquilibrio.faltante)}`],
+        ],
+        startY: y + 2, margin: { left: M, right: M }, ...baseTable,
+        columnStyles: {
+          0: { cellWidth: CW - 70 },
+          1: { cellWidth: 70, halign: 'right', fontStyle: 'bold',
+               textColor: (puntoEquilibrio.alcanzado ? PDF_GREEN : PDF_RED) as any },
+        },
+      });
+      y = (doc as any).lastAutoTable.finalY + 4;
+      y = pdfNotaEquilibrio(doc, M, CW, y);
+      y += 4;
+    } else {
+      doc.setFont(PDF_FONT, 'normal'); doc.setFontSize(9); doc.setTextColor(...PDF_GRAY);
+      doc.text('El mes no registra egresos, no aplica.', M, y + 6); y += 14;
+    }
+
+    // Tramos del mes
+    if (y > PH - 60) { doc.addPage(); y = 20; }
+    doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
+    doc.text('Tramos del mes', M, y);
+    autoTable(doc, {
+      head: [['Tramo', 'Ingresos', 'Egresos', 'Neto']],
+      body: decadas.map(t => [
+        `Días ${t.label}${t.label === peorTramo.label ? ' (más ajustado)' : ''}`,
+        `$${pdfNum(t.ingresos)}`, `$${pdfNum(t.egresos)}`, `$${pdfNum(t.neto)}`,
+      ]),
+      startY: y + 5, margin: { left: M, right: M }, ...baseTable,
+      columnStyles: {
+        1: { halign: 'right', textColor: PDF_GREEN as any },
+        2: { halign: 'right', textColor: PDF_RED as any },
+        3: { halign: 'right', fontStyle: 'bold' },
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+
+    // Movimiento día a día
+    if (y > PH - 60) { doc.addPage(); y = 20; }
+    doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
+    doc.text('Movimiento día a día', M, y);
+    autoTable(doc, {
+      head: [['Día', 'Ingresos', 'Egresos', 'Neto del día', 'Acumulado']],
+      body: serieDiaria.map(d => [
+        String(d.dia), `$${pdfNum(d.ingresos)}`, `$${pdfNum(d.egresos)}`,
+        `$${pdfNum(d.ingresos - d.egresos)}`, `$${pdfNum(d.acumulado)}`,
+      ]),
+      startY: y + 5, margin: { left: M, right: M }, ...baseTable,
+      styles: { ...baseTable.styles, fontSize: 7.5, cellPadding: 1.6 },
+      columnStyles: {
+        0: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+        1: { halign: 'right', textColor: PDF_GREEN as any },
+        2: { halign: 'right', textColor: PDF_RED as any },
+        3: { halign: 'right' },
+        4: { halign: 'right', fontStyle: 'bold' },
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 8;
+
+    // Inversiones del mes
+    if (inversionesMesActual && inversionesMesActual.cuentas.length > 0) {
+      if (y > PH - 60) { doc.addPage(); y = 20; }
+      doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
+      doc.text('Análisis de inversiones', M, y);
+      doc.setFont(PDF_FONT, 'normal'); doc.setFontSize(8); doc.setTextColor(...PDF_GRAY);
+      doc.text(
+        `${pdfTxt(inversionesMesActual.titulo)} · Total $${pdfNum(inversionesMesActual.totalInv)} · ` +
+        `${inversionesMesActual.pctInvSobreIng.toFixed(1)}% de los ingresos del mes`,
+        M, y + 5);
+      autoTable(doc, {
+        head: [['Cuenta', 'Monto', '% s/ Inversiones', '% s/ Ingresos']],
+        body: inversionesMesActual.cuentas.map(c => [
+          pdfTxt(c.nombre), `$${pdfNum(c.monto)}`,
+          `${c.pctSobreInv.toFixed(1)}%`, `${c.pctSobreIng.toFixed(1)}%`,
+        ]),
+        startY: y + 9, margin: { left: M, right: M }, ...baseTable,
+        columnStyles: {
+          1: { halign: 'right', fontStyle: 'bold' },
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+        },
+      });
+    }
+
+    pdfFooter(doc, PW, PH, M, pdfTxt(`Análisis de Flujo de Caja · ${monthLabel(currentMonth.month)} · Informe para socios`));
+    doc.save(`analisis_flujo_caja_${currentMonth.month}.pdf`);
+  };
+
+  // ---- Informe consolidado: todos los meses lado a lado ----
+  const exportarPDFConsolidado = () => {
+    const PW = 297, PH = 210, M = 14, CW = PW - 2 * M; // horizontal: los meses van en columnas
+    const doc = new jsPDF('l');
+    const meses = datosConsolidados;
+    const rango = meses.length
+      ? `${pdfTxt(meses[0].mesLabel)} - ${pdfTxt(meses[meses.length - 1].mesLabel)}`
+      : '';
+    let y = pdfHeader(doc, PW, M,
+      'ANÁLISIS CONSOLIDADO DE FLUJO DE CAJA',
+      'Todos los meses cargados, lado a lado',
+      rango);
+
+    // Con muchos meses las columnas se achican: se baja el cuerpo de letra y, a partir de
+    // 7 meses, se redondea a pesos. Con 12 columnas los centavos no entran y para una
+    // comparativa no aportan; se aclara al pie para que el redondeo no pase inadvertido.
+    const n = meses.length;
+    const fs = n <= 6 ? 8 : n <= 9 ? 7 : 6;
+    const redondear = n > 6;
+    const num = (v: number) => redondear
+      ? `$${Math.round(v || 0).toLocaleString('es-AR')}`
+      : `$${pdfNum(v)}`;
+    const labelW = 46;
+    const cols: any = { 0: { cellWidth: labelW, fontStyle: 'bold', halign: 'left' } };
+    meses.forEach((_, i) => { cols[i + 1] = { halign: 'right' }; });
+
+    autoTable(doc, {
+      head: [['Indicador', ...meses.map(m => pdfTxt(m.mesLabel))]],
+      body: [
+        ['Total Ingresos', ...meses.map(m => num(m.ingresos))],
+        ['Total Egresos', ...meses.map(m => num(m.egresos))],
+        ['Neto del Mes', ...meses.map(m => num(m.neto))],
+        ['Acumulado', ...meses.map(m => num(m.acumulado))],
+        ['Punto de Equilibrio', ...meses.map(m => m.pe?.alcanzado ? `Día ${m.pe.dia}` : 'No alcanzado')],
+        ['Tramo 1 a 10 (neto)', ...meses.map(m => num(m.tramos[0].neto))],
+        ['Tramo 11 a 20 (neto)', ...meses.map(m => num(m.tramos[1].neto))],
+        ['Tramo 21 a fin (neto)', ...meses.map(m => num(m.tramos[2].neto))],
+        ['Suma de Tramos (= Neto)', ...meses.map(m => num(m.tramos.reduce((a, t) => a + t.neto, 0)))],
+      ],
+      startY: y, margin: { left: M, right: M }, ...baseTable,
+      styles: { ...baseTable.styles, fontSize: fs, cellPadding: 1.8 },
+      headStyles: { ...baseTable.headStyles, fontSize: fs },
+      columnStyles: cols,
+      didParseCell: (d: any) => {
+        if (d.section !== 'body' || d.column.index === 0) return;
+        const fila = d.row.index;
+        if (fila === 0) d.cell.styles.textColor = PDF_GREEN;      // ingresos
+        else if (fila === 1) d.cell.styles.textColor = PDF_RED;   // egresos
+        else if (fila === 2 || fila === 8) {                       // neto y suma de tramos
+          const neg = String(d.cell.raw).includes('-');
+          d.cell.styles.textColor = neg ? PDF_RED : PDF_GREEN;
+          d.cell.styles.fontStyle = 'bold';
+        } else if (fila === 4) {                                   // punto de equilibrio
+          d.cell.styles.textColor = String(d.cell.raw).startsWith('Día') ? PDF_GREEN : PDF_RED;
+        }
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+    y = pdfNotaEquilibrio(doc, M, CW, y);
+    if (redondear) {
+      doc.setFont(PDF_FONT, 'italic'); doc.setFontSize(7.5); doc.setTextColor(...PDF_GRAY);
+      doc.text(`Importes redondeados a pesos: con ${n} meses en columnas los centavos no entran.`, M, y);
+      y += 4;
+    }
+    y += 4;
+
+    // Inversiones por cuenta, mes a mes
+    if (cuentasInvConsolidado.length > 0) {
+      if (y > PH - 50) { doc.addPage(); y = 20; }
+      doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
+      doc.text('Inversiones por cuenta', M, y);
+
+      const filas = cuentasInvConsolidado.map(nombre => [
+        pdfTxt(nombre),
+        ...allData.map(md => {
+          const sec = inversionesDeMes(md);
+          const r = sec?.rubros.find(x => x.nombre === nombre);
+          const monto = r ? Math.abs(r.total) : 0;
+          return monto > 0 ? num(monto) : '-';
+        }),
+      ]);
+      filas.push([
+        'TOTAL INVERSIONES',
+        ...allData.map(md => {
+          const sec = inversionesDeMes(md);
+          const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
+          return num(tot);
+        }),
+      ]);
+      filas.push([
+        '% SOBRE INGRESOS',
+        ...meses.map(m => {
+          const md = allData.find(x => x.month === m.month);
+          const sec = md ? inversionesDeMes(md) : null;
+          const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
+          return `${(m.ingresos > 0 ? (tot / m.ingresos) * 100 : 0).toFixed(1)}%`;
+        }),
+      ]);
+
+      autoTable(doc, {
+        head: [['Cuenta', ...meses.map(m => pdfTxt(m.mesLabel))]],
+        body: filas,
+        startY: y + 5, margin: { left: M, right: M }, ...baseTable,
+        styles: { ...baseTable.styles, fontSize: fs, cellPadding: 1.8 },
+        headStyles: { ...baseTable.headStyles, fontSize: fs },
+        columnStyles: cols,
+        didParseCell: (d: any) => {
+          if (d.section === 'body' && d.row.index >= filas.length - 2) d.cell.styles.fontStyle = 'bold';
+        },
+      });
+    }
+
+    pdfFooter(doc, PW, PH, M, pdfTxt(`Análisis Consolidado de Flujo de Caja · ${rango} · Informe para socios`));
+    doc.save(`analisis_flujo_caja_consolidado_${meses[0]?.month || ''}_a_${meses[meses.length - 1]?.month || ''}.pdf`);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Toggle: análisis por mes vs consolidado (todos los meses en columnas) */}
-      {allData.length > 1 && (
+      {/* Toggle: análisis por mes vs consolidado + export del informe para socios */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+      {allData.length > 1 ? (
         <div className="flex gap-1 bg-bg-accent/40 rounded-lg p-1 w-fit">
           <button onClick={() => setConsolidado(false)}
             className={cn("flex items-center gap-1.5 px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest transition-all",
@@ -770,7 +1080,16 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
             <BarChart3 size={13} /> Consolidado
           </button>
         </div>
-      )}
+      ) : <div />}
+
+        <button onClick={consolidado ? exportarPDFConsolidado : exportarPDFMes}
+          className="flex items-center gap-1.5 bg-brand-500/10 border border-brand-500/25 text-brand-500 px-3.5 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-500 hover:text-white transition-all"
+          title={consolidado
+            ? 'Descargar el consolidado de todos los meses en PDF para presentar a socios'
+            : 'Descargar el análisis de este mes en PDF para presentar a socios'}>
+          <Download size={14} /> Exportar PDF {consolidado ? 'Consolidado' : 'del Mes'}
+        </button>
+      </div>
 
       {/* Selector de cuentas para el Punto de Equilibrio */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
