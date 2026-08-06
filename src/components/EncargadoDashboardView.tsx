@@ -32,7 +32,8 @@ import {
   XCircle,
   BarChart4,
   Ticket,
-  Lock
+  Lock,
+  Loader2
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -1341,6 +1342,112 @@ export default function EncargadoDashboardView({
     return result;
   }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
 
+  // ===== Cierre de mes =====
+  // Los resultados de premios ya no se cargan a mano: salen de acá, que es donde se
+  // calculan en vivo. Al cerrar se congela la foto en performance_reports y desde ese
+  // momento Carga de Resultados solo lee (lo único editable ahí son las negras).
+  // esAdmin ya está definido más arriba (se usa para los ajustes manuales de premio)
+  const [cerrando, setCerrando] = useState(false);
+  const [cierreInfo, setCierreInfo] = useState<{ closedAt: string; closedBy: string } | null>(null);
+  const branchKeyCierre = selectedBranchId === 'all' ? '' : selectedBranchId;
+
+  const mesLabelCierre = (m: string) => {
+    const [y, mm] = m.split('-');
+    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    return `${names[parseInt(mm) - 1]} ${y}`;
+  };
+
+  const fetchCierre = async (branchId: string, month: string) => {
+    if (!branchId) { setCierreInfo(null); return; }
+    try {
+      const { data, error } = await supabase
+        .from('performance_reports')
+        .select('closed_at, closed_by')
+        .eq('branch_id', branchId).eq('month', month)
+        .not('closed_at', 'is', null)
+        .limit(1);
+      if (error || !data || data.length === 0) { setCierreInfo(null); return; }
+      setCierreInfo({ closedAt: data[0].closed_at, closedBy: data[0].closed_by || '' });
+    } catch {
+      setCierreInfo(null);
+    }
+  };
+
+  useEffect(() => { fetchCierre(branchKeyCierre, selectedMonth); }, [branchKeyCierre, selectedMonth]);
+
+  const cerrarMes = async () => {
+    if (!esAdmin) return;
+    if (!branchKeyCierre) {
+      alert('Elegí una sucursal concreta para cerrar el mes. El cierre se hace de a una sucursal por vez.');
+      return;
+    }
+    if (isSimulationMode) {
+      alert('Estás en modo simulación: los números en pantalla no son los reales.\n\nSalí de la simulación antes de cerrar el mes.');
+      return;
+    }
+
+    const nombreSucursal = branches.find(b => b.id === branchKeyCierre)?.name || branchKeyCierre;
+    const detalle = ['encargado', 'jefe_cocina', 'segundo_cocina'].map(r => {
+      const bd = calculatedPrizesBreakdown[r];
+      return `  - ${bd?.roleLabel || r}: $${(bd?.finalCalculatedPrize || 0).toLocaleString('es-AR')}`;
+    }).join('\n');
+
+    const msg =
+      `Vas a cerrar ${mesLabelCierre(selectedMonth)} para ${nombreSucursal}.\n\n` +
+      `Se congelan estos premios:\n${detalle}\n\n` +
+      `Las banderas negras cargadas hasta ahora quedan incluidas en el cálculo.\n\n` +
+      (cierreInfo
+        ? `ATENCIÓN: este mes YA fue cerrado el ${new Date(cierreInfo.closedAt).toLocaleString('es-AR')}${cierreInfo.closedBy ? ` por ${cierreInfo.closedBy}` : ''}. Se REEMPLAZA por la foto actual.\n\n`
+        : `Después del cierre, Carga de Resultados pasa a solo lectura para este mes.\n\n`) +
+      `¿Confirmás?`;
+    if (!window.confirm(msg)) return;
+
+    setCerrando(true);
+    try {
+      const ahora = new Date().toISOString();
+      const payloads = ['encargado', 'jefe_cocina', 'segundo_cocina'].map(role => {
+        const bd = calculatedPrizesBreakdown[role];
+        return {
+          branch_id: branchKeyCierre,
+          month: selectedMonth,
+          role,
+          results: (bd?.variablesStatus || []).map((v: any) => ({
+            variableId: v.variableId,
+            variableName: v.variableName,
+            actualValue: v.currentValue,
+            achievedPrize: v.prize,
+          })),
+          actual_sales: liveNetSales,
+          red_flags_count: bd?.flagsDelRol || 0,
+          total_calculated_prize: bd?.finalCalculatedPrize || 0,
+          black_flags_at_close: bd?.blackFlagsDelRol || 0,
+          closed_at: ahora,
+          closed_by: currentUser?.name || '',
+          // black_flags se OMITE a propósito: el upsert no toca las columnas que no
+          // vienen en el payload, así el cierre nunca pisa las banderas documentadas.
+        };
+      });
+
+      const { error } = await supabase
+        .from('performance_reports')
+        .upsert(payloads, { onConflict: 'branch_id,month,role' });
+
+      if (error) {
+        console.error('Error al cerrar el mes:', error);
+        alert('ATENCIÓN: No se pudo cerrar el mes.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nReintentá.');
+        return;
+      }
+
+      await fetchCierre(branchKeyCierre, selectedMonth);
+      alert(`Mes cerrado. Los resultados de ${nombreSucursal} para ${mesLabelCierre(selectedMonth)} quedaron congelados.`);
+    } catch (err: any) {
+      console.error('Error cerrando el mes:', err);
+      alert('ATENCIÓN: Ocurrió un error al cerrar el mes. ' + (err?.message || '') + '\n\nReintentá.');
+    } finally {
+      setCerrando(false);
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 15 }}
@@ -1402,13 +1509,41 @@ export default function EncargadoDashboardView({
             </button>
           </div>
 
-          <button 
+          <button
             onClick={loadAllData}
             className="p-2 border border-border-dim bg-bg-accent rounded-md hover:bg-bg-sidebar/50 text-text-dim hover:text-text-main transition-all"
             title="Sincronizar información"
           >
             <RefreshCw size={14} className={cn(loading && "animate-spin text-brand-500")} />
           </button>
+
+          {/* Cierre de mes: congela los resultados de premios. Solo administración. */}
+          {esAdmin && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={cerrarMes}
+                disabled={cerrando}
+                className={cn(
+                  "flex items-center gap-1.5 px-3.5 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all border disabled:opacity-50 cursor-pointer",
+                  cierreInfo
+                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500 hover:text-white"
+                    : "bg-brand-500/10 border-brand-500/30 text-brand-500 hover:bg-brand-500 hover:text-white"
+                )}
+                title={cierreInfo
+                  ? 'El mes ya está cerrado. Volver a cerrarlo reemplaza la foto congelada por la actual.'
+                  : 'Congelar los resultados de este mes. Después, Carga de Resultados solo lee.'}
+              >
+                {cerrando ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                {cierreInfo ? 'Mes Cerrado' : 'Cerrar Mes'}
+              </button>
+              {cierreInfo && (
+                <span className="text-[8px] font-bold uppercase tracking-wider text-text-dim leading-tight">
+                  {new Date(cierreInfo.closedAt).toLocaleDateString('es-AR')}
+                  {cierreInfo.closedBy && <><br />por {cierreInfo.closedBy}</>}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

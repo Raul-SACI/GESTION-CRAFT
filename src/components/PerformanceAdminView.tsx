@@ -22,7 +22,8 @@ import {
   GripVertical,
   Building2,
   CalendarDays,
-  FileText
+  FileText,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -252,8 +253,11 @@ export default function PerformanceAdminView({
               actualSales: item.actual_sales || 0,
               redFlagsCount: item.red_flags_count || 0,
               blackFlags: Array.isArray(item.black_flags) ? item.black_flags : [],
-              totalCalculatedPrize: item.total_calculated_prize || 0
-            };
+              totalCalculatedPrize: item.total_calculated_prize || 0,
+              closedAt: item.closed_at || null,
+              closedBy: item.closed_by || '',
+              blackFlagsAtClose: item.black_flags_at_close || 0
+            } as any;
           });
         }
       } catch (dbErr) {
@@ -325,41 +329,21 @@ export default function PerformanceAdminView({
     });
   };
 
+  // Guarda ÚNICAMENTE las banderas negras.
+  // Los resultados (valores de cada variable, ventas y banderas rojas) ya no se cargan
+  // acá: salen del Dashboard del encargado y se congelan cuando administración cierra
+  // el mes. Por eso el payload lleva solo black_flags: el upsert no toca las columnas
+  // que no vienen, así guardar una bandera nunca pisa la foto congelada.
   const handleSaveResults = async () => {
     setSaving(true);
     try {
       const reportsArray = Object.values(reports) as PerformanceReport[];
-      const payloads = reportsArray.map(rep => {
-        const config = configs[rep.role as 'encargado' | 'jefe_cocina' | 'segundo_cocina'];
-        const resultsWithPrizes = rep.results.map(r => {
-          const variable = config.variables.find(v => v.id === r.variableId);
-          return {
-            ...r,
-            achievedPrize: variable ? calculateVariablePrize(variable, r.actualValue) : 0
-          } as PerformanceVariableResult;
-        });
-        
-        const totalPrizes = resultsWithPrizes.reduce((sum, r) => sum + r.achievedPrize, 0);
-        // La cantidad de banderas negras se deriva de la lista documentada, no de un
-        // contador aparte, para que la penalidad nunca quede desfasada de los motivos.
-        const blackFlags = rep.blackFlags || [];
-        const redPenalty = (rep.redFlagsCount || 0) * (config.redFlagPenalty || 0);
-        const blackPenalty = blackFlags.length * (config.blackFlagPenalty || 0);
-        const penalty = redPenalty + blackPenalty;
-        const isSalesMet = (rep.actualSales || 0) >= (config.salesGoal || 1);
-        const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;
-
-        return {
-          branch_id: localBranchId,
-          month: selectedMonth,
-          role: rep.role,
-          results: resultsWithPrizes,
-          actual_sales: rep.actualSales,
-          red_flags_count: rep.redFlagsCount,
-          black_flags: blackFlags,
-          total_calculated_prize: finalPrize
-        };
-      });
+      const payloads = reportsArray.map(rep => ({
+        branch_id: localBranchId,
+        month: selectedMonth,
+        role: rep.role,
+        black_flags: rep.blackFlags || []
+      }));
 
       // Local fallback copy
       try {
@@ -374,15 +358,15 @@ export default function PerformanceAdminView({
         .upsert(payloads, { onConflict: 'branch_id,month,role' });
 
       if (error) {
-        console.error('Error al guardar resultados en Supabase:', error);
-        alert('ATENCIÓN: No se pudieron guardar los resultados en la base de datos.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nReintentá guardar.');
+        console.error('Error al guardar las banderas negras en Supabase:', error);
+        alert('ATENCIÓN: No se pudieron guardar las banderas negras.\n\nDetalle: ' + (error.message || 'error desconocido') + '\n\nReintentá guardar.');
         return;
       }
-      alert('Resultados reales guardados exitosamente.');
+      alert('Banderas negras guardadas.\n\nSi el mes ya estaba cerrado, volvé a cerrarlo desde el Dashboard para que el premio incluya estos cambios.');
       fetchData();
     } catch (err: any) {
-      console.error('Save results error:', err);
-      alert('ATENCIÓN: Ocurrió un error al guardar los resultados. ' + (err?.message || '') + '\n\nReintentá guardar.');
+      console.error('Save black flags error:', err);
+      alert('ATENCIÓN: Ocurrió un error al guardar las banderas negras. ' + (err?.message || '') + '\n\nReintentá guardar.');
     } finally {
       setSaving(false);
     }
@@ -1531,65 +1515,84 @@ export default function PerformanceAdminView({
             </div>
           ) : (
             <div className="glass-card overflow-hidden">
-              <div className="bg-bg-accent/40 px-6 py-4 border-b border-border-dim flex items-center justify-between">
+              <div className="bg-bg-accent/40 px-6 py-4 border-b border-border-dim flex items-center justify-between gap-3 flex-wrap">
                 <h3 className="text-xs font-black uppercase text-text-main tracking-widest flex items-center gap-2">
                   <CheckCircle2 size={16} className="text-green-500" />
-                  Carga de Resultados Reales: {activeRole.replace('_', ' ')}
+                  Resultados del mes: {activeRole.replace('_', ' ')}
                 </h3>
+                {(currentReport as any).closedAt ? (
+                  <span className="text-[9px] font-black uppercase tracking-wider text-emerald-500 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1 rounded">
+                    Mes cerrado · {new Date((currentReport as any).closedAt).toLocaleDateString('es-AR')}
+                    {(currentReport as any).closedBy ? ` · ${(currentReport as any).closedBy}` : ''}
+                  </span>
+                ) : (
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-500 bg-amber-500/10 border border-amber-500/25 px-2.5 py-1 rounded">
+                    Mes sin cerrar
+                  </span>
+                )}
               </div>
               <div className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {currentConfig.variables.map(v => {
-                    const result = currentReport.results.find(r => r.variableId === v.id);
-                    return (
-                      <div key={v.id} className="space-y-2 p-4 bg-bg-accent/20 rounded-lg border border-border-dim">
-                        <label className="text-[10px] font-black text-text-dim uppercase tracking-wider block">{v.name}</label>
-                        <div className="relative">
-                          <input 
-                            type="number"
-                            step="0.1"
-                            value={result?.actualValue || 0}
-                            onChange={(e) => {
-                              const val = parseFloat(e.target.value);
-                              const newResults = [...currentReport.results];
-                              const idx = newResults.findIndex(r => r.variableId === v.id);
-                              if (idx >= 0) newResults[idx].actualValue = val;
-                              else newResults.push({ variableId: v.id, variableName: v.name, actualValue: val, achievedPrize: 0 });
-                              setReports({ ...reports, [activeRole]: { ...currentReport, results: newResults } });
-                            }}
-                            className="w-full bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-lg font-black text-text-main outline-none focus:border-blue-500"
-                          />
-                          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-dim font-black">{v.unit}</span>
-                        </div>
-                        <div className="flex justify-between items-center mt-2">
-                           <span className="text-[9px] font-black text-text-dim uppercase">Premio según escala:</span>
-                           <span className="text-[11px] font-black text-blue-500">${calculateVariablePrize(v, result?.actualValue || 0).toLocaleString()}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                {/* Los resultados ya no se cargan acá: vienen del Dashboard del encargado */}
+                <div className="flex items-start gap-2.5 bg-bg-accent/30 border border-border-dim rounded-lg p-3.5">
+                  <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />
+                  <p className="text-[9.5px] text-text-dim font-bold uppercase tracking-wider leading-relaxed">
+                    Estos valores salen del <span className="text-text-main">Dashboard</span> de la sucursal y se congelan cuando administración cierra el mes desde ahí.
+                    Acá no se cargan a mano. Lo único editable en esta pantalla son las <span className="text-text-main">banderas negras</span>.
+                  </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-border-dim">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-text-dim uppercase block">Venta Real ($)</label>
-                    <input 
-                      type="number"
-                      value={currentReport.actualSales}
-                      onChange={(e) => setReports({ ...reports, [activeRole]: { ...currentReport, actualSales: parseFloat(e.target.value) } })}
-                      className="w-full bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-lg font-black text-blue-500 outline-none"
-                    />
+                {!(currentReport as any).closedAt ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-2 bg-bg-sidebar/60 border border-dashed border-border-dim rounded-lg">
+                    <Lock size={22} className="text-text-dim opacity-40" />
+                    <p className="text-[11px] font-black uppercase text-text-main tracking-widest">Todavía no se cerró {selectedMonth}</p>
+                    <p className="text-[9px] text-text-dim font-bold uppercase tracking-wider text-center max-w-md leading-relaxed">
+                      Entrá al Dashboard de esta sucursal, verificá que los números estén completos y tocá "Cerrar Mes".
+                      Recién ahí quedan congelados y se ven acá.
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black text-text-dim uppercase block">Cantidad Banderas Rojas</label>
-                    <input
-                      type="number"
-                      value={currentReport.redFlagsCount}
-                      onChange={(e) => setReports({ ...reports, [activeRole]: { ...currentReport, redFlagsCount: parseInt(e.target.value) || 0 } })}
-                      className="w-full bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-lg font-black text-red-500 outline-none"
-                    />
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {currentConfig.variables.map(v => {
+                        const result = currentReport.results.find(r => r.variableId === v.id);
+                        return (
+                          <div key={v.id} className="p-4 bg-bg-accent/20 rounded-lg border border-border-dim">
+                            <label className="text-[10px] font-black text-text-dim uppercase tracking-wider block mb-1.5">{v.name}</label>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-lg font-mono font-black text-text-main">
+                                {(result?.actualValue ?? 0).toLocaleString('es-AR')}
+                              </span>
+                              <span className="text-[10px] text-text-dim font-black">{v.unit}</span>
+                            </div>
+                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-border-dim/40">
+                              <span className="text-[9px] font-black text-text-dim uppercase">Premio alcanzado:</span>
+                              <span className="text-[11px] font-black text-blue-500">${(result?.achievedPrize ?? 0).toLocaleString('es-AR')}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-5 border-t border-border-dim">
+                      <div className="p-4 bg-bg-accent/20 rounded-lg border border-border-dim">
+                        <label className="text-[10px] font-black text-text-dim uppercase block mb-1.5">Venta Real</label>
+                        <span className="text-lg font-mono font-black text-blue-500">${(currentReport.actualSales || 0).toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="p-4 bg-bg-accent/20 rounded-lg border border-border-dim">
+                        <label className="text-[10px] font-black text-text-dim uppercase block mb-1.5">Banderas Rojas (de supervisiones)</label>
+                        <span className="text-lg font-mono font-black text-red-500">{currentReport.redFlagsCount || 0}</span>
+                        <span className="text-[10px] text-text-dim font-black ml-2">
+                          -${((currentReport.redFlagsCount || 0) * (currentConfig.redFlagPenalty || 0)).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-3 bg-brand-500/5 border border-brand-500/20 rounded-lg px-4 py-3">
+                      <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">Premio congelado al cierre</span>
+                      <span className="text-xl font-mono font-black text-brand-500">${(currentReport.totalCalculatedPrize || 0).toLocaleString('es-AR')}</span>
+                    </div>
+                  </>
+                )}
 
                 {/* Banderas negras: cada una queda documentada con su fecha y su motivo */}
                 <div className="pt-6 border-t border-border-dim space-y-3">
@@ -1671,16 +1674,31 @@ export default function PerformanceAdminView({
                       )}
                     </div>
                   )}
+
+                  {/* El premio se congela al cerrar el mes. Si después se tocan las
+                      banderas negras, ese número queda viejo hasta volver a cerrar. */}
+                  {(currentReport as any).closedAt &&
+                   (currentReport.blackFlags || []).length !== ((currentReport as any).blackFlagsAtClose || 0) && (
+                    <div className="flex items-start gap-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3.5">
+                      <AlertCircle size={14} className="text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-[9.5px] text-amber-500 font-black uppercase tracking-wider leading-relaxed">
+                        Las banderas negras cambiaron después del cierre
+                        ({(currentReport as any).blackFlagsAtClose || 0} al cerrar, {(currentReport.blackFlags || []).length} ahora).
+                        El premio congelado todavía no las refleja: volvé a cerrar el mes desde el Dashboard.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="p-6 bg-bg-accent/40 border-t border-border-dim flex justify-end">
-                  <button 
+                  <button
                     onClick={handleSaveResults}
                     disabled={saving}
-                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-black uppercase text-[12px] shadow-lg shadow-green-500/20"
+                    className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white px-8 py-3 rounded-lg font-black uppercase text-[12px] shadow-lg shadow-green-500/20"
+                    title="Guarda solo las banderas negras. El resto de los resultados se congela al cerrar el mes desde el Dashboard."
                   >
                     {saving ? <RefreshCcw size={18} className="animate-spin" /> : <Save size={18} />}
-                    Publicar Resultados {activeRole.replace('_', ' ')}
+                    Guardar Banderas Negras
                   </button>
               </div>
             </div>
