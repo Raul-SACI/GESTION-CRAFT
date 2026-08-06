@@ -87,7 +87,8 @@ export default function PerformanceView({
             role: configData.role,
             variables: configData.variables || [],
             salesGoal: configData.sales_goal || 0,
-            redFlagPenalty: configData.red_flag_penalty || 1000
+            redFlagPenalty: configData.red_flag_penalty || 1000,
+            blackFlagPenalty: configData.black_flag_penalty || 0
           };
         }
       } catch (dbErr) {
@@ -114,6 +115,7 @@ export default function PerformanceView({
             results: reportData.results || [],
             actualSales: reportData.actual_sales || 0,
             redFlagsCount: reportData.red_flags_count || 0,
+            blackFlags: Array.isArray(reportData.black_flags) ? reportData.black_flags : [],
             totalCalculatedPrize: reportData.total_calculated_prize || 0
           };
         }
@@ -129,6 +131,7 @@ export default function PerformanceView({
         results: [],
         actualSales: 0,
         redFlagsCount: 0,
+        blackFlags: [],
         totalCalculatedPrize: 0
       });
     } catch (err) {
@@ -319,13 +322,19 @@ export default function PerformanceView({
                 <Flag size={24} />
               </div>
               <div>
-                <h4 className="text-[11px] font-black text-text-main uppercase">Penalidades por Banderas Rojas</h4>
-                <p className="text-[9px] text-text-dim font-bold uppercase">Impacto directo por desvíos críticos</p>
+                <h4 className="text-[11px] font-black text-text-main uppercase">Penalidades por Banderas</h4>
+                <p className="text-[9px] text-text-dim font-bold uppercase">Rojas por desvíos críticos · Negras por comentarios de clientes</p>
               </div>
             </div>
-            <div className="text-right">
-              <span className="block text-2xl font-black text-red-500">{report?.redFlagsCount || 0} BANDERAS</span>
-              <span className="text-[10px] font-black text-text-dim uppercase">-${((report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0)).toLocaleString()}</span>
+            <div className="text-right space-y-1">
+              <div>
+                <span className="block text-2xl font-black text-red-500 leading-none">{report?.redFlagsCount || 0} ROJAS</span>
+                <span className="text-[10px] font-black text-text-dim uppercase">-${((report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0)).toLocaleString()}</span>
+              </div>
+              <div>
+                <span className="block text-2xl font-black text-text-main leading-none">{report?.blackFlags?.length || 0} NEGRAS</span>
+                <span className="text-[10px] font-black text-text-dim uppercase">-${((report?.blackFlags?.length || 0) * (config?.blackFlagPenalty || 0)).toLocaleString()}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -393,7 +402,10 @@ export default function PerformanceView({
                       return acc + (tier?.prize || 0);
                     }, 0) || 0;
                     
-                    const penalty = (report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0);
+                    // Descuentan las dos banderas: las rojas por cantidad, las negras por
+                    // el largo de la lista documentada (fecha + motivo de cada una).
+                    const penalty = (report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0)
+                      + (report?.blackFlags?.length || 0) * (config?.blackFlagPenalty || 0);
                     const isSalesMet = (report?.actualSales || 0) >= (config?.salesGoal || 0);
                     
                     const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;
@@ -426,7 +438,8 @@ export default function PerformanceView({
                           return acc + (tier?.prize || 0);
                         }, 0) || 0;
                         
-                        const penalty = (report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0);
+                        const penalty = (report?.redFlagsCount || 0) * (config?.redFlagPenalty || 0)
+                          + (report?.blackFlags?.length || 0) * (config?.blackFlagPenalty || 0);
                         const isSalesMet = (report?.actualSales || 0) >= (config?.salesGoal || 0);
                         
                         const finalPrize = isSalesMet ? Math.max(0, totalPrizes - penalty) : 0;

@@ -128,6 +128,10 @@ export default function EncargadoDashboardView({
   // Supervision Flags State
   const [supervisionFlags, setSupervisionFlags] = useState({ red: 0, yellow: 0, green: 0 });
   const [supervisionResponses, setSupervisionResponses] = useState<any[]>([]);
+  // Banderas negras del mes (comentarios negativos de clientes), agrupadas por rol.
+  // A diferencia de las rojas, que salen de las supervisiones, estas se cargan a
+  // mano en Administración de Premios y viven en performance_reports.
+  const [blackFlagsByRole, setBlackFlagsByRole] = useState<Record<string, any[]>>({});
 
   // Performance / Prizes configs
   const [performanceConfigs, setPerformanceConfigs] = useState<any[]>([]);
@@ -508,6 +512,32 @@ export default function EncargadoDashboardView({
     }
   };
 
+  // 6b. Banderas negras del mes, por rol (se cargan en Administración de Premios)
+  const fetchBlackFlags = async (branchId: string, month: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('performance_reports')
+        .select('role, black_flags')
+        .eq('branch_id', branchId)
+        .eq('month', month);
+
+      if (error || !data) {
+        setBlackFlagsByRole({});
+        return;
+      }
+
+      const byRole: Record<string, any[]> = {};
+      data.forEach((r: any) => {
+        byRole[r.role] = Array.isArray(r.black_flags) ? r.black_flags : [];
+      });
+      setBlackFlagsByRole(byRole);
+    } catch (err) {
+      // La columna puede no existir todavía si la base no fue migrada
+      console.error('Error fetching black flags:', err);
+      setBlackFlagsByRole({});
+    }
+  };
+
   const loadAllData = async () => {
     if (!selectedBranchId) return;
     setLoading(true);
@@ -517,6 +547,7 @@ export default function EncargadoDashboardView({
       fetchDeviations(branchKey, selectedMonth),
       fetchRatingsAndSupervision(branchKey, selectedMonth),
       fetchPerformanceConfigs(branchKey, selectedMonth),
+      fetchBlackFlags(branchKey, selectedMonth),
       fetchCmvData(branchKey, selectedMonth),
       fetchHoursData(branchKey, selectedMonth)
     ]);
@@ -799,6 +830,34 @@ export default function EncargadoDashboardView({
     items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return { encargado: enc, cocina: coc, items };
   }, [supervisionResponses, questionTextById]);
+
+  // Detalle de banderas negras: cada una ya viene con su fecha y su motivo cargados
+  // a mano, asi que solo hay que aplanar los roles y ordenar por fecha.
+  const blackFlagsDetail = useMemo(() => {
+    const items: Array<{ date: string; reason: string; role: string; roleLabel: string }> = [];
+    Object.keys(blackFlagsByRole).forEach((role) => {
+      const flags = blackFlagsByRole[role] || [];
+      const roleLabel = role === 'encargado' ? 'Encargado'
+        : role === 'jefe_cocina' ? 'Jefe de Cocina'
+        : role === 'segundo_cocina' ? 'Segundo de Cocina'
+        : role;
+      flags.forEach((f: any) => {
+        items.push({
+          date: f?.date || '—',
+          reason: (f?.reason || '').trim() || 'Sin motivo cargado',
+          role,
+          roleLabel
+        });
+      });
+    });
+    items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return {
+      encargado: (blackFlagsByRole['encargado'] || []).length,
+      cocina: (blackFlagsByRole['jefe_cocina'] || []).length,
+      total: items.length,
+      items
+    };
+  }, [blackFlagsByRole]);
 
   // Desvío de stock para el premio.
   // Definido por administración (Opción 1): PROMEDIO de la columna DESVÍO de la planilla,
@@ -1134,6 +1193,7 @@ export default function EncargadoDashboardView({
     ['encargado', 'jefe_cocina', 'segundo_cocina'].forEach(role => {
       let salesGoal = 4500000;
       let redFlagPenalty = 15000;
+      let blackFlagPenalty = 0;
       let variablesList: any[] = [];
       let isMatched = false;
 
@@ -1143,6 +1203,7 @@ export default function EncargadoDashboardView({
         if (chefConfig) {
           salesGoal = chefConfig.sales_goal || chefConfig.salesGoal || 1;
           redFlagPenalty = chefConfig.red_flag_penalty || chefConfig.redFlagPenalty || 0;
+          blackFlagPenalty = chefConfig.black_flag_penalty || chefConfig.blackFlagPenalty || 0;
           variablesList = chefConfig.variables || [];
           isMatched = true;
         }
@@ -1151,6 +1212,7 @@ export default function EncargadoDashboardView({
         if (cfg) {
           salesGoal = cfg.sales_goal || cfg.salesGoal || 1;
           redFlagPenalty = cfg.red_flag_penalty || cfg.redFlagPenalty || 0;
+          blackFlagPenalty = cfg.black_flag_penalty || cfg.blackFlagPenalty || 0;
           variablesList = cfg.variables || [];
           isMatched = true;
         }
@@ -1230,7 +1292,15 @@ export default function EncargadoDashboardView({
         flagsDelRol = redFlagsDetail.cocina; // jefe_cocina y segundo_cocina
       }
 
-      const totalPenaltyVal = flagsDelRol * redFlagPenalty;
+      // Banderas negras: se cargan a mano por rol en Administración de Premios, cada una
+      // con su fecha y motivo. Se cuentan las de ESTE rol (no hay reparto por responsable
+      // como en las rojas, porque ya se cargan contra un rol puntual). No tienen override
+      // de simulación: el modo simulación solo maneja las rojas.
+      const blackFlagsDelRol = (blackFlagsByRole[role] || []).length;
+
+      const redPenaltyVal = flagsDelRol * redFlagPenalty;
+      const blackPenaltyVal = blackFlagsDelRol * blackFlagPenalty;
+      const totalPenaltyVal = redPenaltyVal + blackPenaltyVal;
       // El premio se gana según cada variable y su escala (incluida Ventas Netas como variable).
       // No hay bloqueo por una "meta de ventas" general.
       let finalCalculatedPrize = Math.max(0, rawPrizesTotal - totalPenaltyVal);
@@ -1252,8 +1322,12 @@ export default function EncargadoDashboardView({
         roleLabel: role === 'encargado' ? 'Premio Encargado' : role === 'jefe_cocina' ? 'Premio Jefe de Cocina' : 'Premio Segundo de Cocina (80%)',
         salesGoal,
         redFlagPenalty,
+        blackFlagPenalty,
         totalPenaltyVal,
+        redPenaltyVal,
+        blackPenaltyVal,
         flagsDelRol,
+        blackFlagsDelRol,
         rawPrizesTotal,
         finalCalculatedPrize,
         ajusteMonto,
@@ -1265,7 +1339,7 @@ export default function EncargadoDashboardView({
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
 
   return (
     <motion.div 
@@ -1507,18 +1581,21 @@ export default function EncargadoDashboardView({
         </div>
 
         {/* Supervision Flag Penalties Column */}
-        <div onClick={() => redFlagsDetail.items.length > 0 && setShowFlagsModal(true)}
+        <div onClick={() => (redFlagsDetail.items.length > 0 || blackFlagsDetail.items.length > 0) && setShowFlagsModal(true)}
           className={cn(
             "bg-bg-sidebar border border-border-dim p-5 rounded relative overflow-hidden group hover:border-red-500/40 transition-all shadow-md",
-            redFlagsDetail.items.length > 0 && "cursor-pointer"
+            (redFlagsDetail.items.length > 0 || blackFlagsDetail.items.length > 0) && "cursor-pointer"
           )}>
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Banderas Rojas</span>
+            <span className="text-[9px] font-black uppercase tracking-wider text-text-dim">Banderas Rojas y Negras</span>
             <Flag size={14} className="text-red-500" />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <h2 className="text-2xl font-mono font-black text-red-500">
               {liveRedFlags} Rojas
+            </h2>
+            <h2 className="text-2xl font-mono font-black text-text-main">
+              {blackFlagsDetail.total} Negras
             </h2>
             <span className="text-[9px] font-bold text-text-dim uppercase font-mono">
               ({supervisionFlags.yellow} Am | {supervisionFlags.green} Ve)
@@ -1526,19 +1603,27 @@ export default function EncargadoDashboardView({
           </div>
 
           {/* Desglose por responsable */}
-          {!isSimulationMode && (redFlagsDetail.encargado > 0 || redFlagsDetail.cocina > 0) && (
+          {!isSimulationMode && (redFlagsDetail.encargado > 0 || redFlagsDetail.cocina > 0 || blackFlagsDetail.encargado > 0 || blackFlagsDetail.cocina > 0) && (
             <div className="mt-3 pt-3 border-t border-border-dim/40 grid grid-cols-2 gap-2">
               <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5">
                 <p className="text-[7px] font-black uppercase tracking-wider text-text-dim">Encargado</p>
-                <p className="text-sm font-mono font-black text-red-500">{redFlagsDetail.encargado}</p>
+                <p className="text-sm font-mono font-black text-red-500">
+                  {redFlagsDetail.encargado}
+                  <span className="text-text-dim/50 font-bold"> · </span>
+                  <span className="text-text-main">{blackFlagsDetail.encargado}</span>
+                </p>
               </div>
               <div className="bg-red-500/5 border border-red-500/20 rounded px-2 py-1.5">
                 <p className="text-[7px] font-black uppercase tracking-wider text-text-dim">Jefe de Cocina</p>
-                <p className="text-sm font-mono font-black text-red-500">{redFlagsDetail.cocina}</p>
+                <p className="text-sm font-mono font-black text-red-500">
+                  {redFlagsDetail.cocina}
+                  <span className="text-text-dim/50 font-bold"> · </span>
+                  <span className="text-text-main">{blackFlagsDetail.cocina}</span>
+                </p>
               </div>
             </div>
           )}
-          {redFlagsDetail.items.length > 0 && (
+          {(redFlagsDetail.items.length > 0 || blackFlagsDetail.items.length > 0) && (
             <p className="mt-2 text-[8px] font-black uppercase tracking-wider text-brand-500 opacity-80">
               Ver detalle →
             </p>
@@ -1868,9 +1953,13 @@ export default function EncargadoDashboardView({
                         })}
 
                         {/* Penalty rows - always show so encargado knows cost per flag */}
-                        <div className={`flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 font-extrabold ${breakdown.totalPenaltyVal > 0 ? 'text-red-400' : 'text-text-dim'}`}>
+                        <div className={`flex justify-between text-[8px] uppercase border-t border-border-dim/40 pt-1 mt-1 font-extrabold ${(breakdown.redPenaltyVal ?? 0) > 0 ? 'text-red-400' : 'text-text-dim'}`}>
                           <span>🚩 Descuento Banderas Rojas ({breakdown.flagsDelRol ?? 0} roja{(breakdown.flagsDelRol ?? 0) !== 1 ? 's' : ''} × ${breakdown.redFlagPenalty.toLocaleString()}):</span>
-                          <span className="font-mono">{breakdown.totalPenaltyVal > 0 ? `-$${breakdown.totalPenaltyVal.toLocaleString()}` : '$0'}</span>
+                          <span className="font-mono">{(breakdown.redPenaltyVal ?? 0) > 0 ? `-$${(breakdown.redPenaltyVal ?? 0).toLocaleString()}` : '$0'}</span>
+                        </div>
+                        <div className={`flex justify-between text-[8px] uppercase font-extrabold ${(breakdown.blackPenaltyVal ?? 0) > 0 ? 'text-red-400' : 'text-text-dim'}`}>
+                          <span>🏴 Descuento Banderas Negras ({breakdown.blackFlagsDelRol ?? 0} negra{(breakdown.blackFlagsDelRol ?? 0) !== 1 ? 's' : ''} × ${(breakdown.blackFlagPenalty ?? 0).toLocaleString()}):</span>
+                          <span className="font-mono">{(breakdown.blackPenaltyVal ?? 0) > 0 ? `-$${(breakdown.blackPenaltyVal ?? 0).toLocaleString()}` : '$0'}</span>
                         </div>
                       </div>
                     )}
@@ -1967,46 +2056,92 @@ export default function EncargadoDashboardView({
         </div>
       )}
 
-      {/* Modal: detalle de banderas rojas */}
+      {/* Modal: detalle de banderas rojas y negras */}
       {showFlagsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowFlagsModal(false)}>
           <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
               <h3 className="text-xs font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
-                <Flag size={15} /> Detalle de Banderas Rojas
+                <Flag size={15} /> Detalle de Banderas
               </h3>
               <button onClick={() => setShowFlagsModal(false)} className="text-text-dim hover:text-text-main">
                 <X size={18} />
               </button>
             </div>
             <div className="px-5 py-2 bg-bg-accent/30 grid grid-cols-2 gap-2 text-center">
-              <div><span className="text-[8px] font-black uppercase text-text-dim">Encargado: </span><span className="font-mono font-black text-red-500">{redFlagsDetail.encargado}</span></div>
-              <div><span className="text-[8px] font-black uppercase text-text-dim">Jefe de Cocina: </span><span className="font-mono font-black text-red-500">{redFlagsDetail.cocina}</span></div>
+              <div>
+                <span className="text-[8px] font-black uppercase text-text-dim">Encargado: </span>
+                <span className="font-mono font-black text-red-500">{redFlagsDetail.encargado}</span>
+                <span className="text-text-dim/50 font-bold"> · </span>
+                <span className="font-mono font-black text-text-main">{blackFlagsDetail.encargado}</span>
+              </div>
+              <div>
+                <span className="text-[8px] font-black uppercase text-text-dim">Jefe de Cocina: </span>
+                <span className="font-mono font-black text-red-500">{redFlagsDetail.cocina}</span>
+                <span className="text-text-dim/50 font-bold"> · </span>
+                <span className="font-mono font-black text-text-main">{blackFlagsDetail.cocina}</span>
+              </div>
             </div>
-            <div className="overflow-y-auto p-4 space-y-2">
-              {redFlagsDetail.items.map((it, i) => (
-                <div key={i} className="bg-bg-sidebar border border-border-dim rounded-lg p-3">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <p className="text-[11px] font-black text-text-main uppercase flex-1">{it.pregunta}</p>
-                    <span className={cn(
-                      "text-[7px] font-black uppercase tracking-wider px-2 py-1 rounded border shrink-0",
-                      it.target === 'encargado' ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
-                        : it.target === 'cocina' ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-                        : "bg-red-500/10 text-red-500 border-red-500/30"
-                    )}>
-                      {it.target === 'encargado' ? 'Encargado' : it.target === 'cocina' ? 'Jefe de Cocina' : 'Ambos'}
-                    </span>
+
+            <div className="overflow-y-auto p-4 space-y-4">
+              {/* Banderas rojas: vienen de las supervisiones */}
+              <div className="space-y-2">
+                <h4 className="text-[9px] font-black uppercase tracking-widest text-red-500 flex items-center gap-1.5">
+                  <Flag size={11} /> Rojas ({redFlagsDetail.items.length})
+                  <span className="text-text-dim font-bold tracking-wider">· de supervisiones</span>
+                </h4>
+                {redFlagsDetail.items.map((it, i) => (
+                  <div key={i} className="bg-bg-sidebar border border-border-dim rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <p className="text-[11px] font-black text-text-main uppercase flex-1">{it.pregunta}</p>
+                      <span className={cn(
+                        "text-[7px] font-black uppercase tracking-wider px-2 py-1 rounded border shrink-0",
+                        it.target === 'encargado' ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
+                          : it.target === 'cocina' ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                          : "bg-red-500/10 text-red-500 border-red-500/30"
+                      )}>
+                        {it.target === 'encargado' ? 'Encargado' : it.target === 'cocina' ? 'Jefe de Cocina' : 'Ambos'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-[8px] font-bold uppercase text-text-dim">
+                      <span>📅 {it.date}</span>
+                      <span>👤 {it.supervisor}</span>
+                      {it.template !== '—' && <span>📋 {it.template}</span>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-[8px] font-bold uppercase text-text-dim">
-                    <span>📅 {it.date}</span>
-                    <span>👤 {it.supervisor}</span>
-                    {it.template !== '—' && <span>📋 {it.template}</span>}
+                ))}
+                {redFlagsDetail.items.length === 0 && (
+                  <p className="text-center text-[10px] font-bold uppercase text-text-dim py-4">Sin banderas rojas este mes.</p>
+                )}
+              </div>
+
+              {/* Banderas negras: se cargan a mano con su fecha y su motivo */}
+              <div className="space-y-2 pt-3 border-t border-border-dim">
+                <h4 className="text-[9px] font-black uppercase tracking-widest text-text-main flex items-center gap-1.5">
+                  <Flag size={11} /> Negras ({blackFlagsDetail.items.length})
+                  <span className="text-text-dim font-bold tracking-wider">· comentarios negativos de clientes</span>
+                </h4>
+                {blackFlagsDetail.items.map((it, i) => (
+                  <div key={i} className="bg-bg-sidebar border border-border-dim rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <p className="text-[11px] font-bold text-text-main flex-1 leading-relaxed">{it.reason}</p>
+                      <span className={cn(
+                        "text-[7px] font-black uppercase tracking-wider px-2 py-1 rounded border shrink-0",
+                        it.role === 'encargado' ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
+                          : "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                      )}>
+                        {it.roleLabel}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1.5 text-[8px] font-bold uppercase text-text-dim">
+                      <span>📅 {it.date}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {redFlagsDetail.items.length === 0 && (
-                <p className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Sin banderas rojas este mes.</p>
-              )}
+                ))}
+                {blackFlagsDetail.items.length === 0 && (
+                  <p className="text-center text-[10px] font-bold uppercase text-text-dim py-4">Sin banderas negras este mes.</p>
+                )}
+              </div>
             </div>
           </div>
         </div>
