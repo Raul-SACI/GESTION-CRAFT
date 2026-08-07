@@ -101,6 +101,8 @@ export default function PerformanceAdminView({
   });
 
   const [allConfigs, setAllConfigs] = useState<any[]>([]);
+  // Reportes (resultados congelados al cerrar el mes) de todas las sucursales
+  const [allReports, setAllReports] = useState<any[]>([]);
 
   useEffect(() => {
     if (localBranchId) {
@@ -117,15 +119,23 @@ export default function PerformanceAdminView({
             .from('performance_role_configs')
             .select('*')
             .eq('month', selectedMonth);
-          
+
           if (configData) {
             setAllConfigs(configData);
           } else {
             setAllConfigs([]);
           }
+
+          // Reportes cerrados de todas las sucursales, para el PDF de resultados
+          const { data: reportData } = await supabase
+            .from('performance_reports')
+            .select('*')
+            .eq('month', selectedMonth);
+          setAllReports(reportData || []);
         } catch (dbErr) {
           console.error('Error fetching all configurations:', dbErr);
           setAllConfigs([]);
+          setAllReports([]);
         } finally {
           setLoading(false);
         }
@@ -1001,6 +1011,205 @@ export default function PerformanceAdminView({
     doc.save(`premios_consolidado_${selectedMonth}.pdf`);
   };
 
+  // Exportar PDF con los RESULTADOS del mes de todas las sucursales y todos los roles,
+  // en un solo documento. Los numeros salen de lo congelado al cerrar el mes.
+  const exportResultsPDF = () => {
+    const PW = 297, PH = 210, M = 14, CW = PW - 2 * M; // horizontal: los roles van en columnas
+    const BRAND: [number, number, number] = [193, 18, 31];
+    const DARK: [number, number, number] = [33, 37, 41];
+    const GRAY: [number, number, number] = [110, 116, 122];
+    const GREEN: [number, number, number] = [16, 120, 80];
+    const F = 'helvetica';
+    const fmt = (n: number) => Number(n || 0).toLocaleString('es-AR');
+    const unitPdf = (u: string) => (u || '').replace(/★/g, 'estrellas').replace(/[^\x00-\xFF]/g, '').trim();
+
+    const pdfBranches = branches.filter(b => b.id !== 'all' && b.id !== 'virtual');
+    const ROLES = [
+      { key: 'encargado', label: 'Encargado' },
+      { key: 'jefe_cocina', label: 'Jefe de Cocina' },
+      { key: 'segundo_cocina', label: 'Segundo de Cocina' },
+    ] as const;
+
+    const repOf = (branchId: string, role: string) =>
+      allReports.find(r => r.branch_id === branchId && r.role === role);
+    const cfgOf = (branchId: string, role: string) =>
+      allConfigs.find(c => c.branch_id === branchId && c.role === role);
+    // Una sucursal esta cerrada si cualquiera de sus roles tiene closed_at
+    const cierreDe = (branchId: string) =>
+      allReports.find(r => r.branch_id === branchId && r.closed_at)?.closed_at || null;
+
+    const doc = new jsPDF('l');
+
+    // Cabecera de marca
+    doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 12);
+    doc.setFontSize(15); doc.text('RESULTADOS DE PREMIOS', M, 21);
+    doc.setFont(F, 'normal'); doc.setFontSize(8);
+    doc.text('Consolidado de todas las sucursales y todos los roles', M, 26.5);
+    doc.setFont(F, 'bold'); doc.setFontSize(9);
+    doc.text('CONSOLIDADO', PW - M, 12, { align: 'right' });
+    doc.setFontSize(11); doc.text(mesLabelPDF(selectedMonth), PW - M, 18, { align: 'right' });
+    doc.setFont(F, 'normal'); doc.setFontSize(8);
+    doc.text(`Emitido el ${new Date().toLocaleDateString('es-AR')}`, PW - M, 24, { align: 'right' });
+
+    let y = 40;
+
+    // ---- Resumen: una fila por sucursal, un premio por rol ----
+    doc.setFont(F, 'bold'); doc.setFontSize(11); doc.setTextColor(...DARK);
+    doc.text('Premios a pagar por sucursal', M, y);
+
+    const totalesPorRol: Record<string, number> = { encargado: 0, jefe_cocina: 0, segundo_cocina: 0 };
+    const filasResumen = pdfBranches.map(b => {
+      const cerrado = cierreDe(b.id);
+      let totalSuc = 0;
+      const celdas = ROLES.map(r => {
+        const rep = repOf(b.id, r.key);
+        if (!cerrado || !rep) return '-';
+        const monto = Number(rep.total_calculated_prize) || 0;
+        totalSuc += monto;
+        totalesPorRol[r.key] += monto;
+        return `$${fmt(monto)}`;
+      });
+      return [
+        b.name,
+        cerrado ? `Cerrado ${new Date(cerrado).toLocaleDateString('es-AR')}` : 'SIN CERRAR',
+        ...celdas,
+        cerrado ? `$${fmt(totalSuc)}` : '-',
+      ];
+    });
+    const totalGeneral = Object.values(totalesPorRol).reduce((a, v) => a + v, 0);
+    filasResumen.push([
+      'TOTAL',
+      '',
+      ...ROLES.map(r => `$${fmt(totalesPorRol[r.key])}`),
+      `$${fmt(totalGeneral)}`,
+    ]);
+
+    autoTable(doc, {
+      head: [['Sucursal', 'Estado', ...ROLES.map(r => r.label), 'Total sucursal']],
+      body: filasResumen,
+      startY: y + 5, margin: { left: M, right: M },
+      styles: { fontSize: 9, cellPadding: 2.4, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+      headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8.5 },
+      alternateRowStyles: { fillColor: [249, 250, 251] as any },
+      columnStyles: {
+        0: { fontStyle: 'bold' },
+        1: { fontSize: 8 },
+        2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+        5: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
+      },
+      didParseCell: (d: any) => {
+        if (d.section === 'body' && d.row.index === filasResumen.length - 1) {
+          d.cell.styles.fontStyle = 'bold';
+          d.cell.styles.fillColor = [240, 242, 244];
+        }
+        if (d.section === 'body' && d.column.index === 1 && String(d.cell.raw) === 'SIN CERRAR') {
+          d.cell.styles.textColor = BRAND;
+          d.cell.styles.fontStyle = 'bold';
+        }
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+
+    const sinCerrar = pdfBranches.filter(b => !cierreDe(b.id));
+    if (sinCerrar.length > 0) {
+      doc.setFont(F, 'italic'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+      const txt = doc.splitTextToSize(
+        `${sinCerrar.length} sucursal(es) todavía no cerraron el mes y no suman al total: `
+        + `${sinCerrar.map(b => b.name).join(', ')}. Se cierran desde el Dashboard de cada sucursal.`, CW);
+      doc.text(txt, M, y);
+      y += txt.length * 3.6 + 4;
+    }
+
+    // ---- Detalle por sucursal ----
+    pdfBranches.forEach(b => {
+      const cerrado = cierreDe(b.id);
+      if (!cerrado) return; // sin cerrar no hay nada real que mostrar
+
+      if (y > PH - 55) { doc.addPage(); y = 20; }
+      doc.setFillColor(...DARK); doc.rect(M, y - 5.5, CW, 9, 'F');
+      doc.setFont(F, 'bold'); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
+      doc.text(b.name.toUpperCase(), M + 3, y + 0.8);
+      y += 10;
+
+      ROLES.forEach(r => {
+        const rep = repOf(b.id, r.key);
+        const cfg = cfgOf(b.id, r.key);
+        if (!rep) return;
+
+        if (y > PH - 45) { doc.addPage(); y = 20; }
+        const resultados: any[] = Array.isArray(rep.results) ? rep.results : [];
+        const negras: any[] = Array.isArray(rep.black_flags) ? rep.black_flags : [];
+        const penRoja = (Number(rep.red_flags_count) || 0) * (Number(cfg?.red_flag_penalty) || 0);
+        const penNegra = negras.length * (Number(cfg?.black_flag_penalty) || 0);
+
+        doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...DARK);
+        doc.text(r.label, M, y);
+        doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...GREEN);
+        doc.text(`Premio: $${fmt(Number(rep.total_calculated_prize) || 0)}`, PW - M, y, { align: 'right' });
+
+        const body = resultados.map(res => {
+          const v = (cfg?.variables || []).find((x: any) => x.id === res.variableId);
+          const u = unitPdf(v?.unit || '');
+          return [
+            `${res.variableName || v?.name || 'Variable'}`,
+            `${fmt(res.actualValue)}${u ? ' ' + u : ''}`,
+            `$${fmt(res.achievedPrize)}`,
+          ];
+        });
+        body.push(['Banderas rojas', `${rep.red_flags_count || 0}`, `-$${fmt(penRoja)}`]);
+        body.push(['Banderas negras', `${negras.length}`, `-$${fmt(penNegra)}`]);
+        body.push(['Venta real del mes', `$${fmt(rep.actual_sales)}`, '']);
+
+        autoTable(doc, {
+          head: [['Concepto', 'Valor real', 'Premio / Descuento']],
+          body: body.length ? body : [['Sin resultados congelados', '-', '-']],
+          startY: y + 2.5, margin: { left: M, right: M },
+          styles: { fontSize: 8, cellPadding: 1.8, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+          headStyles: { fillColor: [70, 76, 84] as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 7.5 },
+          alternateRowStyles: { fillColor: [249, 250, 251] as any },
+          columnStyles: {
+            0: { cellWidth: 110 },
+            1: { cellWidth: 45, halign: 'right' },
+            2: { halign: 'right', fontStyle: 'bold' },
+          },
+          didParseCell: (d: any) => {
+            if (d.section !== 'body') return;
+            const esDescuento = d.row.index >= body.length - 3 && d.row.index < body.length - 1;
+            if (esDescuento && d.column.index === 2) d.cell.styles.textColor = BRAND;
+          },
+        });
+        y = (doc as any).lastAutoTable.finalY + 5;
+
+        // Motivo de cada bandera negra: es lo que justifica el descuento
+        if (negras.length > 0) {
+          if (y > PH - 30) { doc.addPage(); y = 20; }
+          doc.setFont(F, 'italic'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+          negras.forEach((n: any) => {
+            const linea = doc.splitTextToSize(
+              `Bandera negra ${n?.date || 's/f'}: ${unitPdf(String(n?.reason || 'sin motivo cargado'))}`, CW - 6);
+            doc.text(linea, M + 4, y);
+            y += linea.length * 3.2;
+          });
+          y += 3;
+        }
+      });
+      y += 3;
+    });
+
+    // Footer con paginado
+    const pc = doc.getNumberOfPages();
+    for (let p = 1; p <= pc; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(230, 231, 233); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
+      doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+      doc.text(`Resultados de Premios · ${mesLabelPDF(selectedMonth)} · Consolidado de todas las sucursales`, M, PH - 8);
+      doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+    }
+    doc.save(`resultados_premios_consolidado_${selectedMonth}.pdf`);
+  };
+
   if (localBranchId === 'all') {
     const activeBranches = branches.filter(b => b.id !== 'all' && b.id !== 'virtual');
     
@@ -1033,10 +1242,19 @@ export default function PerformanceAdminView({
               onClick={exportConsolidatedPDF}
               disabled={loading}
               className="px-3.5 py-1.5 bg-brand-500/10 hover:bg-brand-500 border border-brand-500/20 text-brand-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
-              title="Exportar la comparativa de todas las sucursales (Encargados y Jefes de Cocina) en PDF"
+              title="Exportar los objetivos y escalas configurados de todas las sucursales"
             >
               <FileText size={14} className="stroke-[2.5]" />
-              <span>Exportar PDF</span>
+              <span>PDF Objetivos</span>
+            </button>
+            <button
+              onClick={exportResultsPDF}
+              disabled={loading}
+              className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-600 border border-emerald-500/25 text-emerald-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+              title="Exportar en un solo PDF los premios a pagar de todas las sucursales y todos los roles"
+            >
+              <Trophy size={14} className="stroke-[2.5]" />
+              <span>PDF Resultados</span>
             </button>
             <button onClick={fetchData} className="p-2 text-text-dim hover:text-blue-500 transition-colors">
               <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
