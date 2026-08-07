@@ -198,6 +198,21 @@ export interface PerformanceReport {
   totalCalculatedPrize: number;
 }
 
+// Premio de Líder: un usuario con rol de Líder cobra un porcentaje sobre la suma
+// de los premios OBTENIDOS (la suma de las variables alcanzadas, sin los descuentos
+// por banderas rojas/negras) de las sucursales que se elijan. El porcentaje y las
+// sucursales pueden cambiar mes a mes.
+export type LeaderSourceRole = 'encargado' | 'jefe_cocina' | 'segundo_cocina' | 'all';
+
+export interface PerformanceLeaderConfig {
+  id: string;
+  month: string; // YYYY-MM
+  leaderName: string; // ej: "Líder de Encargados"
+  sourceRole: LeaderSourceRole; // de qué rol se suman los premios obtenidos
+  percentage: number; // % sobre la suma de premios obtenidos (ej: 50)
+  branchIds: string[]; // sucursales cuyos premios se suman
+}
+
 export interface PerformanceTargets {
   id: string;
   branchId: string;

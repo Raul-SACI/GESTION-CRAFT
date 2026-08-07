@@ -23,7 +23,8 @@ import {
   Building2,
   CalendarDays,
   FileText,
-  Lock
+  Lock,
+  Award
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
@@ -32,6 +33,7 @@ import { cn } from '../lib/utils';
 import { Branch, PerformanceRoleConfig, PerformanceVariable, PerformanceTier, PerformanceReport, PerformanceVariableResult, PerformanceBlackFlag } from '../types';
 import { supabase } from '../lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
+import LeaderRewardsPanel from './LeaderRewardsPanel';
 
 const MESES_PDF = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const mesLabelPDF = (ym: string) => { const [y, m] = ym.split('-'); return `${MESES_PDF[parseInt(m) - 1] || m} de ${y}`; };
@@ -46,7 +48,7 @@ export default function PerformanceAdminView({
   const [localBranchId, setLocalBranchId] = useState<string>(selectedBranchId);
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().substring(0, 7));
   const [activeRole, setActiveRole] = useState<'encargado' | 'jefe_cocina' | 'segundo_cocina'>('encargado');
-  const [activeTab, setActiveTab] = useState<'config' | 'results'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'results' | 'lideres'>('config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
@@ -1210,6 +1212,19 @@ export default function PerformanceAdminView({
     doc.save(`resultados_premios_consolidado_${selectedMonth}.pdf`);
   };
 
+  // Premios de Líderes: es un premio cruzado entre sucursales, así que no depende
+  // de la sucursal seleccionada. Se muestra como una pantalla propia.
+  if (activeTab === 'lideres') {
+    return (
+      <LeaderRewardsPanel
+        branches={branches}
+        month={selectedMonth}
+        onChangeMonth={setSelectedMonth}
+        onBack={() => setActiveTab('config')}
+      />
+    );
+  }
+
   if (localBranchId === 'all') {
     const activeBranches = branches.filter(b => b.id !== 'all' && b.id !== 'virtual');
     
@@ -1255,6 +1270,14 @@ export default function PerformanceAdminView({
             >
               <Trophy size={14} className="stroke-[2.5]" />
               <span>PDF Resultados</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('lideres')}
+              className="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/25 text-amber-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Configurar los premios de los líderes: un % sobre los premios obtenidos de las sucursales elegidas"
+            >
+              <Award size={14} className="stroke-[2.5]" />
+              <span>Premios de Líderes</span>
             </button>
             <button onClick={fetchData} className="p-2 text-text-dim hover:text-blue-500 transition-colors">
               <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
@@ -1554,18 +1577,18 @@ export default function PerformanceAdminView({
       {/* Mode & Role Selectors */}
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div className="flex p-1 bg-bg-sidebar rounded-lg border border-border-dim w-fit shadow-sm">
-          {(['config', 'results'] as const).map((tab) => (
+          {(['config', 'results', 'lideres'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={cn(
                 "px-6 py-2 rounded-md font-black uppercase text-[11px] tracking-widest transition-all min-w-[120px]",
-                activeTab === tab 
-                  ? "bg-blue-600 text-white shadow-md" 
+                activeTab === tab
+                  ? (tab === 'lideres' ? "bg-amber-500 text-white shadow-md" : "bg-blue-600 text-white shadow-md")
                   : "text-text-dim hover:text-text-main"
               )}
             >
-              {tab === 'config' ? '⚙️ Configuración' : '📝 Cargar Resultados'}
+              {tab === 'config' ? '⚙️ Configuración' : tab === 'results' ? '📝 Cargar Resultados' : '🏅 Líderes'}
             </button>
           ))}
         </div>
