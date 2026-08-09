@@ -2826,6 +2826,7 @@ export default function FinanceView({
                       <thead>
                         <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
                           <th className="px-3 py-2">Vence</th>
+                          <th className="px-3 py-2">Entidad</th>
                           <th className="px-3 py-2">Descripción</th>
                           <th className="px-3 py-2">Cuota</th>
                           <th className="px-3 py-2 text-right">Monto</th>
@@ -2836,9 +2837,13 @@ export default function FinanceView({
                         {cuotasSemana.map(p => {
                           const [y, m, d] = String(p.dueDate).split('-');
                           const pagada = p.status === 'paid';
+                          // La "entidad" del pasivo depende del módulo: el banco en Pasivos
+                          // Bancarios, y el organismo/juzgado en Fiscales y Legales.
+                          const entidad = (mode === 'bank' ? (p as any).bank : (p as any).entity) || '—';
                           return (
                             <tr key={p.id} className={cn("text-[11px]", pagada && "opacity-50")}>
                               <td className="px-3 py-2.5 font-mono font-black text-text-main">{d}/{m}</td>
+                              <td className={cn("px-3 py-2.5 font-black text-brand-400 uppercase", pagada && "line-through")}>{entidad}</td>
                               <td className={cn("px-3 py-2.5 font-bold text-text-main uppercase", pagada && "line-through")}>{p.description || '—'}</td>
                               <td className="px-3 py-2.5 font-mono text-text-dim">{(p as any).installmentNumber || '—'}</td>
                               <td className={cn("px-3 py-2.5 text-right font-mono font-black", pagada ? "text-text-dim line-through" : "text-text-main")}>
