@@ -44,9 +44,11 @@ interface TemaItem {
 }
 interface Tema { titulo: string; detalle: string; items: TemaItem[]; }
 interface Acta {
-  id: string; date: string; participants: string[]; temas: Tema[]; notes: string | null;
+  id: string; date: string; title?: string | null; participants: string[]; temas: Tema[]; notes: string | null;
   created_by?: string | null;
 }
+// Nombre a mostrar del acta: el título que se le puso, o "Reunión <fecha>" por defecto.
+const actaLabel = (a: Acta) => (a.title && a.title.trim() ? a.title.trim() : `Reunión ${fmtDMY(a.date)}`);
 // Compromiso "viejo" (formato anterior) — solo lectura en el tablero
 interface Compromiso {
   id: string; acta_id: string; acta_date: string | null; tema: string | null;
@@ -118,6 +120,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
       setUsers((us as AppUser[]) || []);
       const actasNorm: Acta[] = ((ac as any[]) || []).map(a => ({
         ...a,
+        title: a.title ?? null,
         participants: Array.isArray(a.participants) ? a.participants : (a.participants ? JSON.parse(a.participants) : []),
         temas: (Array.isArray(a.temas) ? a.temas : (a.temas ? JSON.parse(a.temas) : [])).map(normTema),
       }));
@@ -173,7 +176,7 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
   }, [itemComps]);
 
   // ── Editor de acta ──
-  const emptyActa = (): Acta => ({ id: '', date: todayISO(), participants: [], temas: [], notes: '' });
+  const emptyActa = (): Acta => ({ id: '', date: todayISO(), title: '', participants: [], temas: [], notes: '' });
   const abrirNueva = () => { setEditing(emptyActa()); setDeletedTaskIds([]); };
   const abrirActa = (a: Acta) => {
     setEditing({ ...a, participants: [...a.participants], temas: a.temas.map(t => ({ ...t, items: t.items.map(it => ({ ...it })) })) });
@@ -285,10 +288,16 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
       // Guardar acta (dejamos temas que tengan título, detalle o algún item)
       const temasToSave = temas.filter(t => t.titulo.trim() || t.detalle.trim() || t.items.length > 0);
       const payload = {
-        id: actaId, date: editing.date, participants: editing.participants, temas: temasToSave,
+        id: actaId, date: editing.date, title: editing.title?.trim() || null, participants: editing.participants, temas: temasToSave,
         notes: editing.notes?.trim() || null, created_by: currentUserName || '—', updated_at: new Date().toISOString(),
       };
-      const { error } = await supabase.from('direccion_actas').upsert(payload, { onConflict: 'id' });
+      let { error } = await supabase.from('direccion_actas').upsert(payload, { onConflict: 'id' });
+      // Compatibilidad: si todavía no se corrió la migración que agrega la columna
+      // 'title', guardamos el acta igual (sin el nombre) para no bloquear el guardado.
+      if (error && /title/i.test(error.message || '')) {
+        const { title, ...payloadSinTitulo } = payload;
+        ({ error } = await supabase.from('direccion_actas').upsert(payloadSinTitulo, { onConflict: 'id' }));
+      }
       if (error) throw error;
 
       cerrar(); await cargar();
@@ -405,6 +414,13 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
     };
     drawHeaderBand();
     y = 38;
+
+    // ── Nombre del acta (si tiene uno propio) ──
+    if (a.title && a.title.trim()) {
+      doc.setFont(F, 'bold'); doc.setFontSize(12.5); doc.setTextColor(...DARK);
+      const tl = doc.splitTextToSize(a.title.trim(), CW);
+      doc.text(tl, M, y); y += tl.length * 5.6 + 3;
+    }
 
     // ── Participantes ──
     doc.setFont(F, 'bold'); doc.setFontSize(7.5); doc.setTextColor(...BRAND);
@@ -560,7 +576,9 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
       doc.text(`Página ${p} de ${pageCount}`, PW - M, PH - 8, { align: 'right' });
     }
 
-    doc.save(`acta_direccion_${a.date}.pdf`);
+    const slug = (a.title && a.title.trim() ? a.title.trim() : 'direccion')
+      .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'direccion';
+    doc.save(`acta_${slug}_${a.date}.pdf`);
   };
 
   return (
@@ -608,7 +626,8 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div className="min-w-0 flex-1 cursor-pointer" onClick={() => abrirActa(a)}>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[12px] font-black uppercase text-text-main flex items-center gap-1"><CalendarDays size={13} className="text-brand-500" /> Reunión {fmtDMY(a.date)}</span>
+                          <span className="text-[12px] font-black uppercase text-text-main flex items-center gap-1"><CalendarDays size={13} className="text-brand-500" /> {actaLabel(a)}</span>
+                          {a.title && a.title.trim() && <span className="text-[8px] font-black uppercase text-text-dim">· {fmtDMY(a.date)}</span>}
                           <span className="text-[8px] font-black uppercase text-text-dim">· {a.temas.length} tema(s) · {nItems} item(s) · {comps.length} compromiso(s)</span>
                           {pend > 0 && <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-red-500/10 text-red-500 border border-red-500/30">{pend} pendiente(s)</span>}
                         </div>
@@ -734,12 +753,18 @@ export default function ActasDireccionView({ currentUserName, isReadOnly }: { cu
             </div>
 
             <div className="p-4 space-y-4 max-h-[72vh] overflow-y-auto custom-scrollbar">
-              {/* Fecha */}
-              <div className="flex items-center gap-3 flex-wrap">
+              {/* Fecha + Nombre del acta */}
+              <div className="flex items-end gap-3 flex-wrap">
                 <div>
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Fecha de la reunión</label>
                   <input type="date" readOnly={isReadOnly} value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })}
                     className="bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                </div>
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Nombre del acta (opcional)</label>
+                  <input type="text" readOnly={isReadOnly} value={editing.title || ''} onChange={e => setEditing({ ...editing, title: e.target.value })}
+                    placeholder={`Ej: Reunión de Compras — vacío = "Reunión ${fmtDMY(editing.date)}"`}
+                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
                 </div>
               </div>
               {/* Participantes */}
