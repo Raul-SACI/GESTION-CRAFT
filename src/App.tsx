@@ -109,6 +109,7 @@ const ChecklistView = lazy(() => import('./components/ChecklistView'));
 const RecetasLideresView = lazy(() => import('./components/RecetasLideresView'));
 const MktTasksView = lazy(() => import('./components/MktTasksView'));
 const ActasDireccionView = lazy(() => import('./components/ActasDireccionView'));
+const InformesGestionView = lazy(() => import('./components/InformesGestionView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
 const StockView = lazy(() => import('./components/StockView'));
 const MonthlyInventoryView = lazy(() => import('./components/MonthlyInventoryView'));
@@ -662,6 +663,7 @@ function AppContent() {
     ],
     'Gerencia General': [
       { id: 'actas_direccion', label: 'Actas de Dirección', icon: ClipboardList },
+      { id: 'informes_gestion', label: 'Informes de Gestión', icon: FileCheck2 },
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
       { id: 'control_agendas', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
@@ -745,6 +747,7 @@ function AppContent() {
           papeles_administracion: FileText,
           precios: Tag,
           performance_admin: Trophy,
+          informes_gestion: FileCheck2,
           aprobacion_presupuestos: Layers,
           control_agendas: ClipboardList,
           sucursales: Building2,
@@ -1608,6 +1611,16 @@ function AppContent() {
               )}
               {activeTab === 'actas_direccion' && (
                 <ActasDireccionView key="actas_direccion" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'informes_gestion' && (
+                <InformesGestionView
+                  key="informes_gestion"
+                  currentUserId={currentUser.id || currentUser.name}
+                  currentUserName={currentUser.name}
+                  currentUserRole={currentUser.role}
+                  isAdmin={currentUser.role === 'administrador' || currentUser.role === 'dueño'}
+                  isReadOnly={isCurrentTabReadOnly}
+                />
               )}
               {activeTab === 'mkt_giftcard' && (
                 <GiftCardView key="mkt_giftcard" currentUser={{ name: currentUser.name }} isReadOnly={isCurrentTabReadOnly} />
