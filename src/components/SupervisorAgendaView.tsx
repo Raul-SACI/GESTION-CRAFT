@@ -106,7 +106,7 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   ]);
 
   // Form de nueva regla de cobertura
-  const [ruleForm, setRuleForm] = useState({ branchId: '', ruleType: 'recurring', dayOfWeek: '5', specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
+  const [ruleForm, setRuleForm] = useState<{ branchId: string; ruleType: string; daysOfWeek: number[]; specificDate: string; startTime: string; endTime: string; label: string }>({ branchId: '', ruleType: 'recurring', daysOfWeek: [5], specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
   const [savingRule, setSavingRule] = useState(false);
 
   // Días de la semana seleccionada
@@ -311,22 +311,25 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const handleSaveRule = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!ruleForm.branchId) { alert('Elegí una sucursal.'); return; }
+    if (ruleForm.ruleType === 'recurring' && ruleForm.daysOfWeek.length === 0) { alert('Elegí al menos un día de la semana.'); return; }
     if (ruleForm.ruleType === 'specific' && !ruleForm.specificDate) { alert('Elegí una fecha.'); return; }
     if (hoursBetween(ruleForm.startTime, ruleForm.endTime) <= 0) { alert('El horario de fin debe ser posterior al de inicio.'); return; }
     setSavingRule(true);
     try {
-      const row: any = {
+      const base = {
         branch_id: ruleForm.branchId,
         rule_type: ruleForm.ruleType,
-        day_of_week: ruleForm.ruleType === 'recurring' ? parseInt(ruleForm.dayOfWeek) : null,
-        specific_date: ruleForm.ruleType === 'specific' ? ruleForm.specificDate : null,
         start_time: ruleForm.startTime,
         end_time: ruleForm.endTime,
         label: ruleForm.label || null
       };
-      const { error: insErr } = await supabase.from('coverage_rules').insert(row);
+      // Recurrente: se puede elegir más de un día y se crea una regla por cada uno.
+      const rows: any[] = ruleForm.ruleType === 'recurring'
+        ? [...ruleForm.daysOfWeek].sort((a, b) => a - b).map(d => ({ ...base, day_of_week: d, specific_date: null }))
+        : [{ ...base, day_of_week: null, specific_date: ruleForm.specificDate }];
+      const { error: insErr } = await supabase.from('coverage_rules').insert(rows);
       if (insErr) throw insErr;
-      setRuleForm({ branchId: '', ruleType: 'recurring', dayOfWeek: '5', specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
+      setRuleForm({ branchId: '', ruleType: 'recurring', daysOfWeek: [5], specificDate: '', startTime: '20:00', endTime: '22:00', label: '' });
       loadData();
     } catch (err: any) {
       alert('Error al guardar la regla: ' + (err?.message || 'error'));
@@ -348,6 +351,11 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   };
 
   const DOW_LABELS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const DOW_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const toggleRuleDay = (d: number) => setRuleForm(f => ({
+    ...f,
+    daysOfWeek: f.daysOfWeek.includes(d) ? f.daysOfWeek.filter(x => x !== d) : [...f.daysOfWeek, d]
+  }));
 
   // Líderes que tienen alguna entrada esta semana
   const leadersWithAgenda = useMemo(() => {
@@ -918,9 +926,18 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
                       <option value="specific">Fecha puntual</option>
                     </select>
                     {ruleForm.ruleType === 'recurring' ? (
-                      <select value={ruleForm.dayOfWeek} onChange={e => setRuleForm({ ...ruleForm, dayOfWeek: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-bold uppercase">
-                        {DOW_LABELS.map((l, i) => <option key={i} value={i}>{l}</option>)}
-                      </select>
+                      <div className="flex flex-wrap items-center gap-1" title="Elegí uno o varios días">
+                        {DOW_SHORT.map((l, i) => {
+                          const on = ruleForm.daysOfWeek.includes(i);
+                          return (
+                            <button key={i} type="button" onClick={() => toggleRuleDay(i)} title={DOW_LABELS[i]}
+                              className={cn("px-2 py-1.5 rounded text-[9px] font-black uppercase border transition-all",
+                                on ? "bg-brand-500 text-black border-brand-500" : "bg-bg-card text-text-dim border-border-dim hover:border-brand-500/40")}>
+                              {l}
+                            </button>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <input type="date" value={ruleForm.specificDate} onChange={e => setRuleForm({ ...ruleForm, specificDate: e.target.value })} className="bg-bg-card border border-border-dim rounded px-2 py-2 text-[10px] font-mono" />
                     )}
