@@ -212,7 +212,14 @@ export default function DocumentsView({ mode, branchId, branchName, branches = [
       for (const file of files) {
         try {
           // 1. Upload to Storage
-          const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${file.name}`;
+          // La clave de Storage no admite acentos, espacios ni caracteres raros
+          // ("Invalid key"). Sanitizamos SOLO la clave; el nombre lindo (con
+          // acentos) se guarda aparte en la columna `name` para mostrarlo.
+          const safeName = file.name
+            .normalize('NFD').replace(/[^\x00-\x7F]/g, '')   // quita acentos y todo lo no-ASCII
+            .replace(/[^a-zA-Z0-9._-]+/g, '_')                // el resto -> "_"
+            .replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'archivo';
+          const fileName = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${safeName}`;
           const path = `${mode}/${branchId || 'general'}/${fileName}`;
 
           const { error: storageError } = await supabase.storage
