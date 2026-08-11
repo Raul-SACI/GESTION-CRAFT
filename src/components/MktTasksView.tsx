@@ -76,6 +76,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
   // Calendario (reuniones y tareas)
   const [calMonth, setCalMonth] = useState<string>(() => todayISO().slice(0, 7));
   const [dayDetail, setDayDetail] = useState<string | null>(null);
+  const [dayTasksDetail, setDayTasksDetail] = useState<string | null>(null); // día abierto en el calendario de tareas
   const [calTareasMonth, setCalTareasMonth] = useState<string>(() => todayISO().slice(0, 7));
 
   const emptyTask = (): Partial<MktTask> => ({ title: '', description: '', responsible: responsables[0] || '', date: todayISO(), due_date: '', hours: null, estimated_hours: null, progress: 0, status: 'pendiente' });
@@ -329,7 +330,8 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                     const td = tareasDia(d);
                     const esHoy = ds === hoy;
                     return (
-                      <div key={d} className={cn("min-h-[92px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden", esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10")}>
+                      <div key={d} onClick={() => td.length > 0 && setDayTasksDetail(ds)}
+                        className={cn("min-h-[92px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden", esHoy ? "border-brand-500 bg-brand-500/5" : "border-border-dim/40 bg-bg-accent/10", td.length > 0 && "cursor-pointer hover:border-brand-500/60")}>
                         <div className="flex items-center justify-between">
                           <span className={cn("text-[10px] font-black", esHoy ? "text-brand-500" : "text-text-dim")}>{d}</span>
                           {td.length > 0 && <span className="text-[8px] font-black text-text-dim bg-bg-accent rounded px-1">{td.length}</span>}
@@ -338,7 +340,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                           {td.slice(0, 4).map(t => {
                             const si = statusInfo(t.status);
                             return (
-                              <button key={t.id} onClick={() => abrirTarea(t)} title={`${t.title} · ${t.responsible || ''}`}
+                              <button key={t.id} onClick={(e) => { e.stopPropagation(); abrirTarea(t); }} title={`${t.title} · ${t.responsible || ''}`}
                                 className="flex items-center gap-1 text-left text-[8px] font-bold uppercase px-1 py-0.5 rounded hover:opacity-80"
                                 style={{ backgroundColor: si.dot + '22', color: si.dot }}>
                                 <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: si.dot }} />
@@ -346,7 +348,12 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                               </button>
                             );
                           })}
-                          {td.length > 4 && <span className="text-[8px] font-bold text-brand-500 px-1">+{td.length - 4} más</span>}
+                          {td.length > 4 && (
+                            <button onClick={(e) => { e.stopPropagation(); setDayTasksDetail(ds); }}
+                              className="text-[8px] font-black text-brand-500 hover:text-brand-600 px-1 text-left uppercase tracking-wider">
+                              +{td.length - 4} más · ver todas
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -506,6 +513,59 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
           </div>
         </div>
       )}
+
+      {/* Modal detalle del día (tareas): listado completo del día */}
+      {dayTasksDetail && (() => {
+        const [yy, mm, dd] = dayTasksDetail.split('-').map(Number);
+        const tareasDelDia = tareasFiltradas.filter(t => t.date === dayTasksDetail);
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDayTasksDetail(null)}>
+            <div className="bg-bg-card border border-border-dim rounded-xl max-w-lg w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-border-dim">
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={18} className="text-brand-500" />
+                  <h3 className="text-sm font-black uppercase text-text-main">
+                    {DIAS_SEM[new Date(yy, mm - 1, dd).getDay()]} {fmtDMY(dayTasksDetail)}
+                    <span className="text-[10px] font-bold text-text-dim ml-2">· {tareasDelDia.length} tarea(s)</span>
+                  </h3>
+                </div>
+                <div className="flex items-center gap-1">
+                  {!isReadOnly && <button onClick={() => { setEditTask({ ...emptyTask(), date: dayTasksDetail }); setDayTasksDetail(null); }} className="flex items-center gap-1.5 bg-brand-500 text-white px-3 py-1.5 rounded text-[9px] font-black uppercase hover:bg-brand-600"><Plus size={13} /> Nueva</button>}
+                  <button onClick={() => setDayTasksDetail(null)} className="p-1.5 text-text-dim hover:text-text-main"><X size={18} /></button>
+                </div>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-2">
+                {tareasDelDia.length === 0 ? (
+                  <p className="text-center text-[10px] font-bold uppercase text-text-dim py-6">No hay tareas este día.</p>
+                ) : tareasDelDia.map(t => {
+                  const si = statusInfo(t.status);
+                  const prog = Number(t.progress) || 0;
+                  return (
+                    <div key={t.id} className="bg-bg-sidebar border border-border-dim rounded-lg p-3 flex justify-between items-start gap-3" style={{ borderLeftWidth: '3px', borderLeftColor: si.dot }}>
+                      <button onClick={() => { abrirTarea(t); setDayTasksDetail(null); }} className="flex-1 min-w-0 text-left">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded border", si.color)}>{si.label}</span>
+                          {t.responsible && <span className="text-[9px] font-bold uppercase text-text-dim flex items-center gap-1"><Users size={10} /> {t.responsible}</span>}
+                          <span className="text-[9px] font-mono font-black text-text-dim ml-auto">{prog}%</span>
+                        </div>
+                        <p className="text-[11px] font-black uppercase text-text-main">{t.title}</p>
+                        {t.description && <p className="text-[9px] text-text-dim mt-0.5">{t.description}</p>}
+                        {t.due_date && <p className="text-[8px] font-bold uppercase text-text-dim mt-0.5">Termina: {fmtDMY(t.due_date)}</p>}
+                      </button>
+                      {!isReadOnly && (
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <button onClick={() => { abrirTarea(t); setDayTasksDetail(null); }} className="text-text-dim hover:text-brand-500"><Pencil size={13} /></button>
+                          <button onClick={() => borrarTarea(t)} className="text-text-dim hover:text-red-500"><Trash2 size={13} /></button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal editor de TAREA */}
       {editTask && (
