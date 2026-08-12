@@ -141,7 +141,7 @@ export default function DeviationControlView({
   };
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
-    if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category })));
+    if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active })));
   };
 
   // --- Eliminación múltiple de INSUMOS ---
@@ -2219,20 +2219,38 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                     if (!productMasterSearch) return true;
                     const q = productMasterSearch.toLowerCase();
                     return p.name.toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q);
-                  }).map(p => (
-                    <div key={p.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedProductIds.has(p.id) ? "bg-teal-500/10 border-teal-500/40" : "bg-bg-accent/40 border-border-dim hover:border-teal-500/30")}>
+                  }).map(p => {
+                    const inhabilitado = (p as any).is_active === false;
+                    return (
+                    <div key={p.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedProductIds.has(p.id) ? "bg-teal-500/10 border-teal-500/40" : "bg-bg-accent/40 border-border-dim hover:border-teal-500/30", inhabilitado && "opacity-55")}>
                       <div className="flex items-center gap-3">
                         {!isReadOnly && (
                           <input type="checkbox" checked={selectedProductIds.has(p.id)} onChange={() => toggleProductSelected(p.id)}
                             className="w-4 h-4 accent-teal-500 cursor-pointer shrink-0" />
                         )}
                         <div>
-                          <p className="text-[11px] font-black text-text-main uppercase">{p.name}</p>
+                          <p className="text-[11px] font-black text-text-main uppercase flex items-center gap-2 flex-wrap">
+                            <span>{p.name}</span>
+                            {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">Inhabilitado</span>}
+                          </p>
                           <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Categoría: {p.category}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button 
+                        {!isReadOnly && (
+                          <button
+                            title={inhabilitado ? 'Habilitar (vuelve a figurar para elegir)' : 'Inhabilitar (no figura para elegir, sin borrarlo)'}
+                            onClick={async () => {
+                              const { error } = await supabase.from('products').update({ is_active: inhabilitado }).eq('id', p.id);
+                              if (!error) await reloadProducts();
+                              else alert('No se pudo cambiar el estado: ' + error.message);
+                            }}
+                            className={cn("p-2 transition-colors", inhabilitado ? "text-amber-500 hover:text-emerald-500" : "text-text-dim hover:text-amber-500")}
+                          >
+                            {inhabilitado ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        )}
+                        <button
                           onClick={() => {
                             setEditingProduct(p);
                             setProductForm({ name: p.name, category: p.category });
@@ -2258,7 +2276,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

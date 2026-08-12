@@ -56,6 +56,7 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  is_active?: boolean; // false = inhabilitado en el Maestro de Productos
 }
 
 export interface ProductRankingEntry {

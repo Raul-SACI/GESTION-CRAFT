@@ -444,7 +444,8 @@ function AppContent() {
         setProducts(productsData.map(p => ({
           id: p.id,
           name: p.name,
-          category: p.category
+          category: p.category,
+          is_active: p.is_active
         })));
       }
     };
