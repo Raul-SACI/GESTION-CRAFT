@@ -660,7 +660,7 @@ function AppContent() {
       { id: 'control_desvios', label: 'Control de Desvíos', icon: ShieldCheck },
       { id: 'maestros', label: 'Maestros', icon: Database },
       { id: 'recetas', label: 'Recetas para Desvíos', icon: BookOpen },
-      { id: 'supervision_banderas', label: 'Supervisiones y Banderas', icon: Flag },
+      { id: 'supervision_banderas', label: 'Configuración de Supervisiones', icon: Flag },
       { id: 'pedidos_ya', label: 'Pedidos Ya', icon: Star },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
     ],
