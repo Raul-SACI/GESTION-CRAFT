@@ -129,6 +129,8 @@ export default function EncargadoDashboardView({
   // Supervision Flags State
   const [supervisionFlags, setSupervisionFlags] = useState({ red: 0, yellow: 0, green: 0 });
   const [supervisionResponses, setSupervisionResponses] = useState<any[]>([]);
+  // Evaluaciones de Dueños del mes: sus "No cumple" son banderas negras.
+  const [duenosResponses, setDuenosResponses] = useState<any[]>([]);
   // Banderas negras del mes (comentarios negativos de clientes), agrupadas por rol.
   // A diferencia de las rojas, que salen de las supervisiones, estas se cargan a
   // mano en Administración de Premios y viven en performance_reports.
@@ -489,6 +491,23 @@ export default function EncargadoDashboardView({
         setSupervisionResponses([]);
       }
 
+      // Evaluación de Dueños: los "No cumple" cuentan como BANDERAS NEGRAS del mes,
+      // imputadas al rol elegido en cada uno (encargado / cocina / ambos), igual que
+      // las banderas rojas de las supervisiones.
+      try {
+        const [dy, dm] = month.split('-').map(Number);
+        const dLastDay = new Date(dy, dm, 0).getDate();
+        const { data: duenos } = await supabase
+          .from('evaluacion_duenos_responses')
+          .select('*')
+          .eq('branch_id', branchId)
+          .gte('date', `${month}-01`)
+          .lte('date', `${month}-${String(dLastDay).padStart(2, '0')}`);
+        setDuenosResponses(duenos || []);
+      } catch {
+        setDuenosResponses([]);
+      }
+
     } catch (err) {
       console.error('Error fetching reputations & supervision responses:', err);
     }
@@ -831,6 +850,25 @@ export default function EncargadoDashboardView({
     items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
     return { encargado: enc, cocina: coc, items };
   }, [supervisionResponses, questionTextById]);
+
+  // Banderas NEGRAS que llegan desde la Evaluación de Dueños: cada "No cumple" se
+  // reparte por responsable igual que una bandera roja (encargado / cocina / ambos).
+  const blackFlagsDuenosDetail = useMemo(() => {
+    const items: Array<{ date: string; seccion: string; pregunta: string; target: string }> = [];
+    let enc = 0, coc = 0;
+    (duenosResponses || []).forEach((r: any) => {
+      const answers = r.answers || {};
+      Object.entries(answers).forEach(([, a]: any) => {
+        if (a?.status !== 'no_cumple') return;
+        const t = a?.target || 'ambos';
+        if (t === 'encargado' || t === 'ambos') enc++;
+        if (t === 'cocina' || t === 'ambos') coc++;
+        items.push({ date: r.date, seccion: r.seccion, pregunta: a?.note || 'No cumple (Evaluación Dueños)', target: t });
+      });
+    });
+    items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return { encargado: enc, cocina: coc, items };
+  }, [duenosResponses]);
 
   // Detalle de banderas negras: cada una ya viene con su fecha y su motivo cargados
   // a mano, asi que solo hay que aplanar los roles y ordenar por fecha.
@@ -1293,11 +1331,13 @@ export default function EncargadoDashboardView({
         flagsDelRol = redFlagsDetail.cocina; // jefe_cocina y segundo_cocina
       }
 
-      // Banderas negras: se cargan a mano por rol en Administración de Premios, cada una
-      // con su fecha y motivo. Se cuentan las de ESTE rol (no hay reparto por responsable
-      // como en las rojas, porque ya se cargan contra un rol puntual). No tienen override
-      // de simulación: el modo simulación solo maneja las rojas.
-      const blackFlagsDelRol = (blackFlagsByRole[role] || []).length;
+      // Banderas negras = las cargadas a mano en Administración de Premios (contra un
+      // rol puntual) + las que genera la Evaluación de Dueños ("No cumple"), que se
+      // reparten por responsable igual que las rojas: encargado / cocina / ambos.
+      // (El modo simulación solo maneja las rojas.)
+      const blackFlagsManual = (blackFlagsByRole[role] || []).length;
+      const blackFlagsDuenos = role === 'encargado' ? blackFlagsDuenosDetail.encargado : blackFlagsDuenosDetail.cocina;
+      const blackFlagsDelRol = blackFlagsManual + blackFlagsDuenos;
 
       const redPenaltyVal = flagsDelRol * redFlagPenalty;
       const blackPenaltyVal = blackFlagsDelRol * blackFlagPenalty;
@@ -1329,6 +1369,8 @@ export default function EncargadoDashboardView({
         blackPenaltyVal,
         flagsDelRol,
         blackFlagsDelRol,
+        blackFlagsManual,
+        blackFlagsDuenos,
         rawPrizesTotal,
         finalCalculatedPrize,
         ajusteMonto,
@@ -1340,7 +1382,7 @@ export default function EncargadoDashboardView({
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, blackFlagsDuenosDetail, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
 
   // ===== Cierre de mes =====
   // Los resultados de premios ya no se cargan a mano: salen de acá, que es donde se
@@ -1420,7 +1462,10 @@ export default function EncargadoDashboardView({
           actual_sales: liveNetSales,
           red_flags_count: bd?.flagsDelRol || 0,
           total_calculated_prize: bd?.finalCalculatedPrize || 0,
-          black_flags_at_close: bd?.blackFlagsDelRol || 0,
+          // Guardamos SOLO las banderas negras manuales al cierre: es lo que compara el
+          // aviso de "cambiaron después del cierre" en Administración (que mira la lista
+          // manual). Las de Evaluación de Dueños ya quedan incluidas en total_calculated_prize.
+          black_flags_at_close: bd?.blackFlagsManual || 0,
           closed_at: ahora,
           closed_by: currentUser?.name || '',
           // black_flags se OMITE a propósito: el upsert no toca las columnas que no
@@ -1730,7 +1775,7 @@ export default function EncargadoDashboardView({
               {liveRedFlags} Rojas
             </h2>
             <h2 className="text-2xl font-mono font-black text-text-main">
-              {blackFlagsDetail.total} Negras
+              {blackFlagsDetail.total + blackFlagsDuenosDetail.items.length} Negras
             </h2>
             <span className="text-[9px] font-bold text-text-dim uppercase font-mono">
               ({supervisionFlags.yellow} Am | {supervisionFlags.green} Ve)
@@ -2096,6 +2141,11 @@ export default function EncargadoDashboardView({
                           <span>🏴 Descuento Banderas Negras ({breakdown.blackFlagsDelRol ?? 0} negra{(breakdown.blackFlagsDelRol ?? 0) !== 1 ? 's' : ''} × ${(breakdown.blackFlagPenalty ?? 0).toLocaleString()}):</span>
                           <span className="font-mono">{(breakdown.blackPenaltyVal ?? 0) > 0 ? `-$${(breakdown.blackPenaltyVal ?? 0).toLocaleString()}` : '$0'}</span>
                         </div>
+                        {(breakdown.blackFlagsDuenos ?? 0) > 0 && (
+                          <div className="flex justify-between text-[7px] uppercase font-bold text-text-dim pl-3">
+                            <span>↳ {breakdown.blackFlagsManual ?? 0} de Administración + {breakdown.blackFlagsDuenos} de Evaluación de Dueños</span>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -2273,8 +2323,29 @@ export default function EncargadoDashboardView({
                     </div>
                   </div>
                 ))}
-                {blackFlagsDetail.items.length === 0 && (
+                {blackFlagsDetail.items.length === 0 && blackFlagsDuenosDetail.items.length === 0 && (
                   <p className="text-center text-[10px] font-bold uppercase text-text-dim py-4">Sin banderas negras este mes.</p>
+                )}
+
+                {/* Banderas negras que vienen de la Evaluación de Dueños ("No cumple") */}
+                {blackFlagsDuenosDetail.items.length > 0 && (
+                  <>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-text-dim pt-1">De Evaluación de Dueños ({blackFlagsDuenosDetail.items.length})</p>
+                    {blackFlagsDuenosDetail.items.map((it, i) => (
+                      <div key={`d${i}`} className="bg-bg-sidebar border border-border-dim rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <p className="text-[11px] font-bold text-text-main flex-1 leading-relaxed">{it.pregunta}</p>
+                          <span className="text-[7px] font-black uppercase tracking-wider px-2 py-1 rounded border shrink-0 bg-text-main/10 text-text-main border-text-main/30">
+                            {it.target === 'encargado' ? 'Encargado' : it.target === 'cocina' ? 'Jefe de Cocina' : 'Ambos'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1.5 text-[8px] font-bold uppercase text-text-dim">
+                          <span>📅 {it.date}</span>
+                          {it.seccion && <span>· {it.seccion.replace('_', ' ')}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </>
                 )}
               </div>
             </div>
