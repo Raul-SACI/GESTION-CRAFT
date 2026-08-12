@@ -542,6 +542,43 @@ export default function SupervisionFlagsView({
     }
   };
 
+  const handleDeleteTemplate = async (t: AuditTemplate) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const enDb = uuidRe.test(t.id);
+
+    let msg = `¿Eliminar la plantilla "${t.name}"?`;
+    let respCount = 0;
+    if (enDb) {
+      try {
+        const { count } = await supabase
+          .from('supervision_responses')
+          .select('id', { count: 'exact', head: true })
+          .eq('checklist_id', t.id);
+        respCount = count || 0;
+      } catch { /* ignore */ }
+      if (respCount > 0) {
+        msg += `\n\nHay ${respCount} supervisión(es) cargada(s) con esta plantilla. Se CONSERVAN en el historial (quedan sin plantilla asociada), pero no vas a poder volver a editar sus preguntas.`;
+      }
+    }
+    if (!window.confirm(msg)) return;
+
+    try {
+      if (enDb) {
+        // Conservar el historial: desvinculamos las supervisiones ANTES de borrar la
+        // plantilla, para que el borrado en cascada no se lleve las supervisiones cargadas.
+        await supabase.from('supervision_responses').update({ checklist_id: null }).eq('checklist_id', t.id);
+        const { error } = await supabase.from('supervision_checklists').delete().eq('id', t.id);
+        if (error) throw error;
+      }
+      setTemplates(prev => prev.filter(x => x.id !== t.id));
+      if (selectedTemplate?.id === t.id) setSelectedTemplate(null);
+    } catch (err: any) {
+      console.error('Error deleting template:', err);
+      alert('No se pudo eliminar la plantilla: ' + (err?.message || 'error desconocido'));
+    }
+  };
+
   const addQuestion = () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate) return;
@@ -958,12 +995,21 @@ export default function SupervisionFlagsView({
                               />
                             </div>
                           </div>
-                          <button 
-                            onClick={handleSaveTemplate}
-                            className="flex items-center gap-2 bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/10"
-                          >
-                            <Save size={14} /> Guardar Cambios
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleDeleteTemplate(selectedTemplate)}
+                              className="flex items-center gap-2 bg-red-500/10 text-red-500 border border-red-500/30 px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all"
+                              title="Eliminar esta plantilla (las supervisiones ya cargadas se conservan)"
+                            >
+                              <Trash2 size={14} /> Eliminar
+                            </button>
+                            <button
+                              onClick={handleSaveTemplate}
+                              className="flex items-center gap-2 bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/10"
+                            >
+                              <Save size={14} /> Guardar Cambios
+                            </button>
+                          </div>
                         </div>
 
                         <div className="space-y-4">
