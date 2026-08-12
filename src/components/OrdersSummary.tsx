@@ -1,11 +1,12 @@
 /**
  * SPDX-License-Identifier: Apache-2.0
- * Resumen compacto de Tickets/Órdenes para el dashboard, filtrado por sucursal.
- * Muestra volumen de órdenes por año y ticket promedio ajustado por inflación.
+ * Resumen compacto de Tickets/Órdenes para el dashboard, filtrable por sucursal.
+ * Muestra el histórico de órdenes por año/mes (desde 2023), la variación
+ * respecto al mismo mes del año anterior y el ticket promedio ajustado por inflación.
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Ticket, Loader2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { SUBTOTAL_COMPONENTS } from './plStructure';
@@ -14,11 +15,20 @@ const MONTHS_ES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep'
 const fmtNum = (n: number) => Math.round(n).toLocaleString('es-AR');
 const fmtMoney = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
+interface BranchOpt { id: string; name: string; }
+
 interface Props {
-  scope: string; // branchId o 'consolidated'
+  scope: string;          // branchId o 'consolidated' (viene del filtro global del dashboard)
+  branches?: BranchOpt[]; // si se pasa, se muestra un selector propio de sucursal en la sección
 }
 
-export default function OrdersSummary({ scope }: Props) {
+export default function OrdersSummary({ scope, branches }: Props) {
+  // Selector propio de la sección: arranca en el scope global y puede cambiarse
+  // sin afectar el resto del dashboard.
+  const [localScope, setLocalScope] = useState<string>(scope);
+  useEffect(() => { setLocalScope(scope); }, [scope]);
+  const effScope = branches && branches.length > 0 ? localScope : scope;
+
   const [orders, setOrders] = useState<Record<string, number>>({});
   const [daysLoadedByMonth, setDaysLoadedByMonth] = useState<Record<string, number>>({});
   const [sales, setSales] = useState<Record<string, number>>({});
@@ -31,43 +41,60 @@ export default function OrdersSummary({ scope }: Props) {
       try {
         // Órdenes manuales/importadas
         const manual: Record<string, number> = {};
-        const { data: ord } = await supabase.from('monthly_orders').select('*').eq('scope', scope);
+        const { data: ord } = await supabase.from('monthly_orders').select('*').eq('scope', effScope);
         (ord || []).forEach((r: any) => { manual[r.month] = Number(r.orders) || 0; });
-        // Órdenes automáticas desde ventas (sales_tickets) - comprobantes únicos
+
+        // Órdenes automáticas desde ventas (sales_tickets), agregadas por mes.
+        // Preferimos el conteo en el servidor (RPC) para poder traer todo el
+        // histórico desde 2023 sin volcar cientos de miles de filas al navegador.
         const auto: Record<string, number> = {};
-        let tkQuery = supabase.from('sales_tickets').select('branch_id, date, orders, comprobante');
-        if (scope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', scope);
-        let page = 0; let allTk: any[] = [];
-        while (true) {
-          const { data: tk } = await tkQuery.range(page * 1000, page * 1000 + 999);
-          if (!tk || tk.length === 0) break;
-          allTk = [...allTk, ...tk];
-          if (tk.length < 1000) break;
-          page++; if (page > 50) break;
-        }
-        const seen: Record<string, Set<string>> = {};
-        const fb: Record<string, number> = {};
-        const daysByMonth: Record<string, Set<string>> = {}; // mes -> set de fechas distintas con datos
-        allTk.forEach((t: any) => {
-          if (!t.date) return;
-          const m = String(t.date).slice(0, 7);
-          if (!daysByMonth[m]) daysByMonth[m] = new Set();
-          daysByMonth[m].add(String(t.date));
-          const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
-          // Un duplicado real es: misma sucursal + mismo comprobante + MISMO DÍA.
-          // Si el comprobante se repite en días distintos, son ventas legítimas distintas
-          // (la numeración de comprobantes se reinicia/reutiliza), así que NO se deduplican.
-          if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${String(t.date)}|${comp}`); }
-          else { fb[m] = (fb[m] || 0) + Number(t.orders || 0); }
-        });
         const dlm: Record<string, number> = {};
-        Object.entries(daysByMonth).forEach(([m, set]) => { dlm[m] = set.size; });
+        const { data: rpcRows, error: rpcErr } = await supabase
+          .rpc('sales_orders_monthly', { p_scope: effScope });
+
+        if (!rpcErr && Array.isArray(rpcRows)) {
+          (rpcRows as any[]).forEach((r) => {
+            const m = String(r.month);
+            auto[m] = Number(r.orders) || 0;
+            dlm[m] = Number(r.days_loaded) || 0;
+          });
+        } else {
+          // Fallback: conteo en el cliente (por si aún no se creó la función RPC).
+          // Paginación determinística (orden estable) para no perder ni duplicar filas.
+          let tkQuery = supabase
+            .from('sales_tickets')
+            .select('branch_id, date, orders, comprobante')
+            .order('date').order('branch_id').order('comprobante');
+          if (effScope !== 'consolidated') tkQuery = tkQuery.eq('branch_id', effScope);
+          let page = 0; let allTk: any[] = [];
+          while (true) {
+            const { data: tk } = await tkQuery.range(page * 1000, page * 1000 + 999);
+            if (!tk || tk.length === 0) break;
+            allTk = [...allTk, ...tk];
+            if (tk.length < 1000) break;
+            page++; if (page > 800) break; // tope de seguridad (~800k filas)
+          }
+          const seen: Record<string, Set<string>> = {};
+          const fb: Record<string, number> = {};
+          const daysByMonth: Record<string, Set<string>> = {};
+          allTk.forEach((t: any) => {
+            if (!t.date) return;
+            const m = String(t.date).slice(0, 7);
+            if (!daysByMonth[m]) daysByMonth[m] = new Set();
+            daysByMonth[m].add(String(t.date));
+            const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
+            if (comp) { if (!seen[m]) seen[m] = new Set(); seen[m].add(`${t.branch_id}|${String(t.date)}|${comp}`); }
+            else { fb[m] = (fb[m] || 0) + Number(t.orders || 0); }
+          });
+          Object.entries(daysByMonth).forEach(([m, set]) => { dlm[m] = set.size; });
+          new Set([...Object.keys(seen), ...Object.keys(fb)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fb[m] || 0); });
+        }
         setDaysLoadedByMonth(dlm);
-        new Set([...Object.keys(seen), ...Object.keys(fb)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fb[m] || 0); });
         const om: Record<string, number> = { ...manual };
         Object.entries(auto).forEach(([m, o]) => { if (o > 0) om[m] = o; });
         setOrders(om);
-        const { data: eerr } = await supabase.from('income_statements').select('month, lines').eq('scope', scope);
+
+        const { data: eerr } = await supabase.from('income_statements').select('month, lines').eq('scope', effScope);
         const sm: Record<string, number> = {};
         (eerr || []).forEach((r: any) => {
           const arr = typeof r.lines === 'string' ? JSON.parse(r.lines) : r.lines;
@@ -84,7 +111,7 @@ export default function OrdersSummary({ scope }: Props) {
       setLoading(false);
     };
     load();
-  }, [scope]);
+  }, [effScope]);
 
   const years = useMemo(() => {
     const ys = new Set<string>();
@@ -137,84 +164,118 @@ export default function OrdersSummary({ scope }: Props) {
     return t * inflationFactor(`${year}-${mm}`, `${refYear}-${mm}`);
   };
 
-  if (loading) return <div className="py-8 flex justify-center"><Loader2 size={20} className="animate-spin text-brand-500" /></div>;
-  if (years.length === 0) {
-    return <div className="py-8 text-center text-text-dim text-[10px] font-black uppercase tracking-widest opacity-50">Sin datos de órdenes para esta sucursal.</div>;
-  }
+  const branchLabel = effScope === 'consolidated'
+    ? 'Consolidado'
+    : (branches?.find(b => b.id === effScope)?.name || 'Sucursal');
 
   return (
     <div className="space-y-5">
-      {/* Volumen de órdenes */}
-      <div>
-        <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Cantidad de Órdenes por mes <span className="normal-case text-amber-500/70">(el mes en curso se proyecta a fin de mes según los días cargados)</span></p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[420px]">
-            <thead>
-              <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
-                <th className="py-1.5">Mes</th>
-                {years.map(y => <th key={y} className="py-1.5 text-right">{y}</th>)}
-                {years.length >= 2 && <th className="py-1.5 text-right">Var %</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {MONTHS_ES.map((mname, idx) => {
-                const mm = String(idx + 1).padStart(2, '0');
-                const disp = years.map(y => getOrdersDisplay(y, mm));
-                if (disp.every(d => d.value === undefined)) return null;
-                const lastTwo = years.slice(-2);
-                const newD = lastTwo[1] ? getOrdersDisplay(lastTwo[1], mm) : { value: undefined, isProjected: false };
-                const oldD = lastTwo[0] ? getOrdersDisplay(lastTwo[0], mm) : { value: undefined, isProjected: false };
-                const varV = (newD.value && oldD.value) ? ((newD.value - oldD.value) / oldD.value) * 100 : null;
-                return (
-                  <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
-                    <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
-                    {disp.map((d, i) => (
-                      <td key={years[i]} className={cn("py-1.5 text-right font-mono", d.isProjected ? "text-amber-500" : "text-text-main")}>
-                        {d.value !== undefined
-                          ? <>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</>
-                          : '—'}
-                      </td>
-                    ))}
-                    {years.length >= 2 && (
-                      <td className={cn("py-1.5 text-right font-mono font-black inline-flex items-center justify-end gap-0.5 w-full", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : "text-red-500")}>
-                        {varV !== null ? <>{varV > 0 ? <TrendingUp size={9} /> : <TrendingDown size={9} />}{(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}</> : '—'}
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {branches && branches.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Sucursal</span>
+          <select
+            value={localScope}
+            onChange={(e) => setLocalScope(e.target.value)}
+            className="bg-bg-card border border-border-dim rounded-lg px-2.5 py-1 text-[10px] font-bold text-text-main focus:outline-none focus:border-brand-500"
+          >
+            <option value="consolidated">Consolidado (todas)</option>
+            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
         </div>
-      </div>
+      )}
 
-      {/* Ticket promedio ajustado */}
-      <div>
-        <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Ticket Promedio <span className="normal-case text-text-dim/70">(años previos ajustados por inflación a {refYear})</span></p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[420px]">
-            <thead>
-              <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
-                <th className="py-1.5">Mes</th>
-                {years.map(y => <th key={y} className="py-1.5 text-right">{y}{refYear && y !== refYear ? ' (aj.)' : ''}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {MONTHS_ES.map((mname, idx) => {
-                const mm = String(idx + 1).padStart(2, '0');
-                const cells = years.map(y => adjustedTicket(y, mm));
-                if (cells.every(c => c === null)) return null;
-                return (
-                  <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
-                    <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
-                    {cells.map((c, i) => <td key={i} className="py-1.5 text-right font-mono text-text-main">{c !== null ? fmtMoney(c) : '—'}</td>)}
+      {loading ? (
+        <div className="py-8 flex justify-center"><Loader2 size={20} className="animate-spin text-brand-500" /></div>
+      ) : years.length === 0 ? (
+        <div className="py-8 text-center text-text-dim text-[10px] font-black uppercase tracking-widest opacity-50">Sin datos de órdenes para {branchLabel}.</div>
+      ) : (
+        <>
+          {/* Volumen de órdenes (histórico) */}
+          <div>
+            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">
+              Cantidad de Órdenes por mes
+              <span className="normal-case text-amber-500/70"> (el mes en curso se proyecta a fin de mes según los días cargados)</span>
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[420px]">
+                <thead>
+                  <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
+                    <th className="py-1.5">Mes</th>
+                    {years.map((y, i) => (
+                      <th key={y} className="py-1.5 text-right">
+                        {y}
+                        {i > 0 && <span className="normal-case font-normal opacity-50"> · vs {years[i - 1]}</span>}
+                      </th>
+                    ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+                <tbody>
+                  {MONTHS_ES.map((mname, idx) => {
+                    const mm = String(idx + 1).padStart(2, '0');
+                    const disp = years.map(y => getOrdersDisplay(y, mm));
+                    if (disp.every(d => d.value === undefined)) return null;
+                    return (
+                      <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
+                        <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
+                        {disp.map((d, i) => {
+                          // Variación vs el mismo mes del año anterior (columna previa)
+                          const prev = i > 0 ? disp[i - 1] : undefined;
+                          const varV = (d.value && prev && prev.value) ? ((d.value - prev.value) / prev.value) * 100 : null;
+                          return (
+                            <td key={years[i]} className={cn("py-1.5 text-right font-mono align-top", d.isProjected ? "text-amber-500" : "text-text-main")}>
+                              {d.value !== undefined
+                                ? (
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</span>
+                                    {varV !== null && (
+                                      <span className={cn("text-[8px] font-black inline-flex items-center gap-0.5", varV > 0 ? "text-emerald-500" : varV < 0 ? "text-red-500" : "text-text-dim")}>
+                                        {varV > 0 ? <TrendingUp size={8} /> : varV < 0 ? <TrendingDown size={8} /> : null}
+                                        {(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                                : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Ticket promedio ajustado */}
+          <div>
+            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Ticket Promedio <span className="normal-case text-text-dim/70">(años previos ajustados por inflación a {refYear})</span></p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[420px]">
+                <thead>
+                  <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
+                    <th className="py-1.5">Mes</th>
+                    {years.map(y => <th key={y} className="py-1.5 text-right">{y}{refYear && y !== refYear ? ' (aj.)' : ''}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {MONTHS_ES.map((mname, idx) => {
+                    const mm = String(idx + 1).padStart(2, '0');
+                    const cells = years.map(y => adjustedTicket(y, mm));
+                    if (cells.every(c => c === null)) return null;
+                    return (
+                      <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
+                        <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
+                        {cells.map((c, i) => <td key={i} className="py-1.5 text-right font-mono text-text-main">{c !== null ? fmtMoney(c) : '—'}</td>)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
