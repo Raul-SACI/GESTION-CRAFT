@@ -631,7 +631,6 @@ function AppContent() {
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
-      { id: 'evaluacion_duenos', label: 'Evaluación de Dueños', icon: Landmark },
       { id: 'checklist_lideres', label: 'Check-List', icon: CheckSquare },
       { id: 'recetas_lideres', label: 'Recetas', icon: BookOpen },
     ],
@@ -668,6 +667,7 @@ function AppContent() {
     'Gerencia General': [
       { id: 'actas_direccion', label: 'Actas de Dirección', icon: ClipboardList },
       { id: 'informes_gestion', label: 'Informes de Gestión', icon: FileCheck2 },
+      { id: 'evaluacion_duenos', label: 'Evaluación de Dueños', icon: Landmark },
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
       { id: 'control_agendas', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'precios', label: 'Lista de Precios', icon: Tag },
