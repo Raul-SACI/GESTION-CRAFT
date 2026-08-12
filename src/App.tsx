@@ -137,6 +137,7 @@ const PerformanceView = lazy(() => import('./components/PerformanceView'));
 const PerformanceAdminView = lazy(() => import('./components/PerformanceAdminView'));
 const SupervisionFlagsView = lazy(() => import('./components/SupervisionFlagsView'));
 const SupervisionsExecutionView = lazy(() => import('./components/SupervisionsExecutionView'));
+const EvaluacionDuenosView = lazy(() => import('./components/EvaluacionDuenosView'));
 const DocumentsView = lazy(() => import('./components/DocumentsView'));
 const TablewareView = lazy(() => import('./components/TablewareView'));
 const ProductionCenterView = lazy(() => import('./components/ProductionCenterView'));
@@ -629,6 +630,7 @@ function AppContent() {
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
       { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
+      { id: 'evaluacion_duenos', label: 'Evaluación de Dueños', icon: Landmark },
       { id: 'checklist_lideres', label: 'Check-List', icon: CheckSquare },
       { id: 'recetas_lideres', label: 'Recetas', icon: BookOpen },
     ],
@@ -728,6 +730,7 @@ function AppContent() {
           config_salones: MapPin,
           agenda: ClipboardList,
           supervisiones_operativas: Flag,
+          evaluacion_duenos: Landmark,
           registro_supervision: ClipboardCheck,
           produccion_mes: Factory,
           produccion_stock_control: ClipboardCheck,
@@ -1767,6 +1770,7 @@ function AppContent() {
               {activeTab === 'pedidos_ya' && <PedidosYaView key="pedidos_ya" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'registro_supervision' && <SupervisionFlagsView key="registro_supervision" branches={branches} initialViewMode="supervisor" hideToggle={true} customTitle="Registro de Supervisión" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'supervisiones_operativas' && <SupervisionsExecutionView key="supervisiones_operativas" branches={branches} isReadOnly={isCurrentTabReadOnly} currentUserRole={currentUser.role} currentUserName={currentUser.name} />}
+              {activeTab === 'evaluacion_duenos' && <EvaluacionDuenosView key="evaluacion_duenos" branches={branches} currentUserName={currentUser.name} currentUserRole={currentUser.role} isAdmin={currentUser.role === 'administrador' || currentUser.role === 'dueño'} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'agenda' && <SupervisorAgendaView key="agenda" branches={branches} isReadOnly={isCurrentTabReadOnly} currentUserName={currentUser.name} currentUserRole={currentUser.role} />}
               {activeTab === 'control_agendas' && <SupervisorAgendaView key="control_agendas" branches={branches} mode="control" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'decomisos' && (
