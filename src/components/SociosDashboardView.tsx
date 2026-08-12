@@ -51,7 +51,8 @@ interface BranchSales {
   ticketsCurrent: number;
   netPrev: number;
   grossPrev: number;
-  ticketsPrev: number;
+  ticketsPrev: number;       // mes anterior, SOLO los mismos días cargados (comparación justa)
+  ticketsPrevFull: number;   // mes anterior COMPLETO (para comparar contra la proyección)
   projection: number;
   ticketsProjection: number;
   // Cantidad de días distintos con ventas cargadas en el mes (para detectar días faltantes)
@@ -178,7 +179,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           branchId: b.id,
           branchName: b.name,
           netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0,
-          netPrev: 0, grossPrev: 0, ticketsPrev: 0,
+          netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0,
           projection: 0,
           ticketsProjection: 0,
           diasCargados: 0,
@@ -216,6 +217,9 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       prevTickets.forEach(t => {
         const a = agg[t.branch_id];
         if (!a) return;
+        // Total de tickets del mes anterior COMPLETO (todos los días), para comparar
+        // contra la proyección mensual. Se suma siempre, sin el filtro de "mismos días".
+        a.ticketsPrevFull += Number(t.orders) || 0;
         const dayNum = String(t.date).slice(8, 10);
         const loadedDays = dayNumsWithData[t.branch_id];
         // Si la sucursal tiene días cargados en el mes actual, solo contamos esos mismos días del mes anterior.
@@ -406,15 +410,39 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       netPrev: acc.netPrev + d.netPrev,
       grossPrev: acc.grossPrev + d.grossPrev,
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
+      ticketsPrevFull: acc.ticketsPrevFull + d.ticketsPrevFull,
       projection: acc.projection + d.projection,
       ticketsProjection: acc.ticketsProjection + d.ticketsProjection,
       cmv: acc.cmv + (d.cmv || 0),
       budgetHours: acc.budgetHours + d.budgetHours,
       workedHours: acc.workedHours + d.workedHours
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
+  // Etiqueta amigable del mes anterior (ej: "Jul 2026") para las comparativas de tickets.
+  const prevMonthShort = (() => {
+    const MESES_ABBR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const [y, m] = prevMonthLabel.split('-').map(Number);
+    return `${MESES_ABBR[(m || 1) - 1]} ${y}`;
+  })();
+
+  // Celda de Proyección de Tickets: proyectado + total real del mes anterior (completo)
+  // + % de variación de la proyección respecto a ese total.
+  const proyTicketsCell = (proj: number, prevFull: number) => {
+    const pv = prevFull > 0 ? pct(Math.round(proj), prevFull) : null;
+    return (
+      <div className="flex flex-col items-end leading-tight">
+        <span className="text-emerald-600 dark:text-emerald-500 font-bold">{Math.round(proj).toLocaleString('es-AR')}</span>
+        {prevFull > 0 && (
+          <>
+            <span className="text-[8px] font-normal text-text-dim opacity-70">{prevMonthShort}: {Math.round(prevFull).toLocaleString('es-AR')}</span>
+            {pv !== null && <span className={cn('text-[8px] font-bold', pv >= 0 ? 'text-emerald-500' : 'text-red-500')}>{pv >= 0 ? '+' : ''}{pv.toFixed(1)}% vs mes ant.</span>}
+          </>
+        )}
+      </div>
+    );
+  };
 
   // Indica si el mes actual está parcial (menos días cargados que el mes completo).
   // Ya NO se prorratea: el mes anterior se compara con los MISMOS días del calendario
@@ -620,7 +648,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                     <th className="px-3 py-2 text-right">Tickets</th>
                     <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">Proy. Ventas</th>
-                    <th className="px-3 py-2 text-right">Proy. Tickets</th>
+                    <th className="px-3 py-2 text-right">Proy. Tickets <span className="opacity-50 font-normal normal-case">(vs mes ant.)</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim">
@@ -669,7 +697,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt, d.ticketsPrev, false)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{Math.round(d.ticketsProjection).toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2.5 text-right font-mono">{proyTicketsCell(d.ticketsProjection, d.ticketsPrevFull)}</td>
                       </tr>
                       {expandedRows[d.branchId] && [1, 2, 3, 4].map(wk => {
                         const s = d.semanas[wk];
@@ -713,7 +741,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       <td className="px-3 py-2.5 text-right font-mono text-text-main">{totals.ticketsCurrent.toLocaleString('es-AR')}</td>
                       <td className="px-3 py-2.5"></td>
                       <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{fmt(totals.projection)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{Math.round(totals.ticketsProjection).toLocaleString('es-AR')}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{proyTicketsCell(totals.ticketsProjection, totals.ticketsPrevFull)}</td>
                     </tr>
                   )}
                 </tbody>
