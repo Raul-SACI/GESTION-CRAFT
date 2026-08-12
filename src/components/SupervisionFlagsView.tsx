@@ -868,7 +868,7 @@ export default function SupervisionFlagsView({
           </div>
           <div>
             <h2 className="text-xl font-black text-text-main uppercase tracking-tight">
-              {customTitle || (viewMode === 'supervisor' ? 'Registro de Supervisión' : 'Supervisiones y Banderas')}
+              {customTitle || (viewMode === 'supervisor' ? 'Registro de Supervisión' : 'Configuración de Supervisiones')}
             </h2>
             <p className="text-text-dim text-[10px] font-bold uppercase tracking-widest italic opacity-70">
               {viewMode === 'supervisor' ? 'Formulario de Auditoría y Control de Calidad' : 'Auditorías Operativas y Control de Calidad'}
