@@ -427,7 +427,8 @@ function AppContent() {
           unit: i.unit,
           cost: i.cost,
           category: i.category,
-          code: i.code
+          code: i.code,
+          is_active: i.is_active
         })));
       }
 

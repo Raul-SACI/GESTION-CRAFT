@@ -4,12 +4,12 @@
  * Tabla: recipe_masters (id, tipo, name, unit, code).
  */
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react';
-import { Search, Upload, Download, Edit2, Trash2, Plus } from 'lucide-react';
+import { Search, Upload, Download, Edit2, Trash2, Plus, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
-interface MasterRow { id: string; tipo: string; name: string; unit: string | null; code: string | null; }
+interface MasterRow { id: string; tipo: string; name: string; unit: string | null; code: string | null; is_active?: boolean; }
 
 export default function RecipeMastersManager({ tipo, title, color = 'purple', isReadOnly, simpleName = false }: {
   tipo: 'produccion' | 'sucursal' | 'seccion_carta';
@@ -73,6 +73,16 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
     if (!window.confirm(`¿Eliminar "${r.name}"?`)) return;
     await supabase.from('recipe_masters').delete().eq('id', r.id);
     await cargar();
+  };
+
+  // Habilitar / inhabilitar: el inhabilitado no se ofrece para elegir en Pedidos Internos,
+  // pero no se borra (queda para volver a habilitarlo cuando haga falta).
+  const toggleActivo = async (r: MasterRow) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const nuevo = r.is_active === false; // si estaba inhabilitado, lo habilitamos
+    const { error } = await supabase.from('recipe_masters').update({ is_active: nuevo }).eq('id', r.id);
+    if (!error) await cargar();
+    else alert('No se pudo cambiar el estado: ' + error.message);
   };
 
   const modelo = () => {
@@ -175,20 +185,31 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
         {filtradas.length === 0 ? (
           <p className="text-center text-[10px] font-bold uppercase text-text-dim py-6">Sin registros. {!isReadOnly && 'Agregá arriba o importá.'}</p>
-        ) : filtradas.map(r => (
-          <div key={r.id} className="flex items-center justify-between p-3.5 rounded border bg-bg-accent/40 border-border-dim hover:border-brand-500/30 transition-all">
+        ) : filtradas.map(r => {
+          const inhabilitado = r.is_active === false;
+          return (
+          <div key={r.id} className={cn("flex items-center justify-between p-3.5 rounded border bg-bg-accent/40 border-border-dim hover:border-brand-500/30 transition-all", inhabilitado && "opacity-55")}>
             <div className="min-w-0">
-              <p className="text-[11px] font-black text-text-main uppercase truncate">{r.name}</p>
+              <p className="text-[11px] font-black text-text-main uppercase truncate flex items-center gap-2">
+                <span className="truncate">{r.name}</span>
+                {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0">Inhabilitado</span>}
+              </p>
               {!simpleName && <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{r.unit || 'sin unidad'}{r.code ? ` · ${r.code}` : ''}</p>}
             </div>
             {!isReadOnly && (
               <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => toggleActivo(r)}
+                  title={inhabilitado ? 'Habilitar (vuelve a figurar en Pedidos Internos)' : 'Inhabilitar (no figura para pedir, sin borrarlo)'}
+                  className={cn("p-2 transition-colors", inhabilitado ? "text-amber-500 hover:text-emerald-500" : "text-text-dim hover:text-amber-500")}>
+                  {inhabilitado ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
                 <button onClick={() => { setEditing(r); setForm({ name: r.name, unit: r.unit || '', code: r.code || '' }); }} className="p-2 text-text-dim hover:text-brand-500 transition-colors"><Edit2 size={14} /></button>
                 <button onClick={() => borrar(r)} className="p-2 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
