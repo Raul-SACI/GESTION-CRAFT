@@ -240,6 +240,13 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
           .select('branch_id, date, shift, hour, payment_method, gross_sales, net_sales, orders, covers, iva, week_number, day_name, comprobante')
           .order('date', { ascending: false })
           .order('hour', { ascending: true })
+          // Desempate determinístico: date+hour no es único (varias sucursales/turnos/
+          // medios comparten fecha y hora), así la paginación con .range() no pisa ni
+          // saltea filas. Sumamos claves que completan el desempate.
+          .order('branch_id', { ascending: true })
+          .order('shift', { ascending: true })
+          .order('payment_method', { ascending: true })
+          .order('comprobante', { ascending: true })
           .range(tkPage * tkPageSize, (tkPage + 1) * tkPageSize - 1);
         if (localBranchId !== 'all') tkQuery = tkQuery.eq('branch_id', localBranchId);
         const { data: tkData } = await tkQuery;

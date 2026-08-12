@@ -53,6 +53,7 @@ interface BranchSales {
   grossPrev: number;
   ticketsPrev: number;       // mes anterior, SOLO los mismos días cargados (comparación justa)
   ticketsPrevFull: number;   // mes anterior COMPLETO (para comparar contra la proyección)
+  netPrevFull: number;       // venta neta del mes anterior COMPLETO (para comparar contra la proyección)
   projection: number;
   ticketsProjection: number;
   // Cantidad de días distintos con ventas cargadas en el mes (para detectar días faltantes)
@@ -149,6 +150,17 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             .select('branch_id, date, gross_sales, net_sales, orders')
             .gte('date', start)
             .lte('date', end)
+            // Orden estable: sin ORDER BY, la paginación con .range() devuelve filas
+            // en orden arbitrario y las páginas se pisan/saltan, dando totales
+            // incorrectos y distintos en cada carga (un mes completo supera las 1000
+            // filas porque hay varias por día: turno, hora, medio de cobro).
+            // Ordenamos por la clave natural del ticket para que sea determinístico.
+            .order('date', { ascending: true })
+            .order('branch_id', { ascending: true })
+            .order('shift', { ascending: true })
+            .order('hour', { ascending: true })
+            .order('payment_method', { ascending: true })
+            .order('comprobante', { ascending: true })
             .range(page * size, (page + 1) * size - 1);
           if (error || !rows || rows.length === 0) { more = false; break; }
           all = all.concat(rows);
@@ -179,7 +191,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           branchId: b.id,
           branchName: b.name,
           netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0,
-          netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0,
+          netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0,
           projection: 0,
           ticketsProjection: 0,
           diasCargados: 0,
@@ -217,9 +229,10 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       prevTickets.forEach(t => {
         const a = agg[t.branch_id];
         if (!a) return;
-        // Total de tickets del mes anterior COMPLETO (todos los días), para comparar
-        // contra la proyección mensual. Se suma siempre, sin el filtro de "mismos días".
+        // Total del mes anterior COMPLETO (todos los días), para comparar contra la
+        // proyección mensual. Se suma siempre, sin el filtro de "mismos días".
         a.ticketsPrevFull += Number(t.orders) || 0;
+        a.netPrevFull += Number(t.net_sales) || 0;
         const dayNum = String(t.date).slice(8, 10);
         const loadedDays = dayNumsWithData[t.branch_id];
         // Si la sucursal tiene días cargados en el mes actual, solo contamos esos mismos días del mes anterior.
@@ -411,12 +424,13 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       grossPrev: acc.grossPrev + d.grossPrev,
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
       ticketsPrevFull: acc.ticketsPrevFull + d.ticketsPrevFull,
+      netPrevFull: acc.netPrevFull + d.netPrevFull,
       projection: acc.projection + d.projection,
       ticketsProjection: acc.ticketsProjection + d.ticketsProjection,
       cmv: acc.cmv + (d.cmv || 0),
       budgetHours: acc.budgetHours + d.budgetHours,
       workedHours: acc.workedHours + d.workedHours
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
@@ -437,6 +451,23 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         {prevFull > 0 && (
           <>
             <span className="text-[8px] font-normal text-text-dim opacity-70">{prevMonthShort}: {Math.round(prevFull).toLocaleString('es-AR')}</span>
+            {pv !== null && <span className={cn('text-[8px] font-bold', pv >= 0 ? 'text-emerald-500' : 'text-red-500')}>{pv >= 0 ? '+' : ''}{pv.toFixed(1)}% vs mes ant.</span>}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  // Celda de Proyección de Ventas: proyectado + venta neta real del mes anterior
+  // (completo) + % de variación de la proyección respecto a ese total.
+  const proyVentasCell = (proj: number, prevFull: number) => {
+    const pv = prevFull > 0 ? pct(proj, prevFull) : null;
+    return (
+      <div className="flex flex-col items-end leading-tight">
+        <span className="text-emerald-600 dark:text-emerald-500 font-bold">{fmt(proj)}</span>
+        {prevFull > 0 && (
+          <>
+            <span className="text-[8px] font-normal text-text-dim opacity-70">{prevMonthShort}: {fmt(prevFull)}</span>
             {pv !== null && <span className={cn('text-[8px] font-bold', pv >= 0 ? 'text-emerald-500' : 'text-red-500')}>{pv >= 0 ? '+' : ''}{pv.toFixed(1)}% vs mes ant.</span>}
           </>
         )}
@@ -647,7 +678,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                     <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">Tickets</th>
                     <th className="px-3 py-2 text-right">vs Ant. <span className="opacity-50 font-normal normal-case">(mes ant.)</span></th>
-                    <th className="px-3 py-2 text-right">Proy. Ventas</th>
+                    <th className="px-3 py-2 text-right">Proy. Ventas <span className="opacity-50 font-normal normal-case">(vs mes ant.)</span></th>
                     <th className="px-3 py-2 text-right">Proy. Tickets <span className="opacity-50 font-normal normal-case">(vs mes ant.)</span></th>
                   </tr>
                 </thead>
@@ -696,7 +727,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pg, d.grossPrev)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt, d.ticketsPrev, false)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500 font-bold">{fmt(d.projection)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono">{proyVentasCell(d.projection, d.netPrevFull)}</td>
                         <td className="px-3 py-2.5 text-right font-mono">{proyTicketsCell(d.ticketsProjection, d.ticketsPrevFull)}</td>
                       </tr>
                       {expandedRows[d.branchId] && [1, 2, 3, 4].map(wk => {
@@ -740,7 +771,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                       <td className="px-3 py-2.5"></td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-main">{totals.ticketsCurrent.toLocaleString('es-AR')}</td>
                       <td className="px-3 py-2.5"></td>
-                      <td className="px-3 py-2.5 text-right font-mono text-emerald-600 dark:text-emerald-500">{fmt(totals.projection)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{proyVentasCell(totals.projection, totals.netPrevFull)}</td>
                       <td className="px-3 py-2.5 text-right font-mono">{proyTicketsCell(totals.ticketsProjection, totals.ticketsPrevFull)}</td>
                     </tr>
                   )}
