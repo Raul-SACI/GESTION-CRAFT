@@ -629,7 +629,7 @@ function AppContent() {
       { id: 'presupuesto_horas', label: 'Presupuestador de horas', icon: Calendar },
       { id: 'config_salones', label: 'Configuración de Salones', icon: MapPin },
       { id: 'agenda', label: 'Agenda Supervisores', icon: ClipboardList },
-      { id: 'supervisiones_operativas', label: 'Supervisiones', icon: Flag },
+      { id: 'supervisiones_operativas', label: 'Supervisiones Realizadas', icon: Flag },
       { id: 'registro_supervision', label: 'Registro de Supervisión', icon: ClipboardCheck },
       { id: 'checklist_lideres', label: 'Check-List', icon: CheckSquare },
       { id: 'recetas_lideres', label: 'Recetas', icon: BookOpen },
@@ -764,11 +764,16 @@ function AppContent() {
         Object.entries(parsed as Record<string, {id: string, label: string}[]>).forEach(([section, items]) => {
           rehydrated[section] = items
             .filter((item) => item.id !== 'registro_visitas')
-            .map((item) => ({
-              ...item,
-              label: item.id === 'gestion_sueldos' ? 'Maestro de Personal' : item.label,
-              icon: iconMap[item.id] || ListOrdered
-            }));
+            .map((item) => {
+              // El nombre SIEMPRE sale de menuConfig (fuente de verdad), así un cambio
+              // de nombre se refleja aunque el usuario tenga un orden de menú guardado.
+              const defLabel = menuConfig[section]?.find(d => d.id === item.id)?.label;
+              return {
+                ...item,
+                label: defLabel || (item.id === 'gestion_sueldos' ? 'Maestro de Personal' : item.label),
+                icon: iconMap[item.id] || ListOrdered
+              };
+            });
         });
 
         // Merge with defaults to ensure new modules are visible even if a custom order was saved

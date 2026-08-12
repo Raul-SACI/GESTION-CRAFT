@@ -47,7 +47,7 @@ const SYSTEM_MODULES = [
   { id: 'presupuesto_horas', label: 'Presupuestador de Horas', category: 'Gestión Líderes Operativos' },
   { id: 'config_salones', label: 'Configuración de Salones', category: 'Gestión Líderes Operativos' },
   { id: 'agenda', label: 'Agenda Supervisores', category: 'Gestión Líderes Operativos' },
-  { id: 'supervisiones_operativas', label: 'Supervisiones', category: 'Gestión Líderes Operativos' },
+  { id: 'supervisiones_operativas', label: 'Supervisiones Realizadas', category: 'Gestión Líderes Operativos' },
   { id: 'registro_supervision', label: 'Registro de Supervisión', category: 'Gestión Líderes Operativos' },
   { id: 'evaluacion_duenos', label: 'Evaluación de Dueños', category: 'Gerencia General' },
   { id: 'checklist_lideres', label: 'Check-List (Líderes)', category: 'Gestión Líderes Operativos' },
