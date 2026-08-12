@@ -93,6 +93,9 @@ export default function InternalOrdersView({
   isReadOnly?: boolean;
 }) {
   const [orderType, setOrderType] = useState<'compras' | 'produccion'>('compras');
+  // Artículos del "Maestro Recetas Producción" (recipe_masters, tipo=produccion),
+  // que se ofrecen SOLO cuando el pedido es "a Producción".
+  const [produccionItems, setProduccionItems] = useState<StockItem[]>([]);
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -127,23 +130,50 @@ export default function InternalOrdersView({
 
   const branchName = branches.find(b => b.id === selectedBranchId)?.name || 'Sucursal';
 
-  // Categorías disponibles del Maestro de Insumos
+  // Cargar los artículos del Maestro Recetas Producción una vez.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from('recipe_masters')
+        .select('*')
+        .eq('tipo', 'produccion')
+        .order('name');
+      if (active && data) {
+        setProduccionItems(data.map((r: any) => ({
+          id: r.id, name: r.name, unit: r.unit || 'UN', code: r.code || '', category: '', cost: 0, is_active: r.is_active
+        })));
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // Fuente de artículos según el tipo de pedido:
+  //  - COMPRAS      -> Maestro de Insumos (stock_items, prop `items`)
+  //  - PRODUCCIÓN   -> Maestro Recetas Producción (recipe_masters)
+  // En ambos casos se excluyen los inhabilitados (is_active === false).
+  const sourceItems = useMemo(
+    () => (orderType === 'produccion' ? produccionItems : items).filter(i => (i as any).is_active !== false),
+    [orderType, produccionItems, items]
+  );
+
+  // Categorías disponibles de la fuente activa
   const categories = useMemo(() => {
     const set = new Set<string>();
-    items.forEach(i => { if (i.category) set.add(i.category); });
+    sourceItems.forEach(i => { if (i.category) set.add(i.category); });
     return Array.from(set).sort();
-  }, [items]);
+  }, [sourceItems]);
 
   // Insumos filtrados por categoría y búsqueda (que aún no estén en el pedido)
   const availableItems = useMemo(() => {
     const inOrder = new Set(lines.map(l => l.itemId));
-    return items.filter(i => {
+    return sourceItems.filter(i => {
       if (inOrder.has(i.id)) return false;
       if (categoryFilter !== 'all' && (i.category || '') !== categoryFilter) return false;
       if (itemSearch && !i.name.toLowerCase().includes(itemSearch.toLowerCase())) return false;
       return true;
     });
-  }, [items, lines, categoryFilter, itemSearch]);
+  }, [sourceItems, lines, categoryFilter, itemSearch]);
 
   const loadRecentOrders = async () => {
     if (!selectedBranchId || selectedBranchId === 'all') { setRecentOrders([]); setShortfalls({}); return; }
@@ -627,7 +657,17 @@ export default function InternalOrdersView({
           <label className="text-[10px] font-black text-text-dim uppercase tracking-widest block mb-2">Tipo de Pedido</label>
           <select
             value={orderType}
-            onChange={e => setOrderType(e.target.value as 'compras' | 'produccion')}
+            onChange={e => {
+              const nuevo = e.target.value as 'compras' | 'produccion';
+              if (nuevo === orderType) return;
+              // Los artículos vienen de maestros distintos según el tipo, así que al
+              // cambiar de tipo vaciamos el pedido en curso para no mezclar fuentes.
+              if (lines.length > 0 && !window.confirm('Al cambiar el tipo de pedido se vacía lo que cargaste hasta ahora (los artículos son de maestros distintos). ¿Continuar?')) return;
+              setOrderType(nuevo);
+              setLines([]);
+              setCategoryFilter('all');
+              setItemSearch('');
+            }}
             className={cn(
               "w-full bg-bg-card border rounded-lg px-4 py-3 text-[12px] font-black uppercase tracking-wide outline-none transition-all cursor-pointer",
               orderType === 'compras' ? "border-brand-500 text-brand-500 focus:border-brand-500" : "border-teal-500 text-teal-500 focus:border-teal-500"

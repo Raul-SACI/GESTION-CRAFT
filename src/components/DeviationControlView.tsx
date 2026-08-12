@@ -20,7 +20,9 @@ import {
   ChevronRight,
   Upload,
   Download,
-  LayoutDashboard
+  LayoutDashboard,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -135,7 +137,7 @@ export default function DeviationControlView({
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
   const reloadItems = async () => {
     const { data } = await supabase.from('stock_items').select('*').order('name');
-    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category, code: i.code })));
+    if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category, code: i.code, is_active: i.is_active })));
   };
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
@@ -2055,16 +2057,19 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                     if (!itemMasterSearch) return true;
                     const q = itemMasterSearch.toLowerCase();
                     return item.name.toLowerCase().includes(q) || (item.category || '').toLowerCase().includes(q);
-                  }).map(item => (
-                    <div key={item.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedItemIds.has(item.id) ? "bg-brand-500/10 border-brand-500/40" : "bg-bg-accent/40 border-border-dim hover:border-brand-500/30")}>
+                  }).map(item => {
+                    const inhabilitado = (item as any).is_active === false;
+                    return (
+                    <div key={item.id} className={cn("flex items-center justify-between p-4 rounded border group transition-all", selectedItemIds.has(item.id) ? "bg-brand-500/10 border-brand-500/40" : "bg-bg-accent/40 border-border-dim hover:border-brand-500/30", inhabilitado && "opacity-55")}>
                       <div className="flex items-center gap-3">
                         {!isReadOnly && (
                           <input type="checkbox" checked={selectedItemIds.has(item.id)} onChange={() => toggleItemSelected(item.id)}
                             className="w-4 h-4 accent-brand-500 cursor-pointer shrink-0" />
                         )}
                         <div>
-                          <p className="text-[11px] font-black text-text-main uppercase">
-                            {item.code ? <span className="text-brand-500 mr-1.5">{item.code}</span> : ''}{item.name}
+                          <p className="text-[11px] font-black text-text-main uppercase flex items-center gap-2 flex-wrap">
+                            <span>{item.code ? <span className="text-brand-500 mr-1.5">{item.code}</span> : ''}{item.name}</span>
+                            {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">Inhabilitado</span>}
                           </p>
                           <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
                             Unidad: {item.unit}
@@ -2074,7 +2079,20 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button 
+                        {!isReadOnly && (
+                          <button
+                            title={inhabilitado ? 'Habilitar (vuelve a figurar en Pedidos Internos)' : 'Inhabilitar (no figura para pedir, sin borrarlo)'}
+                            onClick={async () => {
+                              const { error } = await supabase.from('stock_items').update({ is_active: inhabilitado }).eq('id', item.id);
+                              if (!error) await reloadItems();
+                              else alert('No se pudo cambiar el estado: ' + error.message);
+                            }}
+                            className={cn("p-2 transition-colors", inhabilitado ? "text-amber-500 hover:text-emerald-500" : "text-text-dim hover:text-amber-500")}
+                          >
+                            {inhabilitado ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                        )}
+                        <button
                           onClick={() => {
                             setEditingItem(item);
                             setItemForm({ name: item.name, unit: item.unit, cost: item.cost || 0, category: item.category || '', code: item.code || '' });
@@ -2100,7 +2118,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

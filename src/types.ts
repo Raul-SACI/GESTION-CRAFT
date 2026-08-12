@@ -49,6 +49,7 @@ export interface StockItem {
   cost?: number;
   category?: string;
   code?: string;
+  is_active?: boolean; // false = inhabilitado (no se ofrece para elegir en Pedidos Internos)
 }
 
 export interface Product {
