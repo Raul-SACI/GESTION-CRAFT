@@ -120,6 +120,16 @@ export default function OrdersSummary({ scope, branches }: Props) {
   }, [orders]);
   const refYear = years.length > 0 ? years[years.length - 1] : null;
 
+  // Años a comparar en la columna de variación (elegibles por el usuario).
+  // Por defecto: el más reciente contra el anterior.
+  const [cmpNew, setCmpNew] = useState<string>('');
+  const [cmpBase, setCmpBase] = useState<string>('');
+  useEffect(() => {
+    if (years.length === 0) return;
+    setCmpNew(prev => years.includes(prev) ? prev : years[years.length - 1]);
+    setCmpBase(prev => (years.includes(prev) ? prev : (years.length >= 2 ? years[years.length - 2] : years[0])));
+  }, [years]);
+
   // Mes en curso (actual, sin cerrar) en formato YYYY-MM
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -192,21 +202,39 @@ export default function OrdersSummary({ scope, branches }: Props) {
         <>
           {/* Volumen de órdenes (histórico) */}
           <div>
-            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">
-              Cantidad de Órdenes por mes
-              <span className="normal-case text-amber-500/70"> (el mes en curso se proyecta a fin de mes según los días cargados)</span>
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <p className="text-[9px] font-black uppercase text-text-dim tracking-widest">
+                Cantidad de Órdenes por mes
+                <span className="normal-case text-amber-500/70"> (el mes en curso se proyecta a fin de mes según los días cargados)</span>
+              </p>
+              {years.length >= 2 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">Comparar</span>
+                  <select
+                    value={cmpNew}
+                    onChange={(e) => setCmpNew(e.target.value)}
+                    className="bg-bg-card border border-border-dim rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-main focus:outline-none focus:border-brand-500"
+                  >
+                    {years.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                  <span className="text-[8px] font-black uppercase text-text-dim">vs</span>
+                  <select
+                    value={cmpBase}
+                    onChange={(e) => setCmpBase(e.target.value)}
+                    className="bg-bg-card border border-border-dim rounded-md px-1.5 py-0.5 text-[10px] font-bold text-text-main focus:outline-none focus:border-brand-500"
+                  >
+                    {years.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[420px]">
                 <thead>
                   <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
                     <th className="py-1.5">Mes</th>
-                    {years.map((y, i) => (
-                      <th key={y} className="py-1.5 text-right">
-                        {y}
-                        {i > 0 && <span className="normal-case font-normal opacity-50"> · vs {years[i - 1]}</span>}
-                      </th>
-                    ))}
+                    {years.map(y => <th key={y} className="py-1.5 text-right">{y}</th>)}
+                    {years.length >= 2 && <th className="py-1.5 text-right">Var % <span className="normal-case font-normal opacity-60">({cmpNew} vs {cmpBase})</span></th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -214,31 +242,26 @@ export default function OrdersSummary({ scope, branches }: Props) {
                     const mm = String(idx + 1).padStart(2, '0');
                     const disp = years.map(y => getOrdersDisplay(y, mm));
                     if (disp.every(d => d.value === undefined)) return null;
+                    const nv = getOrdersDisplay(cmpNew, mm);
+                    const bv = getOrdersDisplay(cmpBase, mm);
+                    const varV = (cmpNew !== cmpBase && nv.value && bv.value) ? ((nv.value - bv.value) / bv.value) * 100 : null;
                     return (
                       <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
                         <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
-                        {disp.map((d, i) => {
-                          // Variación vs el mismo mes del año anterior (columna previa)
-                          const prev = i > 0 ? disp[i - 1] : undefined;
-                          const varV = (d.value && prev && prev.value) ? ((d.value - prev.value) / prev.value) * 100 : null;
-                          return (
-                            <td key={years[i]} className={cn("py-1.5 text-right font-mono align-top", d.isProjected ? "text-amber-500" : "text-text-main")}>
-                              {d.value !== undefined
-                                ? (
-                                  <div className="flex flex-col items-end leading-tight">
-                                    <span>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</span>
-                                    {varV !== null && (
-                                      <span className={cn("text-[8px] font-black inline-flex items-center gap-0.5", varV > 0 ? "text-emerald-500" : varV < 0 ? "text-red-500" : "text-text-dim")}>
-                                        {varV > 0 ? <TrendingUp size={8} /> : varV < 0 ? <TrendingDown size={8} /> : null}
-                                        {(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}
-                                      </span>
-                                    )}
-                                  </div>
-                                )
-                                : '—'}
-                            </td>
-                          );
-                        })}
+                        {disp.map((d, i) => (
+                          <td key={years[i]} className={cn("py-1.5 text-right font-mono", d.isProjected ? "text-amber-500" : "text-text-main")}>
+                            {d.value !== undefined
+                              ? <>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</>
+                              : '—'}
+                          </td>
+                        ))}
+                        {years.length >= 2 && (
+                          <td className={cn("py-1.5 text-right font-mono font-black", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : varV < 0 ? "text-red-500" : "text-text-dim")}>
+                            {varV !== null
+                              ? <span className="inline-flex items-center justify-end gap-0.5">{varV > 0 ? <TrendingUp size={9} /> : varV < 0 ? <TrendingDown size={9} /> : null}{(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}</span>
+                              : '—'}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
