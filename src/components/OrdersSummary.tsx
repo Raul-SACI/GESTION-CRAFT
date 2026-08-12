@@ -175,27 +175,29 @@ export default function OrdersSummary({ scope, branches }: Props) {
     return t * inflationFactor(`${year}-${mm}`, `${refYear}-${mm}`);
   };
 
-  // Total anual de un año (suma de sus meses con datos; el mes en curso va proyectado).
-  const yearTotal = (year: string): { value: number | undefined; hasProjected: boolean } => {
-    let sum = 0; let has = false; let proj = false;
+  // Total anual de un año.
+  //  - Años completos/pasados: suma de los meses cargados.
+  //  - Año en curso con datos parciales: se proyecta a 12 meses
+  //    (promedio de los meses cargados × 12), para poder compararlo contra un
+  //    año completo. El mes en curso ya viene proyectado a fin de mes (por día).
+  const currentYearStr = String(now.getFullYear());
+  const yearTotal = (year: string): { value: number | undefined; projected: boolean } => {
+    let sum = 0; let loaded = 0;
     MONTHS_ES.forEach((_, idx) => {
       const d = getOrdersDisplay(year, String(idx + 1).padStart(2, '0'));
-      if (d.value !== undefined) { sum += d.value; has = true; if (d.isProjected) proj = true; }
+      if (d.value !== undefined) { sum += d.value; loaded += 1; }
     });
-    return { value: has ? sum : undefined, hasProjected: proj };
+    if (loaded === 0) return { value: undefined, projected: false };
+    if (year === currentYearStr && loaded < 12) {
+      return { value: Math.round((sum / loaded) * 12), projected: true };
+    }
+    return { value: sum, projected: false };
   };
-  // Comparación de totales SOLO sobre los meses que ambos años tienen cargados
-  // (comparación justa cuando el año en curso todavía no está completo).
-  const commonTotalsVar = (yNew: string, yBase: string): number | null => {
+  // Variación de totales ANUALES (proyectado a 12 para el año en curso).
+  const yearTotalVar = (yNew: string, yBase: string): number | null => {
     if (!yNew || !yBase || yNew === yBase) return null;
-    let a = 0; let b = 0; let has = false;
-    MONTHS_ES.forEach((_, idx) => {
-      const mm = String(idx + 1).padStart(2, '0');
-      const nv = getOrdersDisplay(yNew, mm).value;
-      const bv = getOrdersDisplay(yBase, mm).value;
-      if (nv !== undefined && bv !== undefined) { a += nv; b += bv; has = true; }
-    });
-    if (!has || b === 0) return null;
+    const a = yearTotal(yNew).value; const b = yearTotal(yBase).value;
+    if (a === undefined || b === undefined || b === 0) return null;
     return ((a - b) / b) * 100;
   };
 
@@ -326,13 +328,13 @@ export default function OrdersSummary({ scope, branches }: Props) {
                     <td className="py-2 font-black uppercase text-text-main">Total</td>
                     {years.map((y, i) => {
                       const t = yearTotal(y);
-                      const yoyTot = i > 0 ? commonTotalsVar(y, years[i - 1]) : null;
+                      const yoyTot = i > 0 ? yearTotalVar(y, years[i - 1]) : null;
                       return (
-                        <td key={y} className="py-2 text-right font-mono font-black align-top text-text-main">
+                        <td key={y} className={cn("py-2 text-right font-mono font-black align-top", t.projected ? "text-amber-500" : "text-text-main")}>
                           {t.value !== undefined
                             ? (
                               <div className="flex flex-col items-end leading-tight">
-                                <span>{fmtNum(t.value)}{t.hasProjected && <span className="text-[7px] font-black uppercase ml-1 text-amber-500 opacity-90">proy.</span>}</span>
+                                <span>{fmtNum(t.value)}{t.projected && <span className="text-[7px] font-black uppercase ml-1 opacity-90">proy.</span>}</span>
                                 {yoyTot !== null && (
                                   <span className={cn("text-[8px] font-black inline-flex items-center gap-0.5", yoyTot > 0 ? "text-emerald-500" : yoyTot < 0 ? "text-red-500" : "text-text-dim")}>
                                     {yoyTot > 0 ? <TrendingUp size={8} /> : yoyTot < 0 ? <TrendingDown size={8} /> : null}
@@ -346,7 +348,7 @@ export default function OrdersSummary({ scope, branches }: Props) {
                       );
                     })}
                     {years.length >= 2 && (() => {
-                      const vt = commonTotalsVar(cmpNew, cmpBase);
+                      const vt = yearTotalVar(cmpNew, cmpBase);
                       return (
                         <td className={cn("py-2 text-right font-mono font-black", vt === null ? "text-text-dim" : vt > 0 ? "text-emerald-500" : vt < 0 ? "text-red-500" : "text-text-dim")}>
                           {vt !== null
@@ -359,7 +361,7 @@ export default function OrdersSummary({ scope, branches }: Props) {
                 </tfoot>
               </table>
             </div>
-            <p className="text-[8px] text-text-dim font-bold uppercase mt-2 opacity-60">Total = suma de los meses cargados. La variación de totales compara solo los meses que ambos años tienen cargados.</p>
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-2 opacity-60">Total = suma de los meses cargados. El año en curso se proyecta a 12 meses (promedio mensual × 12) para compararlo contra el año completo anterior.</p>
           </div>
 
           {/* Gráfica de órdenes por mes/año */}
