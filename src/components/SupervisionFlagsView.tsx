@@ -59,6 +59,21 @@ export default function SupervisionFlagsView({
   const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({});
   const [photoBusy, setPhotoBusy] = useState<Record<string, boolean>>({});
   const [generalNotes, setGeneralNotes] = useState<string>('');
+  // Asistente por categorías del "Registro de Supervisión": muestra una categoría por vez.
+  const [catIndex, setCatIndex] = useState(0);
+
+  // Preguntas agrupadas por categoría (módulo/sector), en el orden en que aparecen.
+  const catsSupervisor = React.useMemo(() => {
+    const qs = selectedTemplate?.questions || [];
+    const orden: string[] = [];
+    const grupos: Record<string, Question[]> = {};
+    qs.forEach(q => {
+      const cat = ((q.category || '').trim()) || 'GENERAL';
+      if (!grupos[cat]) { grupos[cat] = []; orden.push(cat); }
+      grupos[cat].push(q);
+    });
+    return orden.map(name => ({ name, qs: grupos[name] }));
+  }, [selectedTemplate]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
 
@@ -774,6 +789,7 @@ export default function SupervisionFlagsView({
       setPhotoPreviews({});
       setPhotoBusy({});
       setGeneralNotes('');
+      setCatIndex(0);
     } catch (err: any) {
       console.error('Error saving response:', err);
       const msg = err?.message || err?.details || JSON.stringify(err) || 'Error desconocido';
@@ -1215,6 +1231,7 @@ export default function SupervisionFlagsView({
                                 setPhotos({});
                                 setPhotoPreviews({});
                                 setPhotoBusy({});
+                                setCatIndex(0);
                               }
                             }}
                           >
@@ -1225,8 +1242,37 @@ export default function SupervisionFlagsView({
                         </div>
                      </div>
 
-                     <div className="space-y-8">
-                       {selectedTemplate?.questions.map((q, idx) => (
+                     {(() => {
+                       const cats = catsSupervisor;
+                       const cIdx = Math.min(catIndex, Math.max(0, cats.length - 1));
+                       const catAct = cats[cIdx];
+                       if (!catAct) return null;
+                       const esUltima = cIdx >= cats.length - 1;
+                       const faltan = catAct.qs.filter(q => q.type !== 'text' && !answers[q.id]);
+                       const irSig = () => {
+                         if (faltan.length > 0) { alert(`Respondé las ${faltan.length} pregunta(s) que faltan de "${catAct.name}" antes de continuar.`); return; }
+                         setCatIndex(i => Math.min(i + 1, cats.length - 1));
+                         try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* noop */ }
+                       };
+                       const irAnt = () => { setCatIndex(i => Math.max(0, i - 1)); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch { /* noop */ } };
+                       return (
+                       <>
+                       {/* Encabezado de la categoría actual + progreso */}
+                       <div className="flex items-center justify-between gap-3 mb-6 flex-wrap bg-bg-accent/30 border border-border-dim rounded-lg px-4 py-3">
+                         <div>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-brand-500">Categoría {cIdx + 1} de {cats.length}</p>
+                           <p className="text-sm font-black uppercase text-text-main tracking-tight">{catAct.name}</p>
+                         </div>
+                         <div className="flex gap-1 items-center">
+                           {cats.map((c, i) => (
+                             <span key={c.name} className={cn("h-1.5 rounded-full transition-all", i === cIdx ? "w-6 bg-brand-500" : i < cIdx ? "w-3 bg-brand-500/40" : "w-3 bg-border-dim")} />
+                           ))}
+                         </div>
+                       </div>
+                       <div className="space-y-8">
+                       {catAct.qs.map((q) => {
+                         const idx = (selectedTemplate?.questions || []).indexOf(q);
+                         return (
                          <div key={q.id} className="p-4 bg-bg-accent/20 border border-border-dim/30 rounded-lg last:mb-0">
                             <div className="flex justify-between items-start gap-4 mb-3">
                               <p className="text-xs font-black text-text-main uppercase flex items-start gap-3">
@@ -1345,27 +1391,44 @@ export default function SupervisionFlagsView({
                               )}
                             </div>
                          </div>
-                       ))}
+                         );
+                       })}
                      </div>
 
-                     <div className="mt-12 pt-8 border-t border-border-dim space-y-6">
+                     {/* Navegación entre categorías */}
+                     {!esUltima ? (
+                       <div className="mt-8 pt-6 border-t border-border-dim flex items-center justify-between gap-3">
+                         {cIdx > 0 ? (
+                           <button type="button" onClick={irAnt} className="px-5 py-3 rounded-lg text-[11px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main transition-all">← Anterior</button>
+                         ) : <span />}
+                         <button type="button" onClick={irSig} className="px-8 py-3 rounded-lg text-[11px] font-black uppercase tracking-widest bg-brand-500 text-black hover:bg-brand-600 transition-all shadow-lg shadow-brand-500/20">Continuar →</button>
+                       </div>
+                     ) : (
+                       <div className="mt-12 pt-8 border-t border-border-dim space-y-6">
+                        {cIdx > 0 && (
+                          <button type="button" onClick={irAnt} className="px-5 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim border border-border-dim hover:text-text-main transition-all">← Anterior</button>
+                        )}
                         <div className="space-y-2">
                            <p className="text-[10px] font-black text-text-dim uppercase tracking-widest">Observaciones Generales / Plan de Acción</p>
-                           <textarea 
+                           <textarea
                              className="w-full bg-bg-accent border border-border-dim rounded-lg p-4 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500 h-32"
                              placeholder="ESCRIBA AQUÍ OBSERVACIONES GENERALES DE LA VISITA Y ACUERDOS..."
                              value={generalNotes}
                              onChange={(e) => setGeneralNotes(e.target.value)}
                            />
                         </div>
-                        <button 
+                        <button
                           onClick={handleSubmitAudit}
                           disabled={isSubmitting}
                           className="w-full bg-brand-500 text-black py-4 rounded-lg text-xs font-black uppercase tracking-widest hover:bg-brand-600 transition-all shadow-xl shadow-brand-500/20 disabled:opacity-50"
                         >
                            {isSubmitting ? 'REGISTRANDO...' : 'FINALIZAR VISITA Y COMPILAR RESULTADOS'}
                         </button>
-                     </div>
+                       </div>
+                     )}
+                     </>
+                     );
+                     })()}
                   </div>
                </div>
             </motion.div>
