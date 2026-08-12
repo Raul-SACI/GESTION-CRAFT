@@ -640,6 +640,62 @@ export default function SupervisionFlagsView({
     });
   };
 
+  // ── Edición del formulario por CATEGORÍAS ──
+  const nuevaPreguntaObj = (category: string): Question => ({
+    id: 'q_' + Math.random().toString(36).substr(2, 7),
+    text: 'Nueva Pregunta',
+    category,
+    options: [
+      { id: 'opt_n_' + Math.random().toString(36).substr(2, 5), text: 'Excelente (Verde)', score: 1, color: 'green' },
+      { id: 'opt_n_' + Math.random().toString(36).substr(2, 5), text: 'Muy bueno (Amarillo)', score: 0.5, color: 'yellow' },
+      { id: 'opt_n_' + Math.random().toString(36).substr(2, 5), text: 'Necesita Mejorar (Rojo)', score: 0, color: 'red' }
+    ]
+  });
+
+  // Renombra una categoría: cambia el nombre en todas las preguntas de ese grupo.
+  const renameCategory = (oldName: string, rawNew: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const newName = (rawNew || '').trim().toUpperCase() || 'GENERAL';
+    if (newName === oldName) return;
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.map(q => ((q.category || 'GENERAL') === oldName ? { ...q, category: newName } : q))
+    });
+  };
+
+  // Agrega una pregunta al final del grupo de esa categoría (para mantenerlas juntas).
+  const addQuestionToCategory = (catName: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const qs = [...selectedTemplate.questions];
+    let lastIdx = -1;
+    qs.forEach((q, i) => { if ((q.category || 'GENERAL') === catName) lastIdx = i; });
+    const nueva = nuevaPreguntaObj(catName);
+    if (lastIdx === -1) qs.push(nueva); else qs.splice(lastIdx + 1, 0, nueva);
+    setSelectedTemplate({ ...selectedTemplate, questions: qs });
+  };
+
+  const addCategory = () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const existentes = new Set(selectedTemplate.questions.map(q => (q.category || 'GENERAL')));
+    let name = 'NUEVA CATEGORÍA', n = 1;
+    while (existentes.has(name)) { n++; name = `NUEVA CATEGORÍA ${n}`; }
+    setSelectedTemplate({ ...selectedTemplate, questions: [...selectedTemplate.questions, nuevaPreguntaObj(name)] });
+  };
+
+  const deleteCategory = (catName: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const count = selectedTemplate.questions.filter(q => (q.category || 'GENERAL') === catName).length;
+    if (!window.confirm(`¿Eliminar la categoría "${catName}" y sus ${count} pregunta(s)?`)) return;
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.filter(q => (q.category || 'GENERAL') !== catName)
+    });
+  };
+
   const handleSelectOption = (questionId: string, opt: Option, questionText?: string) => {
     setAnswers(prev => ({
       ...prev,
@@ -1029,82 +1085,111 @@ export default function SupervisionFlagsView({
                         </div>
 
                         <div className="space-y-4">
-                          {selectedTemplate.questions.map((q, idx) => (
-                            <motion.div 
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              key={q.id} 
-                              className="bg-bg-accent/40 border border-border-dim/50 rounded-lg p-6 group hover:border-brand-500/30 transition-all"
-                            >
-                              <div className="flex justify-between gap-4 mb-4">
-                                <div className="flex items-start gap-4 flex-1">
-                                  <span className="w-8 h-8 rounded-full bg-bg-sidebar border border-border-dim flex items-center justify-center text-[10px] font-black text-brand-500 shadow-inner">
-                                    {idx + 1}
-                                  </span>
-                                  <div className="flex-1 space-y-3">
-                                    <input 
-                                      type="text"
-                                      value={q.text}
-                                      onChange={(e) => updateQuestionText(q.id, e.target.value)}
-                                      className="w-full bg-transparent text-sm font-black text-text-main uppercase tracking-tight outline-none border-b border-transparent focus:border-brand-500"
-                                    />
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider">MÓDULO/SECTOR:</span>
-                                      <input 
-                                        type="text"
-                                        value={q.category || ''}
-                                        placeholder="SECTOR"
-                                        onChange={(e) => updateQuestionCategory(q.id, e.target.value)}
-                                        className="bg-bg-sidebar border border-border-dim/50 rounded px-2 py-0.5 text-[8px] font-bold uppercase text-text-main w-44 outline-none focus:border-brand-500/50"
-                                      />
-                                    </div>
-                                  </div>
+                          {(() => {
+                            // Agrupar las preguntas por categoría, en el orden en que aparecen
+                            const orden: string[] = [];
+                            const grupos: Record<string, { q: Question; idx: number }[]> = {};
+                            selectedTemplate.questions.forEach((q, idx) => {
+                              const cat = (q.category || 'GENERAL');
+                              if (!grupos[cat]) { grupos[cat] = []; orden.push(cat); }
+                              grupos[cat].push({ q, idx });
+                            });
+                            return orden.map(catName => (
+                              <div key={catName} className="space-y-4">
+                                {/* Encabezado de la categoría (editable) */}
+                                <div className="flex items-center gap-2 border-b-2 border-brand-500/30 pb-2">
+                                  <span className="text-[9px] font-black uppercase text-brand-500 tracking-widest shrink-0">Categoría</span>
+                                  <input
+                                    key={catName}
+                                    type="text"
+                                    defaultValue={catName}
+                                    onBlur={(e) => renameCategory(catName, e.target.value)}
+                                    className="flex-1 bg-transparent text-sm font-black text-text-main uppercase tracking-tight outline-none border-b border-transparent focus:border-brand-500"
+                                  />
+                                  <span className="text-[8px] text-text-dim font-bold uppercase shrink-0">{grupos[catName].length} preg.</span>
+                                  {!isReadOnly && (
+                                    <button onClick={() => deleteCategory(catName)} title="Eliminar categoría y sus preguntas" className="text-text-dim hover:text-red-500 p-1 shrink-0">
+                                      <Trash2 size={14} />
+                                    </button>
+                                  )}
                                 </div>
-                                <button 
-                                  onClick={() => deleteQuestion(q.id)}
-                                  className="text-text-dim hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+
+                                {grupos[catName].map(({ q, idx }) => (
+                                  <motion.div
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    key={q.id}
+                                    className="bg-bg-accent/40 border border-border-dim/50 rounded-lg p-6 group hover:border-brand-500/30 transition-all"
+                                  >
+                                    <div className="flex justify-between gap-4 mb-4">
+                                      <div className="flex items-start gap-4 flex-1">
+                                        <span className="w-8 h-8 rounded-full bg-bg-sidebar border border-border-dim flex items-center justify-center text-[10px] font-black text-brand-500 shadow-inner shrink-0">
+                                          {idx + 1}
+                                        </span>
+                                        <input
+                                          type="text"
+                                          value={q.text}
+                                          onChange={(e) => updateQuestionText(q.id, e.target.value)}
+                                          className="flex-1 bg-transparent text-sm font-black text-text-main uppercase tracking-tight outline-none border-b border-transparent focus:border-brand-500"
+                                        />
+                                      </div>
+                                      <button
+                                        onClick={() => deleteQuestion(q.id)}
+                                        className="text-text-dim hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </div>
+
+                                    {q.type === 'text' ? (
+                                      <div className="ml-12 p-3 bg-bg-sidebar border border-border-dim rounded-md">
+                                        <p className="text-[9px] font-black uppercase tracking-widest text-text-dim">RESPUESTA DE TEXTO LIBRE</p>
+                                      </div>
+                                    ) : (
+                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 ml-12">
+                                        {q.options.map((opt) => (
+                                          <div key={opt.id} className="flex flex-col gap-2 p-3 bg-bg-sidebar border border-border-dim rounded-md">
+                                            <div className="flex items-center gap-2">
+                                              <div className={cn(
+                                                "w-3 h-3 rounded-sm",
+                                                opt.color === 'green' ? 'bg-emerald-500' : opt.color === 'yellow' ? 'bg-orange-500' : 'bg-red-500'
+                                              )}></div>
+                                              <input
+                                                className="bg-transparent text-[10px] font-bold uppercase text-text-main outline-none w-full border-b border-transparent focus:border-border-dim"
+                                                defaultValue={opt.text}
+                                                onChange={(e) => { opt.text = e.target.value; }}
+                                              />
+                                            </div>
+                                            <div className="flex items-center justify-between text-[8px] font-black uppercase text-text-dim mt-1">
+                                              <span>PESO: {opt.score > 0 ? (opt.score === 1 ? 'APROBADO' : 'OBSERVADO') : 'BANDERA ROJA'}</span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </motion.div>
+                                ))}
+
+                                {!isReadOnly && (
+                                  <button
+                                    onClick={() => addQuestionToCategory(catName)}
+                                    className="w-full py-3 border border-dashed border-border-dim/50 rounded-lg text-[9px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all flex items-center justify-center gap-2"
+                                  >
+                                    <Plus size={14} /> Agregar pregunta a "{catName}"
+                                  </button>
+                                )}
                               </div>
+                            ));
+                          })()}
 
-                              {q.type === 'text' ? (
-                                <div className="ml-12 p-3 bg-bg-sidebar border border-border-dim rounded-md">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-text-dim">RESPUESTA DE TEXTO LIBRE</p>
-                                </div>
-                              ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 ml-12">
-                                  {q.options.map((opt) => (
-                                    <div key={opt.id} className="flex flex-col gap-2 p-3 bg-bg-sidebar border border-border-dim rounded-md">
-                                       <div className="flex items-center gap-2">
-                                          <div className={cn(
-                                            "w-3 h-3 rounded-sm",
-                                            opt.color === 'green' ? 'bg-emerald-500' : opt.color === 'yellow' ? 'bg-orange-500' : 'bg-red-500'
-                                          )}></div>
-                                          <input 
-                                            className="bg-transparent text-[10px] font-bold uppercase text-text-main outline-none w-full border-b border-transparent focus:border-border-dim" 
-                                            defaultValue={opt.text} 
-                                            onChange={(e) => {
-                                              opt.text = e.target.value;
-                                            }}
-                                          />
-                                       </div>
-                                       <div className="flex items-center justify-between text-[8px] font-black uppercase text-text-dim mt-1">
-                                          <span>PESO: {opt.score > 0 ? (opt.score === 1 ? 'APROBADO' : 'OBSERVADO') : 'BANDERA ROJA'}</span>
-                                       </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </motion.div>
-                          ))}
-
-                          <button 
-                            onClick={addQuestion}
-                            className="w-full py-6 border-2 border-dashed border-border-dim/40 rounded-xl text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 hover:bg-brand-500/5 transition-all flex items-center justify-center gap-3"
-                          >
-                            <Plus size={18} /> Agregar Pregunta al Formulario
-                          </button>
+                          {!isReadOnly && (
+                            <button
+                              onClick={addCategory}
+                              className="w-full py-6 border-2 border-dashed border-brand-500/40 rounded-xl text-[10px] font-black uppercase tracking-widest text-brand-500 hover:bg-brand-500/5 transition-all flex items-center justify-center gap-3"
+                            >
+                              <Plus size={18} /> Agregar Categoría
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
