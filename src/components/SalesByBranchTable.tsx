@@ -63,6 +63,14 @@ export default function SalesByBranchTable({ branches }: Props) {
             .from('sales_tickets')
             .select('branch_id, date, gross_sales, net_sales, orders')
             .gte('date', start).lte('date', end)
+            // Orden estable por la clave natural del ticket para que la paginación
+            // con .range() no pise ni saltee filas (un mes completo supera las 1000).
+            .order('date', { ascending: true })
+            .order('branch_id', { ascending: true })
+            .order('shift', { ascending: true })
+            .order('hour', { ascending: true })
+            .order('payment_method', { ascending: true })
+            .order('comprobante', { ascending: true })
             .range(page * size, (page + 1) * size - 1);
           if (error || !rows || rows.length === 0) { more = false; break; }
           all = all.concat(rows);
