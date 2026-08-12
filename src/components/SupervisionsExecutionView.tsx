@@ -19,6 +19,7 @@ import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import { SEEDED_TEMPLATES, AuditTemplate, Question, Option } from '../lib/supervisionSeeds';
+import SupervisionPhotoThumb from './SupervisionPhotoThumb';
 
 // Miniatura de una foto de supervisión. Las fotos se guardan en el bucket privado
 // "documents" (solo la ruta), así que acá pedimos una URL firmada para mostrarla.
