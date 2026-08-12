@@ -12,7 +12,8 @@ import {
   Trash2,
   Camera,
   X,
-  Loader2
+  Loader2,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -20,25 +21,6 @@ import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import { SEEDED_TEMPLATES, AuditTemplate, Question, Option } from '../lib/supervisionSeeds';
 import SupervisionPhotoThumb from './SupervisionPhotoThumb';
-
-// Miniatura de una foto de supervisión. Las fotos se guardan en el bucket privado
-// "documents" (solo la ruta), así que acá pedimos una URL firmada para mostrarla.
-function SupervisionPhotoThumb({ path, size = 56 }: { path: string; size?: number }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    supabase.storage.from('documents').createSignedUrl(path, 3600).then(({ data }) => {
-      if (active) setUrl(data?.signedUrl || null);
-    }).catch(() => { if (active) setUrl(null); });
-    return () => { active = false; };
-  }, [path]);
-  if (!url) return <div className="rounded bg-bg-accent animate-pulse" style={{ width: size, height: size }} />;
-  return (
-    <a href={url} target="_blank" rel="noreferrer" title="Ver foto en grande">
-      <img src={url} alt="Foto de la supervisión" className="object-cover rounded border border-border-dim hover:opacity-80 transition-opacity" style={{ width: size, height: size }} />
-    </a>
-  );
-}
 
 interface AuditResult {
   branchId: string;
@@ -1367,16 +1349,24 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                                         <X size={12} /> Quitar foto
                                       </button>
                                     </div>
+                                  ) : photoBusy[q.id] ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-text-dim">
+                                      <Loader2 size={12} className="animate-spin" /> Subiendo…
+                                    </span>
                                   ) : (
-                                    <label className={cn(
-                                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border-dim text-[9px] font-black uppercase tracking-wider transition-all",
-                                      photoBusy[q.id] ? "opacity-60 cursor-wait text-text-dim" : "text-text-dim hover:border-brand-500 hover:text-brand-500 cursor-pointer"
-                                    )}>
-                                      {photoBusy[q.id] ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
-                                      {photoBusy[q.id] ? 'Subiendo…' : 'Adjuntar foto (opcional)'}
-                                      <input type="file" accept="image/*" className="hidden" disabled={photoBusy[q.id]}
-                                        onChange={(e) => { handleQuestionPhoto(q.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
-                                    </label>
+                                    <>
+                                      {/* Cámara: capture="environment" abre la cámara trasera del celular */}
+                                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border-dim text-[9px] font-black uppercase tracking-wider text-text-dim hover:border-brand-500 hover:text-brand-500 cursor-pointer transition-all">
+                                        <Camera size={12} /> Tomar foto
+                                        <input type="file" accept="image/*" capture="environment" className="hidden"
+                                          onChange={(e) => { handleQuestionPhoto(q.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                                      </label>
+                                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border-dim text-[9px] font-black uppercase tracking-wider text-text-dim hover:border-brand-500 hover:text-brand-500 cursor-pointer transition-all">
+                                        <ImageIcon size={12} /> Galería
+                                        <input type="file" accept="image/*" className="hidden"
+                                          onChange={(e) => { handleQuestionPhoto(q.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                                      </label>
+                                    </>
                                   )}
                                 </div>
                             </div>
