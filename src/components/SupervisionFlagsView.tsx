@@ -11,18 +11,22 @@ import {
   AlertCircle,
   CheckCircle2,
   XCircle,
-  Building2
+  Building2,
+  Camera,
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
-import { 
-  SEEDED_TEMPLATES, 
-  AuditTemplate, 
-  Question, 
-  Option 
+import {
+  SEEDED_TEMPLATES,
+  AuditTemplate,
+  Question,
+  Option
 } from '../lib/supervisionSeeds';
+import SupervisionPhotoThumb from './SupervisionPhotoThumb';
 
 export default function SupervisionFlagsView({ 
   branches, 
@@ -49,6 +53,10 @@ export default function SupervisionFlagsView({
   // Supervisor Form State
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string; target?: 'encargado' | 'cocina' | 'ambos'; questionText?: string }>>({});
+  // Fotos opcionales por pregunta (qid -> ruta en Storage), con su preview local.
+  const [photos, setPhotos] = useState<Record<string, string>>({});
+  const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({});
+  const [photoBusy, setPhotoBusy] = useState<Record<string, boolean>>({});
   const [generalNotes, setGeneralNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -616,6 +624,37 @@ export default function SupervisionFlagsView({
     }));
   };
 
+  // Sanitiza el nombre para la clave de Storage (sin acentos/espacios/caracteres raros).
+  const sanitizePhotoName = (name: string) =>
+    name.normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'foto';
+
+  const handleQuestionPhoto = async (qid: string, file: File | null) => {
+    if (!file) return;
+    if (!selectedBranchId) { alert('Elegí primero la sucursal.'); return; }
+    if (!file.type.startsWith('image/')) { alert('Subí una imagen (JPG, PNG, etc.).'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('La imagen no puede superar los 10 MB.'); return; }
+    setPhotoBusy(p => ({ ...p, [qid]: true }));
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const path = `supervisiones/${selectedBranchId}/${date}_${qid}_${Date.now()}_${sanitizePhotoName(file.name)}`;
+      const { error } = await supabase.storage.from('documents').upload(path, file);
+      if (error) throw error;
+      setPhotoPreviews(prev => { if (prev[qid]) URL.revokeObjectURL(prev[qid]); return { ...prev, [qid]: URL.createObjectURL(file) }; });
+      setPhotos(prev => ({ ...prev, [qid]: path }));
+    } catch (e: any) {
+      alert('No se pudo subir la foto: ' + (e?.message || e));
+    } finally {
+      setPhotoBusy(p => ({ ...p, [qid]: false }));
+    }
+  };
+
+  const handleRemoveQuestionPhoto = async (qid: string) => {
+    const path = photos[qid];
+    if (path) { try { await supabase.storage.from('documents').remove([path]); } catch { /* ignore */ } }
+    setPhotos(prev => { const n = { ...prev }; delete n[qid]; return n; });
+    setPhotoPreviews(prev => { if (prev[qid]) URL.revokeObjectURL(prev[qid]); const n = { ...prev }; delete n[qid]; return n; });
+  };
+
   const handleSubmitAudit = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate || !selectedBranchId) return;
@@ -664,6 +703,9 @@ export default function SupervisionFlagsView({
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
+          // Fotos opcionales por pregunta (qid -> ruta en Storage). Se ven en los
+          // resultados junto a cada bandera roja.
+          photos,
           flags: { red: redCount, yellow: yellowCount, green: greenCount },
           // Desglose de banderas rojas por responsable (para el cálculo de premios)
           flags_by_target: { encargado: redEncargado, cocina: redCocina },
@@ -690,6 +732,9 @@ export default function SupervisionFlagsView({
 
       alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.`);
       setAnswers({});
+      setPhotos({});
+      setPhotoPreviews({});
+      setPhotoBusy({});
       setGeneralNotes('');
     } catch (err: any) {
       console.error('Error saving response:', err);
@@ -1120,6 +1165,9 @@ export default function SupervisionFlagsView({
                               if (t) {
                                 setSelectedTemplate(t);
                                 setAnswers({});
+                                setPhotos({});
+                                setPhotoPreviews({});
+                                setPhotoBusy({});
                               }
                             }}
                           >
@@ -1216,6 +1264,31 @@ export default function SupervisionFlagsView({
                                 </div>
                               </div>
                             )}
+
+                            {/* Foto opcional de la pregunta */}
+                            <div className="mt-3 flex items-center gap-3 flex-wrap">
+                              {(photoPreviews[q.id] || photos[q.id]) ? (
+                                <div className="flex items-center gap-2">
+                                  {photoPreviews[q.id]
+                                    ? <img src={photoPreviews[q.id]} alt="Foto adjunta" className="w-14 h-14 object-cover rounded border border-border-dim" />
+                                    : <SupervisionPhotoThumb path={photos[q.id]} />}
+                                  <button type="button" onClick={() => handleRemoveQuestionPhoto(q.id)}
+                                    className="text-[9px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 flex items-center gap-1">
+                                    <X size={12} /> Quitar foto
+                                  </button>
+                                </div>
+                              ) : (
+                                <label className={cn(
+                                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border-dim text-[9px] font-black uppercase tracking-wider transition-all",
+                                  photoBusy[q.id] ? "opacity-60 cursor-wait text-text-dim" : "text-text-dim hover:border-brand-500 hover:text-brand-500 cursor-pointer"
+                                )}>
+                                  {photoBusy[q.id] ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                                  {photoBusy[q.id] ? 'Subiendo…' : 'Adjuntar foto (opcional)'}
+                                  <input type="file" accept="image/*" className="hidden" disabled={photoBusy[q.id]}
+                                    onChange={(e) => { handleQuestionPhoto(q.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                                </label>
+                              )}
+                            </div>
                          </div>
                        ))}
                      </div>
@@ -1353,13 +1426,15 @@ function SupervisionHistoryList({ responses, branches, templates, canDelete, onD
   // Dada una respuesta, devuelve la lista de preguntas marcadas en rojo
   const getRedQuestions = (r: any) => {
     const answers = r?.scores?.answers || {};
-    const reds: { text: string; category: string }[] = [];
+    const photos = r?.scores?.photos || {};
+    const reds: { text: string; category: string; foto: string | null }[] = [];
     Object.keys(answers).forEach(qId => {
       if (answers[qId]?.color === 'red') {
         const info = questionMap[qId];
         reds.push({
           text: info?.text || '(pregunta no encontrada — pudo editarse o eliminarse)',
           category: info?.category || '',
+          foto: photos[qId] || null,
         });
       }
     });
@@ -1485,10 +1560,18 @@ function SupervisionHistoryList({ responses, branches, templates, canDelete, onD
                           {redQuestions.map((q, i) => (
                             <li key={i} className="flex items-start gap-2 text-[11px]">
                               <span className="text-red-500 mt-0.5 shrink-0">●</span>
-                              <span className="text-text-main font-semibold">
-                                {q.category && <span className="text-text-dim font-bold uppercase text-[8px] mr-2 bg-bg-accent px-1.5 py-0.5 rounded">{q.category}</span>}
-                                {q.text}
-                              </span>
+                              <div className="min-w-0">
+                                <span className="text-text-main font-semibold">
+                                  {q.category && <span className="text-text-dim font-bold uppercase text-[8px] mr-2 bg-bg-accent px-1.5 py-0.5 rounded">{q.category}</span>}
+                                  {q.text}
+                                </span>
+                                {q.foto && (
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <SupervisionPhotoThumb path={q.foto} />
+                                    <span className="text-[8px] font-black uppercase tracking-wider text-text-dim">Foto del supervisor</span>
+                                  </div>
+                                )}
+                              </div>
                             </li>
                           ))}
                         </ul>
