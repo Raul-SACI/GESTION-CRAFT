@@ -233,7 +233,12 @@ export default function OrdersSummary({ scope, branches }: Props) {
                 <thead>
                   <tr className="text-[8px] font-black uppercase text-text-dim tracking-wider border-b border-border-dim">
                     <th className="py-1.5">Mes</th>
-                    {years.map(y => <th key={y} className="py-1.5 text-right">{y}</th>)}
+                    {years.map((y, i) => (
+                      <th key={y} className="py-1.5 text-right">
+                        {y}
+                        {i > 0 && <span className="normal-case font-normal opacity-50"> · vs {years[i - 1]}</span>}
+                      </th>
+                    ))}
                     {years.length >= 2 && <th className="py-1.5 text-right">Var % <span className="normal-case font-normal opacity-60">({cmpNew} vs {cmpBase})</span></th>}
                   </tr>
                 </thead>
@@ -248,15 +253,30 @@ export default function OrdersSummary({ scope, branches }: Props) {
                     return (
                       <tr key={mm} className="border-b border-border-dim/30 text-[10px]">
                         <td className="py-1.5 font-black uppercase text-text-main">{mname}</td>
-                        {disp.map((d, i) => (
-                          <td key={years[i]} className={cn("py-1.5 text-right font-mono", d.isProjected ? "text-amber-500" : "text-text-main")}>
-                            {d.value !== undefined
-                              ? <>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</>
-                              : '—'}
-                          </td>
-                        ))}
+                        {disp.map((d, i) => {
+                          // Variación fija vs el mismo mes del año anterior (columna previa)
+                          const prev = i > 0 ? disp[i - 1] : undefined;
+                          const yoy = (d.value && prev && prev.value) ? ((d.value - prev.value) / prev.value) * 100 : null;
+                          return (
+                            <td key={years[i]} className={cn("py-1.5 text-right font-mono align-top", d.isProjected ? "text-amber-500" : "text-text-main")}>
+                              {d.value !== undefined
+                                ? (
+                                  <div className="flex flex-col items-end leading-tight">
+                                    <span>{fmtNum(d.value)}{d.isProjected && <span className="text-[7px] font-black uppercase ml-1 opacity-80">proy.</span>}</span>
+                                    {yoy !== null && (
+                                      <span className={cn("text-[8px] font-black inline-flex items-center gap-0.5", yoy > 0 ? "text-emerald-500" : yoy < 0 ? "text-red-500" : "text-text-dim")}>
+                                        {yoy > 0 ? <TrendingUp size={8} /> : yoy < 0 ? <TrendingDown size={8} /> : null}
+                                        {(yoy > 0 ? '+' : '') + yoy.toFixed(1) + '%'}
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                                : '—'}
+                            </td>
+                          );
+                        })}
                         {years.length >= 2 && (
-                          <td className={cn("py-1.5 text-right font-mono font-black", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : varV < 0 ? "text-red-500" : "text-text-dim")}>
+                          <td className={cn("py-1.5 text-right font-mono font-black align-top", varV === null ? "text-text-dim" : varV > 0 ? "text-emerald-500" : varV < 0 ? "text-red-500" : "text-text-dim")}>
                             {varV !== null
                               ? <span className="inline-flex items-center justify-end gap-0.5">{varV > 0 ? <TrendingUp size={9} /> : varV < 0 ? <TrendingDown size={9} /> : null}{(varV > 0 ? '+' : '') + varV.toFixed(1) + '%'}</span>
                               : '—'}
