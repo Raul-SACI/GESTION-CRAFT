@@ -1062,7 +1062,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               <Receipt size={16} className="text-brand-500" />
               <h3 className="text-xs font-black uppercase text-text-main tracking-wider">Tickets / Órdenes</h3>
             </div>
-            <OrdersSummary scope={selectedBranch === 'all' ? 'consolidated' : selectedBranch} />
+            <OrdersSummary scope={selectedBranch === 'all' ? 'consolidated' : selectedBranch} branches={operativeBranches} />
           </div>
 
           {/* Pasivos consolidados por entidad (Bancarios / Fiscales / Legales) */}
