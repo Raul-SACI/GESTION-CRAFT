@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Loader2, TrendingUp, TrendingDown } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { SUBTOTAL_COMPONENTS } from './plStructure';
@@ -174,6 +175,40 @@ export default function OrdersSummary({ scope, branches }: Props) {
     return t * inflationFactor(`${year}-${mm}`, `${refYear}-${mm}`);
   };
 
+  // Total anual de un año (suma de sus meses con datos; el mes en curso va proyectado).
+  const yearTotal = (year: string): { value: number | undefined; hasProjected: boolean } => {
+    let sum = 0; let has = false; let proj = false;
+    MONTHS_ES.forEach((_, idx) => {
+      const d = getOrdersDisplay(year, String(idx + 1).padStart(2, '0'));
+      if (d.value !== undefined) { sum += d.value; has = true; if (d.isProjected) proj = true; }
+    });
+    return { value: has ? sum : undefined, hasProjected: proj };
+  };
+  // Comparación de totales SOLO sobre los meses que ambos años tienen cargados
+  // (comparación justa cuando el año en curso todavía no está completo).
+  const commonTotalsVar = (yNew: string, yBase: string): number | null => {
+    if (!yNew || !yBase || yNew === yBase) return null;
+    let a = 0; let b = 0; let has = false;
+    MONTHS_ES.forEach((_, idx) => {
+      const mm = String(idx + 1).padStart(2, '0');
+      const nv = getOrdersDisplay(yNew, mm).value;
+      const bv = getOrdersDisplay(yBase, mm).value;
+      if (nv !== undefined && bv !== undefined) { a += nv; b += bv; has = true; }
+    });
+    if (!has || b === 0) return null;
+    return ((a - b) / b) * 100;
+  };
+
+  // Datos para la gráfica: una línea por año, eje X = meses.
+  const chartData = useMemo(() => MONTHS_ES.map((mname, idx) => {
+    const mm = String(idx + 1).padStart(2, '0');
+    const row: Record<string, number | string> = { mes: mname };
+    years.forEach(y => { const v = getOrdersDisplay(y, mm).value; if (v !== undefined) row[y] = v; });
+    return row;
+  }), [years, orders, daysLoadedByMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+  const YEAR_PALETTE = ['#94a3b8', '#60a5fa', '#a78bfa', '#34d399', '#f59e0b', '#f472b6'];
+  const yearColor = (y: string, i: number) => (y === refYear ? '#e31e24' : YEAR_PALETTE[i % YEAR_PALETTE.length]);
+
   const branchLabel = effScope === 'consolidated'
     ? 'Consolidado'
     : (branches?.find(b => b.id === effScope)?.name || 'Sucursal');
@@ -286,8 +321,71 @@ export default function OrdersSummary({ scope, branches }: Props) {
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border-dim text-[10px]">
+                    <td className="py-2 font-black uppercase text-text-main">Total</td>
+                    {years.map((y, i) => {
+                      const t = yearTotal(y);
+                      const yoyTot = i > 0 ? commonTotalsVar(y, years[i - 1]) : null;
+                      return (
+                        <td key={y} className="py-2 text-right font-mono font-black align-top text-text-main">
+                          {t.value !== undefined
+                            ? (
+                              <div className="flex flex-col items-end leading-tight">
+                                <span>{fmtNum(t.value)}{t.hasProjected && <span className="text-[7px] font-black uppercase ml-1 text-amber-500 opacity-90">proy.</span>}</span>
+                                {yoyTot !== null && (
+                                  <span className={cn("text-[8px] font-black inline-flex items-center gap-0.5", yoyTot > 0 ? "text-emerald-500" : yoyTot < 0 ? "text-red-500" : "text-text-dim")}>
+                                    {yoyTot > 0 ? <TrendingUp size={8} /> : yoyTot < 0 ? <TrendingDown size={8} /> : null}
+                                    {(yoyTot > 0 ? '+' : '') + yoyTot.toFixed(1) + '%'}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                            : '—'}
+                        </td>
+                      );
+                    })}
+                    {years.length >= 2 && (() => {
+                      const vt = commonTotalsVar(cmpNew, cmpBase);
+                      return (
+                        <td className={cn("py-2 text-right font-mono font-black", vt === null ? "text-text-dim" : vt > 0 ? "text-emerald-500" : vt < 0 ? "text-red-500" : "text-text-dim")}>
+                          {vt !== null
+                            ? <span className="inline-flex items-center justify-end gap-0.5">{vt > 0 ? <TrendingUp size={9} /> : vt < 0 ? <TrendingDown size={9} /> : null}{(vt > 0 ? '+' : '') + vt.toFixed(1) + '%'}</span>
+                            : '—'}
+                        </td>
+                      );
+                    })()}
+                  </tr>
+                </tfoot>
               </table>
             </div>
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-2 opacity-60">Total = suma de los meses cargados. La variación de totales compara solo los meses que ambos años tienen cargados.</p>
+          </div>
+
+          {/* Gráfica de órdenes por mes/año */}
+          <div>
+            <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2">Órdenes por mes · evolución</p>
+            <ResponsiveContainer width="100%" height={240}>
+              <LineChart data={chartData} margin={{ top: 5, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#8883" />
+                <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))} />
+                <Tooltip formatter={(v: any) => fmtNum(Number(v))} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {years.map((y, i) => (
+                  <Line
+                    key={y}
+                    type="monotone"
+                    dataKey={y}
+                    name={y}
+                    stroke={yearColor(y, i)}
+                    strokeWidth={y === refYear ? 2.5 : 1.5}
+                    dot={{ r: 2 }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
 
           {/* Ticket promedio ajustado */}
