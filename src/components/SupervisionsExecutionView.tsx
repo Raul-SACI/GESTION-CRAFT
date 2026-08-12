@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Flag, 
-  ClipboardCheck, 
+import {
+  Flag,
+  ClipboardCheck,
   AlertCircle,
   CheckCircle2,
   XCircle,
@@ -9,13 +9,35 @@ import {
   Building2,
   BarChart3,
   Plus,
-  Trash2
+  Trash2,
+  Camera,
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import { SEEDED_TEMPLATES, AuditTemplate, Question, Option } from '../lib/supervisionSeeds';
+
+// Miniatura de una foto de supervisión. Las fotos se guardan en el bucket privado
+// "documents" (solo la ruta), así que acá pedimos una URL firmada para mostrarla.
+function SupervisionPhotoThumb({ path, size = 56 }: { path: string; size?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    supabase.storage.from('documents').createSignedUrl(path, 3600).then(({ data }) => {
+      if (active) setUrl(data?.signedUrl || null);
+    }).catch(() => { if (active) setUrl(null); });
+    return () => { active = false; };
+  }, [path]);
+  if (!url) return <div className="rounded bg-bg-accent animate-pulse" style={{ width: size, height: size }} />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title="Ver foto en grande">
+      <img src={url} alt="Foto de la supervisión" className="object-cover rounded border border-border-dim hover:opacity-80 transition-opacity" style={{ width: size, height: size }} />
+    </a>
+  );
+}
 
 interface AuditResult {
   branchId: string;
@@ -40,6 +62,10 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<AuditTemplate | null>(null);
   const [answers, setAnswers] = useState<Record<string, { optionId: string; text: string; score: number; color: 'green' | 'yellow' | 'red'; textVal?: string; target?: 'encargado' | 'cocina' | 'ambos' }>>({});
+  // Fotos opcionales por pregunta (qid -> ruta en Storage), con su preview local mientras se carga el formulario.
+  const [photos, setPhotos] = useState<Record<string, string>>({});
+  const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({});
+  const [photoBusy, setPhotoBusy] = useState<Record<string, boolean>>({});
   const [generalNotes, setGeneralNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -309,6 +335,7 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
   // Devuelve el detalle de las banderas rojas de una supervisión, con el texto de la pregunta
   const detalleBanderas = (r: any) => {
     const answers = r.scores?.answers || {};
+    const photos = r.scores?.photos || {};
     const tpl = templates.find(t => t.id === r.checklist_id);
     return Object.entries(answers)
       .filter(([, a]: any) => a?.color === 'red')
@@ -318,7 +345,8 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
           qid,
           pregunta: q?.text || '(pregunta no encontrada — la plantilla pudo cambiar)',
           categoria: q?.category || '',
-          target: a?.target || null // null = nunca se asignó
+          target: a?.target || null, // null = nunca se asignó
+          foto: photos[qid] || null   // ruta de la foto adjunta, si el supervisor la cargó
         };
       });
   };
@@ -444,8 +472,41 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
       setSelectedTemplate(templates[0]);
     }
     setAnswers({});
+    setPhotos({});
+    setPhotoPreviews({});
+    setPhotoBusy({});
     setGeneralNotes('');
     setShowForm(true);
+  };
+
+  // Sanitiza el nombre para la clave de Storage (sin acentos/espacios/caracteres raros).
+  const sanitizePhotoName = (name: string) =>
+    name.normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '') || 'foto';
+
+  const handleQuestionPhoto = async (qid: string, file: File | null) => {
+    if (!file || !selectedBranch) return;
+    if (!file.type.startsWith('image/')) { alert('Subí una imagen (JPG, PNG, etc.).'); return; }
+    if (file.size > 10 * 1024 * 1024) { alert('La imagen no puede superar los 10 MB.'); return; }
+    setPhotoBusy(p => ({ ...p, [qid]: true }));
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const path = `supervisiones/${selectedBranch.id}/${date}_${qid}_${Date.now()}_${sanitizePhotoName(file.name)}`;
+      const { error } = await supabase.storage.from('documents').upload(path, file);
+      if (error) throw error;
+      setPhotoPreviews(prev => { if (prev[qid]) URL.revokeObjectURL(prev[qid]); return { ...prev, [qid]: URL.createObjectURL(file) }; });
+      setPhotos(prev => ({ ...prev, [qid]: path }));
+    } catch (e: any) {
+      alert('No se pudo subir la foto: ' + (e?.message || e));
+    } finally {
+      setPhotoBusy(p => ({ ...p, [qid]: false }));
+    }
+  };
+
+  const handleRemoveQuestionPhoto = async (qid: string) => {
+    const path = photos[qid];
+    if (path) { try { await supabase.storage.from('documents').remove([path]); } catch { /* ignore */ } }
+    setPhotos(prev => { const n = { ...prev }; delete n[qid]; return n; });
+    setPhotoPreviews(prev => { if (prev[qid]) URL.revokeObjectURL(prev[qid]); const n = { ...prev }; delete n[qid]; return n; });
   };
 
   const handleSelectOption = (questionId: string, opt: Option) => {
@@ -533,6 +594,9 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
         date: new Date().toISOString().split('T')[0],
         scores: {
           answers,
+          // Fotos opcionales por pregunta (qid -> ruta en Storage). Se ven en los
+          // resultados junto a cada bandera roja.
+          photos,
           flags: { red: redCount, yellow: yellowCount, green: greenCount },
           // Desglose de banderas rojas por responsable (para el cálculo de premios)
           flags_by_target: { encargado: redEncargado, cocina: redCocina },
@@ -797,6 +861,12 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[10px] font-bold text-text-main uppercase">{d.pregunta}</p>
                                     {d.categoria && <p className="text-[8px] font-bold text-text-dim uppercase">{d.categoria}</p>}
+                                    {d.foto && (
+                                      <div className="mt-1.5 flex items-center gap-1.5">
+                                        <SupervisionPhotoThumb path={d.foto} />
+                                        <span className="text-[8px] font-black uppercase tracking-wider text-text-dim">Foto del supervisor</span>
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1 shrink-0">
                                     {([
@@ -1174,6 +1244,9 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                                    if (t) {
                                      setSelectedTemplate(t);
                                      setAnswers({});
+                                     setPhotos({});
+                                     setPhotoPreviews({});
+                                     setPhotoBusy({});
                                    }
                                  }}
                                >
@@ -1280,6 +1353,31 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                                     </div>
                                   </div>
                                 )}
+
+                                {/* Foto opcional de la pregunta */}
+                                <div className="mt-3 flex items-center gap-3 flex-wrap">
+                                  {(photoPreviews[q.id] || photos[q.id]) ? (
+                                    <div className="flex items-center gap-2">
+                                      {photoPreviews[q.id]
+                                        ? <img src={photoPreviews[q.id]} alt="Foto adjunta" className="w-14 h-14 object-cover rounded border border-border-dim" />
+                                        : <SupervisionPhotoThumb path={photos[q.id]} />}
+                                      <button type="button" onClick={() => handleRemoveQuestionPhoto(q.id)}
+                                        className="text-[9px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 flex items-center gap-1">
+                                        <X size={12} /> Quitar foto
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <label className={cn(
+                                      "inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border-dim text-[9px] font-black uppercase tracking-wider transition-all",
+                                      photoBusy[q.id] ? "opacity-60 cursor-wait text-text-dim" : "text-text-dim hover:border-brand-500 hover:text-brand-500 cursor-pointer"
+                                    )}>
+                                      {photoBusy[q.id] ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                                      {photoBusy[q.id] ? 'Subiendo…' : 'Adjuntar foto (opcional)'}
+                                      <input type="file" accept="image/*" className="hidden" disabled={photoBusy[q.id]}
+                                        onChange={(e) => { handleQuestionPhoto(q.id, e.target.files?.[0] || null); e.currentTarget.value = ''; }} />
+                                    </label>
+                                  )}
+                                </div>
                             </div>
                         ))}
 
