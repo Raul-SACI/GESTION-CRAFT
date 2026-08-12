@@ -1553,7 +1553,7 @@ function AppContent() {
         </header>
 
         {/* Dynamic View */}
-        <div className="p-6 flex-1">
+        <div className="p-6 pb-24 lg:pb-6 flex-1">
           {isCurrentTabReadOnly && (
             <div className="bg-brand-500/10 text-brand-500 border border-brand-500/20 px-6 py-3 rounded-lg mb-6 flex items-center gap-3 text-xs font-black uppercase tracking-widest">
               <Lock size={16} />
@@ -2040,6 +2040,43 @@ function AppContent() {
           </AnimatePresence>
         </div>
       </main>
+
+      {/* Barra inferior de accesos rápidos (solo en celular). Muestra solo los
+          módulos a los que el usuario tiene acceso. */}
+      {(() => {
+        const quick = [
+          { id: 'registro_supervision', label: 'Registro Superv.', icon: ClipboardCheck },
+          { id: 'evaluacion_duenos', label: 'Eval. Dueños', icon: Landmark },
+        ].filter(it =>
+          currentUser.role === 'administrador' ||
+          currentUser.role === 'dueño' ||
+          (currentUser.permissions || []).includes(it.id)
+        );
+        if (quick.length === 0) return null;
+        return (
+          <nav
+            className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-bg-sidebar/95 backdrop-blur border-t border-border-dim flex shadow-[0_-4px_16px_rgba(0,0,0,0.15)]"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+          >
+            {quick.map(it => {
+              const active = activeTab === it.id;
+              return (
+                <button
+                  key={it.id}
+                  onClick={() => setActiveTab(it.id)}
+                  className={cn(
+                    "flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors",
+                    active ? "text-brand-500" : "text-text-dim hover:text-text-main"
+                  )}
+                >
+                  <it.icon size={20} />
+                  <span className="text-[9px] font-black uppercase tracking-wider">{it.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        );
+      })()}
     </div>
   );
 }
