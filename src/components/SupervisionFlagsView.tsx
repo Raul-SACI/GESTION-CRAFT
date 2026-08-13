@@ -18,6 +18,7 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import jsPDF from 'jspdf';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
@@ -764,6 +765,128 @@ export default function SupervisionFlagsView({
     setPhotoPreviews(prev => { if (prev[qid]) URL.revokeObjectURL(prev[qid]); const n = { ...prev }; delete n[qid]; return n; });
   };
 
+  // Descarga una foto del bucket privado y la devuelve como dataURL + dimensiones.
+  const fetchImageDataUrl = async (path: string): Promise<{ dataUrl: string; w: number; h: number } | null> => {
+    try {
+      const { data, error } = await supabase.storage.from('documents').download(path);
+      if (error || !data) return null;
+      const dataUrl = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result as string);
+        fr.onerror = rej;
+        fr.readAsDataURL(data);
+      });
+      const dims = await new Promise<{ w: number; h: number }>((res) => {
+        const img = new Image();
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => res({ w: 0, h: 0 });
+        img.src = dataUrl;
+      });
+      return { dataUrl, w: dims.w, h: dims.h };
+    } catch { return null; }
+  };
+
+  // Genera un PDF de la supervisión recién realizada (con fotos si existen).
+  const generateSupervisionPDF = async (snap: {
+    templateName: string; branchName: string; date: string; supervisorName: string;
+    questions: any[]; answers: Record<string, any>; photos: Record<string, string>;
+    generalNotes: string; score: number; redCount: number; yellowCount: number; greenCount: number;
+  }) => {
+    const M = 14, PW = 210, PH = 297, CW = PW - 2 * M;
+    const BRAND: [number, number, number] = [193, 18, 31];
+    const DARK: [number, number, number] = [33, 37, 41];
+    const GRAY: [number, number, number] = [110, 116, 122];
+    const GREEN: [number, number, number] = [16, 185, 129];
+    const AMBER: [number, number, number] = [245, 158, 11];
+    const RED: [number, number, number] = [220, 38, 38];
+    const F = 'helvetica';
+    const fmtD = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
+
+    const doc = new jsPDF();
+    doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 11);
+    doc.setFontSize(15); doc.text('REGISTRO DE SUPERVISIÓN', M, 20);
+    doc.setFont(F, 'normal'); doc.setFontSize(8); doc.text(`${snap.branchName} · ${snap.templateName}`, M, 26);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text(fmtD(snap.date), PW - M, 18, { align: 'right' });
+    doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.text(`Por ${snap.supervisorName}`, PW - M, 24, { align: 'right' });
+
+    let y = 40;
+    doc.setFont(F, 'bold'); doc.setFontSize(11); doc.setTextColor(...DARK);
+    doc.text(`Puntuación: ${snap.score.toFixed(1)} / 10`, M, y);
+    doc.setFontSize(8); doc.setTextColor(...GRAY);
+    doc.text(`${snap.greenCount} OK · ${snap.yellowCount} obs. · ${snap.redCount} bandera(s) roja(s)`, PW - M, y, { align: 'right' });
+    y += 8;
+
+    for (let idx = 0; idx < snap.questions.length; idx++) {
+      const q = snap.questions[idx];
+      const a = snap.answers[q.id];
+      if (y > 262) { doc.addPage(); y = 20; }
+
+      doc.setFont(F, 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK);
+      const qLines = doc.splitTextToSize(`${idx + 1}. ${q.text}`, CW - 34);
+      doc.text(qLines, M, y);
+      if (q.category) {
+        doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+        doc.text(String(q.category).toUpperCase(), PW - M, y, { align: 'right' });
+      }
+      y += qLines.length * 4.8 + 1.5;
+
+      if (q.type === 'text') {
+        doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
+        const t = (a?.textVal || '').trim() || '—';
+        const tLines = doc.splitTextToSize(t, CW - 4);
+        doc.text(tLines, M, y); y += tLines.length * 4.2 + 1.5;
+      } else {
+        const col = a?.color === 'green' ? GREEN : a?.color === 'yellow' ? AMBER : a?.color === 'red' ? RED : GRAY;
+        doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...col);
+        const label = (a?.text || '—') + (a?.color === 'red' ? '  ⚑' : '');
+        const aLines = doc.splitTextToSize(label, CW - 4);
+        doc.text(aLines, M, y); y += aLines.length * 4.6 + 1;
+        if (a?.color === 'red' && a?.target) {
+          const tl = a.target === 'encargado' ? 'Encargado' : a.target === 'cocina' ? 'Jefe de Cocina' : 'Ambos';
+          doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+          doc.text(`Responsable: ${tl}`, M, y); y += 4.5;
+        }
+      }
+
+      const photoPath = snap.photos[q.id];
+      if (photoPath) {
+        const img = await fetchImageDataUrl(photoPath);
+        if (img && img.w > 0) {
+          const maxW = 55, maxH = 55;
+          let w = maxW, h = maxW * (img.h / img.w);
+          if (h > maxH) { h = maxH; w = maxH * (img.w / img.h); }
+          if (y + h > 283) { doc.addPage(); y = 20; }
+          const fmt = img.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+          try { doc.addImage(img.dataUrl, fmt, M, y, w, h); } catch { /* formato no soportado */ }
+          y += h + 3;
+        }
+      }
+      doc.setDrawColor(235, 236, 238); doc.setLineWidth(0.2); doc.line(M, y, PW - M, y);
+      y += 5;
+    }
+
+    if (snap.generalNotes && snap.generalNotes.trim()) {
+      if (y > 255) { doc.addPage(); y = 20; }
+      doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...DARK);
+      doc.text('OBSERVACIONES GENERALES', M, y); y += 5;
+      doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
+      const oLines = doc.splitTextToSize(snap.generalNotes.trim(), CW);
+      doc.text(oLines, M, y);
+    }
+
+    const pc = doc.getNumberOfPages();
+    for (let p = 1; p <= pc; p++) {
+      doc.setPage(p);
+      doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+      doc.text(`Registro de Supervisión · ${snap.branchName} · ${fmtD(snap.date)}`, M, PH - 8);
+      doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+    }
+    const safe = snap.branchName.normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sucursal';
+    doc.save(`supervision_${safe}_${snap.date}.pdf`);
+  };
+
   const handleSubmitAudit = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!selectedTemplate || !selectedBranchId) return;
@@ -839,13 +962,30 @@ export default function SupervisionFlagsView({
         throw error;
       }
 
-      alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.`);
+      // Snapshot para el PDF (antes de limpiar el formulario).
+      const pdfSnapshot = {
+        templateName: selectedTemplate.name,
+        branchName: branches.find(b => b.id === selectedBranchId)?.name || selectedBranchId,
+        date: responseData.date,
+        supervisorName: currentUserName || '—',
+        questions: selectedTemplate.questions,
+        answers: { ...answers },
+        photos: { ...photos },
+        generalNotes,
+        score: averageNormalizedScore,
+        redCount, yellowCount, greenCount,
+      };
+
+      alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.\n\nSe descargará el PDF de la supervisión.`);
       setAnswers({});
       setPhotos({});
       setPhotoPreviews({});
       setPhotoBusy({});
       setGeneralNotes('');
       setCatIndex(0);
+
+      // Generar y descargar el PDF (con fotos). No bloquea el reseteo del formulario.
+      generateSupervisionPDF(pdfSnapshot).catch(e => console.error('Error generando PDF de supervisión:', e));
     } catch (err: any) {
       console.error('Error saving response:', err);
       const msg = err?.message || err?.details || JSON.stringify(err) || 'Error desconocido';
