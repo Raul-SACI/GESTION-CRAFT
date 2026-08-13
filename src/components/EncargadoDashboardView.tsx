@@ -898,12 +898,13 @@ export default function EncargadoDashboardView({
     };
   }, [blackFlagsByRole]);
 
-  // Desvío de stock para el premio.
-  // Definido por administración (Opción 1): PROMEDIO de la columna DESVÍO de la planilla,
-  // en valor absoluto. Por insumo, el desvío es (igual que la planilla):
+  // Desvío de stock para el premio (en % real).
+  // Por insumo, el desvío se mide igual que la planilla:
   //   cmvReal = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
-  //   desvío  = cmvReal - ventas teóricas   (en UNIDADES, tal como se ve en la planilla)
-  // El resultado es el promedio simple de |desvío| de cada insumo controlado.
+  //   desvío (unidades) = cmvReal - ventas teóricas
+  //   desvío %          = |cmvReal - ventas teóricas| / ventas teóricas * 100
+  // El resultado es el promedio simple del desvío % de cada insumo controlado.
+  // Los insumos sin ventas teóricas (base 0) no se pueden medir en %, así que no cuentan.
   const autoStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
@@ -957,9 +958,12 @@ export default function EncargadoDashboardView({
       });
       // Insumo sin ningún dato (todo en cero) no se cuenta
       if (ei === 0 && ef === 0 && compras === 0 && ventasTeorico === 0) return;
+      // Sin ventas teóricas no hay base para medir el % → no se cuenta
+      if (ventasTeorico <= 0) return;
       const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
       const desvio = cmvReal - ventasTeorico; // en unidades, igual que la planilla
-      desvios.push(Math.abs(desvio));
+      const desvioPct = (Math.abs(desvio) / ventasTeorico) * 100; // % sobre las ventas teóricas
+      desvios.push(desvioPct);
     });
 
     if (desvios.length === 0) return 0;
