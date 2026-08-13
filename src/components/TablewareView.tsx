@@ -26,9 +26,10 @@ interface TablewareViewProps {
   branches: Branch[];
   selectedBranchId: string;
   isReadOnly?: boolean;
+  isAdmin?: boolean;
 }
 
-export default function TablewareView({ branches, selectedBranchId, isReadOnly }: TablewareViewProps) {
+export default function TablewareView({ branches, selectedBranchId, isReadOnly, isAdmin }: TablewareViewProps) {
   const [items, setItems] = useState<TablewareItem[]>([]);
   const [checks, setChecks] = useState<TablewareWeeklyCheck[]>([]);
   const [loading, setLoading] = useState(false);
@@ -321,17 +322,22 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly }
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button 
-            onClick={handleExportTemplate}
-            className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
-          >
-            <Download size={14} /> MODELO
-          </button>
-          
-          <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center gap-2">
-            <FileUp size={14} /> IMPORTAR
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
-          </label>
+          {/* Modelo + Importar: solo admin (la importación es para la carga inicial; si
+              queda visible para las sucursales terminan duplicando artículos). */}
+          {isAdmin && (
+            <>
+              <button
+                onClick={handleExportTemplate}
+                className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+              >
+                <Download size={14} /> MODELO
+              </button>
+              <label className="bg-bg-accent hover:bg-bg-card border border-border-dim text-text-dim px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest cursor-pointer transition-all flex items-center gap-2">
+                <FileUp size={14} /> IMPORTAR
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
+              </label>
+            </>
+          )}
 
           {canShowContent && (
             <>
@@ -356,7 +362,7 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly }
          <div className="bg-bg-sidebar border border-border-dim border-dashed p-20 rounded text-center flex flex-col items-center justify-center">
             <Utensils size={40} className="text-text-dim/20 mb-4" />
             <h3 className="text-sm font-black text-text-main uppercase tracking-widest">Seleccione una Sucursal</h3>
-            <p className="text-[10px] text-text-dim mt-2 uppercase tracking-widest max-w-xs">Para gestionar la vajilla o cargar inventarios semanales debe elegir una sucursal específica. <br/><br/>O use el botón <b>IMPORTAR</b> para carga inicial masiva.</p>
+            <p className="text-[10px] text-text-dim mt-2 uppercase tracking-widest max-w-xs">Para gestionar la vajilla o cargar inventarios semanales debe elegir una sucursal específica.{isAdmin && <> <br/><br/>O use el botón <b>IMPORTAR</b> para carga inicial masiva.</>}</p>
          </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
