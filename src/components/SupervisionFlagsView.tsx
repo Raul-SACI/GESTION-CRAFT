@@ -19,6 +19,12 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
+
+// iPhone/iPad: Safari ignora la descarga automática de archivos (<a download>), por
+// eso hay que abrir el PDF con un toque del usuario para poder guardarlo/compartirlo.
+const isIOS = () =>
+  /iP(ad|hone|od)/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
@@ -62,6 +68,8 @@ export default function SupervisionFlagsView({
   const [generalNotes, setGeneralNotes] = useState<string>('');
   // Asistente por categorías del "Registro de Supervisión": muestra una categoría por vez.
   const [catIndex, setCatIndex] = useState(0);
+  // PDF listo para descargar/ver (clave en iPhone, donde la descarga automática no funciona).
+  const [pdfReady, setPdfReady] = useState<{ url: string; filename: string } | null>(null);
 
   // Preguntas agrupadas por categoría (módulo/sector), en el orden en que aparecen.
   const catsSupervisor = React.useMemo(() => {
@@ -884,7 +892,29 @@ export default function SupervisionFlagsView({
       doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
     }
     const safe = snap.branchName.normalize('NFD').replace(/[^\x00-\x7F]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sucursal';
-    doc.save(`supervision_${safe}_${snap.date}.pdf`);
+    const filename = `supervision_${safe}_${snap.date}.pdf`;
+    const url = URL.createObjectURL(doc.output('blob'));
+    // En desktop/Android descargamos directo. En iPhone la descarga automática no
+    // funciona, así que dejamos el PDF listo para abrirlo con un botón (toque real).
+    if (!isIOS()) {
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    setPdfReady(prev => { if (prev?.url) URL.revokeObjectURL(prev.url); return { url, filename }; });
+  };
+
+  // Abre/descarga el PDF ya generado, desde un toque del usuario (necesario en iOS).
+  const openPdf = () => {
+    if (!pdfReady) return;
+    if (isIOS()) {
+      // Safari iOS: abrir el PDF permite al usuario compartirlo o "Guardar en Archivos".
+      window.open(pdfReady.url, '_blank');
+    } else {
+      const a = document.createElement('a');
+      a.href = pdfReady.url; a.download = pdfReady.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
   };
 
   const handleSubmitAudit = async () => {
@@ -976,7 +1006,7 @@ export default function SupervisionFlagsView({
         redCount, yellowCount, greenCount,
       };
 
-      alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.\n\nSe descargará el PDF de la supervisión.`);
+      alert(`¡Supervisión "${selectedTemplate.name}" registrada con éxito! Puntuación final: ${averageNormalizedScore.toFixed(1)}/10. Se encontraron ${redCount} banderas rojas.\n\nEl PDF quedará listo arriba: tocá "Ver / Descargar PDF".`);
       setAnswers({});
       setPhotos({});
       setPhotoPreviews({});
@@ -1001,6 +1031,25 @@ export default function SupervisionFlagsView({
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
+      {pdfReady && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-500/10 border border-emerald-500/40 rounded-lg p-4">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 size={20} className="text-emerald-500 shrink-0" />
+            <div>
+              <p className="text-[11px] font-black uppercase text-text-main tracking-wide">Supervisión registrada</p>
+              <p className="text-[9px] font-bold uppercase text-text-dim">PDF listo. En iPhone tocá el botón para abrirlo y guardarlo.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={openPdf}
+              className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-md">
+              <FileText size={13} /> Ver / Descargar PDF
+            </button>
+            <button onClick={() => setPdfReady(prev => { if (prev?.url) URL.revokeObjectURL(prev.url); return null; })}
+              className="p-2 text-text-dim hover:text-text-main" title="Ocultar"><X size={15} /></button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-border-dim pb-4 gap-4">
         <div className="flex items-center gap-3">
           <div className="bg-brand-500/10 p-3 text-brand-500 border border-brand-500/20 rounded-lg shadow-inner">
