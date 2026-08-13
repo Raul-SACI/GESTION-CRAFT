@@ -1801,7 +1801,7 @@ function AppContent() {
               )}
               {activeTab === 'precios' && <PriceListView key="precios" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'gestion_sueldos' && <SalaryManagementView key="gestion_sueldos" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'vajilla' && <TablewareView key="vajilla" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} isAdmin={currentUser.role === 'administrador' || currentUser.role === 'dueño'} />}
               {activeTab === 'novedades' && <NewsView key="novedades" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cuentas' && <PasswordManagementView key="cuentas" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'giftcards_sucursal' && (
