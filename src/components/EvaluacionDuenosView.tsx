@@ -17,8 +17,10 @@ import { motion } from 'motion/react';
 import {
   Landmark, Plus, Trash2, Pencil, X, Save, Loader2, CalendarDays, Building2,
   ClipboardCheck, Settings2, ListChecks, Camera, Image as ImageIcon, Flag,
-  CheckCircle2, AlertTriangle, Eye
+  CheckCircle2, AlertTriangle, Eye, FileText
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -91,6 +93,72 @@ export default function EvaluacionDuenosView({
   useEffect(() => { load(); }, []);
 
   const questionsByGroup = (g: Grupo) => questions.filter(q => q.grupo === g).sort((a, b) => a.sort_order - b.sort_order);
+
+  // PDF con el cuestionario que auditan los dueños (por sección). Sirve de referencia
+  // para el equipo y como planilla imprimible (columnas Cumple / Advertencia / No cumple).
+  const exportPreguntasPDF = () => {
+    const M = 14, PW = 210, PH = 297, CW = PW - 2 * M;
+    const BRAND: [number, number, number] = [193, 18, 31];
+    const DARK: [number, number, number] = [33, 37, 41];
+    const GRAY: [number, number, number] = [110, 116, 122];
+    const F = 'helvetica';
+
+    const doc = new jsPDF();
+    doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 12);
+    doc.setFontSize(15); doc.text('EVALUACIÓN DE DUEÑOS', M, 21);
+    doc.setFont(F, 'normal'); doc.setFontSize(8); doc.text('Cuestionario de auditoría', M, 26.5);
+    doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text(fmtDMY(todayISO()), PW - M, 20, { align: 'right' });
+
+    let y = 40;
+    doc.setFont(F, 'normal'); doc.setFontSize(9); doc.setTextColor(...GRAY);
+    const intro = doc.splitTextToSize('Estas son las preguntas que los dueños auditan en cada sucursal. Cada punto se evalúa como Cumple, Advertencia o No cumple (Bandera Negra).', CW);
+    doc.text(intro, M, y); y += intro.length * 4.6 + 4;
+
+    const seccionesConPreguntas = SECCIONES.filter(sec => questionsByGroup(sec.id).length > 0);
+    if (seccionesConPreguntas.length === 0) {
+      doc.setTextColor(...GRAY); doc.setFontSize(10);
+      doc.text('Todavía no hay preguntas cargadas.', M, y);
+    }
+
+    seccionesConPreguntas.forEach(sec => {
+      const qs = questionsByGroup(sec.id);
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFont(F, 'bold'); doc.setFontSize(12); doc.setTextColor(...DARK);
+      doc.text(sec.label.toUpperCase(), M, y);
+      doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+      doc.text(`${qs.length} pregunta(s)`, PW - M, y, { align: 'right' });
+      y += 2;
+
+      const rows = qs.map((q, i) => [String(i + 1), q.text, '', '', '']);
+      autoTable(doc, {
+        head: [['N°', 'Pregunta', 'Cumple', 'Advert.', 'No cumple']],
+        body: rows,
+        startY: y + 2, margin: { left: M, right: M },
+        styles: { fontSize: 9, cellPadding: 2.5, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2, valign: 'middle' },
+        headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8, halign: 'center' },
+        alternateRowStyles: { fillColor: [249, 250, 251] as any },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: CW - 10 - 3 * 18 },
+          2: { cellWidth: 18, halign: 'center' },
+          3: { cellWidth: 18, halign: 'center' },
+          4: { cellWidth: 18, halign: 'center' },
+        },
+      });
+      y = (doc as any).lastAutoTable.finalY + 8;
+    });
+
+    const pc = doc.getNumberOfPages();
+    for (let p = 1; p <= pc; p++) {
+      doc.setPage(p);
+      doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+      doc.text('Evaluación de Dueños · Cuestionario de auditoría', M, PH - 8);
+      doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+    }
+    doc.save(`evaluacion_duenos_cuestionario_${todayISO()}.pdf`);
+  };
 
   // ───────── Configuración (estructura) ─────────
   const [nuevaPregunta, setNuevaPregunta] = useState<Record<Grupo, string>>({ almacen: '', servicio: '', estado_general: '' });
@@ -252,10 +320,16 @@ export default function EvaluacionDuenosView({
               <p className="text-[9px] text-text-dim uppercase font-bold">Auditoría por sucursal · Cumple / Advertencia / No cumple (Bandera Negra)</p>
             </div>
           </div>
+          <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={exportPreguntasPDF} title="Descargar el cuestionario en PDF"
+            className="flex items-center gap-1.5 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest border border-border-dim text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all">
+            <FileText size={12} /> PDF preguntas
+          </button>
           <div className="flex gap-1 bg-bg-accent p-1 rounded-lg">
             <button onClick={() => setTab('evaluar')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'evaluar' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ClipboardCheck size={12} /> Evaluar</button>
             <button onClick={() => setTab('resultados')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'resultados' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ListChecks size={12} /> Resultados</button>
             {isAdmin && <button onClick={() => setTab('config')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'config' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><Settings2 size={12} /> Preguntas</button>}
+          </div>
           </div>
         </div>
       </div>
