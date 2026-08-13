@@ -649,6 +649,53 @@ export default function SupervisionFlagsView({
     });
   };
 
+  // ── Opciones de respuesta por pregunta ──
+  // El color define el peso: verde = APROBADO (1), amarillo = OBSERVADO (0.5),
+  // rojo = BANDERA ROJA (0).
+  const colorScore = (color: 'green' | 'yellow' | 'red') => (color === 'green' ? 1 : color === 'yellow' ? 0.5 : 0);
+
+  const addOption = (qId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const nueva = { id: 'opt_n_' + Math.random().toString(36).substr(2, 5), text: 'Nueva opción', score: 0.5, color: 'yellow' as const };
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.map(q => q.id === qId ? { ...q, options: [...q.options, nueva] } : q)
+    });
+  };
+
+  const updateOptionText = (qId: string, optId: string, text: string) => {
+    if (isReadOnly) return;
+    if (!selectedTemplate) return;
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.map(q => q.id === qId
+        ? { ...q, options: q.options.map(o => o.id === optId ? { ...o, text } : o) } : q)
+    });
+  };
+
+  const updateOptionColor = (qId: string, optId: string, color: 'green' | 'yellow' | 'red') => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.map(q => q.id === qId
+        ? { ...q, options: q.options.map(o => o.id === optId ? { ...o, color, score: colorScore(color) } : o) } : q)
+    });
+  };
+
+  const deleteOption = (qId: string, optId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!selectedTemplate) return;
+    const q = selectedTemplate.questions.find(x => x.id === qId);
+    if (q && q.options.length <= 2) { alert('Cada pregunta debe tener al menos 2 opciones de respuesta.'); return; }
+    setSelectedTemplate({
+      ...selectedTemplate,
+      questions: selectedTemplate.questions.map(qq => qq.id === qId
+        ? { ...qq, options: qq.options.filter(o => o.id !== optId) } : qq)
+    });
+  };
+
   // ── Edición del formulario por CATEGORÍAS ──
   const nuevaPreguntaObj = (category: string): Question => ({
     id: 'q_' + Math.random().toString(36).substr(2, 7),
@@ -1335,25 +1382,57 @@ export default function SupervisionFlagsView({
                                         <p className="text-[9px] font-black uppercase tracking-widest text-text-dim">RESPUESTA DE TEXTO LIBRE</p>
                                       </div>
                                     ) : (
-                                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 ml-12">
-                                        {q.options.map((opt) => (
-                                          <div key={opt.id} className="flex flex-col gap-2 p-3 bg-bg-sidebar border border-border-dim rounded-md">
-                                            <div className="flex items-center gap-2">
-                                              <div className={cn(
-                                                "w-3 h-3 rounded-sm",
-                                                opt.color === 'green' ? 'bg-emerald-500' : opt.color === 'yellow' ? 'bg-orange-500' : 'bg-red-500'
-                                              )}></div>
-                                              <input
-                                                className="bg-transparent text-[10px] font-bold uppercase text-text-main outline-none w-full border-b border-transparent focus:border-border-dim"
-                                                defaultValue={opt.text}
-                                                onChange={(e) => { opt.text = e.target.value; }}
-                                              />
+                                      <div className="ml-12 space-y-3">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                          {q.options.map((opt) => (
+                                            <div key={opt.id} className="flex flex-col gap-2 p-3 bg-bg-sidebar border border-border-dim rounded-md">
+                                              <div className="flex items-center gap-2">
+                                                <div className={cn(
+                                                  "w-3 h-3 rounded-sm shrink-0",
+                                                  opt.color === 'green' ? 'bg-emerald-500' : opt.color === 'yellow' ? 'bg-orange-500' : 'bg-red-500'
+                                                )}></div>
+                                                <input
+                                                  className="bg-transparent text-[10px] font-bold uppercase text-text-main outline-none w-full border-b border-transparent focus:border-border-dim"
+                                                  value={opt.text}
+                                                  onChange={(e) => updateOptionText(q.id, opt.id, e.target.value)}
+                                                />
+                                                {!isReadOnly && (
+                                                  <button onClick={() => deleteOption(q.id, opt.id)} title="Eliminar opción" className="text-text-dim hover:text-red-500 shrink-0">
+                                                    <Trash2 size={12} />
+                                                  </button>
+                                                )}
+                                              </div>
+                                              {/* Selector de peso/color de la opción */}
+                                              <div className="flex items-center gap-1">
+                                                {([
+                                                  { c: 'green', label: 'Aprobado', dot: 'bg-emerald-500', on: 'border-emerald-500 text-emerald-500' },
+                                                  { c: 'yellow', label: 'Observado', dot: 'bg-orange-500', on: 'border-orange-500 text-orange-500' },
+                                                  { c: 'red', label: 'B. Roja', dot: 'bg-red-500', on: 'border-red-500 text-red-500' },
+                                                ] as const).map(o => (
+                                                  <button
+                                                    key={o.c}
+                                                    onClick={() => updateOptionColor(q.id, opt.id, o.c)}
+                                                    disabled={isReadOnly}
+                                                    className={cn(
+                                                      "flex-1 flex items-center justify-center gap-1 px-1.5 py-1 rounded border text-[7px] font-black uppercase tracking-wider transition-all",
+                                                      opt.color === o.c ? o.on + ' bg-bg-accent' : 'border-border-dim text-text-dim/60 hover:border-text-dim'
+                                                    )}
+                                                  >
+                                                    <span className={cn("w-2 h-2 rounded-sm", o.dot)}></span>{o.label}
+                                                  </button>
+                                                ))}
+                                              </div>
                                             </div>
-                                            <div className="flex items-center justify-between text-[8px] font-black uppercase text-text-dim mt-1">
-                                              <span>PESO: {opt.score > 0 ? (opt.score === 1 ? 'APROBADO' : 'OBSERVADO') : 'BANDERA ROJA'}</span>
-                                            </div>
-                                          </div>
-                                        ))}
+                                          ))}
+                                        </div>
+                                        {!isReadOnly && (
+                                          <button
+                                            onClick={() => addOption(q.id)}
+                                            className="w-full py-2 border border-dashed border-border-dim/60 rounded-md text-[8px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all flex items-center justify-center gap-1.5"
+                                          >
+                                            <Plus size={12} /> Agregar opción de respuesta
+                                          </button>
+                                        )}
                                       </div>
                                     )}
                                   </motion.div>
