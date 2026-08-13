@@ -270,29 +270,38 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly, 
     if (selectedBranchId === 'all') return;
     setLoading(true);
     try {
-      const entries = Object.entries(weeklyInputs).map(([itemId, values]) => {
-        const v = values as { initial: number, final: number };
-        return {
-          branch_id: selectedBranchId,
-          item_id: itemId,
-          date: selectedWeek,
-          initial_stock: v.initial,
-          final_stock: v.final,
-          breakages: v.initial - v.final
-        };
-      });
+      // Solo guardamos artículos que aún existen (evita FK rotas si se borró un artículo)
+      // y con valores numéricos válidos.
+      const validIds = new Set(items.map(i => i.id));
+      const entries = Object.entries(weeklyInputs)
+        .filter(([itemId]) => validIds.has(itemId))
+        .map(([itemId, values]) => {
+          const v = values as { initial: number, final: number };
+          const initial = Number(v.initial) || 0;
+          const final = Number(v.final) || 0;
+          return {
+            branch_id: selectedBranchId,
+            item_id: itemId,
+            date: selectedWeek,
+            initial_stock: initial,
+            final_stock: final,
+            breakages: initial - final
+          };
+        });
+
+      if (entries.length === 0) { alert('No hay artículos para guardar.'); setLoading(false); return; }
 
       const { error } = await supabase.from('tableware_inventory').upsert(entries, {
         onConflict: 'branch_id,item_id,date'
       });
-      
+
       if (error) throw error;
       setIsInputtingWeek(false);
       setWeeklyInputs({});
       fetchData();
-    } catch (err) {
-      console.error(err);
-      alert('Error al guardar el inventario semanal');
+    } catch (err: any) {
+      console.error('Error guardando inventario semanal vajilla:', err);
+      alert('Error al guardar el inventario semanal: ' + (err?.message || err?.details || err?.hint || JSON.stringify(err)));
     } finally {
       setLoading(false);
     }
