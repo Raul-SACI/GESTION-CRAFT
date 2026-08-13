@@ -898,31 +898,27 @@ export default function EncargadoDashboardView({
     };
   }, [blackFlagsByRole]);
 
-  // Desvío de stock para el premio (en % real).
-  // Por insumo, el desvío se mide igual que la planilla:
-  //   cmvReal = EI + compras + prést.recibidos - prést.enviados - decomisos - consumo personal - EF
-  //   desvío (unidades) = cmvReal - ventas teóricas
-  //   desvío %          = |cmvReal - ventas teóricas| / ventas teóricas * 100
-  // El resultado es el promedio simple del desvío % de cada insumo controlado.
-  // Los insumos sin ventas teóricas (base 0) no se pueden medir en %, así que no cuentan.
+  // Desvío de stock para el premio (en % real), SEMANA A SEMANA.
+  // 1) Por insumo y por semana (S1: días 1-7, S2: 8-14, S3: 15-21, S4: 22-fin), igual que
+  //    la planilla de Control de Stock. Todos los datos de la semana viven en su primer día
+  //    (1, 8, 15, 22); los decomisos vienen repartidos por día, así que se suman de la semana.
+  //      cmvReal (semana) = EI + compras + prést.recib - prést.env - decomisos - consumo - EF
+  //      desvío % (semana) = |cmvReal - ventas teóricas| / ventas teóricas * 100
+  // 2) Desvío mensual del insumo = promedio de los % de sus semanas (con ventas teóricas > 0).
+  // 3) Desvío del dashboard = promedio simple de los % mensuales de todos los insumos.
   const autoStockDeviation = useMemo(() => {
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
 
-    // CASO ESPECIAL JUNIO 2026: se perdió el inventario de las semanas 1-3 (quedaron ventas
-    // teóricas huérfanas). Para junio 2026 el desvío se calcula SOLO con la semana 4.
-    // La semana 4 va del 22/06 al 05/07 (el cierre de semana cae en julio y ahí quedan
-    // cargadas las ventas teóricas), por eso el rango se compara por fecha completa.
-    let logs = rawInventoryLogs;
-    if (selectedMonth === '2026-06') {
-      logs = rawInventoryLogs.filter((d: any) => {
-        const f = String(d.date || '').substring(0, 10);
-        return f >= '2026-06-22' && f <= '2026-07-05';
-      });
-    }
+    const [yy, mm] = selectedMonth.split('-').map(Number);
+    const lastDay = new Date(yy, mm, 0).getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dayOf = (d: any) => Number(String(d.date || '').substring(8, 10));
+    // Semanas: [primer día, último día]
+    const semanas: [number, number][] = [[1, 7], [8, 14], [15, 21], [22, lastDay]];
 
-    // Agrupar por insumo, usando SOLO los insumos de control semanal (igual que la planilla)
+    // Agrupar logs por insumo (respetando el filtro de insumos controlados si existe)
     const porItem: Record<string, any[]> = {};
-    logs.forEach((d: any) => {
+    rawInventoryLogs.forEach((d: any) => {
       const id = d.item_id;
       if (!id) return;
       if (controlledItemIds.length > 0 && !controlledItemIds.includes(id)) return;
@@ -930,44 +926,50 @@ export default function EncargadoDashboardView({
       porItem[id].push(d);
     });
 
-    const desvios: number[] = [];
+    const promediosPorInsumo: number[] = [];
 
     Object.values(porItem).forEach(itemLogs => {
-      const sorted = [...itemLogs].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-      // EI: el del registro más temprano que tenga EI cargado (los días intermedios suelen tener EI=0).
-      // EF: el del registro más tardío que tenga EF cargado.
-      // Antes se tomaba el EI del primer registro y el EF del último a secas: si ese día tenía 0,
-      // el cálculo quedaba mal (ej. LOMO y PAPAS daban un desvío enorme y falso).
-      let ei = 0;
-      for (const d of sorted) { const v = Number(d.ei) || 0; if (v !== 0) { ei = v; break; } }
-      let ef = 0;
-      for (let i = sorted.length - 1; i >= 0; i--) { const v = Number(sorted[i].ef) || 0; if (v !== 0) { ef = v; break; } }
-      let compras = 0, decomisos = 0, consumoPersonal = 0, ventasTeorico = 0, pRec = 0, pEnv = 0;
-      itemLogs.forEach((d: any) => {
-        compras += Number(d.compras) || 0;
-        decomisos += Number(d.decomisos) || 0;
-        consumoPersonal += Number(d.consumo_personal) || 0;
-        ventasTeorico += Number(d.ventas_teorico) || 0;
-        let env = Number(d.prestamos_enviados) || 0;
-        let rec = Number(d.prestamos_recibidos) || 0;
-        if (!env && !rec && d.prestamos) {
-          if (Number(d.prestamos) > 0) rec = Number(d.prestamos);
-          else env = Math.abs(Number(d.prestamos));
+      const pctSemanas: number[] = [];
+
+      semanas.forEach(([wStart, wEnd]) => {
+        // CASO ESPECIAL JUNIO 2026: se perdió el inventario de S1-S3; solo cuenta la semana 4.
+        if (selectedMonth === '2026-06' && wStart !== 22) return;
+
+        const firstDay = `${selectedMonth}-${pad(wStart)}`;
+        const firstLog = itemLogs.find((d: any) => String(d.date).substring(0, 10) === firstDay);
+        if (!firstLog) return;
+
+        const ei = Number(firstLog.ei) || 0;
+        const ef = Number(firstLog.ef) || 0;
+        const compras = Number(firstLog.compras) || 0;
+        const ventasTeorico = Number(firstLog.ventas_teorico) || 0;
+        const consumoPersonal = Number(firstLog.consumo_personal) || 0;
+        let pEnv = Number(firstLog.prestamos_enviados) || 0;
+        let pRec = Number(firstLog.prestamos_recibidos) || 0;
+        if (!pEnv && !pRec && firstLog.prestamos) {
+          if (Number(firstLog.prestamos) > 0) pRec = Number(firstLog.prestamos);
+          else pEnv = Math.abs(Number(firstLog.prestamos));
         }
-        pRec += rec; pEnv += env;
+        // Decomisos: sumados en toda la semana (vienen repartidos por día)
+        let decomisos = 0;
+        itemLogs.forEach((d: any) => {
+          const day = dayOf(d);
+          if (day >= wStart && day <= wEnd) decomisos += Number(d.decomisos) || 0;
+        });
+
+        if (ventasTeorico <= 0) return; // sin base teórica no se puede medir el %
+        const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
+        const desvio = cmvReal - ventasTeorico;
+        pctSemanas.push((Math.abs(desvio) / ventasTeorico) * 100);
       });
-      // Insumo sin ningún dato (todo en cero) no se cuenta
-      if (ei === 0 && ef === 0 && compras === 0 && ventasTeorico === 0) return;
-      // Sin ventas teóricas no hay base para medir el % → no se cuenta
-      if (ventasTeorico <= 0) return;
-      const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
-      const desvio = cmvReal - ventasTeorico; // en unidades, igual que la planilla
-      const desvioPct = (Math.abs(desvio) / ventasTeorico) * 100; // % sobre las ventas teóricas
-      desvios.push(desvioPct);
+
+      if (pctSemanas.length > 0) {
+        promediosPorInsumo.push(pctSemanas.reduce((s, p) => s + p, 0) / pctSemanas.length);
+      }
     });
 
-    if (desvios.length === 0) return 0;
-    return desvios.reduce((s, p) => s + p, 0) / desvios.length;
+    if (promediosPorInsumo.length === 0) return 0;
+    return promediosPorInsumo.reduce((s, p) => s + p, 0) / promediosPorInsumo.length;
   }, [rawInventoryLogs, selectedMonth, controlledItemIds]);
 
   // Desvío efectivo: si administración cargó un valor a mano para este mes/sucursal, se usa ese.
