@@ -904,12 +904,12 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     </td>
 
                     {/* DESVÍO %:
-                         - Sucursal: desvío / Existencia Final TEÓRICA (la que debería tener).
-                           EF teórica = EF real + desvío  (= EI + compras + prést - decomisos - consumo - ventas teóricas).
+                         - Sucursal: desvío / VENTAS TEÓRICAS (lo que debería haberse consumido).
+                           Ej: desvío 1,78 / ventas teó. 29,26 = 6,1%.
                          - Almacén (sin ventas teóricas): desvío / EF real. */}
                     {(() => {
                       const efReal = data.ef || 0;
-                      const base = isAlmacen ? efReal : (efReal + desvio); // EF teórica en sucursal
+                      const base = isAlmacen ? efReal : (data.ventasTeorico || 0); // ventas teóricas en sucursal
                       const desvioPct = base !== 0 ? (desvio / base) * 100 : null;
                       return (
                         <td className="px-4 py-4 text-left">
