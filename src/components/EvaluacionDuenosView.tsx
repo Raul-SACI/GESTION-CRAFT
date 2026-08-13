@@ -274,8 +274,121 @@ export default function EvaluacionDuenosView({
 
   // ───────── Resultados ─────────
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState<Record<string, boolean>>({});
   const qMap = useMemo(() => Object.fromEntries(questions.map(q => [q.id, q])), [questions]);
   const contarNoCumple = (r: Respuesta) => Object.values(r.answers).filter(a => a?.status === 'no_cumple').length;
+
+  // Descarga una foto del bucket privado y la devuelve como dataURL + dimensiones,
+  // para poder incrustarla en el PDF.
+  const fetchImageDataUrl = async (path: string): Promise<{ dataUrl: string; w: number; h: number } | null> => {
+    try {
+      const { data, error } = await supabase.storage.from('documents').download(path);
+      if (error || !data) return null;
+      const dataUrl = await new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result as string);
+        fr.onerror = rej;
+        fr.readAsDataURL(data);
+      });
+      const dims = await new Promise<{ w: number; h: number }>((res) => {
+        const img = new Image();
+        img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+        img.onerror = () => res({ w: 0, h: 0 });
+        img.src = dataUrl;
+      });
+      return { dataUrl, w: dims.w, h: dims.h };
+    } catch { return null; }
+  };
+
+  // Exporta UNA evaluación a PDF, incluyendo las fotos cargadas.
+  const exportEvaluacionPDF = async (r: Respuesta) => {
+    setPdfBusy(p => ({ ...p, [r.id]: true }));
+    try {
+      const M = 14, PW = 210, PH = 297, CW = PW - 2 * M;
+      const BRAND: [number, number, number] = [193, 18, 31];
+      const DARK: [number, number, number] = [33, 37, 41];
+      const GRAY: [number, number, number] = [110, 116, 122];
+      const GREEN: [number, number, number] = [16, 185, 129];
+      const AMBER: [number, number, number] = [245, 158, 11];
+      const F = 'helvetica';
+
+      const doc = new jsPDF();
+      doc.setFillColor(...BRAND); doc.rect(0, 0, PW, 30, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 11);
+      doc.setFontSize(15); doc.text('EVALUACIÓN DE DUEÑOS', M, 20);
+      doc.setFont(F, 'normal'); doc.setFontSize(8); doc.text(`${branchName(r.branch_id)} · ${seccionLabel(r.seccion)}`, M, 26);
+      doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text(fmtDMY(r.date), PW - M, 18, { align: 'right' });
+      if (r.created_by) { doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.text(`Por ${r.created_by}`, PW - M, 24, { align: 'right' }); }
+
+      let y = 40;
+      const nc = contarNoCumple(r);
+      doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...(nc > 0 ? DARK : GREEN));
+      doc.text(nc > 0 ? `${nc} bandera(s) negra(s)` : 'Sin banderas negras', M, y);
+      y += 8;
+
+      const entries = Object.entries(r.answers) as [string, Answer][];
+      for (let idx = 0; idx < entries.length; idx++) {
+        const [qid, a] = entries[idx];
+        const qtext = qMap[qid]?.text || '(pregunta eliminada)';
+        if (y > 262) { doc.addPage(); y = 20; }
+
+        doc.setFont(F, 'bold'); doc.setFontSize(10); doc.setTextColor(...DARK);
+        const qLines = doc.splitTextToSize(`${idx + 1}. ${qtext}`, CW - 34);
+        doc.text(qLines, M, y);
+        const stColor = a.status === 'cumple' ? GREEN : a.status === 'advertencia' ? AMBER : DARK;
+        const stLabel = a.status === 'cumple' ? 'CUMPLE' : a.status === 'advertencia' ? 'ADVERTENCIA' : a.status === 'no_cumple' ? 'NO CUMPLE ⚫' : '—';
+        doc.setFont(F, 'bold'); doc.setFontSize(8); doc.setTextColor(...stColor);
+        doc.text(stLabel, PW - M, y, { align: 'right' });
+        y += qLines.length * 4.8 + 2;
+
+        if (a.status === 'no_cumple' && a.target) {
+          doc.setFont(F, 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+          doc.text(`Responsable: ${TARGETS.find(t => t.id === a.target)?.label || a.target}`, M, y);
+          y += 4.5;
+        }
+        if (a.note) {
+          doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
+          const nLines = doc.splitTextToSize(a.note, CW - 4);
+          doc.text(nLines, M, y);
+          y += nLines.length * 4.2 + 2;
+        }
+        if (a.photo) {
+          const img = await fetchImageDataUrl(a.photo);
+          if (img && img.w > 0) {
+            const maxW = 55, maxH = 55;
+            let w = maxW, h = maxW * (img.h / img.w);
+            if (h > maxH) { h = maxH; w = maxH * (img.w / img.h); }
+            if (y + h > 283) { doc.addPage(); y = 20; }
+            const fmt = img.dataUrl.includes('image/png') ? 'PNG' : 'JPEG';
+            try { doc.addImage(img.dataUrl, fmt, M, y, w, h); } catch { /* formato no soportado */ }
+            y += h + 3;
+          }
+        }
+        doc.setDrawColor(235, 236, 238); doc.setLineWidth(0.2); doc.line(M, y, PW - M, y);
+        y += 5;
+      }
+
+      if (r.notes) {
+        if (y > 255) { doc.addPage(); y = 20; }
+        doc.setFont(F, 'bold'); doc.setFontSize(9); doc.setTextColor(...DARK);
+        doc.text('OBSERVACIONES GENERALES', M, y); y += 5;
+        doc.setFont(F, 'normal'); doc.setFontSize(8.5); doc.setTextColor(...DARK);
+        const oLines = doc.splitTextToSize(r.notes, CW);
+        doc.text(oLines, M, y); y += oLines.length * 4.2;
+      }
+
+      const pc = doc.getNumberOfPages();
+      for (let p = 1; p <= pc; p++) {
+        doc.setPage(p);
+        doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
+        doc.text(`Evaluación de Dueños · ${branchName(r.branch_id)} · ${fmtDMY(r.date)}`, M, PH - 8);
+        doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
+      }
+      doc.save(`evaluacion_${sanitizeName(branchName(r.branch_id))}_${r.date}.pdf`);
+    } catch (e: any) { alert('No se pudo generar el PDF: ' + (e?.message || e)); }
+    finally { setPdfBusy(p => ({ ...p, [r.id]: false })); }
+  };
 
   const borrarRespuesta = async (r: Respuesta) => {
     if (!isAdmin) return;
@@ -408,6 +521,9 @@ export default function EvaluacionDuenosView({
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {nc > 0 && <span className="text-[9px] font-black uppercase px-2 py-1 rounded bg-text-main/90 text-bg-sidebar">{nc} ⚫</span>}
+                      <button onClick={e => { e.stopPropagation(); exportEvaluacionPDF(r); }} disabled={pdfBusy[r.id]} title="Exportar esta evaluación a PDF (con fotos)" className="p-1.5 text-text-dim hover:text-brand-500 disabled:opacity-50">
+                        {pdfBusy[r.id] ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                      </button>
                       {isAdmin && <button onClick={e => { e.stopPropagation(); borrarRespuesta(r); }} className="p-1.5 text-text-dim hover:text-red-500"><Trash2 size={14} /></button>}
                       <Eye size={15} className="text-text-dim" />
                     </div>
