@@ -320,15 +320,15 @@ export default function EvaluacionDuenosView({
               <p className="text-[9px] text-text-dim uppercase font-bold">Auditoría por sucursal · Cumple / Advertencia / No cumple (Bandera Negra)</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
           <button onClick={exportPreguntasPDF} title="Descargar el cuestionario en PDF"
-            className="flex items-center gap-1.5 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest border border-border-dim text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all">
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest border border-border-dim text-text-dim hover:border-brand-500 hover:text-brand-500 transition-all">
             <FileText size={12} /> PDF preguntas
           </button>
-          <div className="flex gap-1 bg-bg-accent p-1 rounded-lg">
-            <button onClick={() => setTab('evaluar')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'evaluar' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ClipboardCheck size={12} /> Evaluar</button>
-            <button onClick={() => setTab('resultados')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'resultados' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ListChecks size={12} /> Resultados</button>
-            {isAdmin && <button onClick={() => setTab('config')} className={cn('px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'config' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><Settings2 size={12} /> Preguntas</button>}
+          <div className="flex gap-1 bg-bg-accent p-1 rounded-lg w-full sm:w-auto">
+            <button onClick={() => setTab('evaluar')} className={cn('flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'evaluar' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ClipboardCheck size={12} /> Evaluar</button>
+            <button onClick={() => setTab('resultados')} className={cn('flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'resultados' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><ListChecks size={12} /> Resultados</button>
+            {isAdmin && <button onClick={() => setTab('config')} className={cn('flex-1 sm:flex-none justify-center px-2 sm:px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', tab === 'config' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}><Settings2 size={12} /> Preguntas</button>}
           </div>
           </div>
         </div>
