@@ -718,7 +718,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>}
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest border-l border-border-dim/20">DESVÍO</th>
-                {isAlmacen && <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest">DESVÍO %</th>}
+                <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest">DESVÍO %</th>
                 <th className="px-6 py-4 text-right sticky right-0 bg-bg-accent z-20 border-l border-border-dim/20 w-40">Cierre</th>
               </tr>
             </thead>
@@ -903,10 +903,14 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                        </span>
                     </td>
 
-                    {/* DESVÍO % = desvío en unidades / Existencia Final (solo Centro de Producción) */}
-                    {isAlmacen && (() => {
-                      const efActual = data.ef || 0;
-                      const desvioPct = efActual !== 0 ? (desvio / efActual) * 100 : null;
+                    {/* DESVÍO %:
+                         - Sucursal: desvío / Existencia Final TEÓRICA (la que debería tener).
+                           EF teórica = EF real + desvío  (= EI + compras + prést - decomisos - consumo - ventas teóricas).
+                         - Almacén (sin ventas teóricas): desvío / EF real. */}
+                    {(() => {
+                      const efReal = data.ef || 0;
+                      const base = isAlmacen ? efReal : (efReal + desvio); // EF teórica en sucursal
+                      const desvioPct = base !== 0 ? (desvio / base) * 100 : null;
                       return (
                         <td className="px-4 py-4 text-left">
                           {desvioPct === null ? (
