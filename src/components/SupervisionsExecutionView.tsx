@@ -314,6 +314,61 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
   const [flagsBranch, setFlagsBranch] = useState<string>('all');
   const [expandedFlag, setExpandedFlag] = useState<string | null>(null);
   const [savingTarget, setSavingTarget] = useState<string | null>(null);
+  // Edición de respuestas de una supervisión ya realizada (para corregir banderas).
+  const [editRow, setEditRow] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState<string | null>(null); // `${rid}_${qid}`
+
+  // Puede editar: la administración, o el supervisor que hizo esa supervisión.
+  const puedeEditarResp = (r: any) =>
+    !r.annulled && (puedeAnular || (!!currentUserName && (r.scores?.supervisor?.name || '') === currentUserName));
+
+  // Cambia la respuesta de una pregunta y recalcula banderas + puntaje. Guarda al instante.
+  const editarRespuesta = async (
+    r: any, qid: string, questionText: string,
+    opt: { id: string; text: string; score: number; color: 'green' | 'yellow' | 'red' }
+  ) => {
+    if (!puedeEditarResp(r)) { alert('Solo la administración o el supervisor que la realizó puede editar esta supervisión.'); return; }
+    setSavingEdit(`${r.id}_${qid}`);
+    try {
+      const scores = JSON.parse(JSON.stringify(r.scores || {}));
+      if (!scores.answers) scores.answers = {};
+      const prev = scores.answers[qid] || {};
+      scores.answers[qid] = {
+        ...prev,
+        optionId: opt.id, text: opt.text, score: opt.score, color: opt.color,
+        questionText: prev.questionText || questionText,
+        target: opt.color === 'red' ? (prev.target || 'ambos') : undefined,
+      };
+      // Recalcular banderas, desglose por responsable y puntaje sobre las respuestas de selección.
+      let total = 0, red = 0, yellow = 0, green = 0, enc = 0, coc = 0;
+      (Object.values(scores.answers) as any[]).forEach(a => {
+        if (!a || a.color === undefined) return; // las de texto libre no cuentan
+        total += Number(a.score) || 0;
+        if (a.color === 'red') {
+          red++;
+          const t = a.target || 'ambos';
+          if (t === 'encargado' || t === 'ambos') enc++;
+          if (t === 'cocina' || t === 'ambos') coc++;
+        } else if (a.color === 'yellow') yellow++;
+        else if (a.color === 'green') green++;
+      });
+      scores.flags = { red, yellow, green };
+      scores.flags_by_target = { encargado: enc, cocina: coc };
+      const nonText = red + yellow + green;
+      const avg = nonText > 0 ? (total / nonText) * 10 : 10;
+
+      const { error } = await supabase
+        .from('supervision_responses')
+        .update({ scores, total_score: parseFloat(avg.toFixed(2)) })
+        .eq('id', r.id);
+      if (error) throw error;
+      await loadData();
+    } catch (e: any) {
+      alert('No se pudo editar la respuesta: ' + (e.message || e));
+    } finally {
+      setSavingEdit(null);
+    }
+  };
 
   // Devuelve el detalle de las banderas rojas de una supervisión, con el texto de la pregunta
   const detalleBanderas = (r: any) => {
@@ -954,9 +1009,15 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                   const formName = r.scores?.template_name || templates.find(t => t.id === r.checklist_id)?.name || '—';
                   const userName = r.scores?.supervisor?.name || '—';
                   const anulada = !!r.annulled;
+                  const tpl = templates.find(t => t.id === r.checklist_id);
+                  const canEdit = puedeEditarResp(r);
+                  const isEditing = editRow === r.id;
                   return (
-                    <tr key={r.id} className={cn("hover:bg-bg-accent/40", anulada && "opacity-50")}>
+                    <React.Fragment key={r.id}>
+                    <tr className={cn("hover:bg-bg-accent/40", anulada && "opacity-50", canEdit && "cursor-pointer")}
+                      onClick={() => canEdit && setEditRow(isEditing ? null : r.id)}>
                       <td className="px-4 py-3 font-mono text-text-dim">
+                        {canEdit && <span className="mr-1.5 text-brand-500">{isEditing ? '▾' : '▸'}</span>}
                         {r.date}
                         {anulada && (
                           <span className="ml-2 px-1.5 py-0.5 bg-red-500/10 text-red-500 border border-red-500/30 rounded text-[7px] font-black uppercase"
@@ -977,12 +1038,12 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                       {puedeAnular && (
                         <td className="px-4 py-3 text-center">
                           {anulada ? (
-                            <button onClick={() => reactivarSupervision(r)}
+                            <button onClick={(e) => { e.stopPropagation(); reactivarSupervision(r); }}
                               className="text-[8px] font-black uppercase tracking-wider text-emerald-500 hover:text-emerald-400 border border-emerald-500/30 rounded px-2 py-1">
                               Reactivar
                             </button>
                           ) : (
-                            <button onClick={() => anularSupervision(r)}
+                            <button onClick={(e) => { e.stopPropagation(); anularSupervision(r); }}
                               className="text-text-dim hover:text-red-500 transition-colors" title="Anular supervisión">
                               <Trash2 size={13} />
                             </button>
@@ -990,6 +1051,57 @@ export default function SupervisionsExecutionView({ branches, isReadOnly = false
                         </td>
                       )}
                     </tr>
+                    {isEditing && (
+                      <tr className="bg-bg-accent/20">
+                        <td colSpan={puedeAnular ? 9 : 8} className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <p className="text-[9px] font-black uppercase tracking-widest text-text-dim mb-1">
+                            Editar respuestas · corregí las banderas si te equivocaste
+                          </p>
+                          <p className="text-[8px] font-bold uppercase text-text-dim opacity-70 mb-3">
+                            Al cambiar una respuesta se recalculan las banderas y el puntaje automáticamente.
+                          </p>
+                          {!tpl ? (
+                            <p className="text-[9px] font-bold uppercase text-amber-500">La plantilla de este formulario ya no está disponible, no se puede editar.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {tpl.questions.filter(q => q.type !== 'text').map(q => {
+                                const a = r.scores?.answers?.[q.id];
+                                const saving = savingEdit === `${r.id}_${q.id}`;
+                                return (
+                                  <div key={q.id} className="bg-bg-card border border-border-dim rounded-lg p-2.5">
+                                    <p className="text-[10px] font-bold text-text-main uppercase mb-2">
+                                      {q.text}
+                                      {q.category && <span className="ml-2 text-[8px] text-text-dim">· {q.category}</span>}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {q.options.map(opt => {
+                                        const sel = a?.optionId === opt.id || (a?.color === opt.color && a?.text === opt.text);
+                                        const dot = opt.color === 'green' ? 'bg-emerald-500' : opt.color === 'yellow' ? 'bg-orange-500' : 'bg-red-500';
+                                        const onCls = opt.color === 'green' ? 'border-emerald-500 text-emerald-500 bg-emerald-500/10'
+                                          : opt.color === 'yellow' ? 'border-orange-500 text-orange-500 bg-orange-500/10'
+                                          : 'border-red-500 text-red-500 bg-red-500/10';
+                                        return (
+                                          <button key={opt.id} type="button" disabled={saving}
+                                            onClick={(e) => { e.stopPropagation(); editarRespuesta(r, q.id, q.text, opt); }}
+                                            className={cn(
+                                              "flex items-center gap-1.5 px-2.5 py-1.5 rounded border text-[9px] font-black uppercase tracking-wider transition-all",
+                                              sel ? onCls : "border-border-dim text-text-dim hover:border-text-dim",
+                                              saving && "opacity-50 cursor-wait"
+                                            )}>
+                                            <span className={cn("w-2 h-2 rounded-sm", dot)}></span>{opt.text}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
