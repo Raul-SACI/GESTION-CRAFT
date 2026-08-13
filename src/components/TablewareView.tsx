@@ -302,6 +302,30 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly, 
     return checks.find(c => c.itemId === itemId);
   };
 
+  // Prepara la carga semanal: el EI (existencia inicial) de cada artículo se
+  // autocompleta con el EF (existencia final) de la semana anterior. Si ya hay
+  // una carga para esa misma semana, se traen sus valores guardados (edición).
+  const buildWeeklyInputs = (weekDate: string) => {
+    const map: Record<string, { initial: number; final: number }> = {};
+    // checks viene ordenado por fecha descendente, así que el primer match es el más reciente.
+    items.forEach(item => {
+      const sameWeek = checks.find(c => c.itemId === item.id && c.date === weekDate);
+      if (sameWeek) {
+        map[item.id] = { initial: sameWeek.initialStock, final: sameWeek.finalStock };
+      } else {
+        const prev = checks.find(c => c.itemId === item.id && c.date < weekDate);
+        const ef = prev ? prev.finalStock : 0;
+        map[item.id] = { initial: ef, final: ef };
+      }
+    });
+    return map;
+  };
+
+  const openWeeklyModal = () => {
+    setWeeklyInputs(buildWeeklyInputs(selectedWeek));
+    setIsInputtingWeek(true);
+  };
+
   const canShowContent = selectedBranchId !== 'all';
 
   return (
@@ -348,7 +372,7 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly, 
                 <Plus size={14} /> NUEVO ÍTEM
               </button>
               <button 
-                onClick={() => setIsInputtingWeek(true)}
+                onClick={openWeeklyModal}
                 className="bg-brand-500 hover:bg-brand-600 text-black px-5 py-2 rounded text-[9px] font-black uppercase tracking-widest shadow-xl transition-all flex items-center gap-2"
               >
                 <Calendar size={14} /> CARGA SEMANAL
@@ -654,16 +678,16 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly, 
                 <div className="p-6 bg-bg-main border-b border-border-dim flex items-center gap-6">
                    <div className="space-y-2">
                       <label className="text-[9px] font-black text-text-dim uppercase">Semana de Control</label>
-                      <input 
+                      <input
                         type="date"
                         value={selectedWeek}
-                        onChange={(e) => setSelectedWeek(e.target.value)}
+                        onChange={(e) => { setSelectedWeek(e.target.value); setWeeklyInputs(buildWeeklyInputs(e.target.value)); }}
                         className="bg-bg-sidebar border border-border-dim rounded px-4 py-2 text-xs font-mono text-brand-500 outline-none"
                       />
                    </div>
                    <div className="p-3 bg-brand-500/5 rounded border border-brand-500/10">
                       <p className="text-[9px] font-bold text-brand-500 uppercase flex items-center gap-2">
-                         <TrendingDown size={14} /> El sistema calculará las roturas automáticamente: EI - EF
+                         <TrendingDown size={14} /> El EI viene precargado con el EF de la semana anterior. Las roturas se calculan solas: EI - EF
                       </p>
                    </div>
                 </div>
