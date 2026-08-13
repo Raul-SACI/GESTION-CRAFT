@@ -247,6 +247,23 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly }
     }
   };
 
+  const handleDeleteItem = async (item: TablewareItem) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    if (!window.confirm(`¿Eliminar el artículo "${item.name}"? Se borrará también su historial de inventario. Esta acción no se puede deshacer.`)) return;
+    setLoading(true);
+    try {
+      // Primero borramos el historial de inventario del artículo (evita quedar huérfano).
+      await supabase.from('tableware_inventory').delete().eq('item_id', item.id);
+      const { error } = await supabase.from('tableware_items').delete().eq('id', item.id);
+      if (error) throw error;
+      await fetchData();
+    } catch (err: any) {
+      alert('Error al eliminar el artículo: ' + (err?.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSaveWeeklyCheck = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (selectedBranchId === 'all') return;
@@ -439,14 +456,25 @@ export default function TablewareView({ branches, selectedBranchId, isReadOnly }
                                        ) : '--'}
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                       <span className={cn(
-                                         "px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest border",
-                                         isCritical ? "bg-red-500/20 text-red-500 border-red-500/40" :
-                                         isLow ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
-                                         "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
-                                       )}>
-                                          {isCritical ? 'REPONER URGENTE' : isLow ? 'A REPONER' : 'OK'}
-                                       </span>
+                                       <div className="flex items-center justify-end gap-2">
+                                         <span className={cn(
+                                           "px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest border",
+                                           isCritical ? "bg-red-500/20 text-red-500 border-red-500/40" :
+                                           isLow ? "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" :
+                                           "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                                         )}>
+                                            {isCritical ? 'REPONER URGENTE' : isLow ? 'A REPONER' : 'OK'}
+                                         </span>
+                                         {!isReadOnly && (
+                                           <button
+                                             onClick={() => handleDeleteItem(item)}
+                                             title="Eliminar artículo"
+                                             className="p-1.5 text-text-dim hover:text-red-500 transition-colors"
+                                           >
+                                             <Trash2 size={14} />
+                                           </button>
+                                         )}
+                                       </div>
                                     </td>
                                  </tr>
                                );
