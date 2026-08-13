@@ -387,6 +387,25 @@ export default function ConsumoView({
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  {(() => {
+                    const totalPrev = consolidated.reduce((s, c) => s + (c.prev || 0), 0);
+                    const totalCurrent = consolidated.reduce((s, c) => s + (c.current || 0), 0);
+                    const totalVar = (totalPrev !== 0) ? ((totalCurrent - totalPrev) / totalPrev) * 100 : null;
+                    return (
+                      <tr className="text-[11px] font-black border-t-2 border-border-dim">
+                        <td className="px-3 py-2.5 uppercase text-brand-500">Total consolidado</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{'$' + Math.round(totalPrev).toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{'$' + Math.round(totalCurrent).toLocaleString('es-AR')}</td>
+                        <td className="px-3 py-2.5 text-right font-mono">
+                          {totalVar !== null
+                            ? <span className={totalVar <= 0 ? 'text-emerald-500' : 'text-red-500'}>{totalVar > 0 ? '+' : ''}{totalVar.toFixed(1)}%</span>
+                            : <span className="text-text-dim">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })()}
+                </tfoot>
               </table>
             </div>
           )}
