@@ -37,6 +37,14 @@ interface Row {
   hoursDevPct: number | null;
   redFlags: number;
   blackFlags: number;
+  detail: {
+    projected: number;
+    daysCount: number;
+    tiers: { threshold: number; prize: number; reached: boolean }[];
+    cmvEi: number; cmvEf: number; cmvComprasMov: number; cmvMonto: number;
+    hoursBase: number; hoursExceso: number;
+    blackPerf: number; blackDuenos: number;
+  };
 }
 
 const monthLabel = (m: string) => {
@@ -56,6 +64,7 @@ export default function ConsolidatedEncargadoView({
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   // Sucursales a comparar: operativas (sin Almacén / virtuales / consolidado).
   const targetBranches = useMemo(
@@ -92,18 +101,21 @@ export default function ConsolidatedEncargadoView({
         }
 
         // ---- Objetivos de ventas por sucursal (performance_role_configs) ----
-        // El mínimo threshold del escalón de "Ventas Netas" del rol encargado.
-        const minVentasByBranch: Record<string, number | null> = {};
+        // Escalones de "Ventas Netas" del rol encargado (ordenados de menor a mayor).
+        const tiersByBranch: Record<string, { threshold: number; prize: number }[]> = {};
         const { data: perfCfg } = await supabase.from('performance_role_configs').select('branch_id, role, variables').eq('month', month);
         (perfCfg || []).forEach((c: any) => {
           const vars = c.variables || [];
           const ventasVar = (vars as any[]).find(v => String(v?.name || '').toLowerCase().includes('venta'));
           const tiers = ventasVar?.tiers;
           if (!Array.isArray(tiers) || tiers.length === 0) return;
-          const minTh = Math.min(...tiers.map((t: any) => Number(t.threshold) || 0).filter((n: number) => n > 0));
-          if (!isFinite(minTh)) return;
-          // Preferimos el rol encargado; si ya hay uno, no lo pisamos con otro rol.
-          if (c.role === 'encargado' || minVentasByBranch[c.branch_id] == null) minVentasByBranch[c.branch_id] = minTh;
+          const parsed = tiers
+            .map((t: any) => ({ threshold: Number(t.threshold) || 0, prize: Number(t.prize) || 0 }))
+            .filter((t: any) => t.threshold > 0)
+            .sort((a: any, b: any) => a.threshold - b.threshold);
+          if (parsed.length === 0) return;
+          // Preferimos el rol encargado; si ya hay uno cargado, no lo pisamos con otro rol.
+          if (c.role === 'encargado' || !tiersByBranch[c.branch_id]) tiersByBranch[c.branch_id] = parsed;
         });
 
         // ---- CMV: EI/EF (cmv_monthly) + compras/mov (cmv_details) ----
@@ -155,21 +167,22 @@ export default function ConsolidatedEncargadoView({
         });
 
         // ---- Banderas negras (performance_reports + evaluacion_duenos_responses) ----
-        const blackByBranch: Record<string, number> = {};
+        const blackPerfByBranch: Record<string, number> = {};
+        const blackDuenosByBranch: Record<string, number> = {};
         const { data: perf } = await supabase.from('performance_reports').select('branch_id, black_flags').eq('month', month);
         (perf || []).forEach((r: any) => {
           const n = Array.isArray(r.black_flags) ? r.black_flags.length : 0;
-          blackByBranch[r.branch_id] = (blackByBranch[r.branch_id] || 0) + n;
+          blackPerfByBranch[r.branch_id] = (blackPerfByBranch[r.branch_id] || 0) + n;
         });
         const { data: duenos } = await supabase.from('evaluacion_duenos_responses').select('branch_id, answers').gte('date', d1).lte('date', d2);
         (duenos || []).forEach((r: any) => {
           const ans = r.answers && typeof r.answers === 'object' ? r.answers : {};
           const nc = (Object.values(ans) as any[]).filter(a => a?.status === 'no_cumple').length;
-          if (nc > 0) blackByBranch[r.branch_id] = (blackByBranch[r.branch_id] || 0) + nc;
+          if (nc > 0) blackDuenosByBranch[r.branch_id] = (blackDuenosByBranch[r.branch_id] || 0) + nc;
         });
 
         // ---- Armar filas por sucursal ----
-        const hoursDev = (bid: string): number | null => {
+        const hoursDev = (bid: string): { pct: number; base: number; exceso: number } | null => {
           const bRows = budgetByBranch[bid] || [];
           const wl = logsByBranch[bid] || { w1: [], w2: [], w3: [], w4: [] };
           if (bRows.length === 0) return null;
@@ -202,7 +215,7 @@ export default function ConsolidatedEncargadoView({
             if (ex > 0) exceso += ex;
           });
           if (base === 0) return null;
-          return (exceso / base) * 100;
+          return { pct: (exceso / base) * 100, base, exceso };
         };
 
         const built: Row[] = targetBranches.map(b => {
@@ -214,9 +227,12 @@ export default function ConsolidatedEncargadoView({
           // Proyección de ventas a fin de mes (igual que el dashboard: venta / días con ventas × días del mes)
           const daysCount = daysByBranch[b.id]?.size || 0;
           const projected = daysCount > 0 ? (net / daysCount) * lastDay : 0;
-          // Alcanzó un objetivo si la proyección llega al escalón más bajo configurado.
-          const minTh = minVentasByBranch[b.id];
-          const achievedSales = minTh != null && projected >= minTh;
+          // Objetivos: cuáles alcanzó (proyección >= escalón).
+          const tiers = (tiersByBranch[b.id] || []).map(t => ({ ...t, reached: projected >= t.threshold }));
+          const achievedSales = tiers.some(t => t.reached);
+          const hd = hoursDev(b.id);
+          const blackPerf = blackPerfByBranch[b.id] || 0;
+          const blackDuenos = blackDuenosByBranch[b.id] || 0;
           return {
             branchId: b.id,
             branchName: b.name,
@@ -224,9 +240,15 @@ export default function ConsolidatedEncargadoView({
             hasSales: net > 0,
             achievedSales,
             cmvPct,
-            hoursDevPct: hoursDev(b.id),
+            hoursDevPct: hd ? hd.pct : null,
             redFlags: redByBranch[b.id] || 0,
-            blackFlags: blackByBranch[b.id] || 0,
+            blackFlags: blackPerf + blackDuenos,
+            detail: {
+              projected, daysCount, tiers,
+              cmvEi: eief.ei, cmvEf: eief.ef, cmvComprasMov: comprasMov, cmvMonto: totalCmv,
+              hoursBase: hd ? hd.base : 0, hoursExceso: hd ? hd.exceso : 0,
+              blackPerf, blackDuenos,
+            },
           };
         });
         setRows(built);
@@ -316,9 +338,13 @@ export default function ConsolidatedEncargadoView({
             <tbody className="divide-y divide-border-dim/40">
               {[...rows].sort((a, b) => trophyCount(b) - trophyCount(a)).map(r => {
                 const total = trophyCount(r);
+                const isExp = expanded === r.branchId;
                 return (
-                  <tr key={r.branchId} className="text-[11px] hover:bg-bg-accent/30">
-                    <td className="px-3 py-3 font-black uppercase text-text-main">{r.branchName}</td>
+                  <React.Fragment key={r.branchId}>
+                  <tr className="text-[11px] hover:bg-bg-accent/30 cursor-pointer" onClick={() => setExpanded(isExp ? null : r.branchId)}>
+                    <td className="px-3 py-3 font-black uppercase text-text-main">
+                      <span className="mr-1.5 text-brand-500">{isExp ? '▾' : '▸'}</span>{r.branchName}
+                    </td>
                     <td className={cn("px-3 py-3 text-right font-mono", winners.ventas.has(r.branchId) ? "text-amber-600 font-black" : "text-text-main")}>
                       {r.hasSales ? fmtMoney(r.netSales) : <span className="text-text-dim">—</span>}
                       {winners.ventas.has(r.branchId) && <T />}
@@ -347,6 +373,72 @@ export default function ConsolidatedEncargadoView({
                       ) : <span className="text-text-dim font-mono">0</span>}
                     </td>
                   </tr>
+                  {isExp && (
+                    <tr className="bg-bg-accent/20">
+                      <td colSpan={6} className="px-4 py-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                          {/* Ventas */}
+                          <div className="bg-bg-card border border-border-dim rounded-lg p-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-brand-500 mb-2">Ventas</p>
+                            <div className="space-y-1 text-[10px] font-mono text-text-main">
+                              <div className="flex justify-between"><span className="text-text-dim">Cargado</span><span>{r.hasSales ? fmtMoney(r.netSales) : '—'}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">Proyección</span><span>{r.detail.projected > 0 ? fmtMoney(r.detail.projected) : '—'}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">Días cargados</span><span>{r.detail.daysCount}</span></div>
+                            </div>
+                            <div className="mt-2 pt-2 border-t border-border-dim/50 space-y-0.5">
+                              <p className="text-[8px] font-black uppercase text-text-dim mb-1">Objetivos (vs proyección)</p>
+                              {r.detail.tiers.length === 0 ? (
+                                <p className="text-[9px] text-text-dim italic">Sin objetivos cargados.</p>
+                              ) : r.detail.tiers.map((t, i) => (
+                                <div key={i} className={cn("flex justify-between text-[9px] font-mono", t.reached ? "text-emerald-600 font-black" : "text-text-dim")}>
+                                  <span>{t.reached ? '✓' : '○'} ≥ {fmtMoney(t.threshold)}</span>
+                                  <span>{fmtMoney(t.prize)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          {/* CMV */}
+                          <div className="bg-bg-card border border-border-dim rounded-lg p-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-brand-500 mb-2">CMV {r.cmvPct !== null ? `· ${r.cmvPct.toFixed(1)}%` : ''}</p>
+                            <div className="space-y-1 text-[10px] font-mono text-text-main">
+                              <div className="flex justify-between"><span className="text-text-dim">EI</span><span>{fmtMoney(r.detail.cmvEi)}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">Compras + Mov.</span><span>{fmtMoney(r.detail.cmvComprasMov)}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">EF</span><span>{fmtMoney(r.detail.cmvEf)}</span></div>
+                              <div className="flex justify-between border-t border-border-dim/50 pt-1 mt-1"><span className="text-text-dim">CMV real ($)</span><span className="font-black">{fmtMoney(r.detail.cmvMonto)}</span></div>
+                            </div>
+                          </div>
+                          {/* Horas */}
+                          <div className="bg-bg-card border border-border-dim rounded-lg p-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-brand-500 mb-2">Horas {r.hoursDevPct !== null ? `· ${r.hoursDevPct.toFixed(1)}%` : ''}</p>
+                            {r.hoursDevPct === null ? (
+                              <p className="text-[9px] text-text-dim italic">Sin presupuesto de horas.</p>
+                            ) : (
+                              <div className="space-y-1 text-[10px] font-mono text-text-main">
+                                <div className="flex justify-between"><span className="text-text-dim">Presupuesto base</span><span>{Math.round(r.detail.hoursBase)} hs</span></div>
+                                <div className="flex justify-between"><span className="text-text-dim">Exceso</span><span className={r.detail.hoursExceso > 0 ? "text-red-500 font-black" : ""}>{Math.round(r.detail.hoursExceso)} hs</span></div>
+                                <p className="text-[8px] text-text-dim mt-1 normal-case">Solo excesos · encargados excluidos</p>
+                              </div>
+                            )}
+                          </div>
+                          {/* Banderas */}
+                          <div className="bg-bg-card border border-border-dim rounded-lg p-3">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-brand-500 mb-2">Banderas</p>
+                            <div className="space-y-1 text-[10px] font-mono text-text-main">
+                              <div className="flex justify-between"><span className="text-text-dim">Rojas</span><span className={r.redFlags > 0 ? "text-red-500 font-black" : ""}>{r.redFlags}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">Negras (perf.)</span><span>{r.detail.blackPerf}</span></div>
+                              <div className="flex justify-between"><span className="text-text-dim">Negras (dueños)</span><span>{r.detail.blackDuenos}</span></div>
+                              <div className="flex justify-between border-t border-border-dim/50 pt-1 mt-1"><span className="text-text-dim">Total</span><span className="font-black">{r.redFlags + r.blackFlags}</span></div>
+                            </div>
+                          </div>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); onSelectBranch(r.branchId); }}
+                          className="mt-3 text-[9px] font-black uppercase tracking-widest text-brand-500 hover:text-brand-600">
+                          Abrir dashboard completo de {r.branchName} →
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
