@@ -502,7 +502,7 @@ export default function DeviationControlView({
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [itemForm, setItemForm] = useState({ name: '', unit: '', cost: 0, category: '', code: '' });
-  const [productForm, setProductForm] = useState({ name: '', category: '' });
+  const [productForm, setProductForm] = useState({ name: '', category: '', code: '', cost: '' });
 
   const downloadTemplate = (type: 'items' | 'products' | 'recipes') => {
     let data = [];
@@ -512,7 +512,7 @@ export default function DeviationControlView({
       data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Codigo': 'INS-001', 'Costo': 100 }];
       filename = 'modelo_insumos.xlsx';
     } else if (type === 'products') {
-      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS' }];
+      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS', 'Codigo': 'PROD-001', 'Costo': 0 }];
       filename = 'modelo_productos.xlsx';
     } else if (type === 'recipes') {
       data = [{ 
@@ -698,9 +698,12 @@ export default function DeviationControlView({
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
 
+        const costParse = (v: any) => { const s = String(v ?? '').trim().replace(',', '.'); return s === '' ? null : (isNaN(Number(s)) ? null : Number(s)); };
         const newProducts = data.map((row: any) => ({
           name: String(row.Nombre || row.name || '').toUpperCase(),
-          category: String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase()
+          category: String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase(),
+          code: String(row.Codigo || row['Código'] || row.code || '').trim() || null,
+          cost: costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price),
         })).filter(p => p.name);
 
         if (newProducts.length > 0) {
@@ -2157,24 +2160,49 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-black text-text-dim uppercase">Categoría</label>
-                        <input 
+                        <input
                           value={productForm.category}
                           onChange={e => setProductForm({...productForm, category: e.target.value})}
                           className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none focus:border-teal-500 font-black uppercase"
                           placeholder="HAMBURGUESAS..."
                         />
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
+                        <input
+                          value={productForm.code}
+                          onChange={e => setProductForm({...productForm, code: e.target.value})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none focus:border-teal-500 font-black uppercase"
+                          placeholder="PROD-001"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-text-dim uppercase">Costo</label>
+                        <input
+                          type="number" step="0.01"
+                          value={productForm.cost}
+                          onChange={e => setProductForm({...productForm, cost: e.target.value})}
+                          className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none focus:border-teal-500 font-black"
+                          placeholder="0.00"
+                        />
+                      </div>
                    </div>
-                   <button 
+                   <button
                     onClick={async () => {
                         if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+                        const payload = {
+                          name: productForm.name,
+                          category: productForm.category,
+                          code: productForm.code.trim() || null,
+                          cost: productForm.cost.trim() === '' ? null : Number(productForm.cost),
+                        };
                         if (editingProduct) {
-                          await supabase.from('products').update(productForm).eq('id', editingProduct.id);
+                          await supabase.from('products').update(payload).eq('id', editingProduct.id);
                           setEditingProduct(null);
                         } else {
-                          await supabase.from('products').insert(productForm);
+                          await supabase.from('products').insert(payload);
                         }
-                        setProductForm({ name: '', category: '' });
+                        setProductForm({ name: '', category: '', code: '', cost: '' });
                         await reloadProducts();
                     }}
                     className="w-full bg-teal-500 text-black py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-teal-600 transition-all font-bold"
@@ -2182,7 +2210,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                      {editingProduct ? 'Guardar Cambios' : 'Agregar Producto'}
                    </button>
                    {editingProduct && (
-                     <button onClick={() => { setEditingProduct(null); setProductForm({ name: '', category: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
+                     <button onClick={() => { setEditingProduct(null); setProductForm({ name: '', category: '', code: '', cost: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar Edición</button>
                    )}
                 </div>
 
@@ -2233,7 +2261,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                             <span>{p.name}</span>
                             {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">Inhabilitado</span>}
                           </p>
-                          <p className="text-[9px] text-text-dim font-bold uppercase mt-1">Categoría: {p.category}</p>
+                          <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
+                            Categoría: {p.category}
+                            {(p as any).code ? ` · ${(p as any).code}` : ''}
+                            {(p as any).cost != null ? ` · $${Number((p as any).cost).toLocaleString('es-AR')}` : ''}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2253,7 +2285,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         <button
                           onClick={() => {
                             setEditingProduct(p);
-                            setProductForm({ name: p.name, category: p.category });
+                            setProductForm({ name: p.name, category: p.category, code: (p as any).code || '', cost: (p as any).cost != null ? String((p as any).cost) : '' });
                           }}
                           className="p-2 text-text-dim hover:text-teal-500 transition-colors"
                         >
@@ -2282,13 +2314,13 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               </div>
 
               {/* Maestro Recetas Producción */}
-              <RecipeMastersManager tipo="produccion" title="Maestro Recetas Producción" color="purple" isReadOnly={isReadOnly} />
+              <RecipeMastersManager tipo="produccion" title="Maestro Recetas Producción" color="purple" isReadOnly={isReadOnly} showCost />
 
               {/* Maestro Recetas Sucursales */}
-              <RecipeMastersManager tipo="sucursal" title="Maestro Recetas Sucursales" color="orange" isReadOnly={isReadOnly} />
+              <RecipeMastersManager tipo="sucursal" title="Maestro Recetas Sucursales" color="orange" isReadOnly={isReadOnly} showCost />
 
-              {/* Maestro Secciones Carta */}
-              <RecipeMastersManager tipo="seccion_carta" title="Maestro Secciones Carta" color="sky" simpleName isReadOnly={isReadOnly} />
+              {/* Maestro Secciones Carta: sin unidad de medida (una sección de la carta no la tiene) */}
+              <RecipeMastersManager tipo="seccion_carta" title="Maestro Secciones Carta" color="sky" showUnit={false} isReadOnly={isReadOnly} />
             </div>
           </motion.div>
         )}

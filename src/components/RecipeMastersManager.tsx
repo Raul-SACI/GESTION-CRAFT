@@ -9,17 +9,18 @@ import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
-interface MasterRow { id: string; tipo: string; name: string; unit: string | null; code: string | null; is_active?: boolean; }
+interface MasterRow { id: string; tipo: string; name: string; unit: string | null; code: string | null; cost?: number | null; is_active?: boolean; }
 
-export default function RecipeMastersManager({ tipo, title, color = 'purple', isReadOnly, simpleName = false }: {
+export default function RecipeMastersManager({ tipo, title, color = 'purple', isReadOnly, showUnit = true, showCost = false }: {
   tipo: 'produccion' | 'sucursal' | 'seccion_carta';
   title: string;
   color?: 'purple' | 'orange' | 'sky';
   isReadOnly?: boolean;
-  simpleName?: boolean; // solo campo Nombre (ej. secciones de la carta)
+  showUnit?: boolean;  // false para Secciones de la Carta (no tienen unidad de medida)
+  showCost?: boolean;  // true para Recetas Sucursales / Producción (costo o precio, para nutrir recetas)
 }) {
   const [rows, setRows] = useState<MasterRow[]>([]);
-  const [form, setForm] = useState<{ name: string; unit: string; code: string }>({ name: '', unit: '', code: '' });
+  const [form, setForm] = useState<{ name: string; unit: string; code: string; cost: string }>({ name: '', unit: '', code: '', cost: '' });
   const [editing, setEditing] = useState<MasterRow | null>(null);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,8 +50,10 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
     if (!form.name.trim()) { alert('Poné el nombre.'); return; }
     setBusy(true);
     try {
+      const unitVal = showUnit ? (form.unit.trim() || null) : null;
+      const costVal = showCost ? (form.cost.trim() === '' ? null : Number(form.cost)) : null;
       if (editing) {
-        await supabase.from('recipe_masters').update({ name: form.name.trim().toUpperCase(), unit: form.unit.trim() || null, code: form.code.trim() || null }).eq('id', editing.id);
+        await supabase.from('recipe_masters').update({ name: form.name.trim().toUpperCase(), unit: unitVal, code: form.code.trim() || null, cost: costVal }).eq('id', editing.id);
         setEditing(null);
       } else {
         // Evitar duplicados por nombre dentro del mismo tipo
@@ -59,10 +62,10 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         }
         await supabase.from('recipe_masters').insert({
           id: `rm_${tipo.slice(0, 3)}_${Date.now()}${Math.random().toString(36).slice(2, 5)}`,
-          tipo, name: form.name.trim().toUpperCase(), unit: form.unit.trim() || null, code: form.code.trim() || null,
+          tipo, name: form.name.trim().toUpperCase(), unit: unitVal, code: form.code.trim() || null, cost: costVal,
         });
       }
-      setForm({ name: '', unit: '', code: '' });
+      setForm({ name: '', unit: '', code: '', cost: '' });
       await cargar();
     } catch (e: any) { alert('Error al guardar: ' + (e.message || e)); }
     setBusy(false);
@@ -86,8 +89,14 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
   };
 
   const modelo = () => {
-    const ws = XLSX.utils.aoa_to_sheet([['Nombre', 'Unidad', 'Codigo'], ['BOLLO DE PIZZA', 'UNIDAD', '']]);
-    ws['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 14 }];
+    const headers = ['Nombre'];
+    const ejemplo: any[] = [showUnit ? 'BOLLO DE PIZZA' : 'PIZZAS CLÁSICAS'];
+    const cols: any[] = [{ wch: 34 }];
+    if (showUnit) { headers.push('Unidad'); ejemplo.push('UNIDAD'); cols.push({ wch: 14 }); }
+    headers.push('Codigo'); ejemplo.push(''); cols.push({ wch: 14 });
+    if (showCost) { headers.push('Costo'); ejemplo.push(''); cols.push({ wch: 12 }); }
+    const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
+    ws['!cols'] = cols;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Maestro');
     XLSX.writeFile(wb, `modelo_${tipo}.xlsx`);
@@ -110,9 +119,13 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         const name = pick(row, 'nombre', 'name', 'producto', 'plato', 'descripcion').toUpperCase();
         if (!name || existentes.has(name)) return;
         existentes.add(name);
+        const costRaw = pick(row, 'costo', 'precio', 'cost', 'price');
         nuevos.push({
           id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
-          tipo, name, unit: pick(row, 'unidad', 'unit', 'um') || null, code: pick(row, 'codigo', 'código', 'code', 'cod') || null,
+          tipo, name,
+          unit: showUnit ? (pick(row, 'unidad', 'unit', 'um') || null) : null,
+          code: pick(row, 'codigo', 'código', 'code', 'cod') || null,
+          cost: showCost && costRaw !== '' ? Number(costRaw.replace(',', '.')) : null,
         });
       });
       if (nuevos.length === 0) { alert('No se encontraron registros nuevos para importar (revisá que haya columna NOMBRE).'); setBusy(false); if (e.target) e.target.value = ''; return; }
@@ -144,25 +157,30 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       {!isReadOnly && (
         <div className={cn("p-4 rounded border space-y-3", c.bgSoft, c.borderSoft)}>
           <div className="grid grid-cols-6 gap-3">
-            <div className={cn("space-y-1", simpleName ? "col-span-6" : "col-span-3")}>
+            <div className={cn("space-y-1", showUnit ? "col-span-3" : (showCost ? "col-span-3" : "col-span-4"))}>
               <label className="text-[9px] font-black text-text-dim uppercase">Nombre</label>
               <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
                 className={cn("w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none uppercase font-black focus:" + c.border)}
-                placeholder={simpleName ? 'PIZZAS CLÁSICAS…' : 'BOLLO DE PIZZA…'} />
+                placeholder={showUnit ? 'BOLLO DE PIZZA…' : 'PIZZAS CLÁSICAS…'} />
             </div>
-            {!simpleName && (
-              <>
-                <div className="col-span-2 space-y-1">
-                  <label className="text-[9px] font-black text-text-dim uppercase">Unidad</label>
-                  <input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}
-                    className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none font-black uppercase" placeholder="UNIDAD / KG…" />
-                </div>
-                <div className="col-span-1 space-y-1">
-                  <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
-                  <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
-                    className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none font-black uppercase" placeholder="—" />
-                </div>
-              </>
+            {showUnit && (
+              <div className="col-span-2 space-y-1">
+                <label className="text-[9px] font-black text-text-dim uppercase">Unidad</label>
+                <input value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] text-text-main outline-none font-black uppercase" placeholder="UNIDAD / KG…" />
+              </div>
+            )}
+            <div className={cn("space-y-1", showUnit ? "col-span-1" : (showCost ? "col-span-1" : "col-span-2"))}>
+              <label className="text-[9px] font-black text-text-dim uppercase">Código</label>
+              <input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
+                className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none font-black uppercase" placeholder="—" />
+            </div>
+            {showCost && (
+              <div className="col-span-2 space-y-1">
+                <label className="text-[9px] font-black text-text-dim uppercase">Costo / Precio</label>
+                <input type="number" step="0.01" value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[10px] font-mono text-text-main outline-none font-black" placeholder="0.00" />
+              </div>
             )}
           </div>
           <button onClick={guardar} disabled={busy}
@@ -170,7 +188,7 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
             <Plus size={14} /> {editing ? 'Guardar cambios' : 'Agregar'}
           </button>
           {editing && (
-            <button onClick={() => { setEditing(null); setForm({ name: '', unit: '', code: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar edición</button>
+            <button onClick={() => { setEditing(null); setForm({ name: '', unit: '', code: '', cost: '' }); }} className="w-full text-[9px] font-bold text-text-dim uppercase underline">Cancelar edición</button>
           )}
         </div>
       )}
@@ -194,7 +212,9 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
                 <span className="truncate">{r.name}</span>
                 {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0">Inhabilitado</span>}
               </p>
-              {!simpleName && <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">{r.unit || 'sin unidad'}{r.code ? ` · ${r.code}` : ''}</p>}
+              <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">
+                {[showUnit ? (r.unit || 'sin unidad') : null, r.code || null, showCost && r.cost != null ? `$${Number(r.cost).toLocaleString('es-AR')}` : null].filter(Boolean).join(' · ') || '—'}
+              </p>
             </div>
             {!isReadOnly && (
               <div className="flex items-center gap-2 shrink-0">
@@ -203,7 +223,7 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
                   className={cn("p-2 transition-colors", inhabilitado ? "text-amber-500 hover:text-emerald-500" : "text-text-dim hover:text-amber-500")}>
                   {inhabilitado ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
-                <button onClick={() => { setEditing(r); setForm({ name: r.name, unit: r.unit || '', code: r.code || '' }); }} className="p-2 text-text-dim hover:text-brand-500 transition-colors"><Edit2 size={14} /></button>
+                <button onClick={() => { setEditing(r); setForm({ name: r.name, unit: r.unit || '', code: r.code || '', cost: r.cost != null ? String(r.cost) : '' }); }} className="p-2 text-text-dim hover:text-brand-500 transition-colors"><Edit2 size={14} /></button>
                 <button onClick={() => borrar(r)} className="p-2 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
               </div>
             )}
