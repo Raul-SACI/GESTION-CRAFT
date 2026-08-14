@@ -44,6 +44,7 @@ import { useMapsLibrary } from '@vis.gl/react-google-maps';
 import ReadOnlyPlantaView from './ReadOnlyPlantaView';
 import TasksSummaryWidget from './TasksSummaryWidget';
 import OrdersSummary from './OrdersSummary';
+import ConsolidatedEncargadoView from './ConsolidatedEncargadoView';
 
 interface EncargadoDashboardProps {
   selectedBranchId: string;
@@ -84,6 +85,8 @@ export default function EncargadoDashboardView({
   });
 
   const [loading, setLoading] = useState(false);
+  // Vista consolidada (una fila por sucursal con los 4 indicadores).
+  const [consolidated, setConsolidated] = useState(false);
 
   // Core metrics state parsed or loaded dynamically
   const [salesNet, setSalesNet] = useState(0);
@@ -1499,8 +1502,19 @@ export default function EncargadoDashboardView({
     }
   };
 
+  if (consolidated) {
+    return (
+      <ConsolidatedEncargadoView
+        branches={branches}
+        month={selectedMonth}
+        onAdjustMonth={adjustMonth}
+        onSelectBranch={(id) => { setConsolidated(false); onBranchChange?.(id); }}
+      />
+    );
+  }
+
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
@@ -1524,11 +1538,12 @@ export default function EncargadoDashboardView({
           {/* Branch Filter */}
           {onBranchChange && (
             <div className="relative">
-              <select 
+              <select
                 value={selectedBranchId}
-                onChange={(e) => onBranchChange(e.target.value)}
+                onChange={(e) => { if (e.target.value === '__CONSOLIDADO__') setConsolidated(true); else onBranchChange(e.target.value); }}
                 className="bg-bg-accent text-text-main text-[11px] font-bold border border-border-dim rounded-md px-3 py-2 outline-none focus:border-brand-500 appearance-none pr-8 cursor-pointer uppercase font-mono"
               >
+                <option value="__CONSOLIDADO__">◆ Consolidado (todas)</option>
                 {branches.map(b => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
