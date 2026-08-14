@@ -31,6 +31,7 @@ import { supabase } from '../lib/supabase';
 const SYSTEM_MODULES = [
   { id: 'socios_dashboard', label: 'Dashboard de Socios', category: 'Socios' },
   { id: 'dashboard', label: 'Dashboard General', category: 'Gestión Sucursal' },
+  { id: 'encargado_consolidado', label: 'Dashboard Encargado · Consolidado (todas las sucursales)', category: 'Gestión Sucursal' },
   { id: 'stock', label: 'Control Stock', category: 'Gestión Sucursal' },
   { id: 'inventario_mensual', label: 'Inventario Mensual', category: 'Gestión Sucursal' },
   { id: 'vajilla', label: 'Vajilla', category: 'Gestión Sucursal' },
