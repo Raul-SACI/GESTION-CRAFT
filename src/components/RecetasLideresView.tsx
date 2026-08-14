@@ -166,7 +166,7 @@ export default function RecetasLideresView({
     (async () => {
       try {
         const [{ data: prods }, { data: masters }] = await Promise.all([
-          supabase.from('products').select('id, name, category').order('name'),
+          supabase.from('products').select('id, name, category, code, cost').order('name'),
           supabase.from('recipe_masters').select('id, tipo, name, unit, code, cost').order('name'),
         ]);
         setProductos((prods as any[]) || []);
@@ -178,7 +178,7 @@ export default function RecetasLideresView({
   // Maestro que corresponde al tipo actual (nombre + unidad + código)
   const masterLabel = tipo === 'carta' ? 'Maestro de Productos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
   const masterOptions = useMemo(() => {
-    if (tipo === 'carta') return productos.map(p => ({ name: p.name, unit: '', code: '', category: p.category || '' }));
+    if (tipo === 'carta') return productos.map(p => ({ name: p.name, unit: '', code: p.code || '', category: p.category || '' }));
     return recipeMasters.filter(m => m.tipo === tipo).map(m => ({ name: m.name, unit: m.unit || '', code: m.code || '', category: '' }));
   }, [tipo, productos, recipeMasters]);
 
@@ -246,9 +246,6 @@ export default function RecetasLideresView({
       item_id: it.id || null, code: it.code || null, item_name: it.name, unit: it.unit || null, quantity: null, sort_order: prev.length + 1
     }]);
     setIngSearch('');
-  };
-  const agregarInsumoLibre = () => {
-    setDraftItems(prev => [...prev, { item_id: null, code: null, item_name: '', unit: null, quantity: null, sort_order: prev.length + 1 }]);
   };
   const setItem = (i: number, field: keyof RecipeItem, value: any) =>
     setDraftItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
@@ -427,11 +424,15 @@ export default function RecetasLideresView({
   //  - platos de la carta: Insumos + Recetas Producción + Recetas Sucursales.
   const insumoOptions = useMemo(() => {
     const base = items.map((i: any) => ({ id: i.id, code: i.code || null, name: i.name, unit: i.unit || null, origen: 'INSUMO' }));
-    if (tipo !== 'carta') return base;
-    const rm = recipeMasters
-      .filter((m: any) => m.tipo === 'produccion' || m.tipo === 'sucursal')
+    const rmToOpt = (tipos: string[]) => recipeMasters
+      .filter((m: any) => tipos.includes(m.tipo))
       .map((m: any) => ({ id: m.id || null, code: m.code || null, name: m.name, unit: m.unit || null, origen: m.tipo === 'produccion' ? 'RECETA PROD.' : 'RECETA SUC.' }));
-    return [...base, ...rm];
+    // Producción: solo insumos.
+    if (tipo === 'produccion') return base;
+    // Sucursal: insumos + otras Recetas de Sucursal.
+    if (tipo === 'sucursal') return [...base, ...rmToOpt(['sucursal'])];
+    // Carta: insumos + Recetas Producción + Recetas Sucursales.
+    return [...base, ...rmToOpt(['produccion', 'sucursal'])];
   }, [items, recipeMasters, tipo]);
 
   // Sugerencias del maestro para el buscador de insumos del editor
@@ -612,14 +613,14 @@ export default function RecetasLideresView({
                 </div>
                 <div className="md:col-span-1">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Código</label>
-                  <input readOnly={isReadOnly} value={editing.code || ''} onChange={e => setEditing({ ...editing, code: e.target.value })}
-                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
+                  <input readOnly value={editing.code || ''}
+                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-mono font-bold text-text-dim outline-none" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">U.M. producto</label>
-                  <input readOnly={isReadOnly} value={editing.unit || ''} onChange={e => setEditing({ ...editing, unit: e.target.value })}
-                    placeholder="UNIDAD / KG…"
-                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  <input readOnly value={editing.unit || ''}
+                    placeholder="—"
+                    className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-dim outline-none" />
                 </div>
                 {tipo === 'carta' && (
                   <div className="md:col-span-6">
@@ -698,10 +699,8 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : 'Buscar insumo en el maestro para agregar…'}
+                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta de sucursal para agregar…' : 'Buscar insumo en el maestro para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
-                    <button onClick={agregarInsumoLibre} type="button"
-                      className="text-[8px] font-black uppercase text-text-dim hover:text-brand-500 border border-border-dim rounded px-2 py-1 shrink-0">+ Insumo libre</button>
                   </div>
                   {sugerencias.length > 0 && (
                     <div className="absolute z-10 mt-1 w-full bg-bg-card border border-border-dim rounded-lg shadow-xl max-h-56 overflow-y-auto">
@@ -732,12 +731,12 @@ export default function RecetasLideresView({
                     </div>
                     {draftItems.map((it, i) => (
                       <div key={i} className="grid grid-cols-12 gap-2 items-center bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5">
-                        <input readOnly={isReadOnly} value={it.item_name} onChange={e => setItem(i, 'item_name', e.target.value)}
-                          className="col-span-12 md:col-span-5 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
-                        <input readOnly={isReadOnly} value={it.code || ''} onChange={e => setItem(i, 'code', e.target.value)}
-                          placeholder="cód." className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-main outline-none focus:border-brand-500" />
-                        <input readOnly={isReadOnly} value={it.unit || ''} onChange={e => setItem(i, 'unit', e.target.value)}
-                          placeholder="UM" className="col-span-3 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-brand-500" />
+                        <input readOnly value={it.item_name}
+                          className="col-span-12 md:col-span-5 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none" />
+                        <input readOnly value={it.code || ''}
+                          placeholder="cód." className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono text-text-dim outline-none" />
+                        <input readOnly value={it.unit || ''}
+                          placeholder="UM" className="col-span-3 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-dim outline-none" />
                         <input readOnly={isReadOnly} type="text" inputMode="decimal" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value)}
                           placeholder="0" className="col-span-4 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
                         {!isReadOnly
