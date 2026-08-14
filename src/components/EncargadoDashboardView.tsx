@@ -87,6 +87,9 @@ export default function EncargadoDashboardView({
   const [loading, setLoading] = useState(false);
   // Vista consolidada (una fila por sucursal con los 4 indicadores).
   const [consolidated, setConsolidated] = useState(false);
+  // Solo pueden ver el consolidado: admin/dueño o quien tenga el permiso asignado.
+  const canConsolidado = currentUser?.role === 'administrador' || currentUser?.role === 'dueño'
+    || (Array.isArray(currentUser?.permissions) && currentUser.permissions.includes('encargado_consolidado'));
 
   // Core metrics state parsed or loaded dynamically
   const [salesNet, setSalesNet] = useState(0);
@@ -1502,7 +1505,7 @@ export default function EncargadoDashboardView({
     }
   };
 
-  if (consolidated) {
+  if (consolidated && canConsolidado) {
     return (
       <ConsolidatedEncargadoView
         branches={branches}
@@ -1540,10 +1543,10 @@ export default function EncargadoDashboardView({
             <div className="relative">
               <select
                 value={selectedBranchId}
-                onChange={(e) => { if (e.target.value === '__CONSOLIDADO__') setConsolidated(true); else onBranchChange(e.target.value); }}
+                onChange={(e) => { if (e.target.value === '__CONSOLIDADO__') { if (canConsolidado) setConsolidated(true); } else onBranchChange(e.target.value); }}
                 className="bg-bg-accent text-text-main text-[11px] font-bold border border-border-dim rounded-md px-3 py-2 outline-none focus:border-brand-500 appearance-none pr-8 cursor-pointer uppercase font-mono"
               >
-                <option value="__CONSOLIDADO__">◆ Consolidado (todas)</option>
+                {canConsolidado && <option value="__CONSOLIDADO__">◆ Consolidado (todas)</option>}
                 {branches.map(b => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
