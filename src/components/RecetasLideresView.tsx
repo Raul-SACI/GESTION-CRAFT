@@ -125,12 +125,14 @@ export default function RecetasLideresView({
   const [saving, setSaving] = useState(false);
   const [ingSearch, setIngSearch] = useState('');
 
-  // Mapa de costos del maestro por código y por id (para valorizar la receta)
+  // Mapa de costos por código: insumos (stock_items) + recetas maestro (produccion/sucursal),
+  // para valorizar la receta también cuando un "insumo" es una receta.
   const costByCode = useMemo(() => {
     const m = new Map<string, number>();
     items.forEach(i => { if (i.code) m.set(String(i.code), Number(i.cost) || 0); });
+    recipeMasters.forEach((rm: any) => { if (rm.code && rm.cost != null) m.set(String(rm.code), Number(rm.cost) || 0); });
     return m;
-  }, [items]);
+  }, [items, recipeMasters]);
 
   const cargar = async () => {
     setLoading(true);
@@ -165,7 +167,7 @@ export default function RecetasLideresView({
       try {
         const [{ data: prods }, { data: masters }] = await Promise.all([
           supabase.from('products').select('id, name, category').order('name'),
-          supabase.from('recipe_masters').select('tipo, name, unit, code').order('name'),
+          supabase.from('recipe_masters').select('id, tipo, name, unit, code, cost').order('name'),
         ]);
         setProductos((prods as any[]) || []);
         setRecipeMasters((masters as any[]) || []);
@@ -239,9 +241,9 @@ export default function RecetasLideresView({
   };
   const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); };
 
-  const agregarInsumoMaestro = (it: StockItem) => {
+  const agregarInsumoMaestro = (it: { id?: string | null; code?: string | null; name: string; unit?: string | null }) => {
     setDraftItems(prev => [...prev, {
-      item_id: it.id, code: it.code || null, item_name: it.name, unit: it.unit || null, quantity: null, sort_order: prev.length + 1
+      item_id: it.id || null, code: it.code || null, item_name: it.name, unit: it.unit || null, quantity: null, sort_order: prev.length + 1
     }]);
     setIngSearch('');
   };
@@ -420,12 +422,24 @@ export default function RecetasLideresView({
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // Origen de los insumos del editor según el tipo de receta:
+  //  - producción / sucursal: solo Maestro de Insumos (stock_items).
+  //  - platos de la carta: Insumos + Recetas Producción + Recetas Sucursales.
+  const insumoOptions = useMemo(() => {
+    const base = items.map((i: any) => ({ id: i.id, code: i.code || null, name: i.name, unit: i.unit || null, origen: 'INSUMO' }));
+    if (tipo !== 'carta') return base;
+    const rm = recipeMasters
+      .filter((m: any) => m.tipo === 'produccion' || m.tipo === 'sucursal')
+      .map((m: any) => ({ id: m.id || null, code: m.code || null, name: m.name, unit: m.unit || null, origen: m.tipo === 'produccion' ? 'RECETA PROD.' : 'RECETA SUC.' }));
+    return [...base, ...rm];
+  }, [items, recipeMasters, tipo]);
+
   // Sugerencias del maestro para el buscador de insumos del editor
   const sugerencias = useMemo(() => {
     const q = ingSearch.trim().toLowerCase();
     if (!q) return [];
-    return items.filter(i => i.name.toLowerCase().includes(q) || String(i.code || '').includes(q)).slice(0, 8);
-  }, [ingSearch, items]);
+    return insumoOptions.filter(i => i.name.toLowerCase().includes(q) || String(i.code || '').includes(q)).slice(0, 8);
+  }, [ingSearch, insumoOptions]);
 
   const draftCosto = draftItems.reduce((a, it) => a + (costByCode.get(String(it.code)) || 0) * (parseQty(it.quantity) || 0), 0);
 
@@ -684,17 +698,20 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder="Buscar insumo en el maestro para agregar…"
+                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : 'Buscar insumo en el maestro para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
                     <button onClick={agregarInsumoLibre} type="button"
                       className="text-[8px] font-black uppercase text-text-dim hover:text-brand-500 border border-border-dim rounded px-2 py-1 shrink-0">+ Insumo libre</button>
                   </div>
                   {sugerencias.length > 0 && (
                     <div className="absolute z-10 mt-1 w-full bg-bg-card border border-border-dim rounded-lg shadow-xl max-h-56 overflow-y-auto">
-                      {sugerencias.map(s => (
-                        <button key={s.id} onClick={() => agregarInsumoMaestro(s)} type="button"
+                      {sugerencias.map((s, i) => (
+                        <button key={`${s.id || 'x'}-${s.code || i}`} onClick={() => agregarInsumoMaestro(s)} type="button"
                           className="w-full text-left px-3 py-2 hover:bg-bg-accent flex items-center gap-2 border-b border-border-dim/40 last:border-0">
                           <span className="text-[10px] font-bold uppercase text-text-main flex-1">{s.name}</span>
+                          {(s as any).origen && (s as any).origen !== 'INSUMO' && (
+                            <span className="text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-500 border border-brand-500/20">{(s as any).origen}</span>
+                          )}
                           {s.code && <span className="text-[8px] font-mono text-text-dim">{s.code}</span>}
                           <span className="text-[8px] font-black uppercase text-text-dim">{s.unit}</span>
                         </button>
