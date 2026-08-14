@@ -32,6 +32,7 @@ interface Row {
   branchName: string;
   netSales: number;
   hasSales: boolean;
+  achievedSales: boolean; // alcanzó al menos un objetivo de ventas (vs proyección)
   cmvPct: number | null;
   hoursDevPct: number | null;
   redFlags: number;
@@ -71,20 +72,39 @@ export default function ConsolidatedEncargadoView({
         const d1 = `${month}-01`;
         const d2 = `${month}-${String(lastDay).padStart(2, '0')}`;
 
-        // ---- Ventas netas por sucursal (sales_tickets, paginado) ----
+        // ---- Ventas netas por sucursal (sales_tickets, paginado) + días con ventas ----
         const netByBranch: Record<string, number> = {};
+        const daysByBranch: Record<string, Set<string>> = {};
         let page = 0;
         while (true) {
           const { data } = await supabase
             .from('sales_tickets')
-            .select('branch_id, net_sales')
+            .select('branch_id, net_sales, date')
             .eq('month', month)
             .range(page * 1000, page * 1000 + 999);
           if (!data || data.length === 0) break;
-          data.forEach((r: any) => { netByBranch[r.branch_id] = (netByBranch[r.branch_id] || 0) + (Number(r.net_sales) || 0); });
+          data.forEach((r: any) => {
+            netByBranch[r.branch_id] = (netByBranch[r.branch_id] || 0) + (Number(r.net_sales) || 0);
+            if (r.date) { (daysByBranch[r.branch_id] ||= new Set()).add(String(r.date).substring(0, 10)); }
+          });
           if (data.length < 1000) break;
           page++; if (page > 60) break;
         }
+
+        // ---- Objetivos de ventas por sucursal (performance_role_configs) ----
+        // El mínimo threshold del escalón de "Ventas Netas" del rol encargado.
+        const minVentasByBranch: Record<string, number | null> = {};
+        const { data: perfCfg } = await supabase.from('performance_role_configs').select('branch_id, role, variables').eq('month', month);
+        (perfCfg || []).forEach((c: any) => {
+          const vars = c.variables || [];
+          const ventasVar = (vars as any[]).find(v => String(v?.name || '').toLowerCase().includes('venta'));
+          const tiers = ventasVar?.tiers;
+          if (!Array.isArray(tiers) || tiers.length === 0) return;
+          const minTh = Math.min(...tiers.map((t: any) => Number(t.threshold) || 0).filter((n: number) => n > 0));
+          if (!isFinite(minTh)) return;
+          // Preferimos el rol encargado; si ya hay uno, no lo pisamos con otro rol.
+          if (c.role === 'encargado' || minVentasByBranch[c.branch_id] == null) minVentasByBranch[c.branch_id] = minTh;
+        });
 
         // ---- CMV: EI/EF (cmv_monthly) + compras/mov (cmv_details) ----
         const cmvEiEf: Record<string, { ei: number; ef: number }> = {};
@@ -191,11 +211,18 @@ export default function ConsolidatedEncargadoView({
           const comprasMov = cmvComprasMov[b.id] || 0;
           const totalCmv = eief.ei + comprasMov - eief.ef;
           const cmvPct = net > 0 ? (totalCmv / net) * 100 : null;
+          // Proyección de ventas a fin de mes (igual que el dashboard: venta / días con ventas × días del mes)
+          const daysCount = daysByBranch[b.id]?.size || 0;
+          const projected = daysCount > 0 ? (net / daysCount) * lastDay : 0;
+          // Alcanzó un objetivo si la proyección llega al escalón más bajo configurado.
+          const minTh = minVentasByBranch[b.id];
+          const achievedSales = minTh != null && projected >= minTh;
           return {
             branchId: b.id,
             branchName: b.name,
             netSales: net,
             hasSales: net > 0,
+            achievedSales,
             cmvPct,
             hoursDevPct: hoursDev(b.id),
             redFlags: redByBranch[b.id] || 0,
@@ -216,9 +243,9 @@ export default function ConsolidatedEncargadoView({
   const winners = useMemo(() => {
     const w = { ventas: new Set<string>(), cmv: new Set<string>(), horas: new Set<string>(), banderas: new Set<string>() };
     if (rows.length === 0) return w;
-    // Ventas: máxima (solo con ventas cargadas)
-    const conVentas = rows.filter(r => r.hasSales);
-    if (conVentas.length) { const best = Math.max(...conVentas.map(r => r.netSales)); conVentas.forEach(r => { if (r.netSales === best) w.ventas.add(r.branchId); }); }
+    // Ventas: trofeo a TODAS las que alcanzaron algún objetivo de ventas (no es comparación
+    // entre sucursales, porque venden en lugares distintos).
+    rows.forEach(r => { if (r.achievedSales) w.ventas.add(r.branchId); });
     // CMV %: mínima (mejor control), solo con valor
     const conCmv = rows.filter(r => r.cmvPct !== null);
     if (conCmv.length) { const best = Math.min(...conCmv.map(r => r.cmvPct as number)); conCmv.forEach(r => { if (r.cmvPct === best) w.cmv.add(r.branchId); }); }
@@ -325,8 +352,8 @@ export default function ConsolidatedEncargadoView({
             </tbody>
           </table>
           <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70 leading-relaxed">
-            🏆 por indicador: mayor Ventas Netas · menor CMV % · menor Desvío de Horas · menos Banderas (rojas + negras).
-            Los mismos criterios que el dashboard individual. R = rojas, N = negras.
+            🏆 por indicador: Ventas → la sucursal que alcanzó algún objetivo (vs proyección) · CMV % → el más bajo ·
+            Desvío de Horas → el más bajo · Banderas → la que menos tiene (rojas + negras). R = rojas, N = negras.
           </p>
         </div>
       )}
