@@ -227,7 +227,11 @@ export default function ProfitLossView({
         const wb = XLSX.read(evt.target?.result, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+        // Partimos de lo YA guardado, para NO pisar las columnas que el Excel deje en blanco.
         const newLines: LinesMap = {};
+        Object.entries(lines).forEach(([k, v]) => { newLines[k] = { ...v }; });
+        const touched = new Set<string>();
+        const hasVal = (v: any) => !(v === null || v === undefined || String(v).trim() === '');
         const parseNum = (v: any): number => {
           if (v === null || v === undefined || v === '') return 0;
           // Si Excel ya lo entrega como número, usarlo tal cual (no tocar decimales)
@@ -279,23 +283,26 @@ export default function ProfitLossView({
           if (!key) return;
           // No importar subtotales: se recalculan a partir de las líneas input
           if (subtotalKeys.has(key)) return;
-          const projPesos = parseNum(row[1]);
-          const projUsd = parseNum(row[2]);
-          const realPesos = parseNum(row[4]);
-          const realUsd = parseNum(row[5]);
           if (!newLines[key]) newLines[key] = emptyLine();
-          newLines[key].projPesos += projPesos;
-          newLines[key].projUsd += projUsd;
-          newLines[key].realPesos += realPesos;
-          newLines[key].realUsd += realUsd;
+          // Solo se toca una columna si en el Excel tiene un valor. Si está en blanco,
+          // se mantiene lo que ya estaba guardado (ej. no se borra el Proyectado).
+          const cols: [number, 'projPesos' | 'projUsd' | 'realPesos' | 'realUsd'][] = [[1, 'projPesos'], [2, 'projUsd'], [4, 'realPesos'], [5, 'realUsd']];
+          cols.forEach(([idx, field]) => {
+            const raw = row[idx];
+            if (!hasVal(raw)) return; // celda vacía → no se modifica
+            const tk = `${key}|${field}`;
+            if (!touched.has(tk)) { newLines[key][field] = 0; touched.add(tk); } // 1ra vez reemplaza; si el concepto se repite, suma
+            newLines[key][field] += parseNum(raw);
+          });
         });
-        if (Object.keys(newLines).length === 0) {
-          alert('No se reconoció ninguna línea del Excel. Verificá que la primera columna tenga los nombres de los conceptos.');
+        if (touched.size === 0) {
+          alert('No se reconoció ningún valor para importar. Verificá que la primera columna tenga los nombres de los conceptos y que haya montos cargados.');
         } else {
           setLines(newLines);
           // Guardar automáticamente lo importado para que no se pierda al refrescar
           persistLines(newLines);
-          alert(`Se importaron ${Object.keys(newLines).length} líneas y se guardaron en el sistema.`);
+          const lineasTocadas = new Set<string>(); touched.forEach(t => lineasTocadas.add(t.split('|')[0]));
+          alert(`Se importaron ${lineasTocadas.size} línea(s). Las columnas que dejaste en blanco (ej. Proyectado) se mantuvieron sin cambios.`);
         }
       } catch (err: any) {
         alert('Error al leer el Excel: ' + (err?.message || ''));
