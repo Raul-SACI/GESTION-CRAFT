@@ -318,6 +318,44 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
       startY: y2 + 4, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31], fontSize: 8 },
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
     });
+
+    // Comparativo interanual: Ventas Netas (año anterior ajustado por inflación vs año nuevo)
+    const yInt = (doc as any).lastAutoTable.finalY + 8;
+    doc.setFontSize(11); doc.text(`Ventas Netas · ${yearOld || '—'} vs ${yearNew} (${yearOld} ajustado por inflación)`, 14, yInt);
+    autoTable(doc, {
+      head: [['Mes', `${yearOld || 'Ant.'} (real, ajust.)`, `${yearNew}`, 'Var. % (real)']],
+      body: yoyRows.map(r => {
+        const oldAdj = r.oldMd ? adjustOld(r.oldMd.ventas, r.mm) : null;
+        const newV = r.newMd ? r.newMd.ventas : null;
+        const varV = (oldAdj && newV) ? ((newV - oldAdj) / Math.abs(oldAdj)) * 100 : null;
+        return [MONTHS_ES[parseInt(r.mm) - 1], oldAdj !== null ? money(oldAdj) : '—', newV !== null ? money(newV) : '—', varV !== null ? (varV > 0 ? '+' : '') + varV.toFixed(1) + '%' : '—'];
+      }),
+      startY: yInt + 4, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31], fontSize: 8 },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+    });
+
+    // Comparativo interanual: Ganancia/Pérdida Final (con total del año)
+    const yGan = (doc as any).lastAutoTable.finalY + 8;
+    doc.setFontSize(11); doc.text(`Ganancia/Pérdida Final · ${yearOld || '—'} vs ${yearNew} (ajustado por inflación)`, 14, yGan);
+    let totOld = 0, totNew = 0;
+    const ganBody = yoyRows.map(r => {
+      const oldAdj = r.oldMd ? adjustOld(r.oldMd.ganancia, r.mm) : null;
+      const newV = r.newMd ? r.newMd.ganancia : null;
+      if (oldAdj !== null) totOld += oldAdj;
+      if (newV !== null) totNew += newV;
+      const varV = (oldAdj && newV && oldAdj !== 0) ? ((newV - oldAdj) / Math.abs(oldAdj)) * 100 : null;
+      return [MONTHS_ES[parseInt(r.mm) - 1], oldAdj !== null ? money(oldAdj) : '—', newV !== null ? money(newV) : '—', varV !== null ? (varV > 0 ? '+' : '') + varV.toFixed(1) + '%' : '—'];
+    });
+    const totVar = totOld !== 0 ? ((totNew - totOld) / Math.abs(totOld)) * 100 : null;
+    autoTable(doc, {
+      head: [['Mes', `${yearOld || 'Ant.'} (real, ajust.)`, `${yearNew}`, 'Var. % (real)']],
+      body: ganBody,
+      foot: [['TOTAL DEL AÑO', totOld !== 0 ? money(totOld) : '—', totNew !== 0 ? money(totNew) : '—', totVar !== null ? (totVar > 0 ? '+' : '') + totVar.toFixed(1) + '%' : '—']],
+      startY: yGan + 4, styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [193, 18, 31], fontSize: 8 },
+      footStyles: { fillColor: [33, 37, 41], textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+    });
+
     doc.save(`KPIs_EERR_${scopeSuffix.replace(/\s+/g, '_')}_${yearNew}.pdf`);
   };
 
