@@ -699,19 +699,40 @@ export default function DeviationControlView({
         const data = XLSX.utils.sheet_to_json(ws);
 
         const costParse = (v: any) => { const s = String(v ?? '').trim().replace(',', '.'); return s === '' ? null : (isNaN(Number(s)) ? null : Number(s)); };
-        const newProducts = data.map((row: any) => ({
-          name: String(row.Nombre || row.name || '').toUpperCase(),
-          category: String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase(),
-          code: String(row.Codigo || row['Código'] || row.code || '').trim() || null,
-          cost: costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price),
-        })).filter(p => p.name);
 
-        if (newProducts.length > 0) {
-          const { error } = await supabase.from('products').insert(newProducts);
+        // Importación IDEMPOTENTE: si el producto ya existe (por nombre), se ACTUALIZA
+        // (categoría, código, costo) en vez de crear un duplicado. Solo se insertan los nuevos.
+        const { data: existing } = await supabase.from('products').select('id, name');
+        const byName = new Map<string, string>();
+        (existing || []).forEach((p: any) => byName.set(String(p.name || '').trim().toUpperCase(), p.id));
+
+        const seen = new Set<string>();
+        const toInsert: any[] = [];
+        const toUpdate: { id: string; category: string; code: string | null; cost: number | null }[] = [];
+        data.forEach((row: any) => {
+          const name = String(row.Nombre || row.name || '').toUpperCase().trim();
+          if (!name || seen.has(name)) return;
+          seen.add(name);
+          const category = String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase().trim();
+          const codeRaw = row.Codigo ?? row['Código'] ?? row.code;
+          const code = (codeRaw === undefined || codeRaw === null) ? null : (String(codeRaw).trim() || null);
+          const cost = costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price);
+          const id = byName.get(name);
+          if (id) toUpdate.push({ id, category, code, cost });
+          else toInsert.push({ name, category, code, cost });
+        });
+
+        if (toInsert.length > 0) {
+          const { error } = await supabase.from('products').insert(toInsert);
           if (error) throw error;
-          await reloadProducts();
-          alert(`Éxito: ${newProducts.length} productos importados.`);
         }
+        for (let i = 0; i < toUpdate.length; i += 25) {
+          await Promise.all(toUpdate.slice(i, i + 25).map(u =>
+            supabase.from('products').update({ category: u.category, code: u.code, cost: u.cost }).eq('id', u.id)
+          ));
+        }
+        await reloadProducts();
+        alert(`Importación lista: ${toInsert.length} producto(s) nuevo(s), ${toUpdate.length} actualizado(s) (no se duplican).`);
       } catch (err: any) {
         alert('Error al importar productos: ' + err.message);
       } finally {
