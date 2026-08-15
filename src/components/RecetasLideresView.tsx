@@ -429,8 +429,8 @@ export default function RecetasLideresView({
       .map((m: any) => ({ id: m.id || null, code: m.code || null, name: m.name, unit: m.unit || null, origen: m.tipo === 'produccion' ? 'RECETA PROD.' : 'RECETA SUC.' }));
     // Producción: solo insumos.
     if (tipo === 'produccion') return base;
-    // Sucursal: insumos + otras Recetas de Sucursal.
-    if (tipo === 'sucursal') return [...base, ...rmToOpt(['sucursal'])];
+    // Sucursal: insumos + Recetas de Sucursal + Recetas de Producción.
+    if (tipo === 'sucursal') return [...base, ...rmToOpt(['sucursal', 'produccion'])];
     // Carta: insumos + Recetas Producción + Recetas Sucursales.
     return [...base, ...rmToOpt(['produccion', 'sucursal'])];
   }, [items, recipeMasters, tipo]);
@@ -699,7 +699,7 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta de sucursal para agregar…' : 'Buscar insumo en el maestro para agregar…'}
+                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo en el maestro para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
                   </div>
                   {sugerencias.length > 0 && (
