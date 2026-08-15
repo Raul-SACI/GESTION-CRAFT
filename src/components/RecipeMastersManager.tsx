@@ -4,7 +4,7 @@
  * Tabla: recipe_masters (id, tipo, name, unit, code).
  */
 import { useState, useEffect, useMemo, type ChangeEvent } from 'react';
-import { Search, Upload, Download, Edit2, Trash2, Plus, Eye, EyeOff } from 'lucide-react';
+import { Search, Upload, Download, Edit2, Trash2, Plus, Eye, EyeOff, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -137,12 +137,32 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
     if (e.target) e.target.value = '';
   };
 
+  // Exporta a Excel los registros actuales del maestro (respetando qué columnas aplican).
+  const exportar = () => {
+    const data = rows.map(r => {
+      const o: Record<string, any> = { Nombre: r.name };
+      if (showUnit) o.Unidad = r.unit || '';
+      o.Codigo = r.code || '';
+      if (showCost) o.Costo = r.cost ?? '';
+      o.Estado = r.is_active === false ? 'INHABILITADO' : 'ACTIVO';
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Nombre: '' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Maestro');
+    XLSX.writeFile(wb, `export_${tipo}.xlsx`);
+  };
+
   return (
     <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
       <div className="flex items-center justify-between border-b border-border-dim pb-4">
         <h3 className={cn("text-sm font-black uppercase tracking-widest", c.text)}>{title}</h3>
-        {!isReadOnly && (
-          <div className="flex gap-2">
+        <div className="flex gap-2">
+          <button onClick={exportar} title="Exportar a Excel" className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-emerald-500 transition-all text-text-dim hover:text-emerald-500 text-[9px] font-black uppercase">
+            <FileSpreadsheet size={14} /> Exportar
+          </button>
+          {!isReadOnly && (
+          <>
             <button onClick={modelo} className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[9px] font-black uppercase">
               <Download size={14} /> Modelo
             </button>
@@ -150,8 +170,9 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
               <Upload size={14} /> Importar
               <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={importar} />
             </label>
-          </div>
-        )}
+          </>
+          )}
+        </div>
       </div>
 
       {!isReadOnly && (

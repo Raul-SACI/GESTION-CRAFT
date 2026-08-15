@@ -20,6 +20,7 @@ import {
   ChevronRight,
   Upload,
   Download,
+  FileSpreadsheet,
   LayoutDashboard,
   Eye,
   EyeOff
@@ -528,6 +529,28 @@ export default function DeviationControlView({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Modelo");
     XLSX.writeFile(wb, filename);
+  };
+
+  // Exportar a Excel los registros actuales del maestro.
+  const exportItems = () => {
+    const data = (items as any[]).map(i => ({
+      Codigo: i.code || '', Nombre: i.name, Unidad: i.unit || '', Categoria: i.category || '',
+      Costo: i.cost ?? '', Estado: i.is_active === false ? 'INHABILITADO' : 'ACTIVO',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Nombre: '' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Insumos');
+    XLSX.writeFile(wb, 'export_insumos.xlsx');
+  };
+  const exportProductsXlsx = () => {
+    const data = (products as any[]).map(p => ({
+      'Codigo Producto': p.code || '', Nombre: p.name, Categoria: p.category || '',
+      Costo: p.cost ?? '', Estado: p.is_active === false ? 'INHABILITADO' : 'ACTIVO',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Nombre: '' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Productos');
+    XLSX.writeFile(wb, 'export_productos.xlsx');
   };
 
   // Devuelve el valor CRUDO de una columna (puede ser number o string), probando varios nombres
@@ -1958,6 +1981,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Maestro de Insumos</h3>
                   <div className="flex gap-2">
                     <button
+                      onClick={exportItems}
+                      title="Exportar a Excel"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-emerald-500 transition-all text-text-dim hover:text-emerald-500 text-[9px] font-black uppercase"
+                    >
+                      <FileSpreadsheet size={14} />
+                      Exportar
+                    </button>
+                    <button
                       onClick={() => downloadTemplate('items')}
                       className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-brand-500 transition-all text-text-dim hover:text-brand-500 text-[9px] font-black uppercase"
                     >
@@ -2153,6 +2184,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-teal-500 tracking-widest">Maestro de Productos</h3>
                   <div className="flex gap-2">
+                    <button
+                      onClick={exportProductsXlsx}
+                      title="Exportar a Excel"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-emerald-500 transition-all text-text-dim hover:text-emerald-500 text-[9px] font-black uppercase"
+                    >
+                      <FileSpreadsheet size={14} />
+                      Exportar
+                    </button>
                     <button
                       onClick={() => downloadTemplate('products')}
                       className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-teal-500 transition-all text-text-dim hover:text-teal-500 text-[9px] font-black uppercase"
