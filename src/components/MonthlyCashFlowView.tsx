@@ -326,6 +326,36 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
         }
       }
 
+      // ── Totales robustos ──
+      // La columna TOTALES de la plantilla casi siempre viene vacía (eran fórmulas de
+      // Google Sheets que no exportan un valor). Por eso NO nos apoyamos en ella: todos
+      // los totales se recalculan sumando los valores por día.
+      const firstDay = dias[0];
+      const lastDay = dias[dias.length - 1];
+      const sumDias = (d: Record<number, number>) => Object.values(d || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+      secciones.forEach(s => {
+        s.rubros.forEach(r => { r.total = sumDias(r.dias); });
+        s.total = s.rubros.reduce((a, r) => a + r.total, 0);
+      });
+
+      // Totales de resumen (KPIs de arriba): preferimos lo que traiga la columna TOTALES;
+      // si vino vacío, los derivamos de las filas de resumen por día y, como último recurso,
+      // de las propias secciones.
+      const sumPerDay = (pd: any) => Object.values(pd || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+      let ingSec = 0, egrSec = 0, saldoIniSec = 0;
+      secciones.forEach(s => {
+        const t = s.titulo.toLowerCase();
+        if (t.includes('saldo inicial')) saldoIniSec += s.rubros.reduce((a, r) => a + (r.dias[firstDay] || 0), 0);
+        else if (t.startsWith('ingreso')) ingSec += s.total;
+        else egrSec += s.rubros.reduce((a, r) => a + Math.abs(r.total), 0);
+      });
+      const setIfZero = (label: string, val: number) => { if (!resumenTotales[label]) resumenTotales[label] = val; };
+      setIfZero('total ingresos', sumPerDay(resumen['total ingresos']) || ingSec);
+      setIfZero('total egresos', Math.abs(sumPerDay(resumen['total egresos'])) || egrSec);
+      setIfZero('saldo inicial', (resumen['saldo inicial']?.[firstDay]) || saldoIniSec);
+      setIfZero('acumulado', (resumen['acumulado']?.[lastDay]) || ((resumenTotales['saldo inicial'] || 0) + (resumenTotales['total ingresos'] || 0) - (resumenTotales['total egresos'] || 0)));
+      setIfZero('neto', (resumenTotales['total ingresos'] || 0) - (resumenTotales['total egresos'] || 0));
+
       const monthData: MonthData = { month, resumen, resumenTotales, secciones, dias };
 
       // Guardar en Supabase
