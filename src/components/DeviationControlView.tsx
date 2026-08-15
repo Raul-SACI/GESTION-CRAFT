@@ -512,7 +512,7 @@ export default function DeviationControlView({
       data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Codigo': 'INS-001', 'Costo': 100 }];
       filename = 'modelo_insumos.xlsx';
     } else if (type === 'products') {
-      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS', 'Codigo': 'PROD-001', 'Costo': 0 }];
+      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS', 'Codigo Producto': 'PROD-001', 'Costo': 0 }];
       filename = 'modelo_productos.xlsx';
     } else if (type === 'recipes') {
       data = [{ 
@@ -714,7 +714,8 @@ export default function DeviationControlView({
           if (!name || seen.has(name)) return;
           seen.add(name);
           const category = String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase().trim();
-          const codeRaw = row.Codigo ?? row['Código'] ?? row.code;
+          // Código del PRODUCTO (acepta el encabezado explícito y los genéricos).
+          const codeRaw = row['Codigo Producto'] ?? row['Código Producto'] ?? row['Codigo del Producto'] ?? row['Código del Producto'] ?? row.Codigo ?? row['Código'] ?? row.code;
           const code = (codeRaw === undefined || codeRaw === null) ? null : (String(codeRaw).trim() || null);
           const cost = costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price);
           const id = byName.get(name);
