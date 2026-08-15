@@ -78,7 +78,7 @@ export default function ProfitLossView({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [tab, setTab] = useState<'statement' | 'project' | 'kpis' | 'yearly' | 'interanual'>('statement');
+  const [tab, setTab] = useState<'statement' | 'project' | 'kpis' | 'yearly' | 'interanual' | 'branches'>('statement');
   // Datos por mes del año en curso (para la vista comparativa)
   const [yearlyData, setYearlyData] = useState<Record<string, LinesMap>>({});
   const [yearlyLoading, setYearlyLoading] = useState(false);
@@ -87,6 +87,10 @@ export default function ProfitLossView({
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({});
   const [interLoading, setInterLoading] = useState(false);
   const [interMetric, setInterMetric] = useState<'pesos' | 'pct'>('pesos');
+  // Comparativo por sucursal (todas las sucursales, una columna cada una)
+  const [branchData, setBranchData] = useState<Record<string, LinesMap>>({});
+  const [branchLoading, setBranchLoading] = useState(false);
+  const [branchPeriod, setBranchPeriod] = useState<'month' | 'year'>('month');
 
   const operativeBranches = useMemo(() => branches.filter(b => !/almac/i.test(b.name)), [branches]);
 
@@ -154,6 +158,105 @@ export default function ProfitLossView({
   };
 
   useEffect(() => { if (tab === 'interanual') loadInteranual(); }, [tab, scope, selectedMonth]);
+
+  // Carga el EERR (Real) de TODAS las sucursales para el mes elegido, o sumado por todo el año.
+  const loadBranches = async () => {
+    setBranchLoading(true);
+    try {
+      const ids = operativeBranches.map(b => b.id);
+      if (ids.length === 0) { setBranchData({}); setBranchLoading(false); return; }
+      let q = supabase.from('income_statements').select('*').in('scope', ids);
+      if (branchPeriod === 'month') {
+        q = q.eq('month', selectedMonth);
+      } else {
+        const year = selectedMonth.slice(0, 4);
+        q = q.gte('month', `${year}-01`).lte('month', `${year}-12`);
+      }
+      const { data } = await q;
+      const byScope: Record<string, LinesMap> = {};
+      (data || []).forEach((rec: any) => {
+        const arr = typeof rec.lines === 'string' ? JSON.parse(rec.lines) : rec.lines;
+        const map: LinesMap = byScope[rec.scope] || {};
+        (arr || []).forEach((l: any) => {
+          const cur = map[l.key] || emptyLine();
+          map[l.key] = {
+            projPesos: cur.projPesos + (l.projPesos || 0), projUsd: cur.projUsd + (l.projUsd || 0),
+            realPesos: cur.realPesos + (l.realPesos || 0), realUsd: cur.realUsd + (l.realUsd || 0),
+          };
+        });
+        byScope[rec.scope] = map;
+      });
+      setBranchData(byScope);
+    } catch (e) { console.error('Error cargando sucursales:', e); setBranchData({}); }
+    setBranchLoading(false);
+  };
+
+  useEffect(() => { if (tab === 'branches') loadBranches(); }, [tab, branchPeriod, selectedMonth]);
+
+  // Sucursales con datos + sus totales calculados y la venta neta base para el % s/ventas
+  const buildBranchesData = () => {
+    const cols = operativeBranches.filter(b => branchData[b.id]);
+    const computedByBranch: Record<string, LinesMap> = {};
+    cols.forEach(b => { computedByBranch[b.id] = computeFromLines(branchData[b.id]); });
+    const ventasBranch: Record<string, number> = {};
+    cols.forEach(b => { ventasBranch[b.id] = computedByBranch[b.id]['ventas_netas']?.realPesos || 0; });
+    // Totales por concepto (suma de todas las sucursales)
+    const totalMap: LinesMap = {};
+    PL_STRUCTURE.forEach(def => {
+      const p = cols.reduce((s, b) => s + (computedByBranch[b.id][def.key]?.realPesos || 0), 0);
+      const u = cols.reduce((s, b) => s + (computedByBranch[b.id][def.key]?.realUsd || 0), 0);
+      totalMap[def.key] = { projPesos: 0, projUsd: 0, realPesos: p, realUsd: u };
+    });
+    const ventasTotal = totalMap['ventas_netas']?.realPesos || 0;
+    return { cols, computedByBranch, ventasBranch, totalMap, ventasTotal };
+  };
+
+  const branchPeriodLabel = () => branchPeriod === 'month' ? selectedMonth : `Año ${selectedMonth.slice(0, 4)}`;
+
+  const exportBranchesExcel = () => {
+    const { cols, computedByBranch, ventasBranch, totalMap, ventasTotal } = buildBranchesData();
+    const header = ['Concepto'];
+    cols.forEach(b => { header.push(`${b.name} $`, `${b.name} %`); });
+    header.push('TOTAL $', 'TOTAL %');
+    const aoa: any[][] = [[`Estado de Resultados (Real) por sucursal · ${branchPeriodLabel()}`], [], header];
+    PL_STRUCTURE.forEach(def => {
+      if (def.type === 'header') { aoa.push([def.label]); return; }
+      const line: any[] = [(def.indent ? '   ' : '') + def.label];
+      cols.forEach(b => {
+        const p = computedByBranch[b.id][def.key]?.realPesos || 0;
+        const base = ventasBranch[b.id];
+        line.push(nMoney(p), p && base ? +((p / base) * 100).toFixed(1) : '');
+      });
+      const tp = totalMap[def.key]?.realPesos || 0;
+      line.push(nMoney(tp), tp && ventasTotal ? +((tp / ventasTotal) * 100).toFixed(1) : '');
+      aoa.push(line);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 40 }, ...header.slice(1).map(() => ({ wch: 14 }))];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sucursales');
+    XLSX.writeFile(wb, `EERR_sucursales_${branchPeriodLabel().replace(/\s+/g, '_')}.xlsx`);
+  };
+
+  const exportBranchesPDF = () => {
+    const { cols, computedByBranch, ventasBranch, totalMap, ventasTotal } = buildBranchesData();
+    const colHeads = ['Concepto', ...cols.map(b => b.name), 'TOTAL'];
+    const cellTxt = (p: number, base: number) => p === 0 ? '-' : money(p) + (base ? `\n${((p / base) * 100).toFixed(1)}%` : '');
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(13); doc.text('Estado de Resultados (Real) por sucursal', 14, 14);
+    doc.setFontSize(9); doc.text(`${branchPeriodLabel()} · cada celda: $ / % s/ventas`, 14, 20);
+    const body = PL_STRUCTURE.map(def => def.type === 'header'
+      ? [{ content: def.label, colSpan: colHeads.length, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
+      : [(def.indent ? '   ' : '') + def.label,
+         ...cols.map(b => cellTxt(computedByBranch[b.id][def.key]?.realPesos || 0, ventasBranch[b.id])),
+         cellTxt(totalMap[def.key]?.realPesos || 0, ventasTotal)]);
+    autoTable(doc, {
+      head: [colHeads], body: body as any, startY: 25, styles: { fontSize: 6, cellPadding: 1 },
+      headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
+      columnStyles: { 0: { cellWidth: 42 }, [colHeads.length - 1]: { fontStyle: 'bold' } },
+    });
+    doc.save(`EERR_sucursales_${branchPeriodLabel().replace(/\s+/g, '_')}.pdf`);
+  };
 
   // Factor de inflación acumulada entre dos meses (mismo criterio que en KPIs)
   const inflationFactor = (fromMonth: string, toMonth: string): number => {
@@ -508,13 +611,13 @@ export default function ProfitLossView({
               </button>
             </>
           )}
-          {(tab === 'statement' || tab === 'yearly') && (
+          {(tab === 'statement' || tab === 'yearly' || tab === 'branches') && (
             <>
-              <button onClick={tab === 'yearly' ? exportYearlyExcel : exportStatementExcel}
+              <button onClick={tab === 'branches' ? exportBranchesExcel : tab === 'yearly' ? exportYearlyExcel : exportStatementExcel}
                 className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-emerald-500/20 transition-all flex items-center gap-2">
                 <FileSpreadsheet size={14} /> Excel
               </button>
-              <button onClick={tab === 'yearly' ? exportYearlyPDF : exportStatementPDF}
+              <button onClick={tab === 'branches' ? exportBranchesPDF : tab === 'yearly' ? exportYearlyPDF : exportStatementPDF}
                 className="bg-red-500/10 border border-red-500/30 text-red-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-red-500/20 transition-all flex items-center gap-2">
                 <FileText size={14} /> PDF
               </button>
@@ -551,6 +654,11 @@ export default function ProfitLossView({
           className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
             tab === 'interanual' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
           Interanual
+        </button>
+        <button onClick={() => setTab('branches')}
+          className={cn("px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest border transition-all",
+            tab === 'branches' ? "bg-brand-500 text-black border-brand-500" : "bg-bg-accent text-text-dim border-border-dim hover:text-text-main")}>
+          Por Sucursal
         </button>
       </div>
 
@@ -778,6 +886,90 @@ export default function ProfitLossView({
                   Verde = el concepto mejoró el resultado (más ingresos o menos gastos, en términos reales) vs el mismo mes del año anterior. Rojo = empeoró.
                 </p>
               </>
+            );
+          })()}
+        </div>
+      ) : tab === 'branches' ? (
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden">
+          <div className="flex items-center justify-between flex-wrap gap-2 px-5 py-3 border-b border-border-dim bg-bg-accent/20">
+            <div>
+              <p className="text-[11px] font-black uppercase text-text-main tracking-widest">Estado de Resultados (Real) por sucursal</p>
+              <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Todas las sucursales, una al lado de la otra · {branchPeriod === 'month' ? selectedMonth : `Año ${selectedMonth.slice(0, 4)}`} · cada celda: $ · % s/ventas</p>
+            </div>
+            <div className="flex items-center gap-1 bg-bg-accent rounded p-1">
+              {([['month', 'Mensual'], ['year', 'Anual']] as const).map(([m, lbl]) => (
+                <button key={m} onClick={() => setBranchPeriod(m)}
+                  className={cn("px-3 py-1.5 rounded text-[9px] font-black uppercase transition-all", branchPeriod === m ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+          {branchLoading ? (
+            <div className="py-20 flex justify-center"><Loader2 size={28} className="animate-spin text-brand-500" /></div>
+          ) : (() => {
+            const { cols, computedByBranch, ventasBranch, totalMap, ventasTotal } = buildBranchesData();
+            if (cols.length === 0) {
+              return <div className="py-16 text-center text-text-dim text-[11px] font-black uppercase">No hay Estados de Resultado cargados para {branchPeriod === 'month' ? `el mes ${selectedMonth}` : `el año ${selectedMonth.slice(0, 4)}`}.</div>;
+            }
+            const fmtCell = (n: number) => n === 0 ? '-' : (n < 0 ? '-$' : '$') + Math.abs(Math.round(n)).toLocaleString('es-AR');
+            const pctSobre = (val: number, base: number) => base !== 0 ? (val / base) * 100 : 0;
+            return (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead>
+                    <tr className="bg-bg-accent/40 border-b border-border-dim">
+                      <th className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest sticky left-0 bg-bg-accent/40">Concepto (Real)</th>
+                      {cols.map(b => (
+                        <th key={b.id} className="px-4 py-3 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">{b.name}</th>
+                      ))}
+                      <th className="px-4 py-3 text-[10px] font-black uppercase text-brand-500 tracking-widest text-right border-l-2 border-brand-500/40 bg-brand-500/5">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PL_STRUCTURE.map(def => {
+                      if (def.type === 'header') {
+                        return (
+                          <tr key={def.key} className="bg-brand-500/5">
+                            <td colSpan={cols.length + 2} className="px-4 py-2 text-[10px] font-black uppercase text-brand-500 tracking-widest">{def.label}</td>
+                          </tr>
+                        );
+                      }
+                      const isSub = def.type === 'subtotal';
+                      const esFinal = def.key === 'ganancia_final';
+                      const cajaResultado = (n: number) => (
+                        n === 0 ? <span className="text-text-dim">-</span> : (
+                          <span className={cn("inline-flex items-center gap-1 px-2 py-1 rounded border font-mono text-[11px] font-black",
+                            n > 0 ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/50" : "bg-red-500/15 text-red-500 border-red-500/50")}>
+                            <span>{n > 0 ? '😄' : '😟'}</span> {fmtCell(n)}
+                          </span>
+                        )
+                      );
+                      const celda = (valP: number, base: number, fuerte: boolean) => (
+                        <div className="flex flex-col items-end leading-tight">
+                          {esFinal ? cajaResultado(valP) : <span className={cn(valP < 0 ? "text-red-400" : isSub || fuerte ? "text-text-main" : "text-text-dim")}>{fmtCell(valP)}</span>}
+                          {valP && base ? <span className="text-[8px] text-text-dim/70">{pctSobre(valP, base).toFixed(1)}%</span> : null}
+                        </div>
+                      );
+                      return (
+                        <tr key={def.key} className={cn("border-b border-border-dim/30", isSub && "bg-bg-accent/20 font-black", esFinal && "bg-bg-accent/30")}>
+                          <td className={cn("px-4 py-2 text-[11px] sticky left-0 bg-bg-sidebar", isSub ? "font-black text-text-main uppercase" : "text-text-dim")} style={{ paddingLeft: `${16 + (def.indent || 0) * 16}px` }}>
+                            {def.label}
+                          </td>
+                          {cols.map(b => (
+                            <td key={b.id} className="px-4 py-2 text-right font-mono text-[11px] align-top">
+                              {celda(computedByBranch[b.id][def.key]?.realPesos || 0, ventasBranch[b.id], false)}
+                            </td>
+                          ))}
+                          <td className="px-4 py-2 text-right font-mono text-[11px] font-black border-l-2 border-brand-500/40 bg-brand-500/5 align-top">
+                            {celda(totalMap[def.key]?.realPesos || 0, ventasTotal, true)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             );
           })()}
         </div>
