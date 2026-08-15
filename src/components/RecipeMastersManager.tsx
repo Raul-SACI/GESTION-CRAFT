@@ -89,11 +89,10 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
   };
 
   const modelo = () => {
-    const headers = ['Nombre'];
-    const ejemplo: any[] = [showUnit ? 'BOLLO DE PIZZA' : 'PIZZAS CLÁSICAS'];
-    const cols: any[] = [{ wch: 34 }];
+    const headers = ['Codigo', 'Nombre'];
+    const ejemplo: any[] = ['', showUnit ? 'BOLLO DE PIZZA' : 'PIZZAS CLÁSICAS'];
+    const cols: any[] = [{ wch: 14 }, { wch: 34 }];
     if (showUnit) { headers.push('Unidad'); ejemplo.push('UNIDAD'); cols.push({ wch: 14 }); }
-    headers.push('Codigo'); ejemplo.push(''); cols.push({ wch: 14 });
     if (showCost) { headers.push('Costo'); ejemplo.push(''); cols.push({ wch: 12 }); }
     const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
     ws['!cols'] = cols;
@@ -140,9 +139,8 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
   // Exporta a Excel los registros actuales del maestro (respetando qué columnas aplican).
   const exportar = () => {
     const data = rows.map(r => {
-      const o: Record<string, any> = { Nombre: r.name };
+      const o: Record<string, any> = { Codigo: r.code || '', Nombre: r.name };
       if (showUnit) o.Unidad = r.unit || '';
-      o.Codigo = r.code || '';
       if (showCost) o.Costo = r.cost ?? '';
       o.Estado = r.is_active === false ? 'INHABILITADO' : 'ACTIVO';
       return o;
