@@ -56,6 +56,8 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  code?: string | null;   // código del producto
+  cost?: number | null;   // costo del producto
   is_active?: boolean; // false = inhabilitado en el Maestro de Productos
 }
 

@@ -445,6 +445,8 @@ function AppContent() {
           id: p.id,
           name: p.name,
           category: p.category,
+          code: p.code,
+          cost: p.cost,
           is_active: p.is_active
         })));
       }

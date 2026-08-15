@@ -228,11 +228,11 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
           <div key={r.id} className={cn("flex items-center justify-between p-3.5 rounded border bg-bg-accent/40 border-border-dim hover:border-brand-500/30 transition-all", inhabilitado && "opacity-55")}>
             <div className="min-w-0">
               <p className="text-[11px] font-black text-text-main uppercase truncate flex items-center gap-2">
-                <span className="truncate">{r.name}</span>
+                <span className="truncate">{r.code ? <span className={cn('mr-1.5 font-mono', c.text)}>{r.code}</span> : ''}{r.name}</span>
                 {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0">Inhabilitado</span>}
               </p>
               <p className="text-[9px] text-text-dim font-bold uppercase mt-0.5">
-                {[showUnit ? (r.unit || 'sin unidad') : null, r.code || null, showCost && r.cost != null ? `$${Number(r.cost).toLocaleString('es-AR')}` : null].filter(Boolean).join(' · ') || '—'}
+                {[showUnit ? (r.unit || 'sin unidad') : null, showCost && r.cost != null ? `$${Number(r.cost).toLocaleString('es-AR')}` : null].filter(Boolean).join(' · ') || '—'}
               </p>
             </div>
             {!isReadOnly && (

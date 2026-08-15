@@ -142,7 +142,7 @@ export default function DeviationControlView({
   };
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
-    if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active })));
+    if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active, code: p.code, cost: p.cost })) as any);
   };
 
   // --- Eliminación múltiple de INSUMOS ---
@@ -2319,12 +2319,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         )}
                         <div>
                           <p className="text-[11px] font-black text-text-main uppercase flex items-center gap-2 flex-wrap">
-                            <span>{p.name}</span>
+                            <span>{(p as any).code ? <span className="text-teal-500 mr-1.5 font-mono">{(p as any).code}</span> : ''}{p.name}</span>
                             {inhabilitado && <span className="text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">Inhabilitado</span>}
                           </p>
                           <p className="text-[9px] text-text-dim font-bold uppercase mt-1">
                             Categoría: {p.category}
-                            {(p as any).code ? ` · ${(p as any).code}` : ''}
                             {(p as any).cost != null ? ` · $${Number((p as any).cost).toLocaleString('es-AR')}` : ''}
                           </p>
                         </div>
