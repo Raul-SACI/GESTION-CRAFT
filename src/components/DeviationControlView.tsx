@@ -512,7 +512,7 @@ export default function DeviationControlView({
       data = [{ 'Nombre': 'EJEMPLO INSUMO', 'Unidad': 'KG', 'Categoria': 'CARNES', 'Codigo': 'INS-001', 'Costo': 100 }];
       filename = 'modelo_insumos.xlsx';
     } else if (type === 'products') {
-      data = [{ 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS', 'Codigo Producto': 'PROD-001', 'Costo': 0 }];
+      data = [{ 'Codigo Producto': 'PROD-001', 'Nombre': 'EJEMPLO PRODUCTO', 'Categoria': 'HAMBURGUESAS', 'Costo': 0 }];
       filename = 'modelo_productos.xlsx';
     } else if (type === 'recipes') {
       data = [{ 
