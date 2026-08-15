@@ -23,11 +23,14 @@ import {
   FileSpreadsheet,
   LayoutDashboard,
   Eye,
-  EyeOff
+  EyeOff,
+  Calculator,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch, StockItem, Product } from '../types';
+import { recalcularCostosRecetas } from '../lib/recalcRecipeCosts';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 
@@ -143,6 +146,23 @@ export default function DeviationControlView({
   const reloadProducts = async () => {
     const { data } = await supabase.from('products').select('*').order('name');
     if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active, code: p.code, cost: p.cost })) as any);
+  };
+
+  // Recalcula costos de recetas/platos a partir de los costos actuales de insumos.
+  const [recalcCostos, setRecalcCostos] = useState(false);
+  const handleRecalcCostos = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!window.confirm('Se van a recalcular y GUARDAR los costos de todas las recetas y platos usando los costos actuales de insumos. ¿Continuar?')) return;
+    setRecalcCostos(true);
+    try {
+      const res = await recalcularCostosRecetas();
+      await reloadProducts();
+      alert(`Costos recalculados: ${res.recetas} receta(s) y ${res.platos} plato(s) actualizados.${res.sinMatch ? ` (${res.sinMatch} sin coincidencia en los maestros)` : ''}`);
+    } catch (e: any) {
+      alert('Error al recalcular costos: ' + (e.message || e));
+    } finally {
+      setRecalcCostos(false);
+    }
   };
 
   // --- Eliminación múltiple de INSUMOS ---
@@ -1980,6 +2000,17 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
                   <h3 className="text-sm font-black uppercase text-brand-500 tracking-widest">Maestro de Insumos</h3>
                   <div className="flex gap-2">
+                    {!isReadOnly && (
+                    <button
+                      onClick={handleRecalcCostos}
+                      disabled={recalcCostos}
+                      title="Recalcula y guarda el costo de todas las recetas y platos según los costos actuales de insumos"
+                      className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded hover:border-emerald-500 transition-all text-text-dim hover:text-emerald-500 text-[9px] font-black uppercase disabled:opacity-50"
+                    >
+                      {recalcCostos ? <Loader2 size={14} className="animate-spin" /> : <Calculator size={14} />}
+                      Recalcular costos
+                    </button>
+                    )}
                     <button
                       onClick={exportItems}
                       title="Exportar a Excel"
