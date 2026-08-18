@@ -1017,7 +1017,7 @@ export default function EncargadoDashboardView({
 
       if (vt <= 0) return; // sin base teórica no se mide
       const efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
-      const desvio = efTeorica - ef;
+      const desvio = ef - efTeorica; // EF Real − EF Teórica
       if (efTeorica === 0) return;
       const pct = (desvio / efTeorica) * 100;
       absPorInsumo.push(Math.abs(pct));
@@ -1065,7 +1065,7 @@ export default function EncargadoDashboardView({
         let decw = 0; logs.forEach((d: any) => { const dd = dayOf(d); if (dd >= ws && dd <= we) decw += Number(d.decomisos) || 0; });
         if (vtw <= 0) return null; // sin base teórica esa semana
         const efTeorica = eiw + comprasw + pRec - pEnv - vtw - decw - consw;
-        const desvio = efTeorica - efw;
+        const desvio = efw - efTeorica; // EF Real − EF Teórica
         if (efTeorica === 0) return null;
         return { pct: (desvio / efTeorica) * 100, desvio, efTeorica, ef: efw };
       });
@@ -2424,7 +2424,7 @@ export default function EncargadoDashboardView({
             <div className="px-5 py-3 bg-bg-accent/30 border-b border-border-dim">
               <p className="text-[9px] font-bold text-text-dim leading-relaxed">
                 Por insumo, con los totales del mes: <span className="font-mono">EF teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo</span>.
-                Desvío = EF teórica − EF real; <span className="font-mono">% = desvío / EF teórica</span>. El desvío de la sucursal es el <strong>promedio del |%|</strong> de todos los insumos. Coincide con la vista Mes de Control de Stock.
+                Desvío = EF Real − EF Teórica; <span className="font-mono">% = (EF Real − EF Teórica) / EF Teórica × 100</span>. El desvío de la sucursal es el <strong>promedio del |%|</strong> de todos los insumos. Coincide con la vista Mes de Control de Stock.
               </p>
             </div>
             <div className="overflow-y-auto flex-1">

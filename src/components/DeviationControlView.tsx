@@ -1391,11 +1391,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
                        const inputCls = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60";
                        const inputBrand = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50";
-                       // Desvío: igual que Control de Stock → CMV real - ventas teóricas
+                       // Desvío = EF Real − EF Teórica (igual que Control de Stock)
                        const cmvReal = ei + purchases + loansReceived - loansSent - waste - staff_consumption - ef;
-                       const desvio = cmvReal - theoretical_sales;
-                       // Desvío %: sobre la Existencia Final Teórica (incluye decomisos), igual que Control de Stock y Dashboard
-                       const efTeorica = ei + purchases + loansReceived - loansSent - theoretical_sales - waste - staff_consumption; // = ef + desvio
+                       const efTeorica = ei + purchases + loansReceived - loansSent - theoretical_sales - waste - staff_consumption;
+                       const desvio = ef - efTeorica; // = ventas teóricas − CMV real
+                       // Desvío %: (EF Real − EF Teórica) / EF Teórica × 100
                        const desvioPct = efTeorica !== 0 ? (desvio / efTeorica) * 100 : null;
                        return (
                          <tr key={id} className="hover:bg-bg-accent/20 transition-colors text-[11px]">
