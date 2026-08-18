@@ -1352,6 +1352,48 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                   </div>
                </div>
 
+               {/* Diferencias entre lo que cargó el ENCARGADO (Control de Stock) y lo que dejó
+                   ADMINISTRACIÓN (valor que manda para los cálculos). */}
+               {(() => {
+                 const encFields: [string, string][] = [['ei', 'EI'], ['compras', 'Compras'], ['prestamos_recibidos', 'P. Recib.'], ['prestamos_enviados', 'P. Enviad.'], ['consumo_personal', 'Consumo Pers.'], ['ef', 'EF']];
+                 const weekDates = getDatesForWeek(planillaWeek);
+                 const diffs: Array<{ insumo: string; label: string; enc: number; admin: number; diff: number }> = [];
+                 validControlledIds.forEach(id => {
+                   const item = items.find(i => i.id === id);
+                   const fdl = dailyLogs.find(l => l.itemId === id && l.date === weekDates[0]);
+                   if (!fdl) return;
+                   encFields.forEach(([col, label]) => {
+                     const enc = fdl[`${col}_enc`];
+                     if (enc === null || enc === undefined) return; // el encargado no cargó ese campo
+                     const admin = fdl[col];
+                     const diff = (Number(admin) || 0) - (Number(enc) || 0);
+                     if (Math.abs(diff) > 0.001) diffs.push({ insumo: item?.name || '', label, enc: Number(enc) || 0, admin: Number(admin) || 0, diff });
+                   });
+                 });
+                 if (diffs.length === 0) return null;
+                 const fmt = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+                 return (
+                   <div className="mb-3 bg-amber-500/10 border border-amber-500/40 rounded-lg overflow-hidden">
+                     <div className="px-4 py-2 flex items-center gap-2 border-b border-amber-500/30">
+                       <AlertTriangle size={14} className="text-amber-600" />
+                       <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">{diffs.length} corrección(es) de Administración vs. carga del encargado</span>
+                       <span className="text-[8px] font-bold text-amber-600/70 normal-case tracking-normal hidden sm:inline">· para los cálculos vale el valor de Admin</span>
+                     </div>
+                     <div className="max-h-40 overflow-y-auto divide-y divide-amber-500/20">
+                       {diffs.map((d, i) => (
+                         <div key={i} className="px-4 py-1.5 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[10px]">
+                           <span className="font-black uppercase text-text-main min-w-[140px]">{d.insumo}</span>
+                           <span className="font-bold uppercase text-text-dim w-20">{d.label}</span>
+                           <span className="font-mono text-text-dim">Encargado: <span className="font-black text-text-main">{fmt(d.enc)}</span></span>
+                           <span className="font-mono text-text-dim">Admin: <span className="font-black text-text-main">{fmt(d.admin)}</span></span>
+                           <span className={cn("font-mono font-black", d.diff > 0 ? "text-emerald-600" : "text-red-500")}>Dif: {d.diff > 0 ? '+' : ''}{fmt(d.diff)}</span>
+                         </div>
+                       ))}
+                     </div>
+                   </div>
+                 );
+               })()}
+
                <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
                  <table className="w-full border-collapse">
                    <thead className="sticky top-0 z-20 bg-bg-sidebar">

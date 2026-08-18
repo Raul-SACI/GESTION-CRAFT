@@ -565,6 +565,18 @@ export default function StockView({
            touched_fields: nextTouchedForSave.join(',')
          }, { onConflict: 'branch_id,item_id,date' });
     }
+
+    // Guardar además el valor cargado por el ENCARGADO en una columna sombra (*_enc), para
+    // poder mostrar "encargado vs admin vs diferencia" en Control de Desvíos. El valor que
+    // manda para los cálculos sigue siendo la columna principal (la que corrige Admin).
+    // Best-effort: si las columnas *_enc todavía no existen, no rompe el guardado normal.
+    const ENC_SHADOW = new Set(['ei', 'ef', 'compras', 'prestamos_recibidos', 'prestamos_enviados', 'consumo_personal']);
+    if (ENC_SHADOW.has(dbField)) {
+      supabase.from('inventory_logs').upsert(
+        { branch_id: selectedBranchId, item_id: id, date: targetDate, [`${dbField}_enc`]: value },
+        { onConflict: 'branch_id,item_id,date' }
+      ).then(({ error }) => { if (error) console.warn('No se pudo guardar el valor del encargado (columna *_enc):', error.message); });
+    }
   };
 
   // Helper to get dates for a week or month
