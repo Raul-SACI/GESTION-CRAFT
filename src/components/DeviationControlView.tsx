@@ -1362,6 +1362,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Decomisos</th>
                        <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Ventas Teo.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">EF</th>
+                       <th className="px-3 py-3 text-center bg-teal-500/5 text-teal-600">EF Teó.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Recib.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
@@ -1421,6 +1422,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                              <input type="number" step="0.001" value={ef || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="px-3 py-3 text-center border-r border-border-dim/30 bg-teal-500/5" title="Existencia Final Teórica (calculada, no editable)">
+                             <span className="font-mono text-[11px] font-bold text-teal-600">{efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                              <input type="number" step="0.001" value={loansReceived || ''} placeholder="0" disabled={weekClosed}
