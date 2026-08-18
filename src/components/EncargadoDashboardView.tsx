@@ -117,6 +117,8 @@ export default function EncargadoDashboardView({
   const [showDeviationModal, setShowDeviationModal] = useState(false);
   const [deviationInput, setDeviationInput] = useState('');
   const [deviationNote, setDeviationNote] = useState('');
+  const [itemNamesById, setItemNamesById] = useState<Record<string, string>>({});
+  const [showDevDetail, setShowDevDetail] = useState(false);
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
@@ -307,6 +309,13 @@ export default function EncargadoDashboardView({
         const totalW = data.reduce((sum, item) => sum + (Number(item.decomisos) || 0), 0);
         setWasteTotal(totalW);
         setRawInventoryLogs(data); // todos los logs del mes, para el cálculo oficial del desvío
+        // Nombres de insumos (para el detalle del desvío)
+        try {
+          const { data: sitems } = await supabase.from('stock_items').select('id, name');
+          const nm: Record<string, string> = {};
+          (sitems || []).forEach((s: any) => { if (s.id) nm[s.id] = s.name; });
+          setItemNamesById(nm);
+        } catch { /* opcional */ }
 
         // Match items with higher deviations (theoretical vs real physical diffs) — solo para mostrar
         const sortedItems = [...data]
@@ -912,8 +921,9 @@ export default function EncargadoDashboardView({
   //      desvío % (semana) = |cmvReal - ventas teóricas| / ventas teóricas * 100
   // 2) Desvío mensual del insumo = promedio de los % de sus semanas (con ventas teóricas > 0).
   // 3) Desvío del dashboard = promedio simple de los % mensuales de todos los insumos.
-  const autoStockDeviation = useMemo(() => {
-    if (!rawInventoryLogs || rawInventoryLogs.length === 0) return 0;
+  const autoStockDeviationData = useMemo(() => {
+    const empty = { value: 0, detail: [] as Array<{ id: string; name: string; promedio: number; semanas: Array<{ w: number; pct: number; cmv: number; vt: number }> }> };
+    if (!rawInventoryLogs || rawInventoryLogs.length === 0) return empty;
 
     const [yy, mm] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(yy, mm, 0).getDate();
@@ -933,11 +943,13 @@ export default function EncargadoDashboardView({
     });
 
     const promediosPorInsumo: number[] = [];
+    const detail: Array<{ id: string; name: string; promedio: number; semanas: Array<{ w: number; pct: number; cmv: number; vt: number }> }> = [];
 
-    Object.values(porItem).forEach(itemLogs => {
+    Object.entries(porItem).forEach(([itemId, itemLogs]) => {
       const pctSemanas: number[] = [];
+      const semDetalle: Array<{ w: number; pct: number; cmv: number; vt: number }> = [];
 
-      semanas.forEach(([wStart, wEnd]) => {
+      semanas.forEach(([wStart, wEnd], idx) => {
         // CASO ESPECIAL JUNIO 2026: se perdió el inventario de S1-S3; solo cuenta la semana 4.
         if (selectedMonth === '2026-06' && wStart !== 22) return;
 
@@ -966,17 +978,24 @@ export default function EncargadoDashboardView({
         if (ventasTeorico <= 0) return; // sin base teórica no se puede medir el %
         const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
         const desvio = cmvReal - ventasTeorico;
-        pctSemanas.push((Math.abs(desvio) / ventasTeorico) * 100);
+        const pct = (Math.abs(desvio) / ventasTeorico) * 100;
+        pctSemanas.push(pct);
+        semDetalle.push({ w: idx + 1, pct, cmv: cmvReal, vt: ventasTeorico });
       });
 
       if (pctSemanas.length > 0) {
-        promediosPorInsumo.push(pctSemanas.reduce((s, p) => s + p, 0) / pctSemanas.length);
+        const promedio = pctSemanas.reduce((s, p) => s + p, 0) / pctSemanas.length;
+        promediosPorInsumo.push(promedio);
+        detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, promedio, semanas: semDetalle });
       }
     });
 
-    if (promediosPorInsumo.length === 0) return 0;
-    return promediosPorInsumo.reduce((s, p) => s + p, 0) / promediosPorInsumo.length;
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds]);
+    if (promediosPorInsumo.length === 0) return empty;
+    detail.sort((a, b) => b.promedio - a.promedio);
+    return { value: promediosPorInsumo.reduce((s, p) => s + p, 0) / promediosPorInsumo.length, detail };
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById]);
+
+  const autoStockDeviation = autoStockDeviationData.value;
 
   // Desvío efectivo: si administración cargó un valor a mano para este mes/sucursal, se usa ese.
   const averageStockDeviation = stockDeviationOverride ? stockDeviationOverride.value : autoStockDeviation;
@@ -2030,20 +2049,30 @@ export default function EncargadoDashboardView({
                   <p className="text-[8px] text-text-dim uppercase font-bold mt-0.5">Premio que va alcanzando la sucursal según la configuración cargada</p>
                 </div>
               </div>
-              {esAdmin && selectedBranchId !== 'all' && (
-                <button
-                  onClick={() => { setDeviationInput(stockDeviationOverride ? String(stockDeviationOverride.value) : ''); setDeviationNote(stockDeviationOverride?.note || ''); setShowDeviationModal(true); }}
-                  className={cn(
-                    "px-3 py-1.5 rounded border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
-                    stockDeviationOverride
-                      ? "bg-amber-500/10 border-amber-500/40 text-amber-600 hover:bg-amber-500/20"
-                      : "bg-bg-accent border-border-dim text-text-dim hover:text-text-main"
-                  )}
-                  title="Cargar a mano el desvío de stock de la planilla de Control de Desvíos">
-                  <Pencil size={11} />
-                  {stockDeviationOverride ? `Desvío cargado: ${stockDeviationOverride.value}` : 'Cargar desvío a mano'}
-                </button>
-              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                {selectedBranchId !== 'all' && autoStockDeviationData.detail.length > 0 && (
+                  <button
+                    onClick={() => setShowDevDetail(true)}
+                    className="px-3 py-1.5 rounded border border-border-dim bg-bg-accent text-text-dim hover:text-text-main text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5"
+                    title="Ver cómo se calcula el % de desvío de stock, semana por semana y por insumo">
+                    <Info size={11} /> Ver detalle desvío
+                  </button>
+                )}
+                {esAdmin && selectedBranchId !== 'all' && (
+                  <button
+                    onClick={() => { setDeviationInput(stockDeviationOverride ? String(stockDeviationOverride.value) : ''); setDeviationNote(stockDeviationOverride?.note || ''); setShowDeviationModal(true); }}
+                    className={cn(
+                      "px-3 py-1.5 rounded border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+                      stockDeviationOverride
+                        ? "bg-amber-500/10 border-amber-500/40 text-amber-600 hover:bg-amber-500/20"
+                        : "bg-bg-accent border-border-dim text-text-dim hover:text-text-main"
+                    )}
+                    title="Cargar a mano el desvío de stock de la planilla de Control de Desvíos">
+                    <Pencil size={11} />
+                    {stockDeviationOverride ? `Desvío cargado: ${stockDeviationOverride.value}` : 'Cargar desvío a mano'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* List calculated bonuses */}
@@ -2260,6 +2289,76 @@ export default function EncargadoDashboardView({
                 <button onClick={guardarDesvioManual}
                   className="px-4 py-2 rounded bg-brand-500 text-white text-[9px] font-black uppercase hover:bg-brand-600 transition-all">Guardar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: detalle del cálculo de desvío de stock (semana por semana, por insumo) */}
+      {showDevDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowDevDetail(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-start justify-between">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Detalle del % de Desvío de Stock</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">
+                  {activeBranch?.name} · {selectedMonth} · promedio semana a semana por insumo
+                </p>
+              </div>
+              <button onClick={() => setShowDevDetail(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+            <div className="px-5 py-3 bg-bg-accent/30 border-b border-border-dim">
+              <p className="text-[9px] font-bold text-text-dim leading-relaxed">
+                Por cada insumo: % de cada semana = <span className="font-mono">|CMV real − Venta teórica| / Venta teórica</span>, promediando las semanas con venta teórica &gt; 0.
+                El desvío de la sucursal es el <strong>promedio simple</strong> de los promedios de todos los insumos.
+              </p>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-bg-accent">
+                  <tr className="text-[8px] font-black uppercase text-text-dim tracking-widest">
+                    <th className="px-4 py-2">Insumo</th>
+                    <th className="px-2 py-2 text-right">S1</th>
+                    <th className="px-2 py-2 text-right">S2</th>
+                    <th className="px-2 py-2 text-right">S3</th>
+                    <th className="px-2 py-2 text-right">S4</th>
+                    <th className="px-4 py-2 text-right">Prom. insumo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dim/30">
+                  {autoStockDeviationData.detail.map(d => {
+                    const byWeek: Record<number, { pct: number; cmv: number; vt: number }> = {};
+                    d.semanas.forEach(s => { byWeek[s.w] = s; });
+                    return (
+                      <tr key={d.id} className="text-[10px] hover:bg-bg-accent/20">
+                        <td className="px-4 py-2 font-bold text-text-main">{d.name}</td>
+                        {[1, 2, 3, 4].map(w => (
+                          <td key={w} className="px-2 py-2 text-right font-mono text-text-dim">
+                            {byWeek[w] ? (
+                              <span title={`CMV real ${byWeek[w].cmv.toFixed(2)} · V.teó ${byWeek[w].vt.toFixed(2)}`}
+                                className={byWeek[w].pct >= 100 ? 'text-red-500 font-black' : byWeek[w].pct >= 5 ? 'text-amber-600' : 'text-emerald-500'}>
+                                {byWeek[w].pct.toFixed(1)}%
+                              </span>
+                            ) : <span className="text-text-dim/30">—</span>}
+                          </td>
+                        ))}
+                        <td className="px-4 py-2 text-right font-mono font-black text-text-main">{d.promedio.toFixed(1)}%</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-brand-500/10 border-t-2 border-brand-500/40 text-[11px]">
+                    <td className="px-4 py-2.5 font-black uppercase text-brand-500" colSpan={5}>Desvío de la sucursal (promedio de insumos)</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-black text-brand-500">{autoStockDeviation.toFixed(1)}%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-border-dim bg-bg-accent/20">
+              <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest leading-relaxed">
+                Tip: las semanas con venta teórica muy baja disparan el % (denominador chico). Si un insumo tiene un % altísimo en una semana, revisá esa semana en Control de Stock. Este promedio NO coincide con el % mensual de Control de Stock, que usa los totales del mes.
+              </p>
             </div>
           </div>
         </div>
