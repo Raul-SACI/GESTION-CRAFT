@@ -922,10 +922,13 @@ export default function EncargadoDashboardView({
   // 2) Desvío mensual del insumo = promedio de los % de sus semanas (con ventas teóricas > 0).
   // 3) Desvío del dashboard = promedio simple de los % mensuales de todos los insumos.
   // Desvío de stock MENSUAL, mismo criterio que Control de Stock (vista Mes):
-  //  · Por insumo, con los TOTALES del mes: EI = día 01, EF = último cierre semanal cargado,
-  //    y compras/préstamos/consumo/venta teórica/decomisos sumados del mes.
-  //  · Existencia Final Teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo.
-  //  · Desvío = EF teórica − EF real.   Desvío % = desvío / EF teórica.
+  //  · El desvío del MES es la SUMA de los desvíos de las 4 semanas (cada semana se cuenta
+  //    por separado, no encadenan). Por eso el CMV mensual usa la SUMA de las EI y de las EF
+  //    semanales (no la EI de la semana 1 y la EF de la semana 4).
+  //  · CMV real = ΣEI + compras + prést.recib − prést.env − decomisos − consumo − ΣEF.
+  //    Desvío = CMV real − venta teórica.
+  //  · EF real (mostrado) = EF de la última semana; EF teórica = EF real + desvío.
+  //    Desvío % = desvío / EF teórica.
   //  · Desvío de la sucursal = promedio simple del |%| de cada insumo (un faltante y un
   //    sobrante no se compensan).
   const autoStockDeviationData = useMemo(() => {
@@ -949,14 +952,16 @@ export default function EncargadoDashboardView({
     const detail: Array<{ id: string; name: string; ei: number; ef: number; efTeorica: number; desvio: number; pct: number }> = [];
 
     Object.entries(porItem).forEach(([itemId, itemLogs]) => {
-      // Igual que Control de Stock (Mes): EI = día 01; EF = último cierre semanal cargado (22→01).
-      const day1 = itemLogs.find((d: any) => dayOf(d) === 1);
-      const ei = day1 ? Number(day1.ei) || 0 : 0;
-      let ef = 0;
-      for (let i = weekStarts.length - 1; i >= 0; i--) {
-        const log = itemLogs.find((d: any) => dayOf(d) === weekStarts[i]);
-        if (log && log.ef !== null && log.ef !== undefined) { ef = Number(log.ef) || 0; break; }
-      }
+      // EI y EF: suma de los valores semanales (primeros días de semana). ef4 = última semana cargada.
+      let eiSum = 0, efSum = 0, ef4 = 0;
+      weekStarts.forEach(ws => {
+        const log = itemLogs.find((d: any) => dayOf(d) === ws);
+        if (log) {
+          eiSum += Number(log.ei) || 0;
+          efSum += Number(log.ef) || 0;
+          if (log.ef !== null && log.ef !== undefined) ef4 = Number(log.ef) || 0;
+        }
+      });
       // Sumas del mes: compras/préstamos/consumo/venta teórica (viven en el primer día de cada
       // semana) y decomisos (repartidos por día) → se suma sobre TODOS los logs del insumo.
       let compras = 0, pRec = 0, pEnv = 0, consumo = 0, vt = 0, decomisos = 0;
@@ -971,12 +976,14 @@ export default function EncargadoDashboardView({
       });
 
       if (vt <= 0) return; // sin base teórica no se mide
-      const efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
-      const desvio = efTeorica - ef;
+      const cmvReal = eiSum + compras + pRec - pEnv - decomisos - consumo - efSum;
+      const desvio = cmvReal - vt; // = suma de los desvíos semanales
+      const ef = ef4;
+      const efTeorica = ef + desvio; // EF real (última semana) + desvío
       if (efTeorica === 0) return;
       const pct = (desvio / efTeorica) * 100;
       absPorInsumo.push(Math.abs(pct));
-      detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, ei, ef, efTeorica, desvio, pct });
+      detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, ei: eiSum, ef, efTeorica, desvio, pct });
     });
 
     if (absPorInsumo.length === 0) return empty;
