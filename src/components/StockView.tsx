@@ -349,7 +349,9 @@ export default function StockView({
           // Acumular ventas teóricas por insumo + guardar el desglose (qué productos suman)
           // + detectar ventas sin vincular a una receta
           const theoreticalByItem: Record<string, number> = {};
-          const detailByItem: Record<string, Array<{ product: string; sold: number; perUnit: number; aporte: number }>> = {};
+          // Desglose agrupado por producto (el ranking del POS puede traer el mismo plato en
+          // varias líneas —distinto código/botón de caja—; se suman en una sola fila).
+          const detailByItem: Record<string, Record<string, { product: string; sold: number; perUnit: number; aporte: number }>> = {};
           const unmatchedMap: Record<string, { name: string; qty: number }> = {};
           rankingData.forEach((rk: any) => {
             const soldQty = Number(rk.quantity || 0);
@@ -368,12 +370,19 @@ export default function StockView({
             recipe.forEach(ing => {
               const aporte = soldQty * ing.quantity;
               theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + aporte;
-              if (aporte !== 0) (detailByItem[ing.itemId] = detailByItem[ing.itemId] || []).push({ product: rk.product_name, sold: soldQty, perUnit: ing.quantity, aporte });
+              if (aporte !== 0) {
+                const bucket = (detailByItem[ing.itemId] = detailByItem[ing.itemId] || {});
+                const pk = norm(rk.product_name);
+                if (!bucket[pk]) bucket[pk] = { product: rk.product_name, sold: 0, perUnit: ing.quantity, aporte: 0 };
+                bucket[pk].sold += soldQty;
+                bucket[pk].aporte += aporte;
+              }
             });
           });
-          // Ordenar cada desglose de mayor a menor aporte
-          Object.keys(detailByItem).forEach(id => detailByItem[id].sort((a, b) => b.aporte - a.aporte));
-          setVentasDetalle(detailByItem);
+          // Cada desglose: pasar a lista y ordenar de mayor a menor aporte
+          const detailArr: Record<string, Array<{ product: string; sold: number; perUnit: number; aporte: number }>> = {};
+          Object.keys(detailByItem).forEach(id => { detailArr[id] = Object.values(detailByItem[id]).sort((a, b) => b.aporte - a.aporte); });
+          setVentasDetalle(detailArr);
           setUnmatchedSales(Object.values(unmatchedMap).filter(u => u.qty !== 0).sort((a, b) => b.qty - a.qty));
 
           // Asignar el total de la semana al PRIMER día de la semana en el Control de Stock
