@@ -164,6 +164,10 @@ export default function EncargadoDashboardView({
     return branches.find(b => b.id === selectedBranchId) || branches[0];
   }, [branches, selectedBranchId]);
 
+  // El Centro de Producción / Almacén no vende: su desvío se mide sin venta teórica,
+  // con la EF teórica que sale de los movimientos (producción, envíos, consumo, etc.).
+  const isAlmacenBranch = selectedBranchId === 'n4ncoary3' || /almac/i.test(activeBranch?.name || '');
+
   // Handle Month changes
   const adjustMonth = (offset: number) => {
     const [yearStr, monthStr] = selectedMonth.split('-');
@@ -997,7 +1001,7 @@ export default function EncargadoDashboardView({
       }
       // Sumas del mes: compras/préstamos/consumo (viven en el primer día de cada semana) y
       // decomisos (repartidos por día) → se suma sobre TODOS los logs del insumo.
-      let compras = 0, pRec = 0, pEnv = 0, consumo = 0, decomisos = 0;
+      let compras = 0, pRec = 0, pEnv = 0, consumo = 0, decomisos = 0, produccion = 0, recupero = 0, ventasPers = 0;
       itemLogs.forEach((d: any) => {
         compras += Number(d.compras) || 0;
         let pe = Number(d.prestamos_enviados) || 0, pr = Number(d.prestamos_recibidos) || 0;
@@ -1005,18 +1009,25 @@ export default function EncargadoDashboardView({
         pEnv += pe; pRec += pr;
         consumo += Number(d.consumo_personal) || 0;
         decomisos += Number(d.decomisos) || 0;
+        produccion += Number(d.produccion) || 0;
+        recupero += Number(d.recupero) || 0;
+        ventasPers += Number(d.ventas_personal) || 0;
       });
-      // Venta teórica del mes = suma por semana desde el ranking (si esa semana tiene ranking);
-      // si no, la persistida en el primer día de la semana.
-      let vt = 0;
-      weekStarts.forEach((ws, wi) => {
-        const wNum = wi + 1;
-        if (weeklyVtByItem[wNum] !== undefined) vt += weeklyVtByItem[wNum][itemId] || 0;
-        else { const log = itemLogs.find((d: any) => dayOf(d) === ws); vt += log ? (Number(log.ventas_teorico) || 0) : 0; }
-      });
-
-      if (vt <= 0) return; // sin base teórica no se mide
-      const efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
+      let efTeorica: number;
+      if (isAlmacenBranch) {
+        // Almacén: EF teórica = EI + compras + producción + devolución − envíos − consumo − recupero − ventas pers. − decomisos.
+        efTeorica = ei + compras + produccion + pRec - pEnv - consumo - recupero - ventasPers - decomisos;
+      } else {
+        // Venta teórica del mes = suma por semana desde el ranking o la persistida.
+        let vt = 0;
+        weekStarts.forEach((ws, wi) => {
+          const wNum = wi + 1;
+          if (weeklyVtByItem[wNum] !== undefined) vt += weeklyVtByItem[wNum][itemId] || 0;
+          else { const log = itemLogs.find((d: any) => dayOf(d) === ws); vt += log ? (Number(log.ventas_teorico) || 0) : 0; }
+        });
+        if (vt <= 0) return; // sin base teórica no se mide
+        efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
+      }
       const desvio = ef - efTeorica; // EF Real − EF Teórica
       if (efTeorica === 0) return;
       const pct = (desvio / efTeorica) * 100;
@@ -1027,7 +1038,7 @@ export default function EncargadoDashboardView({
     if (absPorInsumo.length === 0) return empty;
     detail.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
     return { value: absPorInsumo.reduce((s, p) => s + p, 0) / absPorInsumo.length, detail };
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem, isAlmacenBranch]);
 
   const autoStockDeviation = autoStockDeviationData.value;
 
@@ -1057,14 +1068,22 @@ export default function EncargadoDashboardView({
         if (!first) return null;
         const wNum = idx + 1;
         const eiw = Number(first.ei) || 0, efw = Number(first.ef) || 0, comprasw = Number(first.compras) || 0;
-        // Venta teórica desde el ranking (si esa semana tiene ranking); si no, la persistida.
-        const vtw = weeklyVtByItem[wNum] !== undefined ? (weeklyVtByItem[wNum][itemId] || 0) : (Number(first.ventas_teorico) || 0);
         const consw = Number(first.consumo_personal) || 0;
         let pEnv = Number(first.prestamos_enviados) || 0, pRec = Number(first.prestamos_recibidos) || 0;
         if (!pEnv && !pRec && first.prestamos) { if (Number(first.prestamos) > 0) pRec = Number(first.prestamos); else pEnv = Math.abs(Number(first.prestamos)); }
         let decw = 0; logs.forEach((d: any) => { const dd = dayOf(d); if (dd >= ws && dd <= we) decw += Number(d.decomisos) || 0; });
-        if (vtw <= 0) return null; // sin base teórica esa semana
-        const efTeorica = eiw + comprasw + pRec - pEnv - vtw - decw - consw;
+        let efTeorica: number;
+        if (isAlmacenBranch) {
+          // Almacén (no vende): EF teórica = EI + compras + producción + devolución − envíos
+          //   − consumo − recupero − ventas pers. − decomisos.
+          const prodw = Number(first.produccion) || 0, recupw = Number(first.recupero) || 0, vpersw = Number(first.ventas_personal) || 0;
+          efTeorica = eiw + comprasw + prodw + pRec - pEnv - consw - recupw - vpersw - decw;
+        } else {
+          // Sucursal: venta teórica desde el ranking (si esa semana tiene ranking) o la persistida.
+          const vtw = weeklyVtByItem[wNum] !== undefined ? (weeklyVtByItem[wNum][itemId] || 0) : (Number(first.ventas_teorico) || 0);
+          if (vtw <= 0) return null; // sin base teórica esa semana
+          efTeorica = eiw + comprasw + pRec - pEnv - vtw - decw - consw;
+        }
         const desvio = efw - efTeorica; // EF Real − EF Teórica
         if (efTeorica === 0) return null;
         return { pct: (desvio / efTeorica) * 100, desvio, efTeorica, ef: efw };
@@ -1073,7 +1092,7 @@ export default function EncargadoDashboardView({
     });
     insumos.sort((a, b) => a.name.localeCompare(b.name));
     return { insumos, N: insumos.length };
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem, isAlmacenBranch]);
 
   // Calcula el premio de desvío celda por celda para una escala de tramos dada.
   const computeStockCellPrize = (tiers: any[], isLowerBetter: boolean) => {
