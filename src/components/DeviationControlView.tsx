@@ -1359,15 +1359,22 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim min-w-[200px]">Insumo</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">EI</th>
                        <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Compras</th>
-                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Decomisos</th>
-                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Ventas Teo.</th>
-                       <th className="px-3 py-3 text-center bg-bg-accent/20">EF</th>
-                       <th className="px-3 py-3 text-center bg-teal-500/5 text-teal-600">EF Teó.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Recib.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
-                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600 border-l border-border-dim">Desvío</th>
-                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600">Desvío %</th>
+                       <th className="px-3 py-3 text-center bg-purple-500/5">Ventas Teo.</th>
+                       <th className="px-3 py-3 text-center bg-red-500/5">Decomisos</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">EF Real</th>
+                       <th className="px-3 py-3 text-center bg-teal-500/5 text-teal-600">EF Teó.</th>
+                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">CMV Real</th>
+                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600 border-l border-border-dim">
+                         Desvío
+                         <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">EF Real − EF Teórica</span>
+                       </th>
+                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600">
+                         Desvío %
+                         <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">(EF Real − EF Teórica) / EF Teórica × 100</span>
+                       </th>
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-border-dim">
@@ -1411,21 +1418,6 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              <input type="number" step="0.001" value={purchases || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)} className={inputBrand} />
                            </td>
-                           <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                             <input type="number" step="0.001" value={waste || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)} className={inputBrand} />
-                           </td>
-                           <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                             <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
-                           </td>
-                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={ef || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)} className={inputCls} />
-                           </td>
-                           <td className="px-3 py-3 text-center border-r border-border-dim/30 bg-teal-500/5" title="Existencia Final Teórica (calculada, no editable)">
-                             <span className="font-mono text-[11px] font-bold text-teal-600">{efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
-                           </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                              <input type="number" step="0.001" value={loansReceived || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)} className={inputCls} />
@@ -1434,9 +1426,27 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              <input type="number" step="0.001" value={loansSent || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansSent', parseFloat(e.target.value) || 0)} className={inputCls} />
                            </td>
-                           <td className="p-0 border-r border-border-dim bg-bg-accent/20">
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                              <input type="number" step="0.001" value={staff_consumption || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-purple-500/5">
+                             <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
+                             <input type="number" step="0.001" value={waste || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                           </td>
+                           <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
+                             <input type="number" step="0.001" value={ef || ''} placeholder="0" disabled={weekClosed}
+                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)} className={inputCls} />
+                           </td>
+                           <td className="px-3 py-3 text-center border-r border-border-dim/30 bg-teal-500/5" title="Existencia Final Teórica (calculada, no editable)">
+                             <span className="font-mono text-[11px] font-bold text-teal-600">{efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
+                           </td>
+                           <td className="px-3 py-3 text-center border-r border-border-dim bg-brand-500/5" title="CMV Real = EI + compras + prést.recib − prést.env − consumo − decomisos − EF Real">
+                             <span className="font-mono text-[11px] font-black text-text-main">{cmvReal.toLocaleString('es-AR', { maximumFractionDigits: 1 })}</span>
                            </td>
                            <td className="px-3 py-3 text-center border-l border-border-dim bg-amber-500/5">
                              <span className={cn("text-[12px] font-mono font-black px-2 py-1 rounded",
