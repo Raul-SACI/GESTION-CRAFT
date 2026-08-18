@@ -295,9 +295,19 @@ export default function DeviationControlView({
           if (!recipeByProd[r.product_id]) recipeByProd[r.product_id] = [];
           recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
         });
-        const { data: productsData } = await supabase.from('products').select('id, name');
+        const { data: productsData } = await supabase.from('products').select('id, name, code');
+        const normCode = (c: any) => String(c ?? '').trim();
         const prodIdByName: Record<string, string> = {};
-        (productsData || []).forEach((p: any) => { if (p.name) prodIdByName[norm(p.name)] = p.id; });
+        const prodIdByCode: Record<string, string> = {};
+        (productsData || []).forEach((p: any) => {
+          if (p.name) prodIdByName[norm(p.name)] = p.id;
+          if (normCode(p.code) !== '') prodIdByCode[normCode(p.code)] = p.id;
+        });
+        // Alias de ventas: nombres del ranking (POS) que no coinciden con el maestro
+        try {
+          const { data: aliasData } = await supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore');
+          (aliasData || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) prodIdByName[norm(a.alias_name)] = a.product_id; });
+        } catch (e) { /* tabla de alias opcional */ }
 
         const upserts: any[] = [];
 
@@ -323,13 +333,14 @@ export default function DeviationControlView({
         // ===== VENTAS TEÓRICAS por semana (ranking por receta), asignadas al primer día de cada semana =====
         const { data: ranking } = await supabase
           .from('product_rankings')
-          .select('product_name, quantity, week_number, month')
+          .select('product_code, product_name, quantity, week_number, month')
           .eq('branch_id', selectedBranchId)
           .eq('month', selectedMonth);
         const weekFirstDay: Record<number, string> = { 1: `${selectedMonth}-01`, 2: `${selectedMonth}-08`, 3: `${selectedMonth}-15`, 4: `${selectedMonth}-22` };
         const vtByDateItem: Record<string, Record<string, number>> = {};
         (ranking || []).forEach((rk: any) => {
-          const prodId = prodIdByName[norm(rk.product_name)];
+          // Resolver por CÓDIGO primero (dato confiable), luego por nombre/alias
+          const prodId = (normCode(rk.product_code) !== '' && prodIdByCode[normCode(rk.product_code)]) || prodIdByName[norm(rk.product_name)];
           if (!prodId) return;
           const recipe = recipeByProd[prodId];
           if (!recipe) return;
