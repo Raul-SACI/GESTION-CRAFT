@@ -89,6 +89,8 @@ export default function StockView({
   // Vinculación de ventas (nombres del ranking POS) con recetas del maestro
   const canManageAliases = userRole === 'administrador' || userRole === 'dueño';
   const [refreshKey, setRefreshKey] = useState(0);
+  // Valor cargado por el encargado (columnas *_enc), por `${date}|${itemId}`, para mostrar las correcciones de Admin
+  const [encByKey, setEncByKey] = useState<Record<string, Record<string, number>>>({});
   const [unmatchedSales, setUnmatchedSales] = useState<{ name: string; qty: number }[]>([]);
   // Desglose de venta teórica por insumo: qué productos vendidos suman y cuánto
   const [ventasDetalle, setVentasDetalle] = useState<Record<string, Array<{ product: string; sold: number; perUnit: number; aporte: number }>>>({});
@@ -164,8 +166,15 @@ export default function StockView({
 
       if (logsData) {
         const formatted: Record<string, any> = {};
+        const encMap: Record<string, Record<string, number>> = {};
         logsData.forEach(log => {
           if (!formatted[log.date]) formatted[log.date] = {};
+          // Valor cargado por el encargado (columnas sombra *_enc), para comparar con lo que dejó Admin.
+          encMap[`${log.date}|${log.item_id}`] = {
+            ei: log.ei_enc, ef: log.ef_enc, compras: log.compras_enc,
+            prestamosRecibidos: log.prestamos_recibidos_enc, prestamosEnviados: log.prestamos_enviados_enc,
+            consumoPersonal: log.consumo_personal_enc,
+          };
           let pEnviados = log.prestamos_enviados || 0;
           let pRecibidos = log.prestamos_recibidos || 0;
           // Legacy check
@@ -219,6 +228,7 @@ export default function StockView({
         }
 
         setDailyData(formatted);
+        setEncByKey(encMap);
       }
 
       // Fetch daily_wastage (insumos Y productos) y recetas para descomponer productos en insumos
@@ -839,6 +849,47 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
           )}
         </div>
       )}
+
+      {/* Correcciones de Administración vs. lo que cargó el encargado (para que el encargado las vea) */}
+      {!isAlmacen && viewMode === 'semana' && (() => {
+        const weekTargetDate = getDatesInRange('semana', selectedDate)[0];
+        const fields: [string, string][] = [['ei', 'EI'], ['compras', 'Compras'], ['prestamosRecibidos', 'P. Recib.'], ['prestamosEnviados', 'P. Enviad.'], ['consumoPersonal', 'Consumo Pers.'], ['ef', 'EF']];
+        const diffs: Array<{ insumo: string; label: string; enc: number; admin: number; diff: number }> = [];
+        controlledItems.forEach(item => {
+          const cur = dailyData[weekTargetDate]?.[item.id];
+          const enc = encByKey[`${weekTargetDate}|${item.id}`];
+          if (!cur || !enc) return;
+          fields.forEach(([f, label]) => {
+            const e = (enc as any)[f];
+            if (e === null || e === undefined) return;
+            const a = (cur as any)[f] || 0;
+            const diff = (Number(a) || 0) - (Number(e) || 0);
+            if (Math.abs(diff) > 0.001) diffs.push({ insumo: item.name, label, enc: Number(e) || 0, admin: Number(a) || 0, diff });
+          });
+        });
+        if (diffs.length === 0) return null;
+        const fmt = (n: number) => n.toLocaleString('es-AR', { maximumFractionDigits: 3 });
+        return (
+          <div className="bg-amber-500/10 border border-amber-500/40 rounded-lg overflow-hidden">
+            <div className="px-4 py-2 flex items-center gap-2 border-b border-amber-500/30">
+              <Info size={14} className="text-amber-600" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-600">{diffs.length} corrección(es) de Administración sobre tu carga</span>
+              <span className="text-[8px] font-bold text-amber-600/70 normal-case tracking-normal hidden sm:inline">· para los cálculos vale el valor de Admin</span>
+            </div>
+            <div className="max-h-40 overflow-y-auto divide-y divide-amber-500/20">
+              {diffs.map((d, i) => (
+                <div key={i} className="px-4 py-1.5 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-[10px]">
+                  <span className="font-black uppercase text-text-main min-w-[140px]">{d.insumo}</span>
+                  <span className="font-bold uppercase text-text-dim w-20">{d.label}</span>
+                  <span className="font-mono text-text-dim">Cargaste: <span className="font-black text-text-main">{fmt(d.enc)}</span></span>
+                  <span className="font-mono text-text-dim">Admin: <span className="font-black text-text-main">{fmt(d.admin)}</span></span>
+                  <span className={cn("font-mono font-black", d.diff > 0 ? "text-emerald-600" : "text-red-500")}>Dif: {d.diff > 0 ? '+' : ''}{fmt(d.diff)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl relative">
         {loading && (
