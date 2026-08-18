@@ -90,6 +90,9 @@ export default function StockView({
   const canManageAliases = userRole === 'administrador' || userRole === 'dueño';
   const [refreshKey, setRefreshKey] = useState(0);
   const [unmatchedSales, setUnmatchedSales] = useState<{ name: string; qty: number }[]>([]);
+  // Desglose de venta teórica por insumo: qué productos vendidos suman y cuánto
+  const [ventasDetalle, setVentasDetalle] = useState<Record<string, Array<{ product: string; sold: number; perUnit: number; aporte: number }>>>({});
+  const [detalleItem, setDetalleItem] = useState<{ id: string; name: string } | null>(null);
   const [productsList, setProductsList] = useState<{ id: string; name: string }[]>([]);
   const [linkChoice, setLinkChoice] = useState<Record<string, string>>({});
   const [showUnmatched, setShowUnmatched] = useState(false);
@@ -303,6 +306,7 @@ export default function StockView({
       // ===== VENTAS TEÓRICAS: descomponer el Ranking de Artículos (productos vendidos) en insumos vía receta =====
       try {
         setUnmatchedSales([]);
+        setVentasDetalle({});
         const weekNum = getWeekNumber(selectedDate);
         // Traer el ranking de la sucursal para el mes/semana en curso
         const { data: rankingData } = await supabase
@@ -342,8 +346,10 @@ export default function StockView({
             recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
           });
 
-          // Acumular ventas teóricas por insumo + detectar ventas sin vincular a una receta
+          // Acumular ventas teóricas por insumo + guardar el desglose (qué productos suman)
+          // + detectar ventas sin vincular a una receta
           const theoreticalByItem: Record<string, number> = {};
+          const detailByItem: Record<string, Array<{ product: string; sold: number; perUnit: number; aporte: number }>> = {};
           const unmatchedMap: Record<string, { name: string; qty: number }> = {};
           rankingData.forEach((rk: any) => {
             const soldQty = Number(rk.quantity || 0);
@@ -360,9 +366,14 @@ export default function StockView({
               return;
             }
             recipe.forEach(ing => {
-              theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + (soldQty * ing.quantity);
+              const aporte = soldQty * ing.quantity;
+              theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + aporte;
+              if (aporte !== 0) (detailByItem[ing.itemId] = detailByItem[ing.itemId] || []).push({ product: rk.product_name, sold: soldQty, perUnit: ing.quantity, aporte });
             });
           });
+          // Ordenar cada desglose de mayor a menor aporte
+          Object.keys(detailByItem).forEach(id => detailByItem[id].sort((a, b) => b.aporte - a.aporte));
+          setVentasDetalle(detailByItem);
           setUnmatchedSales(Object.values(unmatchedMap).filter(u => u.qty !== 0).sort((a, b) => b.qty - a.qty));
 
           // Asignar el total de la semana al PRIMER día de la semana en el Control de Stock
@@ -967,11 +978,18 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
 
                     {/* Ventas Teo (Read-only in this view) - no aplica al almacén */}
                     {!isAlmacen && (
-                      <StockInputCell 
-                        value={data.ventasTeorico} 
+                      <StockInputCell
+                        value={data.ventasTeorico}
                         onChange={val => updateItemData(item.id, 'ventasTeorico', val)}
                         touched={data.touched?.includes('ventasTeorico')}
                         disabled={true}
+                        extra={viewMode === 'semana' && (ventasDetalle[item.id]?.length ? (
+                          <button onClick={() => setDetalleItem({ id: item.id, name: item.name })}
+                            title="Ver qué productos vendidos suman esta venta teórica"
+                            className="mt-1 mx-auto flex items-center gap-1 text-[8px] font-black uppercase text-purple-500 hover:text-purple-400 transition-colors">
+                            <Info size={9} /> Ver detalle
+                          </button>
+                        ) : null)}
                       />
                     )}
 
@@ -1083,11 +1101,77 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
           )}
         </div>
       </div>
+
+      {/* Modal: detalle de venta teórica (qué productos vendidos suman) */}
+      <AnimatePresence>
+        {detalleItem && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setDetalleItem(null)}>
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+              <div className="px-5 py-4 border-b border-border-dim flex items-start justify-between bg-purple-500/5">
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-purple-500">Detalle de Venta Teórica</p>
+                  <h3 className="text-sm font-black text-text-main uppercase">{detalleItem.name}</h3>
+                  <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">
+                    {activeBranch?.name} · Semana {getWeekNumber(selectedDate)} · {selectedDate.substring(0, 7)}
+                  </p>
+                </div>
+                <button onClick={() => setDetalleItem(null)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+              <div className="overflow-y-auto">
+                {(() => {
+                  const det = ventasDetalle[detalleItem.id] || [];
+                  const total = det.reduce((s, d) => s + d.aporte, 0);
+                  if (det.length === 0) return <div className="py-10 text-center text-text-dim text-[11px] font-black uppercase">Sin productos vendidos que usen este insumo esta semana.</div>;
+                  return (
+                    <table className="w-full text-left border-collapse">
+                      <thead className="sticky top-0 bg-bg-accent">
+                        <tr className="text-[8px] font-black uppercase text-text-dim tracking-widest">
+                          <th className="px-4 py-2">Producto vendido</th>
+                          <th className="px-3 py-2 text-right">Vendidas</th>
+                          <th className="px-3 py-2 text-right">× receta</th>
+                          <th className="px-4 py-2 text-right">Aporte</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/30">
+                        {det.map((d, i) => (
+                          <tr key={i} className="text-[10px] hover:bg-bg-accent/20">
+                            <td className="px-4 py-2 font-bold text-text-main">{d.product}</td>
+                            <td className="px-3 py-2 text-right font-mono text-text-dim">{d.sold}</td>
+                            <td className="px-3 py-2 text-right font-mono text-text-dim">{d.perUnit}</td>
+                            <td className="px-4 py-2 text-right font-mono font-black text-text-main">{(Math.round(d.aporte * 1000) / 1000).toLocaleString('es-AR')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-purple-500/10 border-t-2 border-purple-500/40 text-[11px]">
+                          <td className="px-4 py-2.5 font-black uppercase text-purple-500" colSpan={3}>Total Venta Teórica</td>
+                          <td className="px-4 py-2.5 text-right font-mono font-black text-purple-500">{(Math.round(total * 1000) / 1000).toLocaleString('es-AR')}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  );
+                })()}
+              </div>
+              <div className="px-5 py-2.5 border-t border-border-dim bg-bg-accent/30">
+                <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest">
+                  Aporte = Vendidas × cantidad del insumo por unidad (según la receta). El total es lo que ves en la columna Ventas Teo.
+                </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
 
-function StockInputCell({ value, onChange, disabled, className, touched }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string, touched?: boolean }) {
+function StockInputCell({ value, onChange, disabled, className, touched, extra }: { value: number, onChange: (val: number) => void, disabled?: boolean, className?: string, touched?: boolean, extra?: any }) {
   // text guarda EXACTAMENTE lo que hay en el campo. '' = vacío (placeholder gris); '0' = cero cargado (negrita)
   // Si el campo fue "tocado" (guardado), un 0 se muestra como '0' en negrita aunque venga de la base.
   const [text, setText] = useState<string>(value === 0 ? (touched ? '0' : '') : String(value));
@@ -1127,6 +1211,7 @@ function StockInputCell({ value, onChange, disabled, className, touched }: { val
           disabled && "opacity-70 cursor-not-allowed border-none font-bold"
         )}
       />
+      {extra}
     </td>
   );
 }
