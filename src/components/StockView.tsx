@@ -625,16 +625,18 @@ export default function StockView({
         return acc;
       }, { compras: 0, prestamosEnviados: 0, prestamosRecibidos: 0, consumoPersonal: 0, decomisos: 0, ventasTeorico: 0, produccion: 0, recupero: 0, ventasPersonal: 0 });
 
+      // El desvío del MES = suma de los desvíos de las 4 semanas (cada semana se cuenta por
+      // separado, no encadenan). Por eso el CMV mensual usa la SUMA de las EI y de las EF
+      // semanales, no la EI de la semana 1 y la EF de la semana 4.
       const monthStr = selectedDate.substring(0, 7);
-      const ei = dailyData[`${monthStr}-01`]?.[itemId]?.ei || 0;
       const weekStarts = ['01', '08', '15', '22'];
-      let ef = 0;
-      for (let i = weekStarts.length - 1; i >= 0; i--) {
-        const v = dailyData[`${monthStr}-${weekStarts[i]}`]?.[itemId]?.ef;
-        if (v) { ef = v; break; }
-      }
+      let eiSum = 0, efSum = 0;
+      weekStarts.forEach(ws => {
+        const wk = dailyData[`${monthStr}-${ws}`]?.[itemId];
+        if (wk) { eiSum += wk.ei || 0; efSum += wk.ef || 0; }
+      });
       const extra = isAlmacen ? (totals.produccion || 0) - (totals.recupero || 0) - (totals.ventasPersonal || 0) : 0;
-      return ei + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - ef + extra;
+      return eiSum + totals.compras + totals.prestamosRecibidos - totals.prestamosEnviados - totals.decomisos - totals.consumoPersonal - efSum + extra;
     }
   };
 
