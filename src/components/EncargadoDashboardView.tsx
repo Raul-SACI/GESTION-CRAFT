@@ -921,16 +921,19 @@ export default function EncargadoDashboardView({
   //      desvío % (semana) = |cmvReal - ventas teóricas| / ventas teóricas * 100
   // 2) Desvío mensual del insumo = promedio de los % de sus semanas (con ventas teóricas > 0).
   // 3) Desvío del dashboard = promedio simple de los % mensuales de todos los insumos.
+  // Desvío de stock MENSUAL, mismo criterio que Control de Stock (vista Mes):
+  //  · Por insumo, con los TOTALES del mes: EI = día 01, EF = último cierre semanal cargado,
+  //    y compras/préstamos/consumo/venta teórica/decomisos sumados del mes.
+  //  · Existencia Final Teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo.
+  //  · Desvío = EF teórica − EF real.   Desvío % = desvío / EF teórica.
+  //  · Desvío de la sucursal = promedio simple del |%| de cada insumo (un faltante y un
+  //    sobrante no se compensan).
   const autoStockDeviationData = useMemo(() => {
-    const empty = { value: 0, detail: [] as Array<{ id: string; name: string; promedio: number; semanas: Array<{ w: number; pct: number; cmv: number; vt: number }> }> };
+    const empty = { value: 0, detail: [] as Array<{ id: string; name: string; ei: number; ef: number; efTeorica: number; desvio: number; pct: number }> };
     if (!rawInventoryLogs || rawInventoryLogs.length === 0) return empty;
 
-    const [yy, mm] = selectedMonth.split('-').map(Number);
-    const lastDay = new Date(yy, mm, 0).getDate();
-    const pad = (n: number) => String(n).padStart(2, '0');
     const dayOf = (d: any) => Number(String(d.date || '').substring(8, 10));
-    // Semanas: [primer día, último día]
-    const semanas: [number, number][] = [[1, 7], [8, 14], [15, 21], [22, lastDay]];
+    const weekStarts = [1, 8, 15, 22];
 
     // Agrupar logs por insumo (respetando el filtro de insumos controlados si existe)
     const porItem: Record<string, any[]> = {};
@@ -942,57 +945,43 @@ export default function EncargadoDashboardView({
       porItem[id].push(d);
     });
 
-    const promediosPorInsumo: number[] = [];
-    const detail: Array<{ id: string; name: string; promedio: number; semanas: Array<{ w: number; pct: number; cmv: number; vt: number }> }> = [];
+    const absPorInsumo: number[] = [];
+    const detail: Array<{ id: string; name: string; ei: number; ef: number; efTeorica: number; desvio: number; pct: number }> = [];
 
     Object.entries(porItem).forEach(([itemId, itemLogs]) => {
-      const pctSemanas: number[] = [];
-      const semDetalle: Array<{ w: number; pct: number; cmv: number; vt: number }> = [];
-
-      semanas.forEach(([wStart, wEnd], idx) => {
-        // CASO ESPECIAL JUNIO 2026: se perdió el inventario de S1-S3; solo cuenta la semana 4.
-        if (selectedMonth === '2026-06' && wStart !== 22) return;
-
-        const firstDay = `${selectedMonth}-${pad(wStart)}`;
-        const firstLog = itemLogs.find((d: any) => String(d.date).substring(0, 10) === firstDay);
-        if (!firstLog) return;
-
-        const ei = Number(firstLog.ei) || 0;
-        const ef = Number(firstLog.ef) || 0;
-        const compras = Number(firstLog.compras) || 0;
-        const ventasTeorico = Number(firstLog.ventas_teorico) || 0;
-        const consumoPersonal = Number(firstLog.consumo_personal) || 0;
-        let pEnv = Number(firstLog.prestamos_enviados) || 0;
-        let pRec = Number(firstLog.prestamos_recibidos) || 0;
-        if (!pEnv && !pRec && firstLog.prestamos) {
-          if (Number(firstLog.prestamos) > 0) pRec = Number(firstLog.prestamos);
-          else pEnv = Math.abs(Number(firstLog.prestamos));
-        }
-        // Decomisos: sumados en toda la semana (vienen repartidos por día)
-        let decomisos = 0;
-        itemLogs.forEach((d: any) => {
-          const day = dayOf(d);
-          if (day >= wStart && day <= wEnd) decomisos += Number(d.decomisos) || 0;
-        });
-
-        if (ventasTeorico <= 0) return; // sin base teórica no se puede medir el %
-        const cmvReal = ei + compras + pRec - pEnv - decomisos - consumoPersonal - ef;
-        const desvio = cmvReal - ventasTeorico;
-        const pct = (Math.abs(desvio) / ventasTeorico) * 100;
-        pctSemanas.push(pct);
-        semDetalle.push({ w: idx + 1, pct, cmv: cmvReal, vt: ventasTeorico });
+      // Igual que Control de Stock (Mes): EI = día 01; EF = último cierre semanal cargado (22→01).
+      const day1 = itemLogs.find((d: any) => dayOf(d) === 1);
+      const ei = day1 ? Number(day1.ei) || 0 : 0;
+      let ef = 0;
+      for (let i = weekStarts.length - 1; i >= 0; i--) {
+        const log = itemLogs.find((d: any) => dayOf(d) === weekStarts[i]);
+        if (log && log.ef !== null && log.ef !== undefined) { ef = Number(log.ef) || 0; break; }
+      }
+      // Sumas del mes: compras/préstamos/consumo/venta teórica (viven en el primer día de cada
+      // semana) y decomisos (repartidos por día) → se suma sobre TODOS los logs del insumo.
+      let compras = 0, pRec = 0, pEnv = 0, consumo = 0, vt = 0, decomisos = 0;
+      itemLogs.forEach((d: any) => {
+        compras += Number(d.compras) || 0;
+        let pe = Number(d.prestamos_enviados) || 0, pr = Number(d.prestamos_recibidos) || 0;
+        if (!pe && !pr && d.prestamos) { if (Number(d.prestamos) > 0) pr = Number(d.prestamos); else pe = Math.abs(Number(d.prestamos)); }
+        pEnv += pe; pRec += pr;
+        consumo += Number(d.consumo_personal) || 0;
+        vt += Number(d.ventas_teorico) || 0;
+        decomisos += Number(d.decomisos) || 0;
       });
 
-      if (pctSemanas.length > 0) {
-        const promedio = pctSemanas.reduce((s, p) => s + p, 0) / pctSemanas.length;
-        promediosPorInsumo.push(promedio);
-        detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, promedio, semanas: semDetalle });
-      }
+      if (vt <= 0) return; // sin base teórica no se mide
+      const efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
+      const desvio = efTeorica - ef;
+      if (efTeorica === 0) return;
+      const pct = (desvio / efTeorica) * 100;
+      absPorInsumo.push(Math.abs(pct));
+      detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, ei, ef, efTeorica, desvio, pct });
     });
 
-    if (promediosPorInsumo.length === 0) return empty;
-    detail.sort((a, b) => b.promedio - a.promedio);
-    return { value: promediosPorInsumo.reduce((s, p) => s + p, 0) / promediosPorInsumo.length, detail };
+    if (absPorInsumo.length === 0) return empty;
+    detail.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+    return { value: absPorInsumo.reduce((s, p) => s + p, 0) / absPorInsumo.length, detail };
   }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById]);
 
   const autoStockDeviation = autoStockDeviationData.value;
@@ -2309,8 +2298,8 @@ export default function EncargadoDashboardView({
             </div>
             <div className="px-5 py-3 bg-bg-accent/30 border-b border-border-dim">
               <p className="text-[9px] font-bold text-text-dim leading-relaxed">
-                Por cada insumo: % de cada semana = <span className="font-mono">|CMV real − Venta teórica| / Venta teórica</span>, promediando las semanas con venta teórica &gt; 0.
-                El desvío de la sucursal es el <strong>promedio simple</strong> de los promedios de todos los insumos.
+                Por insumo, con los totales del mes: <span className="font-mono">EF teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo</span>.
+                Desvío = EF teórica − EF real; <span className="font-mono">% = desvío / EF teórica</span>. El desvío de la sucursal es el <strong>promedio del |%|</strong> de todos los insumos. Coincide con la vista Mes de Control de Stock.
               </p>
             </div>
             <div className="overflow-y-auto flex-1">
@@ -2318,38 +2307,28 @@ export default function EncargadoDashboardView({
                 <thead className="sticky top-0 bg-bg-accent">
                   <tr className="text-[8px] font-black uppercase text-text-dim tracking-widest">
                     <th className="px-4 py-2">Insumo</th>
-                    <th className="px-2 py-2 text-right">S1</th>
-                    <th className="px-2 py-2 text-right">S2</th>
-                    <th className="px-2 py-2 text-right">S3</th>
-                    <th className="px-2 py-2 text-right">S4</th>
-                    <th className="px-4 py-2 text-right">Prom. insumo</th>
+                    <th className="px-2 py-2 text-right">EF teórica</th>
+                    <th className="px-2 py-2 text-right">EF real</th>
+                    <th className="px-2 py-2 text-right">Desvío</th>
+                    <th className="px-4 py-2 text-right">Desvío %</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-dim/30">
-                  {autoStockDeviationData.detail.map(d => {
-                    const byWeek: Record<number, { pct: number; cmv: number; vt: number }> = {};
-                    d.semanas.forEach(s => { byWeek[s.w] = s; });
-                    return (
-                      <tr key={d.id} className="text-[10px] hover:bg-bg-accent/20">
-                        <td className="px-4 py-2 font-bold text-text-main">{d.name}</td>
-                        {[1, 2, 3, 4].map(w => (
-                          <td key={w} className="px-2 py-2 text-right font-mono text-text-dim">
-                            {byWeek[w] ? (
-                              <span title={`CMV real ${byWeek[w].cmv.toFixed(2)} · V.teó ${byWeek[w].vt.toFixed(2)}`}
-                                className={byWeek[w].pct >= 100 ? 'text-red-500 font-black' : byWeek[w].pct >= 5 ? 'text-amber-600' : 'text-emerald-500'}>
-                                {byWeek[w].pct.toFixed(1)}%
-                              </span>
-                            ) : <span className="text-text-dim/30">—</span>}
-                          </td>
-                        ))}
-                        <td className="px-4 py-2 text-right font-mono font-black text-text-main">{d.promedio.toFixed(1)}%</td>
-                      </tr>
-                    );
-                  })}
+                  {autoStockDeviationData.detail.map(d => (
+                    <tr key={d.id} className="text-[10px] hover:bg-bg-accent/20">
+                      <td className="px-4 py-2 font-bold text-text-main">{d.name}</td>
+                      <td className="px-2 py-2 text-right font-mono text-text-dim">{d.efTeorica.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right font-mono text-text-dim">{d.ef.toFixed(2)}</td>
+                      <td className="px-2 py-2 text-right font-mono text-text-dim">{d.desvio > 0 ? '+' : ''}{d.desvio.toFixed(2)}</td>
+                      <td className={cn("px-4 py-2 text-right font-mono font-black", Math.abs(d.pct) < 5 ? 'text-emerald-500' : Math.abs(d.pct) >= 50 ? 'text-red-500' : 'text-amber-600')}>
+                        {d.pct > 0 ? '+' : ''}{d.pct.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-brand-500/10 border-t-2 border-brand-500/40 text-[11px]">
-                    <td className="px-4 py-2.5 font-black uppercase text-brand-500" colSpan={5}>Desvío de la sucursal (promedio de insumos)</td>
+                    <td className="px-4 py-2.5 font-black uppercase text-brand-500" colSpan={4}>Desvío de la sucursal (promedio del |%| de insumos)</td>
                     <td className="px-4 py-2.5 text-right font-mono font-black text-brand-500">{autoStockDeviation.toFixed(1)}%</td>
                   </tr>
                 </tfoot>
@@ -2357,7 +2336,7 @@ export default function EncargadoDashboardView({
             </div>
             <div className="px-5 py-3 border-t border-border-dim bg-bg-accent/20">
               <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest leading-relaxed">
-                Tip: las semanas con venta teórica muy baja disparan el % (denominador chico). Si un insumo tiene un % altísimo en una semana, revisá esa semana en Control de Stock. Este promedio NO coincide con el % mensual de Control de Stock, que usa los totales del mes.
+                Cada % coincide con el DESVÍO % que muestra Control de Stock (vista Mes) para ese insumo. El desvío de la sucursal promedia el valor absoluto (un faltante y un sobrante no se compensan).
               </p>
             </div>
           </div>
