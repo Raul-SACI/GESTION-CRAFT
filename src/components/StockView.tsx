@@ -846,6 +846,7 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Ventas Pers. (EG C)</th>}
                 {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos (EG 8)</th>}
                 <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF</th>
+                {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-teal-500/5 text-teal-600">EF Teó.</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>}
@@ -991,12 +992,25 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                     )}
 
                     {/* EF (Encargado) */}
-                    <StockInputCell 
-                      value={data.ef} 
+                    <StockInputCell
+                      value={data.ef}
                       onChange={val => updateItemData(item.id, 'ef', val, weekTargetDate)}
                       touched={data.touched?.includes('ef')}
                       disabled={isSummary || isItemLocked}
                     />
+
+                    {/* EF Teórica (calculada, no editable): lo que DEBERÍA quedar de existencia final.
+                        EF teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo = EF real + desvío */}
+                    {!isAlmacen && (() => {
+                      const efTeorica = (data.ef || 0) + desvio;
+                      return (
+                        <td className="px-2 py-4 bg-teal-500/5 text-center">
+                          <span className="inline-block w-16 mx-auto font-mono text-[10px] font-bold text-teal-600" title="Existencia Final Teórica (calculada automáticamente)">
+                            {efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}
+                          </span>
+                        </td>
+                      );
+                    })()}
 
                     {/* Ventas Teo (Read-only in this view) - no aplica al almacén */}
                     {!isAlmacen && (
