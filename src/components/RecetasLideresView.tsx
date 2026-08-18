@@ -447,20 +447,24 @@ export default function RecetasLideresView({
   };
 
   // Origen de los insumos del editor según el tipo de receta:
-  //  - producción / sucursal: solo Maestro de Insumos (stock_items).
+  //  - producción: Insumos + Recetas de Producción (una receta puede llevar otra receta,
+  //    ej. "Tarta de jamón y queso" lleva "Masa de tarta", que es otra receta de producción).
+  //  - sucursal: Insumos + Recetas de Sucursal + Recetas de Producción.
   //  - platos de la carta: Insumos + Recetas Producción + Recetas Sucursales.
   const insumoOptions = useMemo(() => {
     const base = items.map((i: any) => ({ id: i.id, code: i.code || null, name: i.name, unit: i.unit || null, origen: 'INSUMO' }));
     const rmToOpt = (tipos: string[]) => recipeMasters
       .filter((m: any) => tipos.includes(m.tipo))
+      // Una receta de producción no puede llevarse a sí misma como insumo
+      .filter((m: any) => !(tipo === 'produccion' && editing?.id && m.id === editing.id) && !(tipo === 'produccion' && editing?.name && String(m.name).trim().toUpperCase() === String(editing.name).trim().toUpperCase()))
       .map((m: any) => ({ id: m.id || null, code: m.code || null, name: m.name, unit: m.unit || null, origen: m.tipo === 'produccion' ? 'RECETA PROD.' : 'RECETA SUC.' }));
-    // Producción: solo insumos.
-    if (tipo === 'produccion') return base;
+    // Producción: insumos + Recetas de Producción.
+    if (tipo === 'produccion') return [...base, ...rmToOpt(['produccion'])];
     // Sucursal: insumos + Recetas de Sucursal + Recetas de Producción.
     if (tipo === 'sucursal') return [...base, ...rmToOpt(['sucursal', 'produccion'])];
     // Carta: insumos + Recetas Producción + Recetas Sucursales.
     return [...base, ...rmToOpt(['produccion', 'sucursal'])];
-  }, [items, recipeMasters, tipo]);
+  }, [items, recipeMasters, tipo, editing?.id, editing?.name]);
 
   // Sugerencias del maestro para el buscador de insumos del editor
   const sugerencias = useMemo(() => {
@@ -731,7 +735,7 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo en el maestro para agregar…'}
+                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo o receta de producción para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
                   </div>
                   {sugerencias.length > 0 && (
