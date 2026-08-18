@@ -86,6 +86,28 @@ export default function StockView({
 
   const [localControlledItemIds, setLocalControlledItemIds] = useState<string[]>(controlledItemIds);
 
+  // Vinculación de ventas (nombres del ranking POS) con recetas del maestro
+  const canManageAliases = userRole === 'administrador' || userRole === 'dueño';
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [unmatchedSales, setUnmatchedSales] = useState<{ name: string; qty: number }[]>([]);
+  const [productsList, setProductsList] = useState<{ id: string; name: string }[]>([]);
+  const [linkChoice, setLinkChoice] = useState<Record<string, string>>({});
+  const [showUnmatched, setShowUnmatched] = useState(false);
+
+  // Guarda un alias (nombre del ranking -> producto del maestro) o lo marca como "ignorar"
+  // (venta que no consume ningún insumo controlado). Luego recalcula las ventas teóricas.
+  const linkSale = async (name: string, productId: string | null, ignore: boolean) => {
+    try {
+      const { error } = await supabase.from('product_ranking_aliases').upsert(
+        { alias_name: name, product_id: productId, ignore }, { onConflict: 'alias_name' }
+      );
+      if (error) throw error;
+      setRefreshKey(k => k + 1);
+    } catch (e: any) {
+      alert('No se pudo guardar el vínculo. Verificá que exista la tabla product_ranking_aliases.\n\n' + (e?.message || ''));
+    }
+  };
+
   // Fetch data
   useEffect(() => {
     const fetchData = async () => {
@@ -280,6 +302,7 @@ export default function StockView({
 
       // ===== VENTAS TEÓRICAS: descomponer el Ranking de Artículos (productos vendidos) en insumos vía receta =====
       try {
+        setUnmatchedSales([]);
         const weekNum = getWeekNumber(selectedDate);
         // Traer el ranking de la sucursal para el mes/semana en curso
         const { data: rankingData } = await supabase
@@ -297,6 +320,20 @@ export default function StockView({
           const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
           const productIdByName: Record<string, string> = {};
           (productsData || []).forEach((p: any) => { if (p.name) productIdByName[norm(p.name)] = p.id; });
+          setProductsList(((productsData || []) as any[]).map(p => ({ id: p.id, name: p.name })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
+
+          // Alias de ventas: el nombre del producto en el ranking (POS) muchas veces NO coincide
+          // exacto con el maestro (ej. "CHICKEN & CHEESE BLT" vs "SANDWICH CHICKEN & CHEESE BLT").
+          // Estos alias resuelven ese caso; "ignore" marca ventas que no consumen ningún insumo.
+          const ignoredSales = new Set<string>();
+          try {
+            const { data: aliasData } = await supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore');
+            (aliasData || []).forEach((a: any) => {
+              if (!a.alias_name) return;
+              if (a.ignore) { ignoredSales.add(norm(a.alias_name)); return; }
+              if (a.product_id) productIdByName[norm(a.alias_name)] = a.product_id;
+            });
+          } catch (e) { /* la tabla de alias es opcional */ }
 
           const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
           (recipesData2 || []).forEach((r: any) => {
@@ -305,18 +342,28 @@ export default function StockView({
             recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
           });
 
-          // Acumular ventas teóricas por insumo
+          // Acumular ventas teóricas por insumo + detectar ventas sin vincular a una receta
           const theoreticalByItem: Record<string, number> = {};
+          const unmatchedMap: Record<string, { name: string; qty: number }> = {};
           rankingData.forEach((rk: any) => {
-            const prodId = productIdByName[norm(rk.product_name)];
-            if (!prodId) return; // producto sin match con recetas
-            const recipe = recipeByProd[prodId];
-            if (!recipe) return;
             const soldQty = Number(rk.quantity || 0);
+            const prodId = productIdByName[norm(rk.product_name)];
+            const recipe = prodId ? recipeByProd[prodId] : null;
+            if (!prodId || !recipe || recipe.length === 0) {
+              // Producto vendido que no matchea ninguna receta: NO suma venta teórica.
+              // Se avisa (para vincularlo), salvo que ya esté marcado como "ignorar".
+              if (!ignoredSales.has(norm(rk.product_name))) {
+                const k = norm(rk.product_name);
+                if (!unmatchedMap[k]) unmatchedMap[k] = { name: rk.product_name, qty: 0 };
+                unmatchedMap[k].qty += soldQty;
+              }
+              return;
+            }
             recipe.forEach(ing => {
               theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + (soldQty * ing.quantity);
             });
           });
+          setUnmatchedSales(Object.values(unmatchedMap).filter(u => u.qty !== 0).sort((a, b) => b.qty - a.qty));
 
           // Asignar el total de la semana al PRIMER día de la semana en el Control de Stock
           const weekDates = getDatesInRange('semana', selectedDate);
@@ -368,7 +415,7 @@ export default function StockView({
     };
 
     fetchData();
-  }, [selectedBranchId, selectedDate, viewMode]);
+  }, [selectedBranchId, selectedDate, viewMode, refreshKey]);
 
   const updateItemData = async (id: string, field: string, value: number, targetDate: string = selectedDate) => {
     if (isReadOnly) return;
@@ -692,6 +739,58 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
           </div>
         </div>
       </div>
+
+      {/* Ventas del ranking que no se pudieron vincular a una receta (no suman venta teórica) */}
+      {!isAlmacen && canManageAliases && unmatchedSales.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded overflow-hidden">
+          <button onClick={() => setShowUnmatched(v => !v)}
+            className="w-full px-4 py-3 flex items-center justify-between hover:bg-amber-500/10 transition-all">
+            <div className="flex items-center gap-2 text-amber-600">
+              <Info size={15} />
+              <span className="text-[11px] font-black uppercase tracking-widest">
+                {unmatchedSales.length} venta(s) sin vincular a una receta
+              </span>
+              <span className="text-[9px] font-bold text-amber-600/70 normal-case tracking-normal hidden sm:inline">
+                · no suman venta teórica hasta vincularlas
+              </span>
+            </div>
+            <span className="text-[10px] font-black text-amber-600">{showUnmatched ? 'OCULTAR' : 'VER / VINCULAR'}</span>
+          </button>
+          {showUnmatched && (
+            <div className="border-t border-amber-500/30 divide-y divide-amber-500/20 max-h-80 overflow-y-auto">
+              {unmatchedSales.map(u => (
+                <div key={u.name} className="px-4 py-2.5 flex flex-col md:flex-row md:items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[11px] font-bold text-text-main">{u.name}</span>
+                    <span className="text-[9px] font-mono text-text-dim ml-2">({u.qty} u. vendidas)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={linkChoice[u.name] || ''}
+                      onChange={(e) => setLinkChoice(prev => ({ ...prev, [u.name]: e.target.value }))}
+                      className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[10px] text-text-main outline-none max-w-[220px]">
+                      <option value="">— Vincular a producto… —</option>
+                      {productsList.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <button
+                      disabled={!linkChoice[u.name]}
+                      onClick={() => linkSale(u.name, linkChoice[u.name], false)}
+                      className="bg-emerald-500 text-black px-3 py-1 rounded text-[9px] font-black uppercase disabled:opacity-40 hover:bg-emerald-600 transition-all">
+                      Vincular
+                    </button>
+                    <button
+                      onClick={() => linkSale(u.name, null, true)}
+                      title="Esta venta no consume ningún insumo controlado (ej. bebidas). No volverá a avisar."
+                      className="bg-bg-accent border border-border-dim text-text-dim px-3 py-1 rounded text-[9px] font-black uppercase hover:text-text-main transition-all">
+                      Ignorar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="bg-bg-sidebar border border-border-dim rounded overflow-hidden shadow-2xl relative">
         {loading && (
