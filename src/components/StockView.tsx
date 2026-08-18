@@ -311,19 +311,24 @@ export default function StockView({
         // Traer el ranking de la sucursal para el mes/semana en curso
         const { data: rankingData } = await supabase
           .from('product_rankings')
-          .select('product_name, quantity, week_number, month')
+          .select('product_code, product_name, quantity, week_number, month')
           .eq('branch_id', selectedBranchId)
           .eq('month', currentMonth)
           .eq('week_number', weekNum);
 
         if (rankingData && rankingData.length > 0) {
-          // Traer productos (para mapear nombre -> id) y recetas
-          const { data: productsData } = await supabase.from('products').select('id, name');
+          // Traer productos (para mapear código/nombre -> id) y recetas
+          const { data: productsData } = await supabase.from('products').select('id, name, code');
           const { data: recipesData2 } = await supabase.from('recipes').select('product_id, item_id, quantity');
 
           const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+          const normCode = (c: any) => String(c ?? '').trim();
           const productIdByName: Record<string, string> = {};
-          (productsData || []).forEach((p: any) => { if (p.name) productIdByName[norm(p.name)] = p.id; });
+          const productIdByCode: Record<string, string> = {};
+          (productsData || []).forEach((p: any) => {
+            if (p.name) productIdByName[norm(p.name)] = p.id;
+            if (normCode(p.code) !== '') productIdByCode[normCode(p.code)] = p.id;
+          });
           setProductsList(((productsData || []) as any[]).map(p => ({ id: p.id, name: p.name })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
 
           // Alias de ventas: el nombre del producto en el ranking (POS) muchas veces NO coincide
@@ -355,16 +360,24 @@ export default function StockView({
           const unmatchedMap: Record<string, { name: string; qty: number }> = {};
           rankingData.forEach((rk: any) => {
             const soldQty = Number(rk.quantity || 0);
-            const prodId = productIdByName[norm(rk.product_name)];
+            // Resolver el producto: PRIMERO por código (dato confiable del POS), luego por
+            // nombre/alias. Esto evita confundir dos productos con el mismo nombre pero
+            // distinto código (ej. "...BLT" vs "...BLT ME").
+            const prodId = (normCode(rk.product_code) !== '' && productIdByCode[normCode(rk.product_code)]) || productIdByName[norm(rk.product_name)];
             const recipe = prodId ? recipeByProd[prodId] : null;
-            if (!prodId || !recipe || recipe.length === 0) {
-              // Producto vendido que no matchea ninguna receta: NO suma venta teórica.
-              // Se avisa (para vincularlo), salvo que ya esté marcado como "ignorar".
+            if (!prodId) {
+              // No resuelve a NINGÚN producto (ni por código ni por nombre/alias): se avisa
+              // para poder vincularlo, salvo que esté marcado como "ignorar".
               if (!ignoredSales.has(norm(rk.product_name))) {
                 const k = norm(rk.product_name);
                 if (!unmatchedMap[k]) unmatchedMap[k] = { name: rk.product_name, qty: 0 };
                 unmatchedMap[k].qty += soldQty;
               }
+              return;
+            }
+            if (!recipe || recipe.length === 0) {
+              // Resuelve a un producto SIN receta (no consume insumos controlados, ej. bebidas
+              // o el "...BLT ME"): no suma y no se avisa.
               return;
             }
             recipe.forEach(ing => {
