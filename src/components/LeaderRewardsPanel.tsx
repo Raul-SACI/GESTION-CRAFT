@@ -89,7 +89,8 @@ export default function LeaderRewardsPanel({
           leaderName: r.leader_name || '',
           sourceRole: (r.source_role || 'encargado') as LeaderSourceRole,
           percentage: Number(r.percentage) || 0,
-          branchIds: Array.isArray(r.branch_ids) ? r.branch_ids : []
+          branchIds: Array.isArray(r.branch_ids) ? r.branch_ids : [],
+          branchRoles: (r.branch_roles && typeof r.branch_roles === 'object') ? r.branch_roles : {}
         }))
       );
 
@@ -153,6 +154,10 @@ export default function LeaderRewardsPanel({
     );
   };
 
+  const setBranchRole = (id: string, branchId: string, role: LeaderSourceRole) => {
+    setRules(prev => prev.map(r => (r.id === id ? { ...r, branchRoles: { ...(r.branchRoles || {}), [branchId]: role } } : r)));
+  };
+
   const setAllBranches = (id: string, select: boolean) => {
     updateRule(id, { branchIds: select ? activeBranches.map(b => b.id) : [] });
   };
@@ -160,16 +165,17 @@ export default function LeaderRewardsPanel({
   // Premio obtenido (sin banderas) de una sucursal para los roles de la regla.
   // pending = todavía no se cerró el mes para el/los rol(es) elegidos.
   const branchBreakdown = (rule: PerformanceLeaderConfig, branchId: string) => {
-    const relevant = rolesForSource(rule.sourceRole);
+    const roleForBranch = (rule.branchRoles && rule.branchRoles[branchId]) || rule.sourceRole;
+    const relevant = rolesForSource(roleForBranch);
     const rows = monthReports.filter(r => r.branch_id === branchId && relevant.includes(r.role));
     const closedRows = rows.filter(r => r.closed_at);
     const obtained = closedRows.reduce((s, r) => s + sumObtainedPrizes(r), 0);
     // Para un rol específico: pendiente si esa fila no está cerrada.
     // Para "todos": pendiente si ninguna fila del branch está cerrada.
     const pending =
-      rule.sourceRole === 'all'
+      roleForBranch === 'all'
         ? closedRows.length === 0
-        : !rows.find(r => r.role === rule.sourceRole)?.closed_at;
+        : !rows.find(r => r.role === roleForBranch)?.closed_at;
     return { obtained, pending };
   };
 
@@ -210,9 +216,18 @@ export default function LeaderRewardsPanel({
           leader_name: r.leaderName.trim(),
           source_role: r.sourceRole,
           percentage: Number(r.percentage) || 0,
-          branch_ids: r.branchIds
+          branch_ids: r.branchIds,
+          // Solo guardamos overrides de las sucursales incluidas
+          branch_roles: Object.fromEntries(Object.entries(r.branchRoles || {}).filter(([bid]) => r.branchIds.includes(bid)))
         }));
-        const { error: insErr } = await supabase.from('performance_leader_configs').insert(payloads);
+        let { error: insErr } = await supabase.from('performance_leader_configs').insert(payloads);
+        // Si la columna branch_roles todavía no existe, reintentar sin ella (no perder datos).
+        if (insErr && /branch_roles/i.test(insErr.message || '')) {
+          const legacy = payloads.map(({ branch_roles, ...rest }) => rest);
+          const retry = await supabase.from('performance_leader_configs').insert(legacy);
+          insErr = retry.error;
+          if (!insErr) alert('Guardado, pero el "rol por sucursal" no se persistió: falta crear la columna branch_roles (ver performance_leader_branch_roles.sql).');
+        }
         if (insErr) throw insErr;
       }
 
@@ -412,7 +427,7 @@ export default function LeaderRewardsPanel({
 
                       <div className="flex items-center gap-2 shrink-0">
                         <div className="flex flex-col">
-                          <span className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-0.5">Premios de</span>
+                          <span className="text-[8px] font-black text-text-dim uppercase tracking-widest mb-0.5" title="Rol por defecto; podés cambiarlo por sucursal más abajo">Premios de (por defecto)</span>
                           <select
                             value={rule.sourceRole}
                             onChange={(e) => updateRule(rule.id, { sourceRole: e.target.value as LeaderSourceRole })}
@@ -479,38 +494,52 @@ export default function LeaderRewardsPanel({
                           const { obtained, pending } = selected
                             ? branchBreakdown(rule, branch.id)
                             : { obtained: 0, pending: false };
+                          const branchRole = (rule.branchRoles && rule.branchRoles[branch.id]) || rule.sourceRole;
                           return (
-                            <button
+                            <div
                               key={branch.id}
-                              onClick={() => toggleBranch(rule.id, branch.id)}
                               className={cn(
-                                'flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left transition-all',
+                                'px-3 py-2 rounded-lg border transition-all',
                                 selected
                                   ? 'bg-blue-500/10 border-blue-500/40'
                                   : 'bg-bg-accent/20 border-border-dim hover:border-border-dim/80'
                               )}
                             >
-                              <div className="min-w-0">
-                                <span className={cn('block text-[10px] font-black uppercase tracking-tight truncate', selected ? 'text-text-main' : 'text-text-dim')}>
-                                  {branch.name}
+                              <button onClick={() => toggleBranch(rule.id, branch.id)} className="w-full flex items-center justify-between gap-2 text-left">
+                                <div className="min-w-0">
+                                  <span className={cn('block text-[10px] font-black uppercase tracking-tight truncate', selected ? 'text-text-main' : 'text-text-dim')}>
+                                    {branch.name}
+                                  </span>
+                                  {selected && (
+                                    pending ? (
+                                      <span className="text-[8px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-1">
+                                        <Lock size={9} /> Pendiente de cierre
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] font-mono font-black text-emerald-500">${fmt(obtained)}</span>
+                                    )
+                                  )}
+                                </div>
+                                <span className={cn(
+                                  'w-4 h-4 rounded flex items-center justify-center text-[10px] shrink-0 border',
+                                  selected ? 'bg-blue-500 border-blue-500 text-white' : 'border-border-dim text-transparent'
+                                )}>
+                                  ✓
                                 </span>
-                                {selected && (
-                                  pending ? (
-                                    <span className="text-[8px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-1">
-                                      <Lock size={9} /> Pendiente de cierre
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] font-mono font-black text-emerald-500">${fmt(obtained)}</span>
-                                  )
-                                )}
-                              </div>
-                              <span className={cn(
-                                'w-4 h-4 rounded flex items-center justify-center text-[10px] shrink-0 border',
-                                selected ? 'bg-blue-500 border-blue-500 text-white' : 'border-border-dim text-transparent'
-                              )}>
-                                ✓
-                              </span>
-                            </button>
+                              </button>
+                              {selected && (
+                                <div className="mt-1.5 flex items-center gap-1.5">
+                                  <span className="text-[7px] font-black uppercase tracking-widest text-text-dim shrink-0">Premio de:</span>
+                                  <select
+                                    value={branchRole}
+                                    onChange={(e) => setBranchRole(rule.id, branch.id, e.target.value as LeaderSourceRole)}
+                                    className="flex-1 min-w-0 bg-bg-card border border-border-dim rounded px-1.5 py-1 text-[9px] font-black uppercase text-text-main outline-none focus:border-blue-500 cursor-pointer"
+                                  >
+                                    {ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -521,7 +550,10 @@ export default function LeaderRewardsPanel({
                           <div className="flex flex-col">
                             <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">Suma de premios obtenidos</span>
                             <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider">
-                              {rule.branchIds.length} sucursal{rule.branchIds.length === 1 ? '' : 'es'} · {roleLabel(rule.sourceRole)}
+                              {rule.branchIds.length} sucursal{rule.branchIds.length === 1 ? '' : 'es'} · {(() => {
+                                const roles = new Set(rule.branchIds.map(bid => (rule.branchRoles && rule.branchRoles[bid]) || rule.sourceRole));
+                                return roles.size <= 1 ? roleLabel([...roles][0] || rule.sourceRole) : 'roles por sucursal';
+                              })()}
                             </span>
                           </div>
                           <span className="text-[15px] font-mono font-black text-text-main">${fmt(base)}</span>

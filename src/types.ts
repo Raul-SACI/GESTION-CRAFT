@@ -212,9 +212,12 @@ export interface PerformanceLeaderConfig {
   id: string;
   month: string; // YYYY-MM
   leaderName: string; // ej: "Líder de Encargados"
-  sourceRole: LeaderSourceRole; // de qué rol se suman los premios obtenidos
+  sourceRole: LeaderSourceRole; // rol por defecto del que se suman los premios obtenidos
   percentage: number; // % sobre la suma de premios obtenidos (ej: 50)
   branchIds: string[]; // sucursales cuyos premios se suman
+  // Rol por sucursal (override): permite que un líder cobre, ej., del Jefe de Cocina en unas
+  // sucursales y del Encargado en otras (ej. el Almacén). Si una sucursal no está acá, usa sourceRole.
+  branchRoles?: Record<string, LeaderSourceRole>;
 }
 
 export interface PerformanceTargets {
