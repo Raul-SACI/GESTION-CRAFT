@@ -1875,6 +1875,26 @@ export default function FinanceView({
                   ))}
                 </div>
 
+                {/* Saldo de inicio por cuenta (cómo se compone: efectivo, bancos, MP) */}
+                <p className="text-[9px] font-black uppercase text-text-dim tracking-widest mb-2 mt-4">Saldo de inicio por cuenta</p>
+                {ACCOUNTS.some(a => ((weekStartBalances as Record<string, number>)[a.id] || 0) !== 0) ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {ACCOUNTS.filter(a => ((weekStartBalances as Record<string, number>)[a.id] || 0) !== 0).map(acc => {
+                      const bal = (weekStartBalances as Record<string, number>)[acc.id] || 0;
+                      return (
+                        <div key={acc.id} className="bg-bg-accent/30 border border-border-dim/40 rounded px-3 py-2 flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-black text-text-main uppercase truncate flex items-center gap-1.5">
+                            <acc.icon size={12} className={acc.color} /> {acc.name}
+                          </span>
+                          <span className={cn("text-[11px] font-mono font-black shrink-0", bal < 0 ? "text-red-400" : "text-text-main")}>${bal.toLocaleString('es-AR')}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-text-dim font-bold uppercase opacity-60">No hay saldo de inicio cargado (cierre de la semana anterior).</p>
+                )}
+
                 {/* Total disponible = saldo inicio + ingresos */}
                 <div className="mt-4 pt-3 border-t border-border-dim flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                   <div className="flex flex-col sm:flex-row gap-3 sm:gap-6">
