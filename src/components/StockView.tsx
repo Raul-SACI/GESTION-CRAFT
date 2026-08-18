@@ -913,16 +913,16 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 {isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos (EG 8)</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-purple-500/5">Ventas Teo.</th>}
                 {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-red-500/5">Decomisos</th>}
-                <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">{isAlmacen ? 'EF' : 'EF Real'}</th>
-                {!isAlmacen && <th className="px-4 py-4 text-center tracking-widest bg-teal-500/5 text-teal-600">EF Teó.</th>}
+                <th className="px-4 py-4 text-center tracking-widest bg-brand-500/5">EF Real</th>
+                <th className="px-4 py-4 text-center tracking-widest bg-teal-500/5 text-teal-600">EF Teó.</th>
                 {!isAlmacen && <th className="px-4 py-4 text-center font-black text-brand-500 bg-brand-500/5 tracking-widest">CMV REAL</th>}
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest border-l border-border-dim/20">
                   DESVÍO
-                  {!isAlmacen && <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">EF Real − EF Teórica</span>}
+                  <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">EF Real − EF Teórica</span>
                 </th>
                 <th className="px-4 py-4 text-left font-black text-brand-500 tracking-widest">
                   DESVÍO %
-                  {!isAlmacen && <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">(EF Real − EF Teórica) / EF Teórica × 100</span>}
+                  <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">(EF Real − EF Teórica) / EF Teórica × 100</span>
                 </th>
                 <th className="px-6 py-4 text-right sticky right-0 bg-bg-accent z-20 border-l border-border-dim/20 w-40">Cierre</th>
               </tr>
@@ -958,12 +958,14 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                 }
                 
                 const cmvReal = calculateCMVReal(item.id);
-                // Existencia Final Teórica = EF real + (CMV real − venta teórica).
+                // Existencia Final Teórica = lo que DEBERÍA quedar según todos los movimientos.
+                //  · Almacén (no vende): EF Teó = EI + compras + producción + devolución − envíos
+                //    − consumo − recupero − ventas pers. − decomisos  (= EF real + CMV real).
+                //  · Sucursal: EF Teó = EF real + (CMV real − venta teórica).
                 const efRealVal = data.ef || 0;
-                const efTeoricaVal = isAlmacen ? efRealVal : efRealVal + (cmvReal - data.ventasTeorico);
-                // En Centro de Producción NO hay ventas: el desvío es el resultado de la fórmula.
-                // En sucursales, DESVÍO = EF Real − EF Teórica  (sobrante > 0, faltante < 0).
-                const desvio = isAlmacen ? cmvReal : (efRealVal - efTeoricaVal);
+                const efTeoricaVal = isAlmacen ? (efRealVal + cmvReal) : (efRealVal + (cmvReal - data.ventasTeorico));
+                // DESVÍO = EF Real − EF Teórica  (sobrante > 0, faltante < 0), para ambos.
+                const desvio = efRealVal - efTeoricaVal;
                 const isSummary = viewMode === 'mes';
                 const isItemLocked = isCurrentWeekClosed(item.id);
                 // La EI solo es editable en la Semana 1 (o vista día). En semanas 2/3/4 viene del EF anterior.
@@ -1103,15 +1105,12 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                       disabled={isSummary || isItemLocked}
                     />
 
-                    {/* EF Teórica (calculada, no editable): lo que DEBERÍA quedar de existencia final.
-                        EF teórica = EI + compras + prést.recib − prést.env − venta teórica − decomisos − consumo */}
-                    {!isAlmacen && (
-                      <td className="px-2 py-4 bg-teal-500/5 text-center">
-                        <span className="inline-block w-16 mx-auto font-mono text-[10px] font-bold text-teal-600" title="Existencia Final Teórica (calculada automáticamente)">
-                          {efTeoricaVal.toLocaleString('es-AR', { maximumFractionDigits: 3 })}
-                        </span>
-                      </td>
-                    )}
+                    {/* EF Teórica (calculada, no editable): lo que DEBERÍA quedar de existencia final. */}
+                    <td className="px-2 py-4 bg-teal-500/5 text-center">
+                      <span className="inline-block w-16 mx-auto font-mono text-[10px] font-bold text-teal-600" title="Existencia Final Teórica (calculada automáticamente)">
+                        {efTeoricaVal.toLocaleString('es-AR', { maximumFractionDigits: 3 })}
+                      </span>
+                    </td>
 
                     {/* CMV REAL Result - oculto en Centro de Producción (no vende) */}
                     {!isAlmacen && (
@@ -1130,11 +1129,9 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
                        </span>
                     </td>
 
-                    {/* DESVÍO %:
-                         - Sucursal: (EF Real − EF Teórica) / EF Teórica × 100.
-                         - Almacén (sin ventas teóricas): desvío / EF real. */}
+                    {/* DESVÍO % = (EF Real − EF Teórica) / EF Teórica × 100  (sucursal y almacén). */}
                     {(() => {
-                      const base = isAlmacen ? efRealVal : efTeoricaVal;
+                      const base = efTeoricaVal;
                       const desvioPct = base !== 0 ? (desvio / base) * 100 : null;
                       return (
                         <td className="px-4 py-4 text-left">
