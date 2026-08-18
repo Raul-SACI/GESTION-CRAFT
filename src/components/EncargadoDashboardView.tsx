@@ -119,6 +119,7 @@ export default function EncargadoDashboardView({
   const [deviationNote, setDeviationNote] = useState('');
   const [itemNamesById, setItemNamesById] = useState<Record<string, string>>({});
   const [showDevDetail, setShowDevDetail] = useState(false);
+  const [stockPrizeModal, setStockPrizeModal] = useState<any>(null); // detalle del premio de desvío (semana × insumo)
 
   // HR Hours State
   const [hourBudgetRows, setHourBudgetRows] = useState<any[]>([]);
@@ -992,6 +993,64 @@ export default function EncargadoDashboardView({
   // Desvío efectivo: si administración cargó un valor a mano para este mes/sucursal, se usa ese.
   const averageStockDeviation = stockDeviationOverride ? stockDeviationOverride.value : autoStockDeviation;
 
+  // ── Desvío SEMANA A SEMANA por insumo (para el premio celda por celda) ──
+  // El premio de desvío de stock se gana por cada (semana × insumo) que quede bajo el objetivo,
+  // así no se puede "acomodar" el número en la última semana. Cada celda vale
+  //   (premio del tramo alcanzado) ÷ 4 semanas ÷ N insumos.
+  const weeklyStockDetail = useMemo(() => {
+    if (!rawInventoryLogs || rawInventoryLogs.length === 0) return { insumos: [] as Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }>, N: 0 };
+    const [yy, mm] = selectedMonth.split('-').map(Number);
+    const lastDay = new Date(yy, mm, 0).getDate();
+    const dayOf = (d: any) => Number(String(d.date || '').substring(8, 10));
+    const semanas: [number, number][] = [[1, 7], [8, 14], [15, 21], [22, lastDay]];
+    const porItem: Record<string, any[]> = {};
+    rawInventoryLogs.forEach((d: any) => {
+      const id = d.item_id; if (!id) return;
+      if (controlledItemIds.length > 0 && !controlledItemIds.includes(id)) return;
+      (porItem[id] = porItem[id] || []).push(d);
+    });
+    const insumos: Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }> = [];
+    Object.entries(porItem).forEach(([itemId, logs]) => {
+      const weeks = semanas.map(([ws, we]) => {
+        const first = logs.find((d: any) => dayOf(d) === ws);
+        if (!first) return null;
+        const eiw = Number(first.ei) || 0, efw = Number(first.ef) || 0, comprasw = Number(first.compras) || 0;
+        const vtw = Number(first.ventas_teorico) || 0, consw = Number(first.consumo_personal) || 0;
+        let pEnv = Number(first.prestamos_enviados) || 0, pRec = Number(first.prestamos_recibidos) || 0;
+        if (!pEnv && !pRec && first.prestamos) { if (Number(first.prestamos) > 0) pRec = Number(first.prestamos); else pEnv = Math.abs(Number(first.prestamos)); }
+        let decw = 0; logs.forEach((d: any) => { const dd = dayOf(d); if (dd >= ws && dd <= we) decw += Number(d.decomisos) || 0; });
+        if (vtw <= 0) return null; // sin base teórica esa semana
+        const efTeorica = eiw + comprasw + pRec - pEnv - vtw - decw - consw;
+        const desvio = efTeorica - efw;
+        if (efTeorica === 0) return null;
+        return { pct: (desvio / efTeorica) * 100, desvio, efTeorica, ef: efw };
+      });
+      if (weeks.some(w => w !== null)) insumos.push({ id: itemId, name: itemNamesById[itemId] || itemId, weeks });
+    });
+    insumos.sort((a, b) => a.name.localeCompare(b.name));
+    return { insumos, N: insumos.length };
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById]);
+
+  // Calcula el premio de desvío celda por celda para una escala de tramos dada.
+  const computeStockCellPrize = (tiers: any[], isLowerBetter: boolean) => {
+    const { insumos, N } = weeklyStockDetail;
+    if (!N || !tiers || tiers.length === 0) return { total: 0, cells: [] as any[], N, weeks: 4, perCellMax: 0 };
+    const variable = { tiers, isLowerBetter: isLowerBetter !== false }; // desvío: menor es mejor
+    const cells: any[] = [];
+    let total = 0;
+    insumos.forEach(ins => {
+      ins.weeks.forEach((w, wi) => {
+        if (!w) { cells.push({ insumoId: ins.id, insumo: ins.name, week: wi + 1, pct: null, amount: 0, tier: null }); return; }
+        const tier = getAchievedTier(variable, Math.abs(w.pct));
+        const amount = tier ? (Number(tier.prize) || 0) / 4 / N : 0;
+        total += amount;
+        cells.push({ insumoId: ins.id, insumo: ins.name, week: wi + 1, pct: w.pct, amount, tier });
+      });
+    });
+    const topTier = [...tiers].sort((a, b) => (Number(b.prize) || 0) - (Number(a.prize) || 0))[0];
+    return { total: Math.round(total), cells, N, weeks: 4, perCellMax: topTier ? (Number(topTier.prize) || 0) / 4 / N : 0 };
+  };
+
   // Desvío de horas vs presupuesto (%)
   // REGLAS:
   //  1. Solo cuentan los EXCESOS (gastar de menos no es desvío; los ahorros no compensan excesos).
@@ -1286,6 +1345,7 @@ export default function EncargadoDashboardView({
         
         // Match actual metric according to variable identity or name
         const lowerName = v.name.toLowerCase();
+        let isStockVar = false;
         if (lowerName.includes('cmv')) {
           currentValue = liveCmvValue;
         } else if (lowerName.includes('google')) {
@@ -1298,8 +1358,10 @@ export default function EncargadoDashboardView({
           // Desvío de horas vs presupuesto (en %)
           currentValue = hoursDeviationPct;
         } else if (lowerName.includes('desv') || lowerName.includes('desperdi') || lowerName.includes('insumo') || lowerName.includes('stock')) {
-          // Desvío promedio de insumos controlados del mes (en %)
+          // Desvío promedio de insumos controlados del mes (en %) — solo informativo.
+          // El PREMIO se calcula celda por celda (semana × insumo), más abajo.
           currentValue = averageStockDeviation;
+          isStockVar = true;
         } else if (lowerName.includes('venta')) {
           // Ventas Netas reales del mes (del módulo Ventas)
           currentValue = liveNetSales;
@@ -1308,6 +1370,8 @@ export default function EncargadoDashboardView({
         }
 
         const tier = getAchievedTier(v, currentValue);
+        // Premio de desvío de stock: por cada (semana × insumo) bajo el objetivo, no sobre el promedio del mes
+        const stockCellPrize = isStockVar ? computeStockCellPrize(v.tiers || [], v.isLowerBetter) : null;
 
         // Escala de objetivos ordenada (del más fácil al más exigente) para mostrarla al usuario
         const tiersOrdenados = (v.tiers || [])
@@ -1329,12 +1393,14 @@ export default function EncargadoDashboardView({
           variableName: v.name,
           currentValue,
           unit: v.unit,
-          achievedTier: tier,
-          prize: tier ? tier.prize : 0,
+          achievedTier: isStockVar ? null : tier,
+          prize: isStockVar ? (stockCellPrize?.total || 0) : (tier ? tier.prize : 0),
           isLowerBetter: !!v.isLowerBetter,
           tiersOrdenados,
-          proximo,
+          proximo: isStockVar ? null : proximo,
           falta,
+          isStockVar,
+          stockCellPrize,
           targetText: v.tiers ? v.tiers.map((t: any) => `${v.isLowerBetter ? '<=': '>='} ${t.threshold}${v.unit} ($${t.prize.toLocaleString()})`).join(' | ') : 'Sin escala'
         };
       });
@@ -1405,7 +1471,7 @@ export default function EncargadoDashboardView({
     });
 
     return result;
-  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, blackFlagsDuenosDetail, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride]);
+  }, [activeConfigs, liveNetSales, liveCmvValue, liveGoogleScore, livePyRestoScore, livePyCafeScore, liveRedFlags, redFlagsDetail, blackFlagsByRole, blackFlagsDuenosDetail, averageStockDeviation, hoursDeviationPct, prizeAdjustments, isSimulationMode, manualRedFlagsOverride, weeklyStockDetail]);
 
   // ===== Cierre de mes =====
   // Los resultados de premios ya no se cargan a mano: salen de acá, que es donde se
@@ -2141,13 +2207,25 @@ export default function EncargadoDashboardView({
                                 <span className="text-text-dim font-bold truncate max-w-[130px]">{v.variableName}:</span>
                                 <span className="font-mono flex items-center gap-1">
                                   <span className="text-text-main font-black">{mostrar(v.currentValue || 0)}</span>
-                                  <span className={cn("italic font-bold", v.achievedTier ? "text-emerald-600" : "text-text-dim")}>
-                                    ({v.achievedTier ? `+$${v.achievedTier.prize.toLocaleString('es-AR')}` : '$0'})
+                                  <span className={cn("italic font-bold", (v.isStockVar ? v.prize > 0 : v.achievedTier) ? "text-emerald-600" : "text-text-dim")}>
+                                    ({v.isStockVar ? (v.prize > 0 ? `+$${v.prize.toLocaleString('es-AR')}` : '$0') : (v.achievedTier ? `+$${v.achievedTier.prize.toLocaleString('es-AR')}` : '$0')})
                                   </span>
                                 </span>
                               </div>
-                              {/* Escala de objetivos: cuál se alcanzó y cuál es el próximo */}
-                              {v.tiersOrdenados && v.tiersOrdenados.length > 0 && (
+                              {/* Desvío de stock: premio semana × insumo (no sobre el promedio del mes) */}
+                              {v.isStockVar && v.stockCellPrize && (
+                                <div className="flex flex-wrap items-center gap-1 mt-0.5 pl-1">
+                                  <span className="text-[7px] font-bold uppercase text-text-dim">
+                                    Semana × insumo · {v.stockCellPrize.N} insumo(s) × 4 sem
+                                  </span>
+                                  <button onClick={() => setStockPrizeModal({ ...v.stockCellPrize, tiers: v.tiersOrdenados, varName: v.variableName })}
+                                    className="text-[7px] font-black uppercase px-1.5 py-0.5 rounded border border-brand-500/40 bg-brand-500/10 text-brand-500 hover:bg-brand-500/20 transition-all">
+                                    Ver detalle
+                                  </button>
+                                </div>
+                              )}
+                              {/* Escala de objetivos: cuál se alcanzó y cuál es el próximo (no para desvío de stock) */}
+                              {!v.isStockVar && v.tiersOrdenados && v.tiersOrdenados.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-0.5 pl-1">
                                   {v.tiersOrdenados.map((t: any, i: number) => {
                                     const alcanzado = v.achievedTier && t.threshold === v.achievedTier.threshold;
@@ -2340,6 +2418,85 @@ export default function EncargadoDashboardView({
             <div className="px-5 py-3 border-t border-border-dim bg-bg-accent/20">
               <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest leading-relaxed">
                 Cada % coincide con el DESVÍO % que muestra Control de Stock (vista Mes) para ese insumo. El desvío de la sucursal promedia el valor absoluto (un faltante y un sobrante no se compensan).
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: detalle del PREMIO de desvío de stock (semana × insumo) */}
+      {stockPrizeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setStockPrizeModal(null)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-start justify-between">
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-widest text-text-main">Premio por Desvío de Stock · semana × insumo</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">
+                  {activeBranch?.name} · {selectedMonth} · {stockPrizeModal.N} insumo(s) × 4 semanas
+                </p>
+              </div>
+              <button onClick={() => setStockPrizeModal(null)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+            <div className="px-5 py-3 bg-bg-accent/30 border-b border-border-dim">
+              <p className="text-[9px] font-bold text-text-dim leading-relaxed">
+                El premio se gana <strong>por cada semana y por cada insumo</strong> que quede bajo el objetivo (así no se puede acomodar en la última semana). Cada celda vale <span className="font-mono">premio del tramo ÷ 4 semanas ÷ {stockPrizeModal.N} insumos</span>. Tramos:
+                {(stockPrizeModal.tiers || []).map((t: any, i: number) => (
+                  <span key={i} className="inline-block ml-1 font-mono text-text-main">≤{t.threshold}% = ${t.prize.toLocaleString('es-AR')} (${Math.round((Number(t.prize) || 0) / 4 / (stockPrizeModal.N || 1)).toLocaleString('es-AR')}/celda){i < stockPrizeModal.tiers.length - 1 ? ' ·' : ''}</span>
+                ))}
+              </p>
+            </div>
+            <div className="overflow-auto flex-1">
+              {(() => {
+                // Reagrupar celdas por insumo
+                const byInsumo: Record<string, any> = {};
+                (stockPrizeModal.cells || []).forEach((c: any) => {
+                  if (!byInsumo[c.insumoId]) byInsumo[c.insumoId] = { name: c.insumo, weeks: [null, null, null, null], total: 0 };
+                  byInsumo[c.insumoId].weeks[c.week - 1] = c;
+                  byInsumo[c.insumoId].total += c.amount;
+                });
+                const rows = Object.values(byInsumo);
+                return (
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-bg-accent">
+                      <tr className="text-[8px] font-black uppercase text-text-dim tracking-widest">
+                        <th className="px-4 py-2">Insumo</th>
+                        {[1, 2, 3, 4].map(w => <th key={w} className="px-2 py-2 text-center">S{w}</th>)}
+                        <th className="px-4 py-2 text-right">Ganado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim/30">
+                      {rows.map((r: any, ri: number) => (
+                        <tr key={ri} className="text-[10px] hover:bg-bg-accent/20">
+                          <td className="px-4 py-2 font-bold text-text-main">{r.name}</td>
+                          {r.weeks.map((c: any, wi: number) => (
+                            <td key={wi} className="px-2 py-2 text-center font-mono">
+                              {!c || c.pct === null ? (
+                                <span className="text-text-dim/30">—</span>
+                              ) : (
+                                <div className="flex flex-col items-center leading-tight">
+                                  <span className={cn("text-[9px]", Math.abs(c.pct) < 2 ? "text-emerald-500" : "text-text-dim")}>{c.pct > 0 ? '+' : ''}{c.pct.toFixed(1)}%</span>
+                                  <span className={cn("text-[9px] font-black", c.amount > 0 ? "text-emerald-600" : "text-text-dim/50")}>{c.amount > 0 ? `$${Math.round(c.amount).toLocaleString('es-AR')}` : '$0'}</span>
+                                </div>
+                              )}
+                            </td>
+                          ))}
+                          <td className="px-4 py-2 text-right font-mono font-black text-emerald-600">${Math.round(r.total).toLocaleString('es-AR')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-brand-500/10 border-t-2 border-brand-500/40 text-[11px]">
+                        <td className="px-4 py-2.5 font-black uppercase text-brand-500" colSpan={5}>Premio total desvío de stock</td>
+                        <td className="px-4 py-2.5 text-right font-mono font-black text-brand-500">${Math.round(stockPrizeModal.total).toLocaleString('es-AR')}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                );
+              })()}
+            </div>
+            <div className="px-5 py-3 border-t border-border-dim bg-bg-accent/20">
+              <p className="text-[8px] font-bold text-text-dim uppercase tracking-widest leading-relaxed">
+                Cada celda toma el mejor tramo que cumple (en valor absoluto). Las semanas sin venta teórica cargada no suman. El % de cada semana usa la misma fórmula de Control de Stock (desvío / Existencia Final Teórica).
               </p>
             </div>
           </div>
