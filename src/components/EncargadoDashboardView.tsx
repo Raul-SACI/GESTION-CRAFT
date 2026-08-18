@@ -118,6 +118,9 @@ export default function EncargadoDashboardView({
   const [deviationInput, setDeviationInput] = useState('');
   const [deviationNote, setDeviationNote] = useState('');
   const [itemNamesById, setItemNamesById] = useState<Record<string, string>>({});
+  // Venta teórica por semana e insumo, calculada desde el ranking (no depende de que esté
+  // persistida en inventory_logs). weeklyVtByItem[week_number][item_id] = venta teórica.
+  const [weeklyVtByItem, setWeeklyVtByItem] = useState<Record<number, Record<string, number>>>({});
   const [showDevDetail, setShowDevDetail] = useState(false);
   const [stockPrizeModal, setStockPrizeModal] = useState<any>(null); // detalle del premio de desvío (semana × insumo)
 
@@ -329,8 +332,39 @@ export default function EncargadoDashboardView({
           .slice(0, 4);
         
         setItemDeviations(sortedItems);
+
+        // Venta teórica por SEMANA e INSUMO, calculada desde el ranking del POS (igual que
+        // Control de Stock). No depende de que esté guardada en inventory_logs, así el premio
+        // de desvío nunca se queda sin una semana por falta de sincronización.
+        try {
+          const [{ data: ranking }, { data: prods }, { data: recs }, { data: aliases }] = await Promise.all([
+            supabase.from('product_rankings').select('product_code, product_name, quantity, week_number').eq('branch_id', branchId).eq('month', month),
+            supabase.from('products').select('id, name, code'),
+            supabase.from('recipes').select('product_id, item_id, quantity'),
+            supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore'),
+          ]);
+          const norm = (s: any) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+          const normCode = (c: any) => String(c ?? '').trim();
+          const idByName: Record<string, string> = {}; const idByCode: Record<string, string> = {};
+          (prods || []).forEach((p: any) => { if (p.name) idByName[norm(p.name)] = p.id; if (normCode(p.code) !== '') idByCode[normCode(p.code)] = p.id; });
+          (aliases || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) idByName[norm(a.alias_name)] = a.product_id; });
+          const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+          (recs || []).forEach((r: any) => { if (!r.product_id || !r.item_id) return; (recipeByProd[r.product_id] = recipeByProd[r.product_id] || []).push({ itemId: r.item_id, quantity: Number(r.quantity) || 0 }); });
+          const vtMap: Record<number, Record<string, number>> = {};
+          (ranking || []).forEach((rk: any) => {
+            const prodId = (normCode(rk.product_code) !== '' && idByCode[normCode(rk.product_code)]) || idByName[norm(rk.product_name)];
+            const recipe = prodId ? recipeByProd[prodId] : null;
+            if (!recipe) return;
+            const wk = Number(rk.week_number) || 1;
+            const sold = Number(rk.quantity) || 0;
+            const wmap = (vtMap[wk] = vtMap[wk] || {});
+            recipe.forEach(ing => { wmap[ing.itemId] = (wmap[ing.itemId] || 0) + sold * ing.quantity; });
+          });
+          setWeeklyVtByItem(vtMap);
+        } catch (e) { console.warn('No se pudo calcular venta teórica por semana:', e); setWeeklyVtByItem({}); }
       } else {
         setRawInventoryLogs([]);
+        setWeeklyVtByItem({});
         setWasteTotal(14850);
         setItemDeviations([
           { name: 'Carne Vacuno (Kg)', date: '2026-05-24', deviation: -3.5 },
@@ -961,17 +995,24 @@ export default function EncargadoDashboardView({
         const log = itemLogs.find((d: any) => dayOf(d) === weekStarts[i]);
         if (log && log.ef !== null && log.ef !== undefined) { ef = Number(log.ef) || 0; break; }
       }
-      // Sumas del mes: compras/préstamos/consumo/venta teórica (viven en el primer día de cada
-      // semana) y decomisos (repartidos por día) → se suma sobre TODOS los logs del insumo.
-      let compras = 0, pRec = 0, pEnv = 0, consumo = 0, vt = 0, decomisos = 0;
+      // Sumas del mes: compras/préstamos/consumo (viven en el primer día de cada semana) y
+      // decomisos (repartidos por día) → se suma sobre TODOS los logs del insumo.
+      let compras = 0, pRec = 0, pEnv = 0, consumo = 0, decomisos = 0;
       itemLogs.forEach((d: any) => {
         compras += Number(d.compras) || 0;
         let pe = Number(d.prestamos_enviados) || 0, pr = Number(d.prestamos_recibidos) || 0;
         if (!pe && !pr && d.prestamos) { if (Number(d.prestamos) > 0) pr = Number(d.prestamos); else pe = Math.abs(Number(d.prestamos)); }
         pEnv += pe; pRec += pr;
         consumo += Number(d.consumo_personal) || 0;
-        vt += Number(d.ventas_teorico) || 0;
         decomisos += Number(d.decomisos) || 0;
+      });
+      // Venta teórica del mes = suma por semana desde el ranking (si esa semana tiene ranking);
+      // si no, la persistida en el primer día de la semana.
+      let vt = 0;
+      weekStarts.forEach((ws, wi) => {
+        const wNum = wi + 1;
+        if (weeklyVtByItem[wNum] !== undefined) vt += weeklyVtByItem[wNum][itemId] || 0;
+        else { const log = itemLogs.find((d: any) => dayOf(d) === ws); vt += log ? (Number(log.ventas_teorico) || 0) : 0; }
       });
 
       if (vt <= 0) return; // sin base teórica no se mide
@@ -986,7 +1027,7 @@ export default function EncargadoDashboardView({
     if (absPorInsumo.length === 0) return empty;
     detail.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
     return { value: absPorInsumo.reduce((s, p) => s + p, 0) / absPorInsumo.length, detail };
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem]);
 
   const autoStockDeviation = autoStockDeviationData.value;
 
@@ -1011,11 +1052,14 @@ export default function EncargadoDashboardView({
     });
     const insumos: Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }> = [];
     Object.entries(porItem).forEach(([itemId, logs]) => {
-      const weeks = semanas.map(([ws, we]) => {
+      const weeks = semanas.map(([ws, we], idx) => {
         const first = logs.find((d: any) => dayOf(d) === ws);
         if (!first) return null;
+        const wNum = idx + 1;
         const eiw = Number(first.ei) || 0, efw = Number(first.ef) || 0, comprasw = Number(first.compras) || 0;
-        const vtw = Number(first.ventas_teorico) || 0, consw = Number(first.consumo_personal) || 0;
+        // Venta teórica desde el ranking (si esa semana tiene ranking); si no, la persistida.
+        const vtw = weeklyVtByItem[wNum] !== undefined ? (weeklyVtByItem[wNum][itemId] || 0) : (Number(first.ventas_teorico) || 0);
+        const consw = Number(first.consumo_personal) || 0;
         let pEnv = Number(first.prestamos_enviados) || 0, pRec = Number(first.prestamos_recibidos) || 0;
         if (!pEnv && !pRec && first.prestamos) { if (Number(first.prestamos) > 0) pRec = Number(first.prestamos); else pEnv = Math.abs(Number(first.prestamos)); }
         let decw = 0; logs.forEach((d: any) => { const dd = dayOf(d); if (dd >= ws && dd <= we) decw += Number(d.decomisos) || 0; });
@@ -1029,7 +1073,7 @@ export default function EncargadoDashboardView({
     });
     insumos.sort((a, b) => a.name.localeCompare(b.name));
     return { insumos, N: insumos.length };
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem]);
 
   // Calcula el premio de desvío celda por celda para una escala de tramos dada.
   const computeStockCellPrize = (tiers: any[], isLowerBetter: boolean) => {
