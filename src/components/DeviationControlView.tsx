@@ -1366,6 +1366,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
                        <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600 border-l border-border-dim">Desvío</th>
+                       <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600">Desvío %</th>
                      </tr>
                    </thead>
                    <tbody className="divide-y divide-border-dim">
@@ -1392,6 +1393,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        // Desvío: igual que Control de Stock → CMV real - ventas teóricas
                        const cmvReal = ei + purchases + loansReceived - loansSent - waste - staff_consumption - ef;
                        const desvio = cmvReal - theoretical_sales;
+                       // Desvío %: sobre la Existencia Final Teórica (incluye decomisos), igual que Control de Stock y Dashboard
+                       const efTeorica = ei + purchases + loansReceived - loansSent - theoretical_sales - waste - staff_consumption; // = ef + desvio
+                       const desvioPct = efTeorica !== 0 ? (desvio / efTeorica) * 100 : null;
                        return (
                          <tr key={id} className="hover:bg-bg-accent/20 transition-colors text-[11px]">
                            <td className="px-4 py-3 sticky left-0 bg-bg-sidebar z-10 border-r border-border-dim">
@@ -1435,6 +1439,16 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                Math.abs(desvio) < 2 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>
                                {desvio > 0 ? '+' : ''}{desvio.toFixed(1)}
                              </span>
+                           </td>
+                           <td className="px-3 py-3 text-center bg-amber-500/5">
+                             {desvioPct === null ? (
+                               <span className="text-text-dim font-mono font-black">—</span>
+                             ) : (
+                               <span className={cn("text-[12px] font-mono font-black px-2 py-1 rounded",
+                                 Math.abs(desvioPct) < 5 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>
+                                 {desvioPct > 0 ? '+' : ''}{desvioPct.toFixed(1)}%
+                               </span>
+                             )}
                            </td>
                          </tr>
                        );
