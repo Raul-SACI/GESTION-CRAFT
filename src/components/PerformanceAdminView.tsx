@@ -1071,56 +1071,57 @@ export default function PerformanceAdminView({
       return redPen + blackPen;
     };
 
-    const totalesPorRol: Record<string, number> = { encargado: 0, jefe_cocina: 0, segundo_cocina: 0 };
-    let totalSinBanderasGen = 0, totalBanderasGen = 0, totalGeneral = 0;
+    // Por cada rol: dos columnas -> "Premio" (bruto, antes de banderas) y "Premio neto de banderas" (lo que se paga).
+    const totalesGross: Record<string, number> = { encargado: 0, jefe_cocina: 0, segundo_cocina: 0 };
+    const totalesNet: Record<string, number> = { encargado: 0, jefe_cocina: 0, segundo_cocina: 0 };
+    let totalGeneral = 0;
     const filasResumen = pdfBranches.map(b => {
       const cerrado = cierreDe(b.id);
-      let totalSuc = 0, sinBanderasSuc = 0, banderasSuc = 0;
-      const celdas = ROLES.map(r => {
+      let totalSuc = 0;
+      const celdas: string[] = [];
+      ROLES.forEach(r => {
         const rep = repOf(b.id, r.key);
-        if (!cerrado || !rep) return '-';
-        const monto = Number(rep.total_calculated_prize) || 0;
-        const flagPen = flagPenaltyOf(b.id, r.key);
-        totalSuc += monto;
-        totalesPorRol[r.key] += monto;
-        sinBanderasSuc += monto + flagPen; // lo que hubiese cobrado sin banderas
-        banderasSuc += flagPen;
-        return `$${fmt(monto)}`;
+        if (!cerrado || !rep) { celdas.push('-', '-'); return; }
+        const net = Number(rep.total_calculated_prize) || 0;        // neto de banderas (lo que se paga)
+        const gross = net + flagPenaltyOf(b.id, r.key);             // premio antes del descuento por banderas
+        totalSuc += net;
+        totalesGross[r.key] += gross;
+        totalesNet[r.key] += net;
+        celdas.push(`$${fmt(gross)}`, `$${fmt(net)}`);
       });
-      totalSinBanderasGen += sinBanderasSuc; totalBanderasGen += banderasSuc;
       return [
         b.name,
         cerrado ? `Cerrado ${new Date(cerrado).toLocaleDateString('es-AR')}` : 'SIN CERRAR',
         ...celdas,
-        cerrado ? `$${fmt(sinBanderasSuc)}` : '-',
-        cerrado ? (banderasSuc > 0 ? `-$${fmt(banderasSuc)}` : '$0') : '-',
         cerrado ? `$${fmt(totalSuc)}` : '-',
       ];
     });
-    totalGeneral = Object.values(totalesPorRol).reduce((a, v) => a + v, 0);
+    totalGeneral = Object.values(totalesNet).reduce((a, v) => a + v, 0);
     filasResumen.push([
       'TOTAL',
       '',
-      ...ROLES.map(r => `$${fmt(totalesPorRol[r.key])}`),
-      `$${fmt(totalSinBanderasGen)}`,
-      totalBanderasGen > 0 ? `-$${fmt(totalBanderasGen)}` : '$0',
+      ...ROLES.flatMap(r => [`$${fmt(totalesGross[r.key])}`, `$${fmt(totalesNet[r.key])}`]),
       `$${fmt(totalGeneral)}`,
     ]);
 
     autoTable(doc, {
-      head: [['Sucursal', 'Estado', ...ROLES.map(r => r.label), 'Sin banderas', 'Banderas', 'A pagar']],
+      head: [[
+        'Sucursal', 'Estado',
+        ...ROLES.flatMap(r => [`${r.label}\nPremio`, `${r.label}\nNeto de banderas`]),
+        'A pagar',
+      ]],
       body: filasResumen,
       startY: y + 5, margin: { left: M, right: M },
-      styles: { fontSize: 8, cellPadding: 2, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
-      headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 7.5 },
+      styles: { fontSize: 7, cellPadding: 2, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+      headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 6.5 },
       alternateRowStyles: { fillColor: [249, 250, 251] as any },
       columnStyles: {
         0: { fontStyle: 'bold' },
-        1: { fontSize: 7 },
-        2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
-        5: { halign: 'right' },
-        6: { halign: 'right', textColor: BRAND as any },
-        7: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
+        1: { fontSize: 6.5 },
+        2: { halign: 'right' }, 3: { halign: 'right', textColor: GREEN as any },
+        4: { halign: 'right' }, 5: { halign: 'right', textColor: GREEN as any },
+        6: { halign: 'right' }, 7: { halign: 'right', textColor: GREEN as any },
+        8: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
       },
       didParseCell: (d: any) => {
         if (d.section === 'body' && d.row.index === filasResumen.length - 1) {
