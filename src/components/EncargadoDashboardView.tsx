@@ -1610,6 +1610,9 @@ export default function EncargadoDashboardView({
             variableName: v.variableName,
             actualValue: v.currentValue,
             achievedPrize: v.prize,
+            // Para el desvío de stock, guardamos el desglose por insumo × semana (así el PDF
+            // muestra cómo se ganó el premio, que se paga celda por celda y no por el promedio).
+            ...(v.isStockVar && v.stockCellPrize ? { stockCells: v.stockCellPrize.cells, stockN: v.stockCellPrize.N } : {}),
           })),
           actual_sales: liveNetSales,
           red_flags_count: bd?.flagsDelRol || 0,

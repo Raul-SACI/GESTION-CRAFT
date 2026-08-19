@@ -1175,9 +1175,14 @@ export default function PerformanceAdminView({
         const body = resultados.map(res => {
           const v = (cfg?.variables || []).find((x: any) => x.id === res.variableId);
           const u = unitPdf(v?.unit || '');
+          const esStock = Array.isArray(res.stockCells) || /desv|stock|insumo/i.test(String(res.variableName || v?.name || ''));
+          // El desvío de stock se paga por insumo × semana, no por el promedio del mes.
+          const valorReal = esStock
+            ? (Array.isArray(res.stockCells) ? 'por insumo × semana' : `prom. ${fmt(res.actualValue)}${u ? ' ' + u : ''} · por insumo`)
+            : `${fmt(res.actualValue)}${u ? ' ' + u : ''}`;
           return [
             `${res.variableName || v?.name || 'Variable'}`,
-            `${fmt(res.actualValue)}${u ? ' ' + u : ''}`,
+            valorReal,
             `$${fmt(res.achievedPrize)}`,
           ];
         });
@@ -1204,6 +1209,40 @@ export default function PerformanceAdminView({
           },
         });
         y = (doc as any).lastAutoTable.finalY + 5;
+
+        // Desglose del desvío de stock por insumo × semana (así se ve cómo se pagó el premio)
+        const stockRes = resultados.find((res: any) => Array.isArray(res.stockCells) && res.stockCells.length > 0);
+        if (stockRes) {
+          const byInsumo: Record<string, { insumo: string; weeks: (number | null)[]; ganado: number }> = {};
+          stockRes.stockCells.forEach((c: any) => {
+            const k = c.insumoId || c.insumo;
+            if (!byInsumo[k]) byInsumo[k] = { insumo: c.insumo, weeks: [null, null, null, null], ganado: 0 };
+            if (c.week >= 1 && c.week <= 4) byInsumo[k].weeks[c.week - 1] = (c.pct === null || c.pct === undefined) ? null : Number(c.pct);
+            byInsumo[k].ganado += Number(c.amount) || 0;
+          });
+          const filas = Object.values(byInsumo).sort((a, b) => a.insumo.localeCompare(b.insumo));
+          if (filas.length > 0) {
+            if (y > PH - 40) { doc.addPage(); y = 20; }
+            doc.setFont(F, 'italic'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+            doc.text(`Desvío de stock por insumo (premio por semana e insumo) · ${stockRes.stockN || filas.length} insumo(s)`, M + 2, y);
+            y += 3;
+            const pctTxt = (p: number | null) => p === null ? '—' : `${p > 0 ? '+' : ''}${fmt(p)}%`;
+            autoTable(doc, {
+              head: [['Insumo', 'S1', 'S2', 'S3', 'S4', 'Ganado']],
+              body: filas.map(f => [f.insumo, ...f.weeks.map(pctTxt), `$${fmt(f.ganado)}`]),
+              startY: y, margin: { left: M, right: M },
+              styles: { fontSize: 7, cellPadding: 1.4, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+              headStyles: { fillColor: [120, 90, 160] as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 7 },
+              alternateRowStyles: { fillColor: [250, 249, 252] as any },
+              columnStyles: {
+                0: { cellWidth: 90 },
+                1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+                5: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
+              },
+            });
+            y = (doc as any).lastAutoTable.finalY + 5;
+          }
+        }
 
         // Motivo de cada bandera negra: es lo que justifica el descuento
         if (negras.length > 0) {
