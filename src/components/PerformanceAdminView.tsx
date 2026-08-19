@@ -51,6 +51,7 @@ export default function PerformanceAdminView({
   const [activeTab, setActiveTab] = useState<'config' | 'results' | 'lideres'>('config');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [showBranchPdfMenu, setShowBranchPdfMenu] = useState(false);
   
   // States for copying branch configuration
   const [showCopyBranchModal, setShowCopyBranchModal] = useState(false);
@@ -1015,7 +1016,7 @@ export default function PerformanceAdminView({
 
   // Exportar PDF con los RESULTADOS del mes de todas las sucursales y todos los roles,
   // en un solo documento. Los numeros salen de lo congelado al cerrar el mes.
-  const exportResultsPDF = () => {
+  const exportResultsPDF = (onlyBranchId?: string) => {
     const PW = 297, PH = 210, M = 14, CW = PW - 2 * M; // horizontal: los roles van en columnas
     const BRAND: [number, number, number] = [193, 18, 31];
     const DARK: [number, number, number] = [33, 37, 41];
@@ -1025,7 +1026,10 @@ export default function PerformanceAdminView({
     const fmt = (n: number) => Number(n || 0).toLocaleString('es-AR');
     const unitPdf = (u: string) => (u || '').replace(/★/g, 'estrellas').replace(/[^\x00-\xFF]/g, '').trim();
 
-    const pdfBranches = branches.filter(b => b.id !== 'all' && b.id !== 'virtual');
+    const pdfBranches = branches.filter(b =>
+      b.id !== 'all' && b.id !== 'virtual' && (!onlyBranchId || b.id === onlyBranchId));
+    const soloSucursal = !!onlyBranchId;
+    const sucursalNombre = soloSucursal ? (pdfBranches[0]?.name || 'Sucursal') : '';
     const ROLES = [
       { key: 'encargado', label: 'Encargado' },
       { key: 'jefe_cocina', label: 'Jefe de Cocina' },
@@ -1048,9 +1052,11 @@ export default function PerformanceAdminView({
     doc.setFont(F, 'bold'); doc.setFontSize(9); doc.text('GESTIÓN CRAFT', M, 12);
     doc.setFontSize(15); doc.text('RESULTADOS DE PREMIOS', M, 21);
     doc.setFont(F, 'normal'); doc.setFontSize(8);
-    doc.text('Consolidado de todas las sucursales y todos los roles', M, 26.5);
+    doc.text(soloSucursal
+      ? `${sucursalNombre} · todos los roles`
+      : 'Consolidado de todas las sucursales y todos los roles', M, 26.5);
     doc.setFont(F, 'bold'); doc.setFontSize(9);
-    doc.text('CONSOLIDADO', PW - M, 12, { align: 'right' });
+    doc.text(soloSucursal ? sucursalNombre.toUpperCase() : 'CONSOLIDADO', PW - M, 12, { align: 'right' });
     doc.setFontSize(11); doc.text(mesLabelPDF(selectedMonth), PW - M, 18, { align: 'right' });
     doc.setFont(F, 'normal'); doc.setFontSize(8);
     doc.text(`Emitido el ${new Date().toLocaleDateString('es-AR')}`, PW - M, 24, { align: 'right' });
@@ -1097,12 +1103,14 @@ export default function PerformanceAdminView({
       ];
     });
     totalGeneral = Object.values(totalesNet).reduce((a, v) => a + v, 0);
-    filasResumen.push([
-      'TOTAL',
-      '',
-      ...ROLES.flatMap(r => [`$${fmt(totalesGross[r.key])}`, `$${fmt(totalesNet[r.key])}`]),
-      `$${fmt(totalGeneral)}`,
-    ]);
+    if (!soloSucursal) {
+      filasResumen.push([
+        'TOTAL',
+        '',
+        ...ROLES.flatMap(r => [`$${fmt(totalesGross[r.key])}`, `$${fmt(totalesNet[r.key])}`]),
+        `$${fmt(totalGeneral)}`,
+      ]);
+    }
 
     autoTable(doc, {
       head: [[
@@ -1124,7 +1132,7 @@ export default function PerformanceAdminView({
         8: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
       },
       didParseCell: (d: any) => {
-        if (d.section === 'body' && d.row.index === filasResumen.length - 1) {
+        if (!soloSucursal && d.section === 'body' && d.row.index === filasResumen.length - 1) {
           d.cell.styles.fontStyle = 'bold';
           d.cell.styles.fillColor = [240, 242, 244];
         }
@@ -1267,10 +1275,13 @@ export default function PerformanceAdminView({
       doc.setPage(p);
       doc.setDrawColor(230, 231, 233); doc.setLineWidth(0.3); doc.line(M, PH - 12, PW - M, PH - 12);
       doc.setFont(F, 'normal'); doc.setFontSize(7); doc.setTextColor(...GRAY);
-      doc.text(`Resultados de Premios · ${mesLabelPDF(selectedMonth)} · Consolidado de todas las sucursales`, M, PH - 8);
+      doc.text(`Resultados de Premios · ${mesLabelPDF(selectedMonth)} · ${soloSucursal ? sucursalNombre : 'Consolidado de todas las sucursales'}`, M, PH - 8);
       doc.text(`Página ${p} de ${pc}`, PW - M, PH - 8, { align: 'right' });
     }
-    doc.save(`resultados_premios_consolidado_${selectedMonth}.pdf`);
+    const slug = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    doc.save(soloSucursal
+      ? `resultados_premios_${slug(sucursalNombre)}_${selectedMonth}.pdf`
+      : `resultados_premios_consolidado_${selectedMonth}.pdf`);
   };
 
   // Premios de Líderes: es un premio cruzado entre sucursales, así que no depende
@@ -1332,6 +1343,53 @@ export default function PerformanceAdminView({
               <Trophy size={14} className="stroke-[2.5]" />
               <span>PDF Resultados</span>
             </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowBranchPdfMenu(v => !v)}
+                disabled={loading}
+                className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-600 border border-emerald-500/25 text-emerald-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
+                title="Descargar el PDF de resultados de una sucursal por separado"
+              >
+                <Building2 size={14} className="stroke-[2.5]" />
+                <span>PDF por Sucursal</span>
+                <ChevronDown size={13} className={cn("stroke-[2.5] transition-transform", showBranchPdfMenu && "rotate-180")} />
+              </button>
+              <AnimatePresence>
+                {showBranchPdfMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowBranchPdfMenu(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      className="absolute right-0 mt-1.5 w-64 max-h-80 overflow-y-auto bg-bg-sidebar border border-border-dim rounded-lg shadow-2xl z-50 py-1.5"
+                    >
+                      <p className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-text-dim border-b border-border-dim/60 mb-1">
+                        Elegí una sucursal
+                      </p>
+                      {branches.filter(b => b.id !== 'all' && b.id !== 'virtual').map(b => {
+                        const cerrado = !!allReports.find(r => r.branch_id === b.id && r.closed_at);
+                        return (
+                          <button
+                            key={b.id}
+                            onClick={() => { setShowBranchPdfMenu(false); exportResultsPDF(b.id); }}
+                            className="w-full text-left px-3 py-2 hover:bg-emerald-500/10 flex items-center justify-between gap-2 transition-colors group cursor-pointer"
+                          >
+                            <span className="text-[11px] font-bold text-text-main group-hover:text-emerald-500 truncate">{b.name}</span>
+                            <span className={cn(
+                              "text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0",
+                              cerrado ? "bg-emerald-500/15 text-emerald-500" : "bg-brand-500/15 text-brand-500"
+                            )}>
+                              {cerrado ? 'Cerrado' : 'Sin cerrar'}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
             <button
               onClick={() => setActiveTab('lideres')}
               className="px-3.5 py-1.5 bg-amber-500/10 hover:bg-amber-500 border border-amber-500/25 text-amber-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
