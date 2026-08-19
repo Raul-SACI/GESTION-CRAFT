@@ -1061,45 +1061,66 @@ export default function PerformanceAdminView({
     doc.setFont(F, 'bold'); doc.setFontSize(11); doc.setTextColor(...DARK);
     doc.text('Premios a pagar por sucursal', M, y);
 
+    // Penalidad por banderas de un rol (rojas + negras), según su config y lo congelado al cierre.
+    const flagPenaltyOf = (branchId: string, role: string) => {
+      const rep = repOf(branchId, role); if (!rep) return 0;
+      const cfg = cfgOf(branchId, role);
+      const redPen = (Number(rep.red_flags_count) || 0) * (cfg?.red_flag_penalty !== undefined ? Number(cfg.red_flag_penalty) : 15000);
+      const blackCount = Number(rep.black_flags_at_close) || (Array.isArray(rep.black_flags) ? rep.black_flags.length : 0);
+      const blackPen = blackCount * (cfg?.black_flag_penalty !== undefined ? Number(cfg.black_flag_penalty) : 0);
+      return redPen + blackPen;
+    };
+
     const totalesPorRol: Record<string, number> = { encargado: 0, jefe_cocina: 0, segundo_cocina: 0 };
+    let totalSinBanderasGen = 0, totalBanderasGen = 0, totalGeneral = 0;
     const filasResumen = pdfBranches.map(b => {
       const cerrado = cierreDe(b.id);
-      let totalSuc = 0;
+      let totalSuc = 0, sinBanderasSuc = 0, banderasSuc = 0;
       const celdas = ROLES.map(r => {
         const rep = repOf(b.id, r.key);
         if (!cerrado || !rep) return '-';
         const monto = Number(rep.total_calculated_prize) || 0;
+        const flagPen = flagPenaltyOf(b.id, r.key);
         totalSuc += monto;
         totalesPorRol[r.key] += monto;
+        sinBanderasSuc += monto + flagPen; // lo que hubiese cobrado sin banderas
+        banderasSuc += flagPen;
         return `$${fmt(monto)}`;
       });
+      totalSinBanderasGen += sinBanderasSuc; totalBanderasGen += banderasSuc;
       return [
         b.name,
         cerrado ? `Cerrado ${new Date(cerrado).toLocaleDateString('es-AR')}` : 'SIN CERRAR',
         ...celdas,
+        cerrado ? `$${fmt(sinBanderasSuc)}` : '-',
+        cerrado ? (banderasSuc > 0 ? `-$${fmt(banderasSuc)}` : '$0') : '-',
         cerrado ? `$${fmt(totalSuc)}` : '-',
       ];
     });
-    const totalGeneral = Object.values(totalesPorRol).reduce((a, v) => a + v, 0);
+    totalGeneral = Object.values(totalesPorRol).reduce((a, v) => a + v, 0);
     filasResumen.push([
       'TOTAL',
       '',
       ...ROLES.map(r => `$${fmt(totalesPorRol[r.key])}`),
+      `$${fmt(totalSinBanderasGen)}`,
+      totalBanderasGen > 0 ? `-$${fmt(totalBanderasGen)}` : '$0',
       `$${fmt(totalGeneral)}`,
     ]);
 
     autoTable(doc, {
-      head: [['Sucursal', 'Estado', ...ROLES.map(r => r.label), 'Total sucursal']],
+      head: [['Sucursal', 'Estado', ...ROLES.map(r => r.label), 'Sin banderas', 'Banderas', 'A pagar']],
       body: filasResumen,
       startY: y + 5, margin: { left: M, right: M },
-      styles: { fontSize: 9, cellPadding: 2.4, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
-      headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8.5 },
+      styles: { fontSize: 8, cellPadding: 2, textColor: DARK as any, lineColor: [235, 236, 238] as any, lineWidth: 0.2 },
+      headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 7.5 },
       alternateRowStyles: { fillColor: [249, 250, 251] as any },
       columnStyles: {
         0: { fontStyle: 'bold' },
-        1: { fontSize: 8 },
+        1: { fontSize: 7 },
         2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
+        5: { halign: 'right' },
+        6: { halign: 'right', textColor: BRAND as any },
+        7: { halign: 'right', fontStyle: 'bold', textColor: GREEN as any },
       },
       didParseCell: (d: any) => {
         if (d.section === 'body' && d.row.index === filasResumen.length - 1) {
