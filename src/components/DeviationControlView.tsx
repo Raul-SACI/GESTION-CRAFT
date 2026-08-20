@@ -886,7 +886,7 @@ export default function DeviationControlView({
           }
 
           const product = products.find(p => p.name.trim().toUpperCase() === prodName);
-          const item = items.find(i => i.name.trim().toUpperCase() === itemName);
+          const item = catalogItems.find(i => i.name.trim().toUpperCase() === itemName);
 
           if (product && item && quantity > 0) {
             const compositeKey = `${product.id}-${item.id}`;
@@ -1101,7 +1101,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
   };
 
   const getDisplayQuantity = (itemId: string, quantity: number, productId: string) => {
-    const item = items.find(i => i.id === itemId);
+    const item = catalogItems.find(i => i.id === itemId);
     const unit = recipeDisplayUnits[`${productId}-${itemId}`] || item?.unit || '';
     if (unit === 'gr' || unit === 'ml') return quantity * 1000;
     return quantity;
@@ -1126,7 +1126,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
 
   const updateIngredientQuantity = async (productId: string, itemId: string, displayVal: number) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    const item = items.find(i => i.id === itemId);
+    const item = catalogItems.find(i => i.id === itemId);
     const unit = recipeDisplayUnits[`${productId}-${itemId}`] || item?.unit || '';
     const quantity = (unit === 'gr' || unit === 'ml') ? displayVal / 1000 : displayVal;
 
@@ -1868,7 +1868,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                             <span>Gramos / Unidades</span>
                          </div>
                          {(recipes[selectedProductId] || []).map((line, index) => {
-                           const item = items.find(i => i.id === line.itemId);
+                           const item = catalogItems.find(i => i.id === line.itemId);
                            return (
                              <div key={`${line.itemId}-${index}`} className="flex items-center justify-between bg-bg-accent/40 p-4 rounded border border-border-dim group hover:border-brand-500/30 transition-all">
                                 <div className="flex items-center gap-3">
@@ -1939,8 +1939,8 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                                   className="w-full pl-9 pr-4 py-3 bg-bg-accent border-2 border-dashed border-border-dim rounded-lg text-[10px] font-black uppercase tracking-widest text-text-dim hover:border-brand-500 hover:text-brand-500 outline-none transition-all appearance-none cursor-pointer"
                                 >
                                    <option value="">VINCULAR NUEVO INSUMO A ESTE PRODUCTO...</option>
-                                   {items.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
-                                     <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>
+                                   {catalogItems.filter(i => !(recipes[selectedProductId] || []).some(r => r.itemId === i.id)).map(i => (
+                                     <option key={i.id} value={i.id}>{i.name} ({i.unit}){prodIdSet.has(i.id) ? ' · PROD' : ''}</option>
                                    ))}
                                 </select>
                               </div>
@@ -1989,13 +1989,13 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         .filter(r => {
                           if (!recipeTableSearch) return true;
                           const p = products.find(prod => prod.id === r.productId);
-                          const i = items.find(item => item.id === r.itemId);
+                          const i = catalogItems.find(item => item.id === r.itemId);
                           const search = recipeTableSearch.toLowerCase();
                           return p?.name.toLowerCase().includes(search) || i?.name.toLowerCase().includes(search);
                         })
                         .map((line, idx) => {
                           const product = products.find(p => p.id === line.productId);
-                          const item = items.find(i => i.id === line.itemId);
+                          const item = catalogItems.find(i => i.id === line.itemId);
                           return (
                             <tr key={`${line.productId}-${line.itemId}-${idx}`} className="hover:bg-bg-accent/40 transition-colors group">
                               <td className="p-4">
