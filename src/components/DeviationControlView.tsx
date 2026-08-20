@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import RecipeMastersManager from './RecipeMastersManager';
 import { 
   BarChart3, 
@@ -122,6 +122,9 @@ export default function DeviationControlView({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [controlledIds, setControlledIds] = useState<string[]>([]);
+  // Artículos del "Maestro Recetas Producción" (recipe_masters, tipo=produccion).
+  // Se suman al Maestro de Insumos para poder controlarlos también en los desvíos.
+  const [produccionItems, setProduccionItems] = useState<StockItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [loading, setLoading] = useState(false);
   const [recipeViewMode, setRecipeViewMode] = useState<'individual' | 'table'>('individual');
@@ -147,6 +150,22 @@ export default function DeviationControlView({
     const { data } = await supabase.from('products').select('*').order('name');
     if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active, code: p.code, cost: p.cost })) as any);
   };
+  // Trae los artículos del Maestro Recetas Producción (recipe_masters, tipo=produccion).
+  const reloadProduccionItems = async () => {
+    const { data } = await supabase.from('recipe_masters').select('*').eq('tipo', 'produccion').order('name');
+    if (data) setProduccionItems(data.map((r: any) => ({
+      id: r.id, name: r.name, unit: r.unit || 'UN', code: r.code || '', category: 'Producción', cost: r.cost ?? 0, is_active: r.is_active
+    })));
+  };
+  useEffect(() => { reloadProduccionItems(); }, []);
+
+  // Catálogo del Selector de Insumos: Maestro de Insumos + Maestro Recetas Producción.
+  // Se deduplica por id (por si un id coincidiera) para no ofrecer entradas repetidas.
+  const catalogItems = useMemo(() => {
+    const byId = new Map<string, StockItem>();
+    [...items, ...produccionItems].forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+    return Array.from(byId.values());
+  }, [items, produccionItems]);
 
   // Recalcula costos de recetas/platos a partir de los costos actuales de insumos.
   const [recalcCostos, setRecalcCostos] = useState(false);
@@ -1128,7 +1147,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
     }
   };
 
-  const validControlledIds = controlledIds.filter(id => items.some(item => item.id === id));
+  const validControlledIds = controlledIds.filter(id => catalogItems.some(item => item.id === id));
 
   // 3. Comparison State (Aggregated data from dailyLogs)
   const deviations = validControlledIds.map(id => {
@@ -1273,7 +1292,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 </thead>
                 <tbody className="divide-y divide-border-dim">
                   {deviations.map(dev => {
-                    const item = items.find(i => i.id === dev.itemId);
+                    const item = catalogItems.find(i => i.id === dev.itemId);
                     const diffUnits = dev.real - dev.theo;
                     const diffPercent = (diffUnits / dev.theo) * 100;
                     const statusClass = getSemaphoreColor(diffPercent);
@@ -1359,7 +1378,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                  const weekDates = getDatesForWeek(planillaWeek);
                  const diffs: Array<{ insumo: string; label: string; enc: number; admin: number; diff: number }> = [];
                  validControlledIds.forEach(id => {
-                   const item = items.find(i => i.id === id);
+                   const item = catalogItems.find(i => i.id === id);
                    const fdl = dailyLogs.find(l => l.itemId === id && l.date === weekDates[0]);
                    if (!fdl) return;
                    encFields.forEach(([col, label]) => {
@@ -1421,7 +1440,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                    </thead>
                    <tbody className="divide-y divide-border-dim">
                      {validControlledIds.map(id => {
-                       const item = items.find(i => i.id === id);
+                       const item = catalogItems.find(i => i.id === id);
                        const weekDates = getDatesForWeek(planillaWeek);
                        const weekClosed = isWeekClosedAdmin(planillaWeek);
                        const dateStr = weekDates[0];
@@ -1565,7 +1584,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                 {selectorSearch && (
                   <button
                     onClick={() => {
-                      const filtered = items.filter(item => item.name.toLowerCase().includes(selectorSearch.toLowerCase()));
+                      const filtered = catalogItems.filter(item => item.name.toLowerCase().includes(selectorSearch.toLowerCase()));
                       const itemsToSelect = filtered.map(item => item.id);
                       setControlledIds(prev => {
                         const next = [...prev];
@@ -1599,7 +1618,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                     </button>
                   </div>
                   <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto custom-scrollbar pr-1">
-                    {items.filter(item => controlledIds.includes(item.id)).map(item => (
+                    {catalogItems.filter(item => controlledIds.includes(item.id)).map(item => (
                       <span 
                         key={item.id}
                         onClick={() => setControlledIds(prev => prev.filter(id => id !== item.id))}
@@ -1632,7 +1651,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[350px] overflow-y-auto custom-scrollbar pr-1">
-                {items
+                {catalogItems
                   .filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase()))
                   .filter(item => !showOnlySelected || controlledIds.includes(item.id))
                   .sort((a, b) => {
@@ -1642,7 +1661,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                     if (!aSel && bSel) return 1;
                     return a.name.localeCompare(b.name);
                   }).length > 0 ? (
-                  items
+                  catalogItems
                     .filter(item => !selectorSearch || item.name.toLowerCase().includes(selectorSearch.toLowerCase()))
                     .filter(item => !showOnlySelected || controlledIds.includes(item.id))
                     .sort((a, b) => {

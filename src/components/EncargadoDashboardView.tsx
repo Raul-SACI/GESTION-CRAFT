@@ -319,9 +319,14 @@ export default function EncargadoDashboardView({
         setRawInventoryLogs(data); // todos los logs del mes, para el cálculo oficial del desvío
         // Nombres de insumos (para el detalle del desvío)
         try {
-          const { data: sitems } = await supabase.from('stock_items').select('id, name');
+          const [{ data: sitems }, { data: prodItems }] = await Promise.all([
+            supabase.from('stock_items').select('id, name'),
+            // Maestro Recetas Producción: también puede estar entre los insumos controlados.
+            supabase.from('recipe_masters').select('id, name').eq('tipo', 'produccion'),
+          ]);
           const nm: Record<string, string> = {};
           (sitems || []).forEach((s: any) => { if (s.id) nm[s.id] = s.name; });
+          (prodItems || []).forEach((s: any) => { if (s.id && !nm[s.id]) nm[s.id] = s.name; });
           setItemNamesById(nm);
         } catch { /* opcional */ }
 

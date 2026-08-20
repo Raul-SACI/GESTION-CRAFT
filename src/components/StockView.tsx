@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Package, 
@@ -85,6 +85,26 @@ export default function StockView({
   }>>>({});
 
   const [localControlledItemIds, setLocalControlledItemIds] = useState<string[]>(controlledItemIds);
+
+  // Artículos del "Maestro Recetas Producción" (recipe_masters, tipo=produccion): se pueden
+  // controlar en desvíos igual que los insumos, así que hay que poder resolver su nombre acá.
+  const [produccionItems, setProduccionItems] = useState<StockItem[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from('recipe_masters').select('*').eq('tipo', 'produccion').order('name');
+      if (active && data) setProduccionItems(data.map((r: any) => ({
+        id: r.id, name: r.name, unit: r.unit || 'UN', code: r.code || '', category: 'Producción', cost: r.cost ?? 0, is_active: r.is_active
+      })));
+    })();
+    return () => { active = false; };
+  }, []);
+  // Catálogo combinado: Maestro de Insumos + Maestro Recetas Producción (deduplicado por id).
+  const catalogItems = useMemo(() => {
+    const byId = new Map<string, StockItem>();
+    [...items, ...produccionItems].forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+    return Array.from(byId.values());
+  }, [items, produccionItems]);
 
   // Vinculación de ventas (nombres del ranking POS) con recetas del maestro
   const canManageAliases = userRole === 'administrador' || userRole === 'dueño';
@@ -663,7 +683,7 @@ export default function StockView({
     }
   };
 
-  const controlledItems = items.filter(item => localControlledItemIds.includes(item.id));
+  const controlledItems = catalogItems.filter(item => localControlledItemIds.includes(item.id));
 
   // Helper to get totals for a specific period
   const getPeriodTotals = (itemId: string, dates: string[]) => {
