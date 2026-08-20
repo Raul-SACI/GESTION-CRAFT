@@ -166,6 +166,8 @@ export default function DeviationControlView({
     [...items, ...produccionItems].forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
     return Array.from(byId.values());
   }, [items, produccionItems]);
+  // Ids que provienen del Maestro Recetas Producción, para distinguirlos visualmente.
+  const prodIdSet = useMemo(() => new Set(produccionItems.map(i => i.id)), [produccionItems]);
 
   // Recalcula costos de recetas/platos a partir de los costos actuales de insumos.
   const [recalcCostos, setRecalcCostos] = useState(false);
@@ -1624,6 +1626,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                         onClick={() => setControlledIds(prev => prev.filter(id => id !== item.id))}
                         className="inline-flex items-center gap-1.5 px-2 py-1 bg-brand-500 text-white rounded text-[8px] font-black uppercase tracking-wider cursor-pointer hover:bg-brand-600 transition-all hover:scale-[1.03] shadow-md shadow-brand-500/10"
                       >
+                        {prodIdSet.has(item.id) && (
+                          <span className="px-1 py-0.5 rounded bg-white/25 text-[6px] leading-none">PROD</span>
+                        )}
                         {item.name}
                         <X size={10} className="stroke-[3]" />
                       </span>
@@ -1687,8 +1692,16 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                           : "bg-bg-accent border-border-dim text-text-dim hover:border-brand-500/50"
                       )}
                     >
-                      <span className={cn(controlledIds.includes(item.id) ? "text-white font-black" : "text-text-dim group-hover:text-text-main")}>
-                        {item.name}
+                      <span className={cn("flex items-center gap-2 min-w-0", controlledIds.includes(item.id) ? "text-white font-black" : "text-text-dim group-hover:text-text-main")}>
+                        <span className={cn(
+                          "shrink-0 px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-wider border",
+                          prodIdSet.has(item.id)
+                            ? (controlledIds.includes(item.id) ? "bg-white/20 border-white/40 text-white" : "bg-purple-500/10 border-purple-500/30 text-purple-500")
+                            : (controlledIds.includes(item.id) ? "bg-white/20 border-white/40 text-white" : "bg-sky-500/10 border-sky-500/30 text-sky-500")
+                        )}>
+                          {prodIdSet.has(item.id) ? 'Prod.' : 'Insumo'}
+                        </span>
+                        <span className="truncate">{item.name}</span>
                       </span>
                       <div className={cn(
                         "w-5 h-5 rounded flex items-center justify-center border transition-all shrink-0",
