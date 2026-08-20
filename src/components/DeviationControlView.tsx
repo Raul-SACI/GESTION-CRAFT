@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import RecipeMastersManager from './RecipeMastersManager';
 import { 
   BarChart3, 
@@ -404,75 +404,84 @@ export default function DeviationControlView({
     autoFillDeviations();
   }, [selectedBranchId, selectedMonth, isReadOnly]);
 
-  const updateDailyLog = async (date: string, itemId: string, field: string, value: number) => {
-    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    // Map field to DB column
-    const columnMap: Record<string, string> = {
-      purchases: 'compras',
-      waste: 'decomisos',
-      theoretical_sales: 'ventas_teorico',
-      ei: 'ei',
-      ef: 'ef',
-      loansReceived: 'prestamos_recibidos',
-      loansSent: 'prestamos_enviados',
-      staff_consumption: 'consumo_personal'
-    };
+  // Campo de la planilla -> columna de la tabla inventory_logs
+  const DAILY_COLUMN_MAP: Record<string, string> = {
+    purchases: 'compras',
+    waste: 'decomisos',
+    theoretical_sales: 'ventas_teorico',
+    ei: 'ei',
+    ef: 'ef',
+    loansReceived: 'prestamos_recibidos',
+    loansSent: 'prestamos_enviados',
+    staff_consumption: 'consumo_personal'
+  };
 
-    const dbField = columnMap[field];
-    if (!dbField) return;
+  // Escritura a la base DEBOUNCED: se juntan las teclas de una misma celda y recién
+  // 500ms después de dejar de tipear se manda un único upsert. Así el input no espera
+  // a la red en cada tecla (era la causa de la lentitud al escribir).
+  const writeTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
 
-    const { data, error } = await supabase
-      .from('inventory_logs')
-      .upsert({
-        branch_id: selectedBranchId,
-        item_id: itemId,
-        date,
-        [dbField]: value
-      }, { onConflict: 'branch_id,item_id,date' })
-      .select()
-      .single();
-
-    if (data) {
-      setDailyLogs(prev => {
-        const otherLogs = prev.filter(l => !(l.date === date && l.item_id === itemId));
-        let pEnviados = data.prestamos_enviados || 0;
-        let pRecibidos = data.prestamos_recibidos || 0;
-        if (data.prestamos !== undefined && data.prestamos !== null && data.prestamos !== 0 && !pEnviados && !pRecibidos) {
-          if (data.prestamos > 0) {
-            pRecibidos = data.prestamos;
-          } else {
-            pEnviados = Math.abs(data.prestamos);
-          }
+  const flushDailyWrite = (date: string, itemId: string, dbField: string, value: number) => {
+    const key = `${date}|${itemId}|${dbField}`;
+    if (writeTimers.current[key]) clearTimeout(writeTimers.current[key]);
+    writeTimers.current[key] = setTimeout(async () => {
+      const { error } = await supabase
+        .from('inventory_logs')
+        .upsert({ branch_id: selectedBranchId, item_id: itemId, date, [dbField]: value }, { onConflict: 'branch_id,item_id,date' });
+      if (error) {
+        console.warn('inventory_logs upsert error:', error);
+        // 23503 = violación de clave foránea (item_id no existe en stock_items):
+        // pasa con artículos del Maestro Recetas Producción hasta correr la migración.
+        if ((error as any).code === '23503') {
+          setSaveWarning('Este artículo es del Maestro Recetas Producción. Para que se guarde hay que correr la migración de base de datos (inventory_logs_item_fk.sql).');
         }
-        return [...otherLogs, {
-          ...data,
-          itemId: data.item_id,
-          ei: data.ei,
-          ef: data.ef,
-          purchases: data.compras,
-          waste: data.decomisos,
-          theoretical_sales: data.ventas_teorico,
-          staff_consumption: data.consumo_personal,
-          loansReceived: pRecibidos,
-          loansSent: pEnviados
-        }];
-      });
-    }
+      }
+    }, 500);
+  };
+
+  // Actualiza el estado local al instante (sin esperar la red) para que el número
+  // aparezca apenas se tipea y las columnas calculadas se refresquen en vivo.
+  const applyLocalDailyLog = (date: string, itemId: string, field: string, value: number) => {
+    const dbField = DAILY_COLUMN_MAP[field];
+    setDailyLogs(prev => {
+      const idx = prev.findIndex(l => l.date === date && (l.item_id === itemId || l.itemId === itemId));
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], [field]: value, ...(dbField ? { [dbField]: value } : {}) };
+        return copy;
+      }
+      return [...prev, { branch_id: selectedBranchId, item_id: itemId, itemId, date, [field]: value, ...(dbField ? { [dbField]: value } : {}) }];
+    });
+  };
+
+  const updateDailyLog = (date: string, itemId: string, field: string, value: number) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const dbField = DAILY_COLUMN_MAP[field];
+    if (!dbField) return;
+    applyLocalDailyLog(date, itemId, field, value);   // instantáneo
+    flushDailyWrite(date, itemId, dbField, value);     // debounced
   };
 
   // Edita un valor AGREGADO semanal (préstamos, consumo): concentra el valor en el
   // primer día de la semana y pone 0 en los demás, para que el total semanal sea el valor editado.
-  const updateWeeklyAggregate = async (weekDates: string[], itemId: string, field: string, value: number) => {
+  const updateWeeklyAggregate = (weekDates: string[], itemId: string, field: string, value: number) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!weekDates.length) return;
+    const dbField = DAILY_COLUMN_MAP[field];
+    if (!dbField) return;
     // Primer día: el valor; resto: 0
-    await updateDailyLog(weekDates[0], itemId, field, value);
+    applyLocalDailyLog(weekDates[0], itemId, field, value);
+    flushDailyWrite(weekDates[0], itemId, dbField, value);
     for (let i = 1; i < weekDates.length; i++) {
-      const dayLog = dailyLogs.find(l => l.itemId === itemId && l.date === weekDates[i]);
+      const dayLog = dailyLogs.find(l => (l.itemId === itemId || l.item_id === itemId) && l.date === weekDates[i]);
       const current = field === 'loansReceived' ? (dayLog?.loansReceived || 0)
                     : field === 'loansSent' ? (dayLog?.loansSent || 0)
                     : (dayLog?.staff_consumption || 0);
-      if (current !== 0) await updateDailyLog(weekDates[i], itemId, field, 0);
+      if (current !== 0) {
+        applyLocalDailyLog(weekDates[i], itemId, field, 0);
+        flushDailyWrite(weekDates[i], itemId, dbField, 0);
+      }
     }
   };
 
@@ -1349,6 +1358,14 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                  );
                })}
              </div>
+
+             {saveWarning && (
+               <div className="mb-3 flex items-start gap-2 bg-amber-500/10 border border-amber-500/40 rounded-lg px-4 py-2.5">
+                 <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+                 <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 leading-snug">{saveWarning}</span>
+                 <button onClick={() => setSaveWarning(null)} className="ml-auto text-amber-600 hover:text-amber-800 shrink-0"><X size={13} /></button>
+               </div>
+             )}
 
              <div className="bg-bg-sidebar border border-border-dim rounded-lg overflow-hidden shadow-2xl">
                <div className="p-4 bg-bg-accent border-b border-border-dim flex justify-between items-center flex-wrap gap-3">
