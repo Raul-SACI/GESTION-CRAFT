@@ -168,6 +168,10 @@ export default function DeviationControlView({
   }, [items, produccionItems]);
   // Ids que provienen del Maestro Recetas Producción, para distinguirlos visualmente.
   const prodIdSet = useMemo(() => new Set(produccionItems.map(i => i.id)), [produccionItems]);
+  // El Almacén / Centro de Producción no vende: usa el mismo esquema de columnas que su
+  // Control de Stock (Producción, Devolución, Envíos, Recupero, Ventas Pers.) en vez del de sucursal.
+  const isAlmacen = selectedBranchId === 'n4ncoary3'
+    || /almac/i.test(branches.find(b => b.id === selectedBranchId)?.name || '');
 
   // Recalcula costos de recetas/platos a partir de los costos actuales de insumos.
   const [recalcCostos, setRecalcCostos] = useState(false);
@@ -287,7 +291,10 @@ export default function DeviationControlView({
             theoretical_sales: d.ventas_teorico,
             staff_consumption: d.consumo_personal,
             loansReceived: pRecibidos,
-            loansSent: pEnviados
+            loansSent: pEnviados,
+            produccion: d.produccion || 0,
+            recupero: d.recupero || 0,
+            ventasPersonal: d.ventas_personal || 0
           };
         }));
       }
@@ -413,7 +420,11 @@ export default function DeviationControlView({
     ef: 'ef',
     loansReceived: 'prestamos_recibidos',
     loansSent: 'prestamos_enviados',
-    staff_consumption: 'consumo_personal'
+    staff_consumption: 'consumo_personal',
+    // Campos exclusivos del Almacén / Centro de Producción
+    produccion: 'produccion',
+    recupero: 'recupero',
+    ventasPersonal: 'ventas_personal'
   };
 
   // Escritura a la base DEBOUNCED: se juntan las teclas de una misma celda y recién
@@ -1439,14 +1450,17 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        <th className="px-4 py-3 text-left sticky left-0 bg-bg-sidebar z-30 border-r border-border-dim min-w-[200px]">Insumo</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">EI</th>
                        <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">Compras</th>
-                       <th className="px-3 py-3 text-center bg-bg-accent/20">P. Recib.</th>
-                       <th className="px-3 py-3 text-center bg-bg-accent/20">P. Enviad.</th>
-                       <th className="px-3 py-3 text-center bg-bg-accent/20">Consumo Pers.</th>
-                       <th className="px-3 py-3 text-center bg-purple-500/5">Ventas Teo.</th>
-                       <th className="px-3 py-3 text-center bg-red-500/5">Decomisos</th>
+                       {isAlmacen && <th className="px-3 py-3 text-center bg-emerald-500/5">Producción (IG O)</th>}
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">{isAlmacen ? 'Devolución Sucursales' : 'P. Recib.'}</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">{isAlmacen ? 'Envíos a Sucursal (EG)' : 'P. Enviad.'}</th>
+                       <th className="px-3 py-3 text-center bg-bg-accent/20">{isAlmacen ? 'Consumo (EG 9)' : 'Consumo Pers.'}</th>
+                       {isAlmacen && <th className="px-3 py-3 text-center bg-red-500/5">Recupero EGR</th>}
+                       {isAlmacen && <th className="px-3 py-3 text-center bg-red-500/5">Ventas Pers. (EG C)</th>}
+                       {!isAlmacen && <th className="px-3 py-3 text-center bg-purple-500/5">Ventas Teo.</th>}
+                       <th className="px-3 py-3 text-center bg-red-500/5">{isAlmacen ? 'Decomisos (EG 8)' : 'Decomisos'}</th>
                        <th className="px-3 py-3 text-center bg-bg-accent/20">EF Real</th>
                        <th className="px-3 py-3 text-center bg-teal-500/5 text-teal-600">EF Teó.</th>
-                       <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">CMV Real</th>
+                       {!isAlmacen && <th className="px-3 py-3 text-center bg-brand-500/5 text-brand-500">CMV Real</th>}
                        <th className="px-3 py-3 text-center bg-amber-500/5 text-amber-600 border-l border-border-dim">
                          Desvío
                          <span className="block text-[7px] font-bold text-text-dim/70 normal-case tracking-normal">EF Real − EF Teórica</span>
@@ -1476,11 +1490,21 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                        const loansReceived = itemWeekLogs.reduce((sum, l) => sum + (l.loansReceived || 0), 0);
                        const loansSent = itemWeekLogs.reduce((sum, l) => sum + (l.loansSent || 0), 0);
                        const staff_consumption = itemWeekLogs.reduce((sum, l) => sum + (l.staff_consumption || 0), 0);
+                       const produccion = itemWeekLogs.reduce((sum, l) => sum + (l.produccion || 0), 0);
+                       const recupero = itemWeekLogs.reduce((sum, l) => sum + (l.recupero || 0), 0);
+                       const ventasPersonal = itemWeekLogs.reduce((sum, l) => sum + (l.ventasPersonal || 0), 0);
                        const inputCls = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono outline-none text-text-main focus:bg-brand-500/10 disabled:text-text-dim disabled:opacity-60";
                        const inputBrand = "w-full min-w-[80px] h-full p-2.5 bg-transparent text-center font-mono focus:bg-brand-500/20 outline-none text-brand-500 disabled:opacity-50";
-                       // Desvío = EF Real − EF Teórica (igual que Control de Stock)
-                       const cmvReal = ei + purchases + loansReceived - loansSent - waste - staff_consumption - ef;
-                       const efTeorica = ei + purchases + loansReceived - loansSent - theoretical_sales - waste - staff_consumption;
+                       // Desvío = EF Real − EF Teórica (igual que Control de Stock).
+                       //  · Almacén (no vende): EF Teó = EI + compras + producción + devolución − envíos
+                       //    − consumo − recupero − ventas pers. − decomisos.  (sin ventas teóricas)
+                       //  · Sucursal: EF Teó = EI + compras + prést.recib − prést.env − ventas teó − decomisos − consumo.
+                       const cmvReal = isAlmacen
+                         ? (ei + purchases + produccion + loansReceived - loansSent - waste - staff_consumption - recupero - ventasPersonal - ef)
+                         : (ei + purchases + loansReceived - loansSent - waste - staff_consumption - ef);
+                       const efTeorica = isAlmacen
+                         ? (ei + purchases + produccion + loansReceived - loansSent - staff_consumption - recupero - ventasPersonal - waste)
+                         : (ei + purchases + loansReceived - loansSent - theoretical_sales - waste - staff_consumption);
                        const desvio = ef - efTeorica; // = ventas teóricas − CMV real
                        // Desvío %: (EF Real − EF Teórica) / EF Teórica × 100
                        const desvioPct = efTeorica !== 0 ? (desvio / efTeorica) * 100 : null;
@@ -1498,6 +1522,12 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              <input type="number" step="0.001" value={purchases || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)} className={inputBrand} />
                            </td>
+                           {isAlmacen && (
+                             <td className="p-0 border-r border-border-dim/30 bg-emerald-500/5">
+                               <input type="number" step="0.001" value={produccion || ''} placeholder="0" disabled={weekClosed}
+                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'produccion', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             </td>
+                           )}
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
                              <input type="number" step="0.001" value={loansReceived || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)} className={inputCls} />
@@ -1510,10 +1540,24 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              <input type="number" step="0.001" value={staff_consumption || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)} className={inputCls} />
                            </td>
-                           <td className="p-0 border-r border-border-dim/30 bg-purple-500/5">
-                             <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
-                           </td>
+                           {isAlmacen && (
+                             <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
+                               <input type="number" step="0.001" value={recupero || ''} placeholder="0" disabled={weekClosed}
+                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'recupero', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             </td>
+                           )}
+                           {isAlmacen && (
+                             <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
+                               <input type="number" step="0.001" value={ventasPersonal || ''} placeholder="0" disabled={weekClosed}
+                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'ventasPersonal', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             </td>
+                           )}
+                           {!isAlmacen && (
+                             <td className="p-0 border-r border-border-dim/30 bg-purple-500/5">
+                               <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
+                                 onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                             </td>
+                           )}
                            <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
                              <input type="number" step="0.001" value={waste || ''} placeholder="0" disabled={weekClosed}
                                onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)} className={inputBrand} />
@@ -1525,9 +1569,11 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                            <td className="px-3 py-3 text-center border-r border-border-dim/30 bg-teal-500/5" title="Existencia Final Teórica (calculada, no editable)">
                              <span className="font-mono text-[11px] font-bold text-teal-600">{efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
                            </td>
-                           <td className="px-3 py-3 text-center border-r border-border-dim bg-brand-500/5" title="CMV Real = EI + compras + prést.recib − prést.env − consumo − decomisos − EF Real">
-                             <span className="font-mono text-[11px] font-black text-text-main">{cmvReal.toLocaleString('es-AR', { maximumFractionDigits: 1 })}</span>
-                           </td>
+                           {!isAlmacen && (
+                             <td className="px-3 py-3 text-center border-r border-border-dim bg-brand-500/5" title="CMV Real = EI + compras + prést.recib − prést.env − consumo − decomisos − EF Real">
+                               <span className="font-mono text-[11px] font-black text-text-main">{cmvReal.toLocaleString('es-AR', { maximumFractionDigits: 1 })}</span>
+                             </td>
+                           )}
                            <td className="px-3 py-3 text-center border-l border-border-dim bg-amber-500/5">
                              <span className={cn("text-[12px] font-mono font-black px-2 py-1 rounded",
                                Math.abs(desvio) < 2 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500")}>
