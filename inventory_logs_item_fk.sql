@@ -1,35 +1,36 @@
 -- ============================================================================
 -- Permitir controlar/consumir artículos del Maestro Recetas Producción
 -- ----------------------------------------------------------------------------
--- inventory_logs.item_id y recipes.item_id tenían una clave foránea a
--- stock_items(id). Eso rechazaba cualquier id proveniente de recipe_masters
--- (Maestro Recetas Producción): por eso no se podían cargar en la Planilla
--- Semanal ni vincular como componente de una receta.
+-- Los ids del Maestro de Insumos (stock_items) son UUID, pero los del Maestro
+-- Recetas Producción (recipe_masters) son TEXTO (ej. "rm_pro_178656082476059w8").
+-- Como inventory_logs.item_id y recipes.item_id eran de tipo uuid CON clave
+-- foránea a stock_items, guardar un artículo de Producción fallaba con:
+--   23503 (violación de FK)  y/o  22P02 (invalid input syntax for type uuid).
 --
--- Quitamos esas claves foráneas para que item_id pueda referenciar tanto un
--- insumo (stock_items) como una receta de producción (recipe_masters).
--- Las tablas ya tienen RLS abierta, así que no hace falta nada más.
---
+-- Solución: quitar la FK y cambiar item_id a TEXT, así puede referenciar tanto
+-- un insumo (uuid de stock_items) como una receta de producción (id de texto).
 -- Idempotente: se puede correr varias veces sin error.
 -- ============================================================================
 
+-- 1) Quitar cualquier clave foránea que quede sobre item_id en esas tablas.
 DO $$
-DECLARE
-  fk_name text;
-  tbl     text;
+DECLARE c record;
 BEGIN
-  FOREACH tbl IN ARRAY ARRAY['inventory_logs', 'recipes'] LOOP
-    FOR fk_name IN
-      SELECT tc.constraint_name
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-       AND tc.table_schema = kcu.table_schema
-      WHERE tc.table_name = tbl
-        AND tc.constraint_type = 'FOREIGN KEY'
-        AND kcu.column_name = 'item_id'
-    LOOP
-      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', tbl, fk_name);
-    END LOOP;
+  FOR c IN
+    SELECT con.conname, cl.relname AS tabla
+    FROM pg_constraint con
+    JOIN pg_class cl ON cl.oid = con.conrelid
+    WHERE con.contype = 'f'
+      AND cl.relname IN ('inventory_logs','recipes')
+      AND EXISTS (
+        SELECT 1 FROM unnest(con.conkey) k
+        JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k
+        WHERE a.attname = 'item_id')
+  LOOP
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', c.tabla, c.conname);
   END LOOP;
 END $$;
+
+-- 2) Cambiar item_id de uuid a text (los uuid existentes quedan como su texto).
+ALTER TABLE inventory_logs ALTER COLUMN item_id TYPE text USING item_id::text;
+ALTER TABLE recipes        ALTER COLUMN item_id TYPE text USING item_id::text;
