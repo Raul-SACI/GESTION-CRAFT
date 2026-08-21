@@ -573,38 +573,53 @@ export default function StockView({
     const dbField = columnMap[field];
     if (!dbField) return;
 
+    // Guarda una fila de inventory_logs de forma resiliente: si la base rechaza la
+    // columna touched_fields (42703 = columna inexistente), reintenta sin ella para
+    // que el dato igual se guarde. Devuelve el error final (o null).
+    const upsertLog = async (payload: Record<string, any>) => {
+      let { error } = await supabase
+        .from('inventory_logs')
+        .upsert(payload, { onConflict: 'branch_id,item_id,date' });
+      if (error && (error as any).code === '42703' && 'touched_fields' in payload) {
+        const { touched_fields, ...rest } = payload;
+        ({ error } = await supabase
+          .from('inventory_logs')
+          .upsert(rest, { onConflict: 'branch_id,item_id,date' }));
+      }
+      return error;
+    };
+
     // Save current field
-    const { error: saveErr } = await supabase
-      .from('inventory_logs')
-      .upsert({
-        branch_id: selectedBranchId,
-        item_id: id,
-        date: targetDate,
-        [dbField]: value,
-        touched_fields: touchedForSave.join(',')
-      }, { onConflict: 'branch_id,item_id,date' });
+    const saveErr = await upsertLog({
+      branch_id: selectedBranchId,
+      item_id: id,
+      date: targetDate,
+      [dbField]: value,
+      touched_fields: touchedForSave.join(',')
+    });
     if (saveErr) {
       console.warn('inventory_logs upsert error:', saveErr);
-      // 23503 = clave foránea: el artículo es del Maestro Recetas Producción y la
-      // migración que libera item_id todavía no se corrió, así que NO se guarda.
-      if ((saveErr as any).code === '23503') {
+      const code = (saveErr as any).code;
+      const msg = (saveErr as any).message || '';
+      if (code === '23503') {
         setSaveError('Este artículo es del Maestro Recetas Producción y todavía no se puede guardar acá: falta correr la migración de base de datos (inventory_logs_item_fk.sql). Hasta entonces lo que cargues no se guarda.');
       } else {
-        setSaveError('No se pudo guardar el último valor. Revisá la conexión e intentá de nuevo.');
+        // Mostramos el error real (código + mensaje) para poder diagnosticar al instante.
+        setSaveError(`No se pudo guardar el último valor. Error de la base: ${code || 's/código'} — ${msg}`);
       }
+    } else {
+      setSaveError(null);
     }
 
     // If EF was updated, also update EI of next day in DB
     if (field === 'ef') {
-       await supabase
-         .from('inventory_logs')
-         .upsert({
-           branch_id: selectedBranchId,
-           item_id: id,
-           date: nextDayStr,
-           ei: value,
-           touched_fields: nextTouchedForSave.join(',')
-         }, { onConflict: 'branch_id,item_id,date' });
+       await upsertLog({
+         branch_id: selectedBranchId,
+         item_id: id,
+         date: nextDayStr,
+         ei: value,
+         touched_fields: nextTouchedForSave.join(',')
+       });
     }
 
     // Guardar además el valor cargado por el ENCARGADO en una columna sombra (*_enc), para
