@@ -1055,19 +1055,24 @@ export default function EncargadoDashboardView({
   // así no se puede "acomodar" el número en la última semana. Cada celda vale
   //   (premio del tramo alcanzado) ÷ 4 semanas ÷ N insumos.
   const weeklyStockDetail = useMemo(() => {
-    if (!rawInventoryLogs || rawInventoryLogs.length === 0) return { insumos: [] as Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }>, N: 0 };
+    const empty = { insumos: [] as Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }>, N: 0 };
     const [yy, mm] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(yy, mm, 0).getDate();
     const dayOf = (d: any) => Number(String(d.date || '').substring(8, 10));
     const semanas: [number, number][] = [[1, 7], [8, 14], [15, 21], [22, lastDay]];
     const porItem: Record<string, any[]> = {};
-    rawInventoryLogs.forEach((d: any) => {
+    (rawInventoryLogs || []).forEach((d: any) => {
       const id = d.item_id; if (!id) return;
       if (controlledItemIds.length > 0 && !controlledItemIds.includes(id)) return;
       (porItem[id] = porItem[id] || []).push(d);
     });
-    const insumos: Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }> = [];
-    Object.entries(porItem).forEach(([itemId, logs]) => {
+    // Se cuentan TODOS los insumos seleccionados del mes (aunque no tengan datos o
+    // venta teórica): las semanas sin base quedan en null (no ganan) pero el insumo
+    // igual cuenta para N, así el premio se divide entre todos los insumos de la planilla.
+    const ids = controlledItemIds.length > 0 ? [...controlledItemIds] : Object.keys(porItem);
+    if (ids.length === 0) return empty;
+    const insumos = ids.map((itemId) => {
+      const logs = porItem[itemId] || [];
       const weeks = semanas.map(([ws, we], idx) => {
         const first = logs.find((d: any) => dayOf(d) === ws);
         if (!first) return null;
@@ -1093,7 +1098,7 @@ export default function EncargadoDashboardView({
         if (efTeorica === 0) return null;
         return { pct: (desvio / efTeorica) * 100, desvio, efTeorica, ef: efw };
       });
-      if (weeks.some(w => w !== null)) insumos.push({ id: itemId, name: itemNamesById[itemId] || itemId, weeks });
+      return { id: itemId, name: itemNamesById[itemId] || itemId, weeks };
     });
     insumos.sort((a, b) => a.name.localeCompare(b.name));
     return { insumos, N: insumos.length };
