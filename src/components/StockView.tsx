@@ -85,6 +85,7 @@ export default function StockView({
   }>>>({});
 
   const [localControlledItemIds, setLocalControlledItemIds] = useState<string[]>(controlledItemIds);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Artículos del "Maestro Recetas Producción" (recipe_masters, tipo=produccion): se pueden
   // controlar en desvíos igual que los insumos, así que hay que poder resolver su nombre acá.
@@ -573,7 +574,7 @@ export default function StockView({
     if (!dbField) return;
 
     // Save current field
-    await supabase
+    const { error: saveErr } = await supabase
       .from('inventory_logs')
       .upsert({
         branch_id: selectedBranchId,
@@ -582,6 +583,16 @@ export default function StockView({
         [dbField]: value,
         touched_fields: touchedForSave.join(',')
       }, { onConflict: 'branch_id,item_id,date' });
+    if (saveErr) {
+      console.warn('inventory_logs upsert error:', saveErr);
+      // 23503 = clave foránea: el artículo es del Maestro Recetas Producción y la
+      // migración que libera item_id todavía no se corrió, así que NO se guarda.
+      if ((saveErr as any).code === '23503') {
+        setSaveError('Este artículo es del Maestro Recetas Producción y todavía no se puede guardar acá: falta correr la migración de base de datos (inventory_logs_item_fk.sql). Hasta entonces lo que cargues no se guarda.');
+      } else {
+        setSaveError('No se pudo guardar el último valor. Revisá la conexión e intentá de nuevo.');
+      }
+    }
 
     // If EF was updated, also update EI of next day in DB
     if (field === 'ef') {
@@ -744,11 +755,18 @@ ALTER TABLE inventory_week_closures ADD UNIQUE (branch_id, month, week_number, i
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
+      {saveError && (
+        <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/40 rounded-lg px-4 py-2.5">
+          <Info size={15} className="text-amber-600 mt-0.5 shrink-0" />
+          <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 leading-snug">{saveError}</span>
+          <button onClick={() => setSaveError(null)} className="ml-auto text-amber-600 hover:text-amber-800 shrink-0"><X size={14} /></button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="bg-brand-500/10 p-2 text-brand-500 border border-brand-500/20 rounded">
