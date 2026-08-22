@@ -5371,10 +5371,10 @@ export default function FinanceView({
         )}
       </AnimatePresence>
 
-      {/* Calendario de vencimientos (solo pasivos bancarios y fiscales) */}
+      {/* Calendario de vencimientos (pasivos bancarios, fiscales y legales) */}
       {(mode === 'bank' || mode === 'tax' || mode === 'legal') && (
         <PaymentCalendar
-          title={mode === 'bank' ? 'Calendario de Pasivos Bancarios' : 'Calendario de Pasivos Fiscales'}
+          title={mode === 'bank' ? 'Calendario de Pasivos Bancarios' : mode === 'legal' ? 'Calendario de Pasivos Legales' : 'Calendario de Pasivos Fiscales'}
           items={filteredPayments.filter((p: any) => p.dueDate).map((p: any) => ({
             id: p.id,
             label: p.description || 'Pago',
