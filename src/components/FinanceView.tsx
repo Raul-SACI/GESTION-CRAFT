@@ -1367,6 +1367,22 @@ export default function FinanceView({
     savePayments(payments.filter(p => p.id !== id));
   };
 
+  // Abre la edición de un vencimiento desde el calendario (arma el form según el módulo).
+  const openEditPaymentById = (id: string) => {
+    const pay: any = payments.find(p => p.id === id);
+    if (!pay) return;
+    if (mode === 'tax' || mode === 'legal') {
+      setEditingPay({
+        id: pay.id, bank: pay.bank || '', amount: pay.amount || 0, dueDate: pay.dueDate || '',
+        entity: pay.entity || '', taxType: pay.taxType || '', description: pay.description || '',
+        totalAmount: pay.totalAmount || 0, paymentPlanNumber: pay.paymentPlanNumber || '',
+        installmentNumber: pay.installmentNumber || '', isFiscalLegal: true,
+      });
+    } else {
+      setEditingPay({ id: pay.id, bank: pay.bank || '', amount: pay.amount || 0, dueDate: pay.dueDate || '' });
+    }
+  };
+
   const handleSaveEditPay = () => {
     if (isReadOnly || !editingPay) return;
     if (!editingPay.dueDate) { alert('Ingresá la fecha de vencimiento.'); return; }
@@ -5382,6 +5398,9 @@ export default function FinanceView({
             date: p.dueDate,
             status: p.status === 'paid' ? 'paid' : 'pending'
           }))}
+          readOnly={isReadOnly}
+          onTogglePaid={togglePaymentPaid}
+          onEdit={openEditPaymentById}
         />
       )}
 

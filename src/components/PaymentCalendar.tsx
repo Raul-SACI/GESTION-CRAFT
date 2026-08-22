@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CalendarDays, X, Pencil, CheckCircle2, RotateCcw } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
 export interface CalendarItem {
@@ -18,6 +18,10 @@ interface Props {
   items: CalendarItem[];
   title?: string;
   accentClass?: string; // color del badge de monto
+  // Acciones opcionales desde el detalle del día. Si no se pasan, el día es solo lectura.
+  onTogglePaid?: (id: string) => void; // marcar pagado / pendiente
+  onEdit?: (id: string) => void;       // abrir la edición del vencimiento en el módulo padre
+  readOnly?: boolean;                  // oculta las acciones si el rol es de solo lectura
 }
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -26,7 +30,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 
 const fmtMoney = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
 
-export default function PaymentCalendar({ items, title = 'Calendario de Vencimientos', accentClass = 'text-brand-500' }: Props) {
+export default function PaymentCalendar({ items, title = 'Calendario de Vencimientos', accentClass = 'text-brand-500', onTogglePaid, onEdit, readOnly = false }: Props) {
   const [calMonth, setCalMonth] = useState(() => todayStr().slice(0, 7));
   // Día seleccionado: al hacer click en una fecha se abre el detalle con TODOS sus vencimientos.
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -148,22 +152,50 @@ export default function PaymentCalendar({ items, title = 'Calendario de Vencimie
               <div className="p-3 overflow-y-auto space-y-2">
                 {dayItems.length === 0 ? (
                   <div className="text-center text-[10px] font-bold uppercase text-text-dim py-8">Sin vencimientos este día</div>
-                ) : dayItems.map(it => (
-                  <div key={it.id} className={cn("rounded-lg border p-3 flex items-start justify-between gap-3",
-                    it.status === 'paid' ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-red-500/25 bg-red-500/[0.05]")}>
-                    <div className="min-w-0">
-                      <div className="text-[11px] font-bold text-text-main break-words">{it.label}</div>
-                      <span className={cn("inline-block mt-1 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
-                        it.status === 'paid' ? "bg-emerald-500/15 text-emerald-600" : "bg-red-500/15 text-red-500")}>
-                        {it.status === 'paid' ? 'Pagado' : 'Pendiente'}
-                      </span>
+                ) : dayItems.map(it => {
+                  const paid = it.status === 'paid';
+                  const showActions = !readOnly && (onTogglePaid || onEdit);
+                  return (
+                  <div key={it.id} className={cn("rounded-lg border p-3",
+                    paid ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-red-500/25 bg-red-500/[0.05]")}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-text-main break-words">{it.label}</div>
+                        <span className={cn("inline-block mt-1 text-[7px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
+                          paid ? "bg-emerald-500/15 text-emerald-600" : "bg-red-500/15 text-red-500")}>
+                          {paid ? 'Pagado' : 'Pendiente'}
+                        </span>
+                      </div>
+                      <div className={cn("text-[12px] font-black font-mono shrink-0",
+                        paid ? "text-emerald-600 line-through" : "text-text-main")}>
+                        {fmtMoney(it.amount)}
+                      </div>
                     </div>
-                    <div className={cn("text-[12px] font-black font-mono shrink-0",
-                      it.status === 'paid' ? "text-emerald-600 line-through" : "text-text-main")}>
-                      {fmtMoney(it.amount)}
-                    </div>
+                    {showActions && (
+                      <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border-dim/40">
+                        {onTogglePaid && (
+                          <button
+                            onClick={() => onTogglePaid(it.id)}
+                            className={cn("flex-1 inline-flex items-center justify-center gap-1 text-[9px] font-black uppercase tracking-wider rounded px-2 py-1.5 border transition-all",
+                              paid
+                                ? "border-border-dim text-text-dim hover:text-amber-600 hover:border-amber-500/40"
+                                : "border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10")}
+                          >
+                            {paid ? <><RotateCcw size={11} /> Marcar pendiente</> : <><CheckCircle2 size={11} /> Marcar pagado</>}
+                          </button>
+                        )}
+                        {onEdit && (
+                          <button
+                            onClick={() => { onEdit(it.id); setSelectedDate(null); }}
+                            className="inline-flex items-center justify-center gap-1 text-[9px] font-black uppercase tracking-wider rounded px-2.5 py-1.5 border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/40 transition-all"
+                          >
+                            <Pencil size={11} /> Editar
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ))}
+                );})}
               </div>
               {dayItems.length > 0 && (
                 <div className="px-4 py-3 border-t border-border-dim bg-bg-accent/20 flex items-center justify-between">
