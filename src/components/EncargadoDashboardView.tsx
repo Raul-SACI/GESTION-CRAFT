@@ -1069,7 +1069,10 @@ export default function EncargadoDashboardView({
     // Se cuentan TODOS los insumos seleccionados del mes (aunque no tengan datos o
     // venta teórica): las semanas sin base quedan en null (no ganan) pero el insumo
     // igual cuenta para N, así el premio se divide entre todos los insumos de la planilla.
-    const ids = controlledItemIds.length > 0 ? [...controlledItemIds] : Object.keys(porItem);
+    // Se descartan ids "basura" del item_ids guardado (que no resuelven a ningún insumo
+    // real del Maestro de Insumos ni de Recetas Producción), para que no inflen N ni el detalle.
+    const esInsumoReal = (id: string) => !!itemNamesById[id] || !!porItem[id];
+    const ids = (controlledItemIds.length > 0 ? controlledItemIds.filter(esInsumoReal) : Object.keys(porItem));
     if (ids.length === 0) return empty;
     const insumos = ids.map((itemId) => {
       const logs = porItem[itemId] || [];
