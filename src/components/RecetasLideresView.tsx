@@ -768,7 +768,11 @@ export default function RecetasLideresView({
                     </div>
                     {draftItems.map((it, i) => {
                       // Precio que trae cada insumo (por código) y subtotal = precio × cantidad.
-                      const unitCost = costByCode.get(String(it.code)) || 0;
+                      const codeStr = String(it.code || '').trim();
+                      // ¿El código existe en algún maestro (Insumos o Recetas)? Si no, el componente
+                      // está mal vinculado y por eso nunca va a traer costo.
+                      const codeKnown = codeStr !== '' && costByCode.has(codeStr);
+                      const unitCost = costByCode.get(codeStr) || 0;
                       const subtotal = unitCost * (parseQty(it.quantity) || 0);
                       return (
                       <div key={i} className="grid grid-cols-12 gap-2 items-center bg-bg-accent/40 border border-border-dim rounded px-2 py-1.5">
@@ -780,11 +784,16 @@ export default function RecetasLideresView({
                           placeholder="UM" className="col-span-3 md:col-span-1 bg-bg-card border border-border-dim rounded px-1 py-1 text-[10px] font-bold text-text-dim outline-none" />
                         <input readOnly={isReadOnly} type="text" inputMode="decimal" value={fmtQty(it.quantity)} onChange={e => setItem(i, 'quantity', e.target.value)}
                           placeholder="0" className="col-span-5 md:col-span-2 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500" />
-                        {/* Precio unitario (solo lectura, viene del maestro) */}
+                        {/* Precio unitario (solo lectura, viene del maestro). Tres estados:
+                            - código inexistente en ningún maestro -> ⚠ (hay que reemplazar el componente)
+                            - código OK pero costo 0 en el maestro  -> "costo 0"
+                            - precio normal */}
                         <div className={cn("col-span-6 md:col-span-2 text-right px-2 py-1 text-[10px] font-mono font-bold",
-                          unitCost > 0 ? "text-text-dim" : "text-amber-500")}
-                          title={unitCost > 0 ? 'Precio unitario del insumo (maestro)' : 'Este insumo no tiene costo cargado en el maestro'}>
-                          {unitCost > 0 ? `$${unitCost.toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : 'sin costo'}
+                          !codeKnown ? "text-red-500" : unitCost > 0 ? "text-text-dim" : "text-amber-500")}
+                          title={!codeKnown
+                            ? `El código ${codeStr || '(vacío)'} no existe en ningún maestro (Insumos ni Recetas). Reemplazá este componente desde el buscador para que tome el código correcto y su costo.`
+                            : unitCost > 0 ? 'Precio unitario del insumo (maestro)' : 'El maestro tiene costo 0 para este código.'}>
+                          {!codeKnown ? '⚠ código inexistente' : unitCost > 0 ? `$${unitCost.toLocaleString('es-AR', { maximumFractionDigits: 2 })}` : 'costo 0'}
                         </div>
                         {/* Subtotal = precio × cantidad */}
                         <div className="col-span-5 md:col-span-2 text-right px-2 py-1 text-[10px] font-mono font-black text-emerald-500"
