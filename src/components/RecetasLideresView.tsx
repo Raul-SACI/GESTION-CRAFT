@@ -133,8 +133,10 @@ export default function RecetasLideresView({
     const m = new Map<string, number>();
     items.forEach(i => { if (i.code) m.set(String(i.code), Number(i.cost) || 0); });
     recipeMasters.forEach((rm: any) => { if (rm.code && rm.cost != null) m.set(String(rm.code), Number(rm.cost) || 0); });
+    // Platos de la carta (products): un plato puede llevar otro plato adentro (ej. LATTE con TOSTADA AVOCADO).
+    productos.forEach((p: any) => { if (p.code && p.cost != null) m.set(String(p.code), Number(p.cost) || 0); });
     return m;
-  }, [items, recipeMasters]);
+  }, [items, recipeMasters, productos]);
 
   const cargar = async () => {
     setLoading(true);
@@ -450,21 +452,26 @@ export default function RecetasLideresView({
   //  - producción: Insumos + Recetas de Producción (una receta puede llevar otra receta,
   //    ej. "Tarta de jamón y queso" lleva "Masa de tarta", que es otra receta de producción).
   //  - sucursal: Insumos + Recetas de Sucursal + Recetas de Producción.
-  //  - platos de la carta: Insumos + Recetas Producción + Recetas Sucursales.
+  //  - platos de la carta: Insumos + Recetas Producción + Recetas Sucursales + otros Platos de la Carta.
   const insumoOptions = useMemo(() => {
+    const norm = (s: any) => String(s || '').trim().toUpperCase();
     const base = items.map((i: any) => ({ id: i.id, code: i.code || null, name: i.name, unit: i.unit || null, origen: 'INSUMO' }));
     const rmToOpt = (tipos: string[]) => recipeMasters
       .filter((m: any) => tipos.includes(m.tipo))
       // Una receta de producción no puede llevarse a sí misma como insumo
-      .filter((m: any) => !(tipo === 'produccion' && editing?.id && m.id === editing.id) && !(tipo === 'produccion' && editing?.name && String(m.name).trim().toUpperCase() === String(editing.name).trim().toUpperCase()))
+      .filter((m: any) => !(tipo === 'produccion' && editing?.id && m.id === editing.id) && !(tipo === 'produccion' && editing?.name && norm(m.name) === norm(editing.name)))
       .map((m: any) => ({ id: m.id || null, code: m.code || null, name: m.name, unit: m.unit || null, origen: m.tipo === 'produccion' ? 'RECETA PROD.' : 'RECETA SUC.' }));
+    // Otros platos de la carta (products), excluyendo el que se está editando (no puede llevarse a sí mismo).
+    const cartaPlates = () => productos
+      .filter((p: any) => !(editing?.name && norm(p.name) === norm(editing.name)) && !(editing?.code && p.code && String(p.code).trim() === String(editing.code).trim()))
+      .map((p: any) => ({ id: p.id || null, code: p.code || null, name: p.name, unit: 'UN', origen: 'PLATO CARTA' }));
     // Producción: insumos + Recetas de Producción.
     if (tipo === 'produccion') return [...base, ...rmToOpt(['produccion'])];
     // Sucursal: insumos + Recetas de Sucursal + Recetas de Producción.
     if (tipo === 'sucursal') return [...base, ...rmToOpt(['sucursal', 'produccion'])];
-    // Carta: insumos + Recetas Producción + Recetas Sucursales.
-    return [...base, ...rmToOpt(['produccion', 'sucursal'])];
-  }, [items, recipeMasters, tipo, editing?.id, editing?.name]);
+    // Carta: insumos + Recetas Producción + Recetas Sucursales + otros Platos de la Carta.
+    return [...base, ...rmToOpt(['produccion', 'sucursal']), ...cartaPlates()];
+  }, [items, recipeMasters, productos, tipo, editing?.id, editing?.name, editing?.code]);
 
   // Sugerencias del maestro para el buscador de insumos del editor
   const sugerencias = useMemo(() => {
@@ -735,7 +742,7 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder={tipo === 'carta' ? 'Buscar insumo o receta (prod./suc.) para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo o receta de producción para agregar…'}
+                      placeholder={tipo === 'carta' ? 'Buscar insumo, receta o plato de la carta para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo o receta de producción para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
                   </div>
                   {sugerencias.length > 0 && (
