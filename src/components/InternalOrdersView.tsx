@@ -150,12 +150,15 @@ export default function InternalOrdersView({
 
   // Fuente de artículos según el tipo de pedido:
   //  - COMPRAS      -> Maestro de Insumos (stock_items, prop `items`)
-  //  - PRODUCCIÓN   -> Maestro Recetas Producción (recipe_masters)
+  //  - PRODUCCIÓN   -> Maestro Recetas Producción (recipe_masters) + Maestro de Insumos
+  //    (se pueden pedir elaborados y también insumos sueltos)
   // En ambos casos se excluyen los inhabilitados (is_active === false).
-  const sourceItems = useMemo(
-    () => (orderType === 'produccion' ? produccionItems : items).filter(i => (i as any).is_active !== false),
-    [orderType, produccionItems, items]
-  );
+  const sourceItems = useMemo(() => {
+    const base = orderType === 'produccion' ? [...produccionItems, ...items] : items;
+    const byId = new Map<string, StockItem>();
+    base.forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+    return Array.from(byId.values()).filter(i => (i as any).is_active !== false);
+  }, [orderType, produccionItems, items]);
 
   // Categorías disponibles de la fuente activa
   const categories = useMemo(() => {
