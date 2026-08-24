@@ -14,6 +14,7 @@ interface Task {
   priority: string; scheduled_date: string; status: string; created_by: string; created_at: string;
   responsible: string; external_entity: string; supervisor: string;
   source_plan_id?: string | null; source_date?: string | null;
+  original_date?: string | null; // fecha original si la tarea fue reprogramada a otro día
 }
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -254,6 +255,30 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
     } catch (e: any) { alert('Error al cambiar estado: ' + (e.message || e)); }
   };
 
+  // Reprograma una tarea a otro día desde el calendario. La PRIMERA vez que se mueve
+  // se guarda la fecha original (original_date) para poder mostrar "reprogramada de X".
+  const reassignTask = async (id: string, newDate: string) => {
+    if (!newDate) return;
+    const t = tasks.find(x => x.id === id);
+    if (!t || t.scheduled_date === newDate) return;
+    // La fecha original es la que ya estaba guardada o, si es el primer movimiento, la actual.
+    const original = t.original_date || t.scheduled_date;
+    // Si vuelve a su día original, limpiamos la marca de reprogramada.
+    const nextOriginal = newDate === original ? null : original;
+    setTasks(prev => prev.map(x => x.id === id ? { ...x, scheduled_date: newDate, original_date: nextOriginal } : x));
+    try {
+      let { error } = await supabaseMant.from('tareas').update({ scheduled_date: newDate, original_date: nextOriginal }).eq('id', id);
+      // Si la columna original_date todavía no existe (42703), al menos movemos la fecha.
+      if (error && (error as any).code === '42703') {
+        ({ error } = await supabaseMant.from('tareas').update({ scheduled_date: newDate }).eq('id', id));
+      }
+      if (error) throw error;
+    } catch (e: any) {
+      alert('Error al reprogramar la tarea: ' + (e.message || e));
+      loadAll();
+    }
+  };
+
   const deleteTask = async (t: Task) => {
     if (!window.confirm('¿Eliminar esta tarea? Esta acción no se puede deshacer.')) return;
     try {
@@ -431,8 +456,9 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
                           <button key={t.id} onClick={e => { e.stopPropagation(); setEditing(t); }}
                             className="flex items-center gap-1 text-left text-[8px] font-bold uppercase px-1 py-0.5 rounded hover:opacity-80 transition-opacity"
                             style={{ backgroundColor: ST_BORDER[t.status] + '22', color: ST_BORDER[t.status] }}
-                            title={`${tb ? tb + ' · ' : ''}${t.description}`}>
+                            title={`${tb ? tb + ' · ' : ''}${t.description}${t.original_date && t.original_date !== t.scheduled_date ? ` · reprogramada de ${fmtDMY(t.original_date)}` : ''}`}>
                             {tb && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: branchColor[tb] || '#94a3b8' }} />}
+                            {t.original_date && t.original_date !== t.scheduled_date && <span className="shrink-0" title="Reprogramada">↻</span>}
                             <span className="truncate">{tb ? `${abrevSuc(tb)} · ` : ''}{t.description || t.task_type}</span>
                           </button>
                         );
@@ -562,6 +588,11 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
                         )}
                         <span className={cn("text-[8px] px-2 py-0.5 rounded font-black uppercase", ST_CLR[t.status])}>{ST_LBL[t.status]}</span>
                         {t.priority === 'urgente' && <span className="text-[8px] bg-red-500/15 text-red-500 px-2 py-0.5 rounded font-black uppercase">Urgente</span>}
+                        {t.original_date && t.original_date !== t.scheduled_date && (
+                          <span className="text-[8px] bg-amber-500/15 text-amber-600 px-2 py-0.5 rounded font-black uppercase" title={`Creada para el ${fmtDMY(t.original_date)}`}>
+                            ↻ Reprogramada · de {fmtDMY(t.original_date)}
+                          </span>
+                        )}
                         {isGen
                           ? <span className="text-[8px] bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded font-black uppercase">General</span>
                           : a?.name && <span className="text-[9px] font-black text-text-main uppercase">{a.name}</span>}
@@ -574,13 +605,21 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
                         {t.created_by && <span className="text-[8px] text-text-dim font-bold uppercase">{t.created_by}</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)}
-                        className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[9px] font-bold text-text-main outline-none">
-                        {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
-                      </select>
-                      <button onClick={() => { setEditing({ ...t }); setDayDetail(null); }} title="Editar" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Pencil size={14} /></button>
-                      <button onClick={() => deleteTask(t)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex items-center gap-1">
+                        <select value={t.status} onChange={e => updateStatus(t.id, e.target.value)}
+                          className="bg-bg-accent border border-border-dim rounded px-2 py-1 text-[9px] font-bold text-text-main outline-none">
+                          {STATUSES.map(s => <option key={s} value={s}>{ST_LBL[s]}</option>)}
+                        </select>
+                        <button onClick={() => { setEditing({ ...t }); setDayDetail(null); }} title="Editar" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Pencil size={14} /></button>
+                        <button onClick={() => deleteTask(t)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
+                      </div>
+                      <label className="flex items-center gap-1 text-[8px] font-black uppercase text-text-dim tracking-widest" title="Mover esta tarea a otro día">
+                        <CalendarDays size={11} className="text-brand-500" /> Mover a:
+                        <input type="date" value={t.scheduled_date || ''}
+                          onChange={e => reassignTask(t.id, e.target.value)}
+                          className="bg-bg-accent border border-border-dim rounded px-1.5 py-0.5 text-[9px] font-bold text-text-main outline-none focus:border-brand-500" />
+                      </label>
                     </div>
                   </div>
                 );
