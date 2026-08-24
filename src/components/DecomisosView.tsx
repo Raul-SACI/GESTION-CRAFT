@@ -76,6 +76,31 @@ export default function DecomisosView({
     loadRecipes();
   }, []);
 
+  // Artículos de los maestros de recetas (Producción y Sucursal), para poder decomisar
+  // también elaborados además de los insumos del Maestro de Insumos.
+  const [recetaItems, setRecetaItems] = useState<StockItem[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from('recipe_masters').select('id,name,unit,code,cost,tipo,is_active').in('tipo', ['produccion', 'sucursal']);
+      if (active && data) setRecetaItems((data as any[])
+        .filter(r => r.is_active !== false)
+        .map(r => ({
+          id: r.id, name: r.name, unit: r.unit || 'UN', code: r.code || '',
+          cost: Number(r.cost) || 0,
+          category: r.tipo === 'sucursal' ? 'Receta Sucursal' : 'Receta Producción',
+          is_active: r.is_active,
+        })));
+    })();
+    return () => { active = false; };
+  }, []);
+  // Catálogo de INSUMO = Maestro de Insumos + Recetas Producción + Recetas Sucursal (deduplicado).
+  const insumoCatalog = useMemo(() => {
+    const byId = new Map<string, StockItem>();
+    [...items, ...recetaItems].forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+    return Array.from(byId.values());
+  }, [items, recetaItems]);
+
   // Form State
   const [type, setType] = useState<'insumo' | 'producto'>('insumo');
   const [referenceId, setReferenceId] = useState('');
@@ -160,7 +185,7 @@ export default function DecomisosView({
     // Find cost if available
     let cost = 0;
     if (type === 'insumo') {
-      cost = items.find(i => i.id === referenceId)?.cost || 0;
+      cost = insumoCatalog.find(i => i.id === referenceId)?.cost || 0;
     }
 
     const { data, error } = await supabase
@@ -223,7 +248,7 @@ export default function DecomisosView({
   // Costo en vivo: cantidad × costo actual del insumo en el maestro (no editable, siempre actualizado)
   const liveCost = (d: { type: string; referenceId: string; quantity: number; cost?: number }) => {
     if (d.type === 'insumo') {
-      const it = items.find(i => i.id === d.referenceId);
+      const it = insumoCatalog.find(i => i.id === d.referenceId);
       if (it && it.cost) return it.cost * d.quantity;
     }
     return d.cost || 0; // productos u otros: usa lo guardado
@@ -234,9 +259,9 @@ export default function DecomisosView({
   const topWasted = useMemo(() => {
     const counts: Record<string, { name: string, quantity: number, type: string, cost: number }> = {};
     decomisos.forEach(d => {
-      const item = d.type === 'insumo' ? items.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
+      const item = d.type === 'insumo' ? insumoCatalog.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
       if (!item) return;
-      
+
       const key = `${d.type}-${d.referenceId}`;
       if (!counts[key]) {
         counts[key] = { name: item.name, quantity: 0, type: d.type, cost: 0 };
@@ -249,7 +274,7 @@ export default function DecomisosView({
       .map(c => ({ ...c, quantity: fmtQty(c.quantity) }))
       .sort((a, b) => b.quantity - a.quantity)
       .slice(0, 5);
-  }, [decomisos, items, products]);
+  }, [decomisos, insumoCatalog, products]);
 
   const trends = useMemo(() => {
     const days: Record<string, number> = {};
@@ -262,7 +287,7 @@ export default function DecomisosView({
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [decomisos, items]);
 
-  const filteredSelection = (type === 'insumo' ? items : products).filter(x => 
+  const filteredSelection = (type === 'insumo' ? insumoCatalog : products).filter(x =>
     !searchTerm || x.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -271,10 +296,10 @@ export default function DecomisosView({
     if (!decomisoSearch.trim()) return decomisos;
     const q = decomisoSearch.toLowerCase();
     return decomisos.filter(d => {
-      const item = d.type === 'insumo' ? items.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
+      const item = d.type === 'insumo' ? insumoCatalog.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
       return item?.name.toLowerCase().includes(q);
     });
-  }, [decomisos, items, products, decomisoSearch]);
+  }, [decomisos, insumoCatalog, products, decomisoSearch]);
 
   const stats = useMemo(() => {
     const totalCost = decomisos.reduce((sum, d) => sum + liveCost(d), 0);
@@ -292,12 +317,12 @@ export default function DecomisosView({
   const selectedItemUnit = useMemo(() => {
     if (!referenceId) return '-';
     if (type === 'insumo') {
-      return items.find(i => i.id === referenceId)?.unit || '-';
+      return insumoCatalog.find(i => i.id === referenceId)?.unit || '-';
     } else {
       const product = products.find(p => p.id === referenceId);
       return product ? 'UN' : '-';
     }
-  }, [referenceId, type, items, products]);
+  }, [referenceId, type, insumoCatalog, products]);
 
   return (
     <div className="space-y-6">
@@ -421,7 +446,14 @@ export default function DecomisosView({
                           }}
                           className="w-full text-left p-2.5 hover:bg-bg-accent border-b border-border-dim/30 last:border-0 transition-colors"
                         >
-                          <div className="text-[10px] font-black uppercase text-text-main">{x.name}</div>
+                          <div className="text-[10px] font-black uppercase text-text-main flex items-center gap-1.5">
+                            <span>{x.name}</span>
+                            {type === 'insumo' && ((x as any).category === 'Receta Producción' || (x as any).category === 'Receta Sucursal') && (
+                              <span className="text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded bg-purple-500/10 text-purple-500 border border-purple-500/20">
+                                {(x as any).category === 'Receta Sucursal' ? 'Rec. Suc.' : 'Rec. Prod.'}
+                              </span>
+                            )}
+                          </div>
                           {type === 'insumo' && <div className="text-[8px] text-text-dim font-bold uppercase">Unidad: {(x as StockItem).unit}</div>}
                           {type === 'producto' && <div className="text-[8px] text-text-dim font-bold uppercase">{(x as Product).category}</div>}
                         </button>
@@ -569,7 +601,7 @@ export default function DecomisosView({
                     </tr>
                   ) : (
                     filteredDecomisos.map(d => {
-                      const item = d.type === 'insumo' ? items.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
+                      const item = d.type === 'insumo' ? insumoCatalog.find(i => i.id === d.referenceId) : products.find(p => p.id === d.referenceId);
                       return (
                         <tr key={d.id} className="hover:bg-bg-accent/40 transition-colors group">
                           <td className="p-4 text-[10px] font-bold text-text-main">{d.date.split('-').reverse().join('/')}</td>
@@ -596,7 +628,7 @@ export default function DecomisosView({
                                     <div className="mt-1.5 pl-2 border-l-2 border-purple-500/30 space-y-0.5">
                                       <p className="text-[7px] font-black uppercase text-purple-400 tracking-widest">Insumos consumidos:</p>
                                       {recipe.map((ing, idx) => {
-                                        const ingItem = items.find(i => i.id === ing.itemId);
+                                        const ingItem = insumoCatalog.find(i => i.id === ing.itemId);
                                         const totalQty = ing.quantity * d.quantity;
                                         return (
                                           <p key={idx} className="text-[8px] text-text-dim font-bold">
