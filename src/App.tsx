@@ -1698,7 +1698,7 @@ function AppContent() {
               )}
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
-              {activeTab === 'informes_compras' && <ComprasInformesView key="informes_compras" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'informes_compras' && <ComprasInformesView key="informes_compras" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'config_salones' && <SalonConfigView key="config_salones" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'checklist_sucursal' && <ChecklistView key="checklist_sucursal" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="sucursal" />}
