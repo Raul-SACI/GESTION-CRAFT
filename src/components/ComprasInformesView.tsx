@@ -453,6 +453,16 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     return a > 0 ? (b / a - 1) * 100 : null;
   }, [serie, span]);
 
+  // Variación REAL del gasto total: deflacta el gasto del último mes al poder adquisitivo
+  // del primer mes usando la inflación acumulada del período. Aísla el efecto precios.
+  const gastoVarReal = useMemo(() => {
+    if (!span || eerrInfl == null) return null;
+    const a = serie[0].total, b = serie[serie.length - 1].total;
+    if (a <= 0) return null;
+    const bReal = b / (1 + eerrInfl / 100);
+    return (bReal / a - 1) * 100;
+  }, [serie, span, eerrInfl]);
+
   // Selección de artículos a mostrar en la tabla (default: top 8 por gasto del período actual)
   const defaultSel = useMemo(() => new Set<string>(arts.slice(0, 8).map(a => norm(a.code))), [arts]);
   const effSel: Set<string> = selCodes ?? defaultSel;
@@ -595,11 +605,12 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                 {/* KPIs comparativos del rango cargado */}
                 {span ? (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                       <Kpi icon={<TrendingUp size={16} />} label="Inflación de compras" value={comprasInfl != null ? `${comprasInfl > 0 ? '+' : ''}${comprasInfl.toFixed(1)}%` : '—'} sub="precio unit. · pond. x cantidad" warn={comprasInfl != null && eerrInfl != null && comprasInfl > eerrInfl} />
                       <Kpi icon={<Percent size={16} />} label="Inflación oficial (EERR)" value={eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '— sin carga'} sub="acumulada · ver detalle" onClick={() => setShowInflDetail(true)} />
                       <Kpi icon={<DollarSign size={16} />} label="Aumento de carta" value={cartaInfl != null ? `${cartaInfl > 0 ? '+' : ''}${cartaInfl.toFixed(1)}%` : '— sin datos'} sub="Carta Salón · vs precio inicial" />
-                      <Kpi icon={<ShoppingCart size={16} />} label="Gasto total" value={gastoVar != null ? `${gastoVar > 0 ? '+' : ''}${gastoVar.toFixed(1)}%` : '—'} sub="nominal, primer vs último" />
+                      <Kpi icon={<ShoppingCart size={16} />} label="Gasto total nominal" value={gastoVar != null ? `${gastoVar > 0 ? '+' : ''}${gastoVar.toFixed(1)}%` : '—'} sub="primer vs último mes" />
+                      <Kpi icon={<TrendingDown size={16} />} label="Gasto total real" value={gastoVarReal != null ? `${gastoVarReal > 0 ? '+' : ''}${gastoVarReal.toFixed(1)}%` : '— sin inflación'} sub="deflactado por inflación" warn={gastoVarReal != null && gastoVarReal > 0} />
                     </div>
                     {/* Veredicto */}
                     {comprasInfl != null && (
