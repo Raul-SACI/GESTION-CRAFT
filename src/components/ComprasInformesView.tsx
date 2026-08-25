@@ -72,6 +72,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const [menuItems, setMenuItems] = useState<any[]>([]);               // menu_items (precio actual)
   const [selCodes, setSelCodes] = useState<Set<string> | null>(null);  // artículos elegidos en Evolución
   const [evoSearch, setEvoSearch] = useState('');
+  const [showInflDetail, setShowInflDetail] = useState(false);
 
   // ── Carga de períodos disponibles ──────────────────────────────────────────
   const loadPeriods = useCallback(async () => {
@@ -116,7 +117,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
       supabase.from('compras_articulos_import').select('period, code, cantidad, total'),
       supabase.from('monthly_inflation').select('month, inflation_pct'),
       supabase.from('menu_price_history').select('menu_item_id, old_price, new_price, change_date'),
-      supabase.from('menu_items').select('id, price'),
+      supabase.from('menu_items').select('id, price, menu_type'),
     ]);
     const byPeriod: Record<string, { period: string; total: number; byCode: Record<string, { cantidad: number; total: number }> }> = {};
     (data as any[] || []).forEach(r => {
@@ -384,23 +385,6 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     return { first: serie[0].period, last: serie[serie.length - 1].period };
   }, [serie]);
 
-  // Factor de inflación acumulada (misma lógica que EERR): meses posteriores al base hasta el nuevo, inclusive
-  const inflationFactor = useCallback((fromMonth: string, toMonth: string): number => {
-    if (!fromMonth || !toMonth || fromMonth >= toMonth) return 1;
-    let factor = 1;
-    let [y, m] = fromMonth.split('-').map(Number);
-    const advance = () => { m++; if (m > 12) { m = 1; y++; } };
-    advance();
-    while (true) {
-      const key = `${y}-${String(m).padStart(2, '0')}`;
-      factor *= (1 + (inflMap[key] || 0) / 100);
-      if (key === toMonth) break;
-      advance();
-      if (y > 3000) break;
-    }
-    return factor;
-  }, [inflMap]);
-
   // Inflación de compras PONDERADA por gasto (Laspeyres): pesa cada artículo por su
   // participación en el gasto del período base -> refleja el impacto real sobre el bolsillo.
   const comprasInfl = useMemo(() => {
@@ -419,34 +403,41 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     return items.reduce((s, it) => s + (it.w / base) * it.infl, 0) * 100;
   }, [serie, span]);
 
-  const eerrInfl = useMemo(() => span ? (inflationFactor(span.first, span.last) - 1) * 100 : null, [span, inflationFactor]);
+  // Detalle mes a mes de la inflación oficial dentro del rango (para el modal de verificación)
+  const eerrDetail = useMemo(() => {
+    if (!span) return [] as { month: string; pct: number | null }[];
+    const rows: { month: string; pct: number | null }[] = [];
+    let [y, m] = span.first.split('-').map(Number);
+    while (true) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      rows.push({ month: key, pct: inflMap[key] != null ? inflMap[key] : null });
+      if (key === span.last) break;
+      m++; if (m > 12) { m = 1; y++; }
+      if (y > 3000) break;
+    }
+    return rows;
+  }, [span, inflMap]);
 
-  // Aumento PROMEDIO de la carta entre el inicio del primer mes y el fin del último,
-  // a partir del historial de precios de venta (menu_price_history).
+  // Inflación oficial acumulada del rango INCLUSIVE (igual criterio que Lista de Precios / EERR)
+  const eerrInfl = useMemo(() => {
+    if (!eerrDetail.length) return null;
+    let f = 1; let any = false;
+    eerrDetail.forEach(r => { if (r.pct != null) any = true; f *= (1 + (r.pct || 0) / 100); });
+    return any ? (f - 1) * 100 : null;
+  }, [eerrDetail]);
+
+  // Aumento PROMEDIO de la Carta Salón: precio actual vs primer precio registrado por
+  // producto (mismo criterio que el módulo Lista de Precios, que mostraba +20.1%).
   const cartaInfl = useMemo(() => {
-    if (!span || !menuItems.length) return null;
-    const baseDate = `${span.first}-01`;
-    const [ly, lm] = span.last.split('-').map(Number);
-    const endExclusive = lm === 12 ? `${ly + 1}-01-01` : `${ly}-${String(lm + 1).padStart(2, '0')}-01`;
-    const byItem: Record<string, any[]> = {};
-    menuHist.forEach(h => { (byItem[h.menu_item_id] ||= []).push(h); });
-    Object.values(byItem).forEach(arr => arr.sort((x: any, y: any) => String(x.change_date).localeCompare(String(y.change_date))));
-    const priceAt = (id: string, dateExcl: string, fallback: number) => {
-      const arr = byItem[id];
-      if (!arr || !arr.length) return fallback;
-      let val: number | null = null;
-      for (const h of arr) { if (String(h.change_date) < dateExcl) val = Number(h.new_price); else break; }
-      if (val == null) val = Number(arr[0].old_price) || fallback;
-      return val;
-    };
-    let sum = 0, n = 0;
-    menuItems.forEach(mi => {
-      const ps = priceAt(mi.id, baseDate, Number(mi.price));
-      const pe = priceAt(mi.id, endExclusive, ps);
-      if (ps > 0) { sum += (pe / ps - 1); n++; }
-    });
-    return n ? (sum / n) * 100 : null;
-  }, [span, menuHist, menuItems]);
+    if (!menuItems.length) return null;
+    const baseByItem: Record<string, number> = {};
+    [...menuHist].sort((a, b) => String(a.change_date).localeCompare(String(b.change_date)))
+      .forEach(h => { if (h.menu_item_id && baseByItem[h.menu_item_id] == null) baseByItem[h.menu_item_id] = Number(h.new_price); });
+    const withBase = menuItems.filter(mi => mi.menu_type === 'salon' && baseByItem[mi.id] > 0);
+    if (!withBase.length) return null;
+    const sum = withBase.reduce((s, mi) => s + ((Number(mi.price) - baseByItem[mi.id]) / baseByItem[mi.id]) * 100, 0);
+    return sum / withBase.length;
+  }, [menuHist, menuItems]);
 
   // Variación nominal del gasto total (primer vs último período)
   const gastoVar = useMemo(() => {
@@ -599,8 +590,8 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <Kpi icon={<TrendingUp size={16} />} label="Inflación de compras" value={comprasInfl != null ? `${comprasInfl > 0 ? '+' : ''}${comprasInfl.toFixed(1)}%` : '—'} sub="ponderada por gasto" warn={comprasInfl != null && eerrInfl != null && comprasInfl > eerrInfl} />
-                      <Kpi icon={<Percent size={16} />} label="Inflación oficial (EERR)" value={eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '— sin carga'} sub="acumulada del período" />
-                      <Kpi icon={<DollarSign size={16} />} label="Aumento de carta" value={cartaInfl != null ? `${cartaInfl > 0 ? '+' : ''}${cartaInfl.toFixed(1)}%` : '— sin datos'} sub="precios de venta (prom.)" />
+                      <Kpi icon={<Percent size={16} />} label="Inflación oficial (EERR)" value={eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '— sin carga'} sub="acumulada · ver detalle" onClick={() => setShowInflDetail(true)} />
+                      <Kpi icon={<DollarSign size={16} />} label="Aumento de carta" value={cartaInfl != null ? `${cartaInfl > 0 ? '+' : ''}${cartaInfl.toFixed(1)}%` : '— sin datos'} sub="Carta Salón · vs precio inicial" />
                       <Kpi icon={<ShoppingCart size={16} />} label="Gasto total" value={gastoVar != null ? `${gastoVar > 0 ? '+' : ''}${gastoVar.toFixed(1)}%` : '—'} sub="nominal, primer vs último" />
                     </div>
                     {/* Veredicto */}
@@ -840,17 +831,53 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
           )}
         </>
       )}
+
+      {/* Modal: detalle de la inflación oficial mes a mes */}
+      {showInflDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowInflDetail(false)}>
+          <div className="bg-bg-main border border-border-dim rounded-xl shadow-xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-black uppercase text-brand-500 tracking-wider">Inflación oficial · detalle</h3>
+              <button onClick={() => setShowInflDetail(false)} className="text-text-dim hover:text-text-main text-lg leading-none">×</button>
+            </div>
+            <p className="text-[10px] text-text-dim font-bold uppercase mb-4">Cargada en Estado de Resultado (monthly_inflation) · {span ? `${periodLabel(span.first)} → ${periodLabel(span.last)}` : ''}</p>
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                  <th className="px-2 py-2">Mes</th><th className="px-2 py-2 text-right">Inflación mensual</th><th className="px-2 py-2 text-right">Acumulado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dim">
+                {(() => { let f = 1; return eerrDetail.map(r => { f *= (1 + (r.pct || 0) / 100); return (
+                  <tr key={r.month} className="text-[11px] font-medium">
+                    <td className="px-2 py-2 font-bold uppercase text-text-main">{periodLabel(r.month)}</td>
+                    <td className="px-2 py-2 text-right font-mono tabular-nums">{r.pct != null ? `${r.pct.toFixed(1)}%` : <span className="text-amber-500">sin carga</span>}</td>
+                    <td className="px-2 py-2 text-right font-mono tabular-nums text-text-dim">{`${((f - 1) * 100).toFixed(1)}%`}</td>
+                  </tr>
+                ); }); })()}
+              </tbody>
+              <tfoot>
+                <tr className="text-[11px] font-black border-t-2 border-border-dim">
+                  <td className="px-2 py-2.5 uppercase text-brand-500" colSpan={2}>Acumulado del período</td>
+                  <td className="px-2 py-2.5 text-right font-mono tabular-nums">{eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '—'}</td>
+                </tr>
+              </tfoot>
+            </table>
+            <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Se compone cada mes cargado del rango, de enero al último con compras. Un mes "sin carga" cuenta como 0% — cargalo en Estado de Resultado para que sume.</p>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
 
 // ── Subcomponentes ───────────────────────────────────────────────────────────
-function Kpi({ icon, label, value, sub, warn }: { icon: ReactNode; label: string; value: string; sub?: string; warn?: boolean }) {
+function Kpi({ icon, label, value, sub, warn, onClick }: { icon: ReactNode; label: string; value: string; sub?: string; warn?: boolean; onClick?: () => void }) {
   return (
-    <div className={cn('p-4 rounded-xl border', warn ? 'bg-amber-500/10 border-amber-500/30' : 'bg-bg-sidebar border-border-dim')}>
+    <div onClick={onClick} className={cn('p-4 rounded-xl border transition-all', warn ? 'bg-amber-500/10 border-amber-500/30' : 'bg-bg-sidebar border-border-dim', onClick && 'cursor-pointer hover:border-brand-500/50 hover:shadow-sm')}>
       <div className="flex items-center gap-1.5 text-text-dim mb-1">{icon}<span className="text-[9px] font-black uppercase tracking-widest">{label}</span></div>
       <div className="text-xl font-mono font-black text-text-main">{value}</div>
-      {sub && <div className="text-[9px] text-text-dim font-bold uppercase truncate">{sub}</div>}
+      {sub && <div className={cn('text-[9px] font-bold uppercase truncate', onClick ? 'text-brand-500' : 'text-text-dim')}>{sub}</div>}
     </div>
   );
 }
