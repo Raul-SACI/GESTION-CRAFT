@@ -385,22 +385,29 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     return { first: serie[0].period, last: serie[serie.length - 1].period };
   }, [serie]);
 
-  // Inflación de compras PONDERADA por gasto (Laspeyres): pesa cada artículo por su
-  // participación en el gasto del período base -> refleja el impacto real sobre el bolsillo.
+  // Inflación de compras = aumento del PRECIO UNITARIO de cada insumo (primer vs último
+  // mes con datos), PONDERADO por la CANTIDAD TOTAL comprada en todo el rango. La cantidad
+  // se valoriza a precio base (constante) para poder sumar insumos con distinta unidad
+  // (kg, unidades, bandejas). Es puro precio: si baja el volumen de un mes, no lo afecta.
   const comprasInfl = useMemo(() => {
     if (!span) return null;
-    const a = serie[0].byCode, b = serie[serie.length - 1].byCode;
-    let base = 0; const items: { infl: number; w: number }[] = [];
-    for (const code in a) {
-      const A = a[code], B = b[code];
+    const first = serie[0].byCode, last = serie[serie.length - 1].byCode;
+    // Cantidad total comprada por código en todo el rango cargado
+    const qtyTotal: Record<string, number> = {};
+    serie.forEach(s => { for (const c in s.byCode) qtyTotal[c] = (qtyTotal[c] || 0) + s.byCode[c].cantidad; });
+    let wsum = 0; const items: { infl: number; w: number }[] = [];
+    for (const code in first) {
+      const A = first[code], B = last[code];
       if (!B || A.cantidad <= 0 || B.cantidad <= 0) continue;
       const puA = A.total / A.cantidad, puB = B.total / B.cantidad;
       if (puA <= 0) continue;
-      base += A.total;
-      items.push({ infl: puB / puA - 1, w: A.total });
+      const w = puA * (qtyTotal[code] || 0); // cantidad total, valuada a precio base
+      if (w <= 0) continue;
+      wsum += w;
+      items.push({ infl: puB / puA - 1, w });
     }
-    if (base <= 0) return null;
-    return items.reduce((s, it) => s + (it.w / base) * it.infl, 0) * 100;
+    if (wsum <= 0) return null;
+    return items.reduce((s, it) => s + (it.w / wsum) * it.infl, 0) * 100;
   }, [serie, span]);
 
   // Detalle mes a mes de la inflación oficial dentro del rango (para el modal de verificación)
@@ -589,7 +596,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                 {span ? (
                   <>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <Kpi icon={<TrendingUp size={16} />} label="Inflación de compras" value={comprasInfl != null ? `${comprasInfl > 0 ? '+' : ''}${comprasInfl.toFixed(1)}%` : '—'} sub="ponderada por gasto" warn={comprasInfl != null && eerrInfl != null && comprasInfl > eerrInfl} />
+                      <Kpi icon={<TrendingUp size={16} />} label="Inflación de compras" value={comprasInfl != null ? `${comprasInfl > 0 ? '+' : ''}${comprasInfl.toFixed(1)}%` : '—'} sub="precio unit. · pond. x cantidad" warn={comprasInfl != null && eerrInfl != null && comprasInfl > eerrInfl} />
                       <Kpi icon={<Percent size={16} />} label="Inflación oficial (EERR)" value={eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '— sin carga'} sub="acumulada · ver detalle" onClick={() => setShowInflDetail(true)} />
                       <Kpi icon={<DollarSign size={16} />} label="Aumento de carta" value={cartaInfl != null ? `${cartaInfl > 0 ? '+' : ''}${cartaInfl.toFixed(1)}%` : '— sin datos'} sub="Carta Salón · vs precio inicial" />
                       <Kpi icon={<ShoppingCart size={16} />} label="Gasto total" value={gastoVar != null ? `${gastoVar > 0 ? '+' : ''}${gastoVar.toFixed(1)}%` : '—'} sub="nominal, primer vs último" />
@@ -601,7 +608,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                           ? 'bg-amber-500/10 border-amber-500/30 text-amber-600' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600')}>
                         <AlertTriangle size={15} className="mt-0.5 shrink-0" />
                         <span>
-                          {periodLabel(span.first)} → {periodLabel(span.last)}: nuestras compras subieron <b>{comprasInfl.toFixed(1)}%</b>
+                          {periodLabel(span.first)} → {periodLabel(span.last)}: el precio de nuestros insumos subió <b>{comprasInfl.toFixed(1)}%</b> (ponderado por cantidad)
                           {eerrInfl != null && <> vs inflación oficial <b>{eerrInfl.toFixed(1)}%</b> ({comprasInfl > eerrInfl ? `compramos ${(comprasInfl - eerrInfl).toFixed(1)} pts por encima` : `${(eerrInfl - comprasInfl).toFixed(1)} pts por debajo`})</>}
                           {cartaInfl != null && <> · carta subió <b>{cartaInfl.toFixed(1)}%</b> ({comprasInfl > cartaInfl ? 'el costo sube más rápido que el precio de venta — presiona el margen' : 'la carta acompaña el costo'})</>}.
                         </span>
