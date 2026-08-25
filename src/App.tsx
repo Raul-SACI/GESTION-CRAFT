@@ -103,6 +103,7 @@ const GiftCardBranchView = lazy(() => import('./components/GiftCardBranchView'))
 const PersonalNotesView = lazy(() => import('./components/PersonalNotesView'));
 const SalesView = lazy(() => import('./components/SalesView'));
 const ConsumoView = lazy(() => import('./components/ConsumoView'));
+const ComprasInformesView = lazy(() => import('./components/ComprasInformesView'));
 const HourControlView = lazy(() => import('./components/SueldosView'));
 const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const ChecklistView = lazy(() => import('./components/ChecklistView'));
@@ -556,7 +557,7 @@ function AppContent() {
     'dashboard', 'socios_dashboard', 'performance_admin',
     'papeles_sucursal', 'novedades',
     'stock', 'vajilla', 'horas', 'decomisos', 'cuentas', 'inventario_mensual', 'inventario_mensual_prod', 'pedidos_internos',
-    'gestion_sueldos', 'consumo', 'pedidos_ya',
+    'gestion_sueldos', 'consumo', 'informes_compras', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
     'finanzas_mensual', 'p&l', 'ordenes', 'cronograma_pagos',
     'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios', 'config_salones',
@@ -666,6 +667,9 @@ function AppContent() {
       { id: 'pedidos_ya', label: 'Pedidos Ya', icon: Star },
       { id: 'papeles_administracion', label: 'Papeles Importantes', icon: FileText },
     ],
+    'Compras & Stock': [
+      { id: 'informes_compras', label: 'Informes de Compras', icon: ShoppingCart },
+    ],
     'Gerencia General': [
       { id: 'actas_direccion', label: 'Actas de Dirección', icon: ClipboardList },
       { id: 'informes_gestion', label: 'Informes de Gestión', icon: FileCheck2 },
@@ -748,6 +752,7 @@ function AppContent() {
           'p&l': BarChart3,
           ordenes: Ticket,
           consumo: Calculator,
+          informes_compras: ShoppingCart,
           control_desvios: ShieldCheck,
           supervision_banderas: Flag,
           pedidos_ya: Star,
@@ -1693,6 +1698,7 @@ function AppContent() {
               )}
               {activeTab === 'ventas' && <SalesView branches={branches} selectedBranchId={selectedBranchId} products={products} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'consumo' && <ConsumoView key="consumo" branches={branches} selectedBranchId={selectedBranchId} onBranchChange={setSelectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'informes_compras' && <ComprasInformesView key="informes_compras" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'presupuesto_horas' && <HourBudgetView key="presupuesto" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'config_salones' && <SalonConfigView key="config_salones" branches={branches} selectedBranchId={selectedBranchId} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'checklist_sucursal' && <ChecklistView key="checklist_sucursal" branches={branches} selectedBranchId={selectedBranchId} currentUserRole={currentUser.role} currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} scope="sucursal" />}
