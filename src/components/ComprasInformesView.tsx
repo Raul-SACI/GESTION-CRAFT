@@ -25,6 +25,7 @@ import {
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { Branch } from '../types';
 
 type Quote = { proveedor: string; precio: number };
 type ArtRow = { code: string; description: string; cantidad: number; total: number; pct_participacion: number; pct_acumulado: number };
@@ -50,7 +51,7 @@ const periodLabel = (p: string) => {
   return `${MES[(parseInt(m, 10) || 1) - 1]} ${y}`;
 };
 
-export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly?: boolean }) {
+export default function ComprasInformesView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
   const [tab, setTab] = useState<'resumen' | 'evolucion' | 'cotizaciones' | 'importar'>('resumen');
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string>(() => {
@@ -73,7 +74,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const [selCodes, setSelCodes] = useState<Set<string> | null>(null);  // artículos elegidos en Evolución
   const [evoSearch, setEvoSearch] = useState('');
   const [showInflDetail, setShowInflDetail] = useState(false);
-  const [ticketsByMonth, setTicketsByMonth] = useState<Record<string, { orders: number; covers: number }>>({}); // ventas: comandas y cubiertos por mes
+  const [ticketsByMonth, setTicketsByMonth] = useState<Record<string, number>>({}); // tickets/órdenes por mes (módulo Tickets/Órdenes)
 
   // ── Carga de períodos disponibles ──────────────────────────────────────────
   const loadPeriods = useCallback(async () => {
@@ -155,30 +156,44 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     setMenuHist((mh as any[]) || []);
     setMenuItems((mi as any[]) || []);
 
-    // Tickets/cubiertos por mes desde el módulo de Ventas (tabla sales, diaria, todas las sucursales)
-    const tk: Record<string, { orders: number; covers: number }> = {};
-    if (seriePeriods.length) {
-      const first = seriePeriods[0];
-      const last = seriePeriods[seriePeriods.length - 1];
-      const [ly, lm] = last.split('-').map(Number);
-      const endExclusive = lm === 12 ? `${ly + 1}-01-01` : `${ly}-${String(lm + 1).padStart(2, '0')}-01`;
+    // Tickets/órdenes por mes desde el módulo Tickets/Órdenes (consolidado, sucursales
+    // operativas = todas menos Almacén). Combina el histórico curado (monthly_orders) con
+    // el conteo automático de comprobantes únicos de las ventas (sales_tickets), igual que
+    // ese módulo: el dato automático pisa al manual cuando existe.
+    const tk: Record<string, number> = {};
+    const operative = (branches || []).filter(b => !/almac/i.test(b.name));
+    const opIds = operative.map(b => b.id);
+    if (opIds.length) {
+      // 1) Manual/histórico
+      const manual: Record<string, number> = {};
+      const { data: ord } = await supabase.from('monthly_orders').select('month, orders, scope').in('scope', opIds);
+      (ord as any[] || []).forEach(r => { manual[r.month] = (manual[r.month] || 0) + (Number(r.orders) || 0); });
+      // 2) Automático: comprobantes únicos (branch|fecha|comprobante) por mes, con respaldo a orders
+      const seen: Record<string, Set<string>> = {};
+      const fallback: Record<string, number> = {};
       const size = 1000; let pg = 0;
-      while (pg < 200) {
-        const { data: sv } = await supabase.from('sales').select('date, orders, covers')
-          .gte('date', `${first}-01`).lt('date', endExclusive).range(pg * size, pg * size + size - 1);
-        const rows = (sv as any[]) || [];
-        rows.forEach(r => {
-          const m = String(r.date).slice(0, 7);
-          if (!tk[m]) tk[m] = { orders: 0, covers: 0 };
-          tk[m].orders += Number(r.orders) || 0;
-          tk[m].covers += Number(r.covers) || 0;
+      while (pg < 60) {
+        const { data: tkr } = await supabase.from('sales_tickets').select('branch_id, date, orders, comprobante')
+          .in('branch_id', opIds).range(pg * size, pg * size + size - 1);
+        const rows = (tkr as any[]) || [];
+        rows.forEach(t => {
+          if (!t.date) return;
+          const m = String(t.date).slice(0, 7);
+          const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
+          if (comp) { (seen[m] ||= new Set()).add(`${t.branch_id}|${String(t.date)}|${comp}`); }
+          else { fallback[m] = (fallback[m] || 0) + Number(t.orders || 0); }
         });
         if (rows.length < size) break;
         pg++;
       }
+      const auto: Record<string, number> = {};
+      new Set([...Object.keys(seen), ...Object.keys(fallback)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fallback[m] || 0); });
+      // 3) Combinar: automático pisa al manual cuando existe y es > 0
+      Object.assign(tk, manual);
+      Object.entries(auto).forEach(([m, o]) => { if (o > 0) tk[m] = o; });
     }
     setTicketsByMonth(tk);
-  }, []);
+  }, [branches]);
 
   useEffect(() => { if (tab === 'evolucion') loadSerie(); }, [tab, loadSerie, periods]);
 
@@ -512,10 +527,9 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   // Compras vs Ventas: gasto, tickets (comandas) y compras por ticket por mes
   const comprasVsVentas = useMemo(() => {
     const rows = serie.map(s => {
-      const tk = ticketsByMonth[s.period];
-      const tickets = tk ? tk.orders : null;
+      const tickets = ticketsByMonth[s.period] != null ? ticketsByMonth[s.period] : null;
       const cpt = tickets && tickets > 0 ? s.total / tickets : null;
-      return { period: s.period, gasto: s.total, tickets, covers: tk ? tk.covers : null, cpt };
+      return { period: s.period, gasto: s.total, tickets, cpt };
     });
     const hayTickets = rows.some(r => r.tickets != null && r.tickets > 0);
     if (!span || !hayTickets) return { rows, hayTickets, ticketsVar: null as number | null, cptVarNom: null as number | null, cptVarReal: null as number | null };
@@ -698,7 +712,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                 {comprasVsVentas.hayTickets ? (
                   <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
                     <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-1">Compras vs Ventas · ¿la caída se justifica?</h3>
-                    <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Tickets (comandas) del módulo de Ventas · compras por ticket</p>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Tickets del módulo Tickets/Órdenes (consolidado) · compras por ticket</p>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
                       <Kpi icon={<Receipt size={16} />} label="Tickets (comandas)" value={comprasVsVentas.ticketsVar != null ? `${comprasVsVentas.ticketsVar > 0 ? '+' : ''}${comprasVsVentas.ticketsVar.toFixed(1)}%` : '—'} sub="variación primer vs último" />
                       <Kpi icon={<ShoppingCart size={16} />} label="Compras / ticket (nominal)" value={comprasVsVentas.cptVarNom != null ? `${comprasVsVentas.cptVarNom > 0 ? '+' : ''}${comprasVsVentas.cptVarNom.toFixed(1)}%` : '—'} sub="gasto ÷ tickets" />
@@ -744,7 +758,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                     )}
                   </div>
                 ) : (
-                  <div className="rounded-xl px-4 py-3 border border-border-dim bg-bg-sidebar text-[11px] text-text-dim font-bold">Compras vs Ventas: no encontré tickets cargados en el módulo de Ventas para este rango.</div>
+                  <div className="rounded-xl px-4 py-3 border border-border-dim bg-bg-sidebar text-[11px] text-text-dim font-bold">Compras vs Ventas: no encontré tickets cargados en el módulo Tickets/Órdenes para este rango.</div>
                 )}
 
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
