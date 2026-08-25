@@ -18,11 +18,13 @@ import {
   FileSpreadsheet,
   FileText,
   ChevronLeft,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ConsumptionDetail, Branch } from '../types';
 import { supabase } from '../lib/supabase';
+import { recalcularCostosRecetas } from '../lib/recalcRecipeCosts';
 
 export default function ConsumoView({ 
   selectedBranchId, 
@@ -55,6 +57,8 @@ export default function ConsumoView({
   // Pestaña: CMV Real (carga de existencias/compras) o CMV Teórico (ranking × receta costeada)
   const [activeTab, setActiveTab] = useState<'real' | 'teorico'>('real');
   const [teoVista, setTeoVista] = useState<'plato' | 'insumo'>('plato'); // desglose del CMV teórico
+  const [recalcBusy, setRecalcBusy] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0); // fuerza recálculo del teórico tras recostear
   const [teorico, setTeorico] = useState<{ loading: boolean; total: number; netSales: number; rows: any[]; insumoRows: any[]; insumoTotal: number; sinCosto: number; sinMatch: number }>(
     { loading: false, total: 0, netSales: 0, rows: [], insumoRows: [], insumoTotal: 0, sinCosto: 0, sinMatch: 0 }
   );
@@ -202,6 +206,22 @@ export default function ConsumoView({
 
   const totalCMV = initialExistence + totalPurchases + totalMovements - finalExistence;
 
+  // Recalcula y GUARDA el costo de todas las recetas y platos con los costos actuales
+  // del Maestro de Insumos (mismo botón que hay en Recetas), y refresca el CMV Teórico.
+  const recalcularCostos = async () => {
+    if (!window.confirm('Se van a recalcular y GUARDAR los costos de todas las recetas y platos usando los costos actuales de insumos. ¿Continuar?')) return;
+    setRecalcBusy(true);
+    try {
+      const res = await recalcularCostosRecetas();
+      setReloadKey(k => k + 1); // vuelve a computar el teórico con los costos nuevos
+      alert(`Costos recalculados: ${res.recetas} receta(s) y ${res.platos} plato(s) actualizados.${res.sinMatch ? ` (${res.sinMatch} sin coincidencia en los maestros)` : ''}`);
+    } catch (e: any) {
+      alert('Error al recalcular costos: ' + (e.message || e));
+    } finally {
+      setRecalcBusy(false);
+    }
+  };
+
   // ── CMV TEÓRICO ─────────────────────────────────────────────────────────────
   // = Σ (cantidad vendida del ranking × costo de la receta del plato).
   // Se resuelve el producto por CÓDIGO (dato confiable del POS) y, si no, por nombre/alias.
@@ -273,7 +293,7 @@ export default function ConsumoView({
       }
     })();
     return () => { active = false; };
-  }, [activeTab, branchKey, selectedMonth]);
+  }, [activeTab, branchKey, selectedMonth, reloadKey]);
 
   // CMV Teórico CONSOLIDADO: una fila por sucursal (teórico vs real vs diferencia).
   useEffect(() => {
@@ -320,7 +340,7 @@ export default function ConsumoView({
       }
     })();
     return () => { active = false; };
-  }, [activeTab, selectedBranchId, selectedMonth, branches]);
+  }, [activeTab, selectedBranchId, selectedMonth, branches, reloadKey]);
 
   const addPurchase = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -478,12 +498,23 @@ export default function ConsumoView({
       </div>
 
       {/* Pestañas: CMV Real (carga) vs CMV Teórico (ranking × receta) */}
-      <div className="flex gap-1 p-1 bg-bg-sidebar border border-border-dim rounded-lg w-fit shadow-sm">
-        {([['real', 'CMV Real'], ['teorico', 'CMV Teórico']] as const).map(([k, l]) => (
-          <button key={k} onClick={() => setActiveTab(k)}
-            className={cn("px-5 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all",
-              activeTab === k ? "bg-brand-500 text-black shadow" : "text-text-dim hover:text-text-main")}>{l}</button>
-        ))}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-1 p-1 bg-bg-sidebar border border-border-dim rounded-lg w-fit shadow-sm">
+          {([['real', 'CMV Real'], ['teorico', 'CMV Teórico']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setActiveTab(k)}
+              className={cn("px-5 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all",
+                activeTab === k ? "bg-brand-500 text-black shadow" : "text-text-dim hover:text-text-main")}>{l}</button>
+          ))}
+        </div>
+        {activeTab === 'teorico' && (
+          <button type="button" onClick={recalcularCostos} disabled={recalcBusy}
+            title="Recalcula y guarda el costo de todas las recetas y platos con los costos actuales de insumos"
+            className={cn("flex items-center gap-2 px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all border",
+              recalcBusy ? "bg-bg-accent text-text-dim border-border-dim cursor-wait" : "bg-brand-500/10 text-brand-500 border-brand-500/40 hover:bg-brand-500/20")}>
+            <RefreshCw size={13} className={recalcBusy ? "animate-spin" : ""} />
+            {recalcBusy ? 'Recalculando…' : 'Recalcular costos'}
+          </button>
+        )}
       </div>
 
       {activeTab === 'real' && (loading ? (
