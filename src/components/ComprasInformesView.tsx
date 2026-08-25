@@ -67,6 +67,11 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
 
   // Serie completa (para evolución): total por período y precio unitario por código
   const [serie, setSerie] = useState<{ period: string; total: number; byCode: Record<string, { cantidad: number; total: number }> }[]>([]);
+  const [inflMap, setInflMap] = useState<Record<string, number>>({}); // mes 'YYYY-MM' -> % mensual (EERR)
+  const [menuHist, setMenuHist] = useState<any[]>([]);                 // menu_price_history
+  const [menuItems, setMenuItems] = useState<any[]>([]);               // menu_items (precio actual)
+  const [selCodes, setSelCodes] = useState<Set<string> | null>(null);  // artículos elegidos en Evolución
+  const [evoSearch, setEvoSearch] = useState('');
 
   // ── Carga de períodos disponibles ──────────────────────────────────────────
   const loadPeriods = useCallback(async () => {
@@ -107,7 +112,12 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
 
   // ── Serie histórica (evolución) ────────────────────────────────────────────
   const loadSerie = useCallback(async () => {
-    const { data } = await supabase.from('compras_articulos_import').select('period, code, cantidad, total');
+    const [{ data }, { data: infl }, { data: mh }, { data: mi }] = await Promise.all([
+      supabase.from('compras_articulos_import').select('period, code, cantidad, total'),
+      supabase.from('monthly_inflation').select('month, inflation_pct'),
+      supabase.from('menu_price_history').select('menu_item_id, old_price, new_price, change_date'),
+      supabase.from('menu_items').select('id, price'),
+    ]);
     const byPeriod: Record<string, { period: string; total: number; byCode: Record<string, { cantidad: number; total: number }> }> = {};
     (data as any[] || []).forEach(r => {
       const pr = r.period;
@@ -116,6 +126,11 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
       byPeriod[pr].byCode[norm(r.code)] = { cantidad: toNum(r.cantidad), total: toNum(r.total) };
     });
     setSerie(Object.values(byPeriod).sort((x, y) => x.period.localeCompare(y.period)));
+    const im: Record<string, number> = {};
+    (infl as any[] || []).forEach(r => { im[r.month] = Number(r.inflation_pct) || 0; });
+    setInflMap(im);
+    setMenuHist((mh as any[]) || []);
+    setMenuItems((mi as any[]) || []);
   }, []);
 
   useEffect(() => { if (tab === 'evolucion') loadSerie(); }, [tab, loadSerie, periods]);
@@ -356,21 +371,122 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const evoData = useMemo(() => serie.map(s => ({ name: periodLabel(s.period), Gasto: Math.round(s.total) })), [serie]);
   const topBar = useMemo(() => arts.slice(0, 12).map(a => ({ name: (a.description || a.code).slice(0, 16), Gasto: Math.round(toNum(a.total)) })), [arts]);
 
-  // Evolución de precio unitario para los artículos del top actual
+  // Descripción por código (de cualquier período), para etiquetar en Evolución
+  const descByCode = useMemo(() => {
+    const m: Record<string, string> = {};
+    arts.forEach(a => { m[norm(a.code)] = a.description || a.code; });
+    return m;
+  }, [arts]);
+
+  // Rango de análisis: primer y último período con datos
+  const span = useMemo(() => {
+    if (serie.length < 2) return null;
+    return { first: serie[0].period, last: serie[serie.length - 1].period };
+  }, [serie]);
+
+  // Factor de inflación acumulada (misma lógica que EERR): meses posteriores al base hasta el nuevo, inclusive
+  const inflationFactor = useCallback((fromMonth: string, toMonth: string): number => {
+    if (!fromMonth || !toMonth || fromMonth >= toMonth) return 1;
+    let factor = 1;
+    let [y, m] = fromMonth.split('-').map(Number);
+    const advance = () => { m++; if (m > 12) { m = 1; y++; } };
+    advance();
+    while (true) {
+      const key = `${y}-${String(m).padStart(2, '0')}`;
+      factor *= (1 + (inflMap[key] || 0) / 100);
+      if (key === toMonth) break;
+      advance();
+      if (y > 3000) break;
+    }
+    return factor;
+  }, [inflMap]);
+
+  // Inflación de compras PONDERADA por gasto (Laspeyres): pesa cada artículo por su
+  // participación en el gasto del período base -> refleja el impacto real sobre el bolsillo.
+  const comprasInfl = useMemo(() => {
+    if (!span) return null;
+    const a = serie[0].byCode, b = serie[serie.length - 1].byCode;
+    let base = 0; const items: { infl: number; w: number }[] = [];
+    for (const code in a) {
+      const A = a[code], B = b[code];
+      if (!B || A.cantidad <= 0 || B.cantidad <= 0) continue;
+      const puA = A.total / A.cantidad, puB = B.total / B.cantidad;
+      if (puA <= 0) continue;
+      base += A.total;
+      items.push({ infl: puB / puA - 1, w: A.total });
+    }
+    if (base <= 0) return null;
+    return items.reduce((s, it) => s + (it.w / base) * it.infl, 0) * 100;
+  }, [serie, span]);
+
+  const eerrInfl = useMemo(() => span ? (inflationFactor(span.first, span.last) - 1) * 100 : null, [span, inflationFactor]);
+
+  // Aumento PROMEDIO de la carta entre el inicio del primer mes y el fin del último,
+  // a partir del historial de precios de venta (menu_price_history).
+  const cartaInfl = useMemo(() => {
+    if (!span || !menuItems.length) return null;
+    const baseDate = `${span.first}-01`;
+    const [ly, lm] = span.last.split('-').map(Number);
+    const endExclusive = lm === 12 ? `${ly + 1}-01-01` : `${ly}-${String(lm + 1).padStart(2, '0')}-01`;
+    const byItem: Record<string, any[]> = {};
+    menuHist.forEach(h => { (byItem[h.menu_item_id] ||= []).push(h); });
+    Object.values(byItem).forEach(arr => arr.sort((x: any, y: any) => String(x.change_date).localeCompare(String(y.change_date))));
+    const priceAt = (id: string, dateExcl: string, fallback: number) => {
+      const arr = byItem[id];
+      if (!arr || !arr.length) return fallback;
+      let val: number | null = null;
+      for (const h of arr) { if (String(h.change_date) < dateExcl) val = Number(h.new_price); else break; }
+      if (val == null) val = Number(arr[0].old_price) || fallback;
+      return val;
+    };
+    let sum = 0, n = 0;
+    menuItems.forEach(mi => {
+      const ps = priceAt(mi.id, baseDate, Number(mi.price));
+      const pe = priceAt(mi.id, endExclusive, ps);
+      if (ps > 0) { sum += (pe / ps - 1); n++; }
+    });
+    return n ? (sum / n) * 100 : null;
+  }, [span, menuHist, menuItems]);
+
+  // Variación nominal del gasto total (primer vs último período)
+  const gastoVar = useMemo(() => {
+    if (!span) return null;
+    const a = serie[0].total, b = serie[serie.length - 1].total;
+    return a > 0 ? (b / a - 1) * 100 : null;
+  }, [serie, span]);
+
+  // Selección de artículos a mostrar en la tabla (default: top 8 por gasto del período actual)
+  const defaultSel = useMemo(() => new Set<string>(arts.slice(0, 8).map(a => norm(a.code))), [arts]);
+  const effSel: Set<string> = selCodes ?? defaultSel;
+  const toggleCode = (code: string) => {
+    const next = new Set(effSel);
+    if (next.has(code)) next.delete(code); else next.add(code);
+    setSelCodes(next);
+  };
+  const setTopSel = (n: number) => setSelCodes(new Set(arts.slice(0, n).map(a => norm(a.code))));
+
+  // Filas de la tabla de evolución (artículos seleccionados), con impacto $ sobre el gasto
   const precioEvo = useMemo(() => {
-    const top = arts.slice(0, 8).map(a => norm(a.code));
-    return top.map(code => {
+    const rows = Array.from(effSel).map(code => {
       const puntos = serie.map(s => {
         const d = s.byCode[code];
         return d && d.cantidad > 0 ? Math.round(d.total / d.cantidad) : null;
       });
-      const desc = arts.find(a => norm(a.code) === code)?.description || code;
+      const A = serie[0]?.byCode[code];
+      const L = serie[serie.length - 1]?.byCode[code];
       const first = puntos.find(v => v != null) ?? null;
       const last = [...puntos].reverse().find(v => v != null) ?? null;
       const varPct = first != null && last != null && first > 0 ? ((last - first) / first) * 100 : null;
-      return { code, desc, puntos, last, varPct };
+      // Impacto $/mes = (precio último − precio primero) × cantidad del último mes
+      const impacto = (A && L && A.cantidad > 0 && L.cantidad > 0)
+        ? ((L.total / L.cantidad) - (A.total / A.cantidad)) * L.cantidad : null;
+      return { code, desc: descByCode[code] || code, puntos, last, varPct, impacto };
     });
-  }, [arts, serie]);
+    // Ordena por impacto absoluto descendente (los que más mueven el gasto, arriba)
+    return rows.sort((a, b) => Math.abs(b.impacto ?? 0) - Math.abs(a.impacto ?? 0));
+  }, [effSel, serie, descByCode]);
+
+  const impactoTotal = useMemo(() => precioEvo.reduce((s, r) => s + (r.impacto ?? 0), 0), [precioEvo]);
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
@@ -478,6 +594,33 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
           {tab === 'evolucion' && (
             serie.length === 0 ? <EmptyState onImport={() => setTab('importar')} /> : (
               <div className="space-y-6">
+                {/* KPIs comparativos del rango cargado */}
+                {span ? (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <Kpi icon={<TrendingUp size={16} />} label="Inflación de compras" value={comprasInfl != null ? `${comprasInfl > 0 ? '+' : ''}${comprasInfl.toFixed(1)}%` : '—'} sub="ponderada por gasto" warn={comprasInfl != null && eerrInfl != null && comprasInfl > eerrInfl} />
+                      <Kpi icon={<Percent size={16} />} label="Inflación oficial (EERR)" value={eerrInfl != null ? `${eerrInfl > 0 ? '+' : ''}${eerrInfl.toFixed(1)}%` : '— sin carga'} sub="acumulada del período" />
+                      <Kpi icon={<DollarSign size={16} />} label="Aumento de carta" value={cartaInfl != null ? `${cartaInfl > 0 ? '+' : ''}${cartaInfl.toFixed(1)}%` : '— sin datos'} sub="precios de venta (prom.)" />
+                      <Kpi icon={<ShoppingCart size={16} />} label="Gasto total" value={gastoVar != null ? `${gastoVar > 0 ? '+' : ''}${gastoVar.toFixed(1)}%` : '—'} sub="nominal, primer vs último" />
+                    </div>
+                    {/* Veredicto */}
+                    {comprasInfl != null && (
+                      <div className={cn('rounded-xl px-4 py-3 border text-[11px] font-bold flex items-start gap-2',
+                        (eerrInfl != null && comprasInfl > eerrInfl) || (cartaInfl != null && comprasInfl > cartaInfl)
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-600' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600')}>
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+                        <span>
+                          {periodLabel(span.first)} → {periodLabel(span.last)}: nuestras compras subieron <b>{comprasInfl.toFixed(1)}%</b>
+                          {eerrInfl != null && <> vs inflación oficial <b>{eerrInfl.toFixed(1)}%</b> ({comprasInfl > eerrInfl ? `compramos ${(comprasInfl - eerrInfl).toFixed(1)} pts por encima` : `${(eerrInfl - comprasInfl).toFixed(1)} pts por debajo`})</>}
+                          {cartaInfl != null && <> · carta subió <b>{cartaInfl.toFixed(1)}%</b> ({comprasInfl > cartaInfl ? 'el costo sube más rápido que el precio de venta — presiona el margen' : 'la carta acompaña el costo'})</>}.
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-xl px-4 py-3 border border-border-dim bg-bg-sidebar text-[11px] text-text-dim font-bold">Cargá al menos 2 meses para ver inflación y comparativas.</div>
+                )}
+
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
                   <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-4">Gasto total de compras · mes a mes</h3>
                   <div className="h-64">
@@ -494,8 +637,40 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                 </div>
 
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
-                  <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-1">Precio unitario por artículo · evolución</h3>
-                  <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Precio = total ÷ cantidad de cada mes · top 8 por gasto del período actual</p>
+                  <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Precio unitario por artículo · evolución</h3>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] font-black uppercase text-text-dim mr-1">Elegir top</span>
+                      {[8, 15, 25, 50].map(n => (
+                        <button key={n} onClick={() => setTopSel(n)} className="px-2 py-1 rounded text-[9px] font-black uppercase bg-bg-accent border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500">{n}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[9px] text-text-dim font-bold uppercase mb-3">Precio = total ÷ cantidad de cada mes · {effSel.size} artículo(s) · ordenado por impacto en el gasto</p>
+
+                  {/* Selector de artículos */}
+                  <details className="mb-4 group">
+                    <summary className="cursor-pointer text-[10px] font-black uppercase text-brand-500 select-none flex items-center gap-1">
+                      <Package size={13} /> Elegir artículos a analizar ({effSel.size})
+                    </summary>
+                    <div className="mt-3 border border-border-dim rounded-lg p-3 bg-bg-accent/40">
+                      <input value={evoSearch} onChange={e => setEvoSearch(e.target.value)} placeholder="Buscar artículo…"
+                        className="w-full bg-bg-sidebar border border-border-dim rounded-md px-3 py-2 text-[11px] font-bold mb-3" />
+                      <div className="max-h-60 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                        {arts.filter(a => { const q = evoSearch.trim().toLowerCase(); return !q || (a.description || '').toLowerCase().includes(q) || norm(a.code).includes(q); }).map(a => {
+                          const code = norm(a.code); const on = effSel.has(code);
+                          return (
+                            <label key={code} className="flex items-center gap-2 py-1 cursor-pointer text-[11px]">
+                              <input type="checkbox" checked={on} onChange={() => toggleCode(code)} className="accent-brand-500" />
+                              <span className={cn('font-bold uppercase truncate', on ? 'text-text-main' : 'text-text-dim')}>{a.description || code}</span>
+                              <span className="ml-auto text-[9px] font-mono text-text-dim shrink-0">{fmt(toNum(a.total))}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </details>
+
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
@@ -503,6 +678,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                           <th className="px-3 py-2">Artículo</th>
                           {serie.map(s => <th key={s.period} className="px-3 py-2 text-right">{periodLabel(s.period)}</th>)}
                           <th className="px-3 py-2 text-right">Var. total</th>
+                          <th className="px-3 py-2 text-right">Impacto $/mes</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border-dim">
@@ -515,12 +691,23 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                                 <span className={row.varPct > 0 ? 'text-red-500' : 'text-emerald-500'}>{row.varPct > 0 ? '+' : ''}{row.varPct.toFixed(1)}%</span>
                               ) : <span className="text-text-dim">—</span>}
                             </td>
+                            <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">
+                              {row.impacto != null ? (
+                                <span className={row.impacto > 0 ? 'text-red-500' : 'text-emerald-500'}>{row.impacto > 0 ? '+' : ''}{fmt(row.impacto)}</span>
+                              ) : <span className="text-text-dim">—</span>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot>
+                        <tr className="text-[11px] font-black border-t-2 border-border-dim">
+                          <td className="px-3 py-2.5 uppercase text-brand-500" colSpan={serie.length + 2}>Impacto total sobre el gasto (seleccionados)</td>
+                          <td className="px-3 py-2.5 text-right font-mono tabular-nums"><span className={impactoTotal > 0 ? 'text-red-500' : 'text-emerald-500'}>{impactoTotal > 0 ? '+' : ''}{fmt(impactoTotal)}</span></td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
-                  <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Variación = último mes vs primer mes con datos. Rojo = se encareció.</p>
+                  <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Var. = último vs primer mes con datos. Impacto $/mes = (precio último − precio primero) × cantidad del último mes: cuánto pesa ese cambio de precio en el gasto real. Rojo = encarece / cuesta más.</p>
                 </div>
               </div>
             )
