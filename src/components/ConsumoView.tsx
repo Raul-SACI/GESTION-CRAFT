@@ -54,9 +54,12 @@ export default function ConsumoView({
 
   // Pestaña: CMV Real (carga de existencias/compras) o CMV Teórico (ranking × receta costeada)
   const [activeTab, setActiveTab] = useState<'real' | 'teorico'>('real');
-  const [teorico, setTeorico] = useState<{ loading: boolean; total: number; netSales: number; rows: any[]; sinCosto: number; sinMatch: number }>(
-    { loading: false, total: 0, netSales: 0, rows: [], sinCosto: 0, sinMatch: 0 }
+  const [teoVista, setTeoVista] = useState<'plato' | 'insumo'>('plato'); // desglose del CMV teórico
+  const [teorico, setTeorico] = useState<{ loading: boolean; total: number; netSales: number; rows: any[]; insumoRows: any[]; insumoTotal: number; sinCosto: number; sinMatch: number }>(
+    { loading: false, total: 0, netSales: 0, rows: [], insumoRows: [], insumoTotal: 0, sinCosto: 0, sinMatch: 0 }
   );
+  // CMV Teórico consolidado (todas las sucursales) para la vista CONSOLIDADO
+  const [teoConsol, setTeoConsol] = useState<{ loading: boolean; rows: any[] }>({ loading: false, rows: [] });
 
   const branchKey = selectedBranchId === 'all' ? branches[0]?.id || 'all' : selectedBranchId;
 
@@ -211,11 +214,14 @@ export default function ConsumoView({
       try {
         const [ty, tm] = selectedMonth.split('-').map(Number);
         const lastDay = new Date(ty, tm, 0).getDate();
-        const [{ data: rank }, { data: prods }, { data: aliasData }, { data: salesData }] = await Promise.all([
+        const [{ data: rank }, { data: prods }, { data: aliasData }, { data: salesData }, { data: recipesData }, { data: sitems }, { data: rmasters }] = await Promise.all([
           supabase.from('product_rankings').select('product_code, product_name, quantity').eq('branch_id', branchKey).eq('month', selectedMonth),
           supabase.from('products').select('id, name, code, cost'),
           supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore'),
           supabase.from('sales').select('net_sales').eq('branch_id', branchKey).gte('date', `${selectedMonth}-01`).lte('date', `${selectedMonth}-${String(lastDay).padStart(2, '0')}`),
+          supabase.from('recipes').select('product_id, item_id, quantity'),
+          supabase.from('stock_items').select('id, name, unit, cost'),
+          supabase.from('recipe_masters').select('id, name, unit, cost'),
         ]);
         const norm = (s: any) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
         const normCode = (c: any) => String(c ?? '').trim();
@@ -223,6 +229,12 @@ export default function ConsumoView({
         (prods || []).forEach((p: any) => { if (normCode(p.code) !== '') byCode[normCode(p.code)] = p; if (p.name) byName[norm(p.name)] = p; byId[p.id] = p; });
         const aliasToId: Record<string, string> = {}; const ignore = new Set<string>();
         (aliasData || []).forEach((a: any) => { if (!a.alias_name) return; if (a.ignore) { ignore.add(norm(a.alias_name)); return; } if (a.product_id) aliasToId[norm(a.alias_name)] = a.product_id; });
+        // Recetas (producto -> componentes) y costo/nombre por id de componente (insumo o sub-receta).
+        const recByProduct: Record<string, Array<{ itemId: string; quantity: number }>> = {};
+        (recipesData || []).forEach((r: any) => { if (!r.product_id || !r.item_id) return; (recByProduct[r.product_id] = recByProduct[r.product_id] || []).push({ itemId: r.item_id, quantity: Number(r.quantity) || 0 }); });
+        const compById: Record<string, { name: string; unit: string; cost: number }> = {};
+        (sitems || []).forEach((s: any) => { compById[s.id] = { name: s.name, unit: s.unit || '', cost: Number(s.cost) || 0 }; });
+        (rmasters || []).forEach((m: any) => { compById[m.id] = { name: m.name, unit: m.unit || '', cost: Number(m.cost) || 0 }; });
         // Agrupar el ranking por producto (mismo plato puede venir en varias líneas/semanas).
         const agg: Record<string, { code: string; name: string; qty: number }> = {};
         (rank || []).forEach((r: any) => {
@@ -231,6 +243,7 @@ export default function ConsumoView({
           agg[k].qty += Number(r.quantity) || 0;
         });
         const rows: any[] = []; let total = 0, sinCosto = 0, sinMatch = 0;
+        const byInsumo: Record<string, { name: string; unit: string; qty: number; cost: number }> = {};
         Object.values(agg).forEach((a) => {
           const p = (a.code !== '' && byCode[a.code]) || (aliasToId[norm(a.name)] && byId[aliasToId[norm(a.name)]]) || byName[norm(a.name)];
           if (!p) {
@@ -240,10 +253,20 @@ export default function ConsumoView({
           const cost = Number(p.cost) || 0; const subtotal = a.qty * cost; total += subtotal;
           if (cost <= 0) sinCosto++;
           rows.push({ name: p.name || a.name, code: p.code || a.code, qty: a.qty, cost, subtotal, flag: cost > 0 ? 'ok' : 'sincosto' });
+          // Desglose a insumo: repartir la cantidad vendida por la receta del producto.
+          (recByProduct[p.id] || []).forEach((c) => {
+            const info = compById[c.itemId] || { name: c.itemId, unit: '', cost: 0 };
+            const b = (byInsumo[c.itemId] = byInsumo[c.itemId] || { name: info.name, unit: info.unit, qty: 0, cost: info.cost });
+            b.qty += a.qty * c.quantity;
+          });
         });
         rows.sort((x, y) => y.subtotal - x.subtotal);
+        const insumoRows = Object.values(byInsumo)
+          .map((b) => ({ ...b, subtotal: b.qty * b.cost }))
+          .sort((x, y) => y.subtotal - x.subtotal);
+        const insumoTotal = insumoRows.reduce((s, r) => s + r.subtotal, 0);
         const netSales = (salesData || []).reduce((s: number, x: any) => s + (Number(x.net_sales) || 0), 0);
-        if (active) setTeorico({ loading: false, total, netSales, rows, sinCosto, sinMatch });
+        if (active) setTeorico({ loading: false, total, netSales, rows, insumoRows, insumoTotal, sinCosto, sinMatch });
       } catch (e) {
         console.error('Error calculando CMV teórico:', e);
         if (active) setTeorico(t => ({ ...t, loading: false }));
@@ -251,6 +274,53 @@ export default function ConsumoView({
     })();
     return () => { active = false; };
   }, [activeTab, branchKey, selectedMonth]);
+
+  // CMV Teórico CONSOLIDADO: una fila por sucursal (teórico vs real vs diferencia).
+  useEffect(() => {
+    if (activeTab !== 'teorico' || selectedBranchId !== 'all') return;
+    let active = true;
+    (async () => {
+      setTeoConsol({ loading: true, rows: [] });
+      try {
+        const realBranches = branches.filter(b => b.id !== 'all' && (b as any).id !== 'virtual');
+        const [{ data: rank }, { data: prods }, { data: aliasData }, { data: cmvRows }] = await Promise.all([
+          supabase.from('product_rankings').select('branch_id, product_code, product_name, quantity').eq('month', selectedMonth),
+          supabase.from('products').select('id, name, code, cost'),
+          supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore'),
+          supabase.from('cmv_monthly').select('branch_id, cmv_amount').eq('month', selectedMonth),
+        ]);
+        const norm = (s: any) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+        const normCode = (c: any) => String(c ?? '').trim();
+        const byCode: Record<string, any> = {}, byName: Record<string, any> = {}, byId: Record<string, any> = {};
+        (prods || []).forEach((p: any) => { if (normCode(p.code) !== '') byCode[normCode(p.code)] = p; if (p.name) byName[norm(p.name)] = p; byId[p.id] = p; });
+        const aliasToId: Record<string, string> = {}; const ignore = new Set<string>();
+        (aliasData || []).forEach((a: any) => { if (!a.alias_name) return; if (a.ignore) { ignore.add(norm(a.alias_name)); return; } if (a.product_id) aliasToId[norm(a.alias_name)] = a.product_id; });
+        const resolve = (code: string, name: string) => (code !== '' && byCode[code]) || (aliasToId[norm(name)] && byId[aliasToId[norm(name)]]) || byName[norm(name)];
+        // Ranking agrupado por sucursal + producto.
+        const byBranch: Record<string, Record<string, { code: string; name: string; qty: number }>> = {};
+        (rank || []).forEach((r: any) => {
+          const bag = (byBranch[r.branch_id] = byBranch[r.branch_id] || {});
+          const k = normCode(r.product_code) + '|' + norm(r.product_name);
+          if (!bag[k]) bag[k] = { code: normCode(r.product_code), name: r.product_name, qty: 0 };
+          bag[k].qty += Number(r.quantity) || 0;
+        });
+        const realByBranch: Record<string, number> = {};
+        (cmvRows || []).forEach((c: any) => { realByBranch[c.branch_id] = Number(c.cmv_amount) || 0; });
+        const rows = realBranches.map((b) => {
+          const agg = byBranch[b.id] || {};
+          let teo = 0;
+          Object.values(agg).forEach((a) => { const p = resolve(a.code, a.name); if (p) teo += a.qty * (Number(p.cost) || 0); });
+          const real = (b.id in realByBranch) ? realByBranch[b.id] : null;
+          return { branchId: b.id, branchName: b.name, teo, real, diff: real != null ? real - teo : null };
+        });
+        if (active) setTeoConsol({ loading: false, rows });
+      } catch (e) {
+        console.error('Error CMV teórico consolidado:', e);
+        if (active) setTeoConsol({ loading: false, rows: [] });
+      }
+    })();
+    return () => { active = false; };
+  }, [activeTab, selectedBranchId, selectedMonth, branches]);
 
   const addPurchase = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -551,10 +621,55 @@ export default function ConsumoView({
 
       {activeTab === 'teorico' && (
         selectedBranchId === 'all' ? (
-          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-8 text-center">
-            <p className="text-[11px] font-black uppercase text-text-dim tracking-wider">Elegí una sucursal para ver su CMV Teórico</p>
-            <p className="text-[9px] text-text-dim/70 font-bold uppercase mt-1">Se calcula con el ranking de ventas y las recetas costeadas de esa sucursal</p>
-          </div>
+          teoConsol.loading ? (
+            <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-500" size={32} /></div>
+          ) : (() => {
+            const fmt = (n: number) => '$' + Math.round(n).toLocaleString('es-AR');
+            const tTeo = teoConsol.rows.reduce((s, r) => s + (r.teo || 0), 0);
+            const tReal = teoConsol.rows.reduce((s, r) => s + (r.real || 0), 0);
+            const tDiff = tReal - tTeo;
+            return (
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+                <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-1">CMV Teórico Consolidado por Sucursal</h3>
+                <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Teórico (ranking × receta) vs Real (carga del módulo) · {selectedMonth}</p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                        <th className="px-3 py-2">Sucursal</th>
+                        <th className="px-3 py-2 text-right">CMV Teórico</th>
+                        <th className="px-3 py-2 text-right">CMV Real</th>
+                        <th className="px-3 py-2 text-right">Diferencia (Real − Teó.)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border-dim">
+                      {teoConsol.rows.map(r => (
+                        <tr key={r.branchId} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                          <td className="px-3 py-2.5 font-black uppercase text-text-main">{r.branchName}</td>
+                          <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{fmt(r.teo)}</td>
+                          <td className="px-3 py-2.5 text-right font-mono tabular-nums">{r.real != null ? fmt(r.real) : <span className="text-text-dim">— sin carga</span>}</td>
+                          <td className="px-3 py-2.5 text-right font-mono font-bold tabular-nums">
+                            {r.diff != null
+                              ? <span className={r.diff > 0 ? 'text-red-500' : 'text-emerald-500'}>{r.diff > 0 ? '+' : ''}{fmt(r.diff)}</span>
+                              : <span className="text-text-dim">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="text-[11px] font-black border-t-2 border-border-dim">
+                        <td className="px-3 py-2.5 uppercase text-brand-500">Total consolidado</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{fmt(tTeo)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{fmt(tReal)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono tabular-nums"><span className={tDiff > 0 ? 'text-red-500' : 'text-emerald-500'}>{tDiff > 0 ? '+' : ''}{fmt(tDiff)}</span></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">El CMV real sale de lo guardado en cada sucursal (Cerrar mes). Elegí una sucursal para ver el detalle por producto e insumo.</p>
+              </div>
+            );
+          })()
         ) : teorico.loading ? (
           <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-brand-500" size={32} /></div>
         ) : (() => {
@@ -602,52 +717,100 @@ export default function ConsumoView({
                 </div>
               )}
 
-              {/* Detalle por producto */}
+              {/* Detalle: por plato o por insumo */}
               <div className="bg-bg-sidebar border border-border-dim rounded-xl overflow-hidden shadow-sm">
-                <div className="px-5 py-3 border-b border-border-dim/60 flex items-center justify-between">
-                  <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Detalle · producto × receta</h3>
-                  <span className="text-[9px] font-mono text-text-dim">{teorico.rows.length} producto(s) · {selectedMonth}</span>
+                <div className="px-5 py-3 border-b border-border-dim/60 flex items-center justify-between flex-wrap gap-3">
+                  <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider">Detalle · {teoVista === 'plato' ? 'producto × receta' : 'consumo por insumo'}</h3>
+                  <div className="flex items-center gap-3">
+                    <div className="flex gap-1 p-0.5 bg-bg-accent border border-border-dim rounded-md">
+                      {([['plato', 'Por plato'], ['insumo', 'Por insumo']] as const).map(([k, l]) => (
+                        <button key={k} onClick={() => setTeoVista(k)}
+                          className={cn("px-3 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all",
+                            teoVista === k ? "bg-brand-500 text-black" : "text-text-dim hover:text-text-main")}>{l}</button>
+                      ))}
+                    </div>
+                    <span className="text-[9px] font-mono text-text-dim">{(teoVista === 'plato' ? teorico.rows.length : teorico.insumoRows.length)} · {selectedMonth}</span>
+                  </div>
                 </div>
                 <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
-                  <table className="w-full text-left">
-                    <thead className="sticky top-0 bg-bg-sidebar">
-                      <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
-                        <th className="px-4 py-2.5">Producto</th>
-                        <th className="px-3 py-2.5">Código</th>
-                        <th className="px-3 py-2.5 text-right">Cant. vendida</th>
-                        <th className="px-3 py-2.5 text-right">Costo receta</th>
-                        <th className="px-4 py-2.5 text-right">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border-dim/60">
-                      {teorico.rows.map((r, i) => (
-                        <tr key={i} className="text-[11px] hover:bg-bg-accent/30">
-                          <td className="px-4 py-2.5 font-bold text-text-main">{r.name}</td>
-                          <td className="px-3 py-2.5 font-mono text-text-dim">{r.code || '—'}</td>
-                          <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{r.qty.toLocaleString('es-AR')}</td>
-                          <td className="px-3 py-2.5 text-right font-mono tabular-nums">
-                            {r.flag === 'sinmatch'
-                              ? <span className="text-red-500 font-bold">sin producto</span>
-                              : r.flag === 'sincosto'
-                                ? <span className="text-amber-600 font-bold">costo 0</span>
-                                : <span className="text-text-dim">{fmt(r.cost)}</span>}
-                          </td>
-                          <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-500 tabular-nums">{fmt(r.subtotal)}</td>
+                  {teoVista === 'plato' ? (
+                    <table className="w-full text-left">
+                      <thead className="sticky top-0 bg-bg-sidebar">
+                        <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                          <th className="px-4 py-2.5">Producto</th>
+                          <th className="px-3 py-2.5">Código</th>
+                          <th className="px-3 py-2.5 text-right">Cant. vendida</th>
+                          <th className="px-3 py-2.5 text-right">Costo receta</th>
+                          <th className="px-4 py-2.5 text-right">Subtotal</th>
                         </tr>
-                      ))}
-                      {teorico.rows.length === 0 && (
-                        <tr><td colSpan={5} className="px-4 py-10 text-center text-[10px] font-bold uppercase text-text-dim">No hay ranking de ventas cargado para este mes.</td></tr>
-                      )}
-                    </tbody>
-                    <tfoot>
-                      <tr className="text-[12px] font-black border-t-2 border-border-dim bg-bg-accent/30">
-                        <td className="px-4 py-3 uppercase text-brand-500" colSpan={4}>CMV Teórico total</td>
-                        <td className="px-4 py-3 text-right font-mono text-text-main">{fmt(teorico.total)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/60">
+                        {teorico.rows.map((r, i) => (
+                          <tr key={i} className="text-[11px] hover:bg-bg-accent/30">
+                            <td className="px-4 py-2.5 font-bold text-text-main">{r.name}</td>
+                            <td className="px-3 py-2.5 font-mono text-text-dim">{r.code || '—'}</td>
+                            <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{r.qty.toLocaleString('es-AR')}</td>
+                            <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                              {r.flag === 'sinmatch'
+                                ? <span className="text-red-500 font-bold">sin producto</span>
+                                : r.flag === 'sincosto'
+                                  ? <span className="text-amber-600 font-bold">costo 0</span>
+                                  : <span className="text-text-dim">{fmt(r.cost)}</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-500 tabular-nums">{fmt(r.subtotal)}</td>
+                          </tr>
+                        ))}
+                        {teorico.rows.length === 0 && (
+                          <tr><td colSpan={5} className="px-4 py-10 text-center text-[10px] font-bold uppercase text-text-dim">No hay ranking de ventas cargado para este mes.</td></tr>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[12px] font-black border-t-2 border-border-dim bg-bg-accent/30">
+                          <td className="px-4 py-3 uppercase text-brand-500" colSpan={4}>CMV Teórico total</td>
+                          <td className="px-4 py-3 text-right font-mono text-text-main">{fmt(teorico.total)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  ) : (
+                    <table className="w-full text-left">
+                      <thead className="sticky top-0 bg-bg-sidebar">
+                        <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                          <th className="px-4 py-2.5">Insumo</th>
+                          <th className="px-3 py-2.5">Unidad</th>
+                          <th className="px-3 py-2.5 text-right">Consumo teórico</th>
+                          <th className="px-3 py-2.5 text-right">Costo unit.</th>
+                          <th className="px-4 py-2.5 text-right">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border-dim/60">
+                        {teorico.insumoRows.map((r, i) => (
+                          <tr key={i} className="text-[11px] hover:bg-bg-accent/30">
+                            <td className="px-4 py-2.5 font-bold text-text-main">{r.name}</td>
+                            <td className="px-3 py-2.5 font-mono text-text-dim uppercase">{r.unit || '—'}</td>
+                            <td className="px-3 py-2.5 text-right font-mono text-text-main tabular-nums">{(Math.round(r.qty * 1000) / 1000).toLocaleString('es-AR')}</td>
+                            <td className="px-3 py-2.5 text-right font-mono tabular-nums">
+                              {r.cost > 0 ? <span className="text-text-dim">{fmt(r.cost)}</span> : <span className="text-amber-600 font-bold">costo 0</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-500 tabular-nums">{fmt(r.subtotal)}</td>
+                          </tr>
+                        ))}
+                        {teorico.insumoRows.length === 0 && (
+                          <tr><td colSpan={5} className="px-4 py-10 text-center text-[10px] font-bold uppercase text-text-dim">No hay recetas cargadas para descomponer las ventas en insumos.</td></tr>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="text-[12px] font-black border-t-2 border-border-dim bg-bg-accent/30">
+                          <td className="px-4 py-3 uppercase text-brand-500" colSpan={4}>Total por insumo</td>
+                          <td className="px-4 py-3 text-right font-mono text-text-main">{fmt(teorico.insumoTotal)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  )}
                 </div>
               </div>
+              {teoVista === 'insumo' && Math.abs(teorico.insumoTotal - teorico.total) > Math.max(1, teorico.total * 0.01) && (
+                <p className="text-[9px] text-amber-600 font-bold uppercase">El total por insumo ({fmt(teorico.insumoTotal)}) difiere del total por plato ({fmt(teorico.total)}): suele pasar con productos de reventa (sin receta de insumos) o recetas incompletas.</p>
+              )}
               <p className="text-[9px] text-text-dim/70 font-bold uppercase">El costo de cada receta se mantiene con "Recalcular costos". El CMV real depende de tener cargadas EI/EF y compras del mes.</p>
             </div>
           );
