@@ -77,8 +77,18 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
 
   // ── Carga de períodos disponibles ──────────────────────────────────────────
   const loadPeriods = useCallback(async () => {
-    const { data } = await supabase.from('compras_articulos_import').select('period');
-    const uniq = Array.from(new Set((data as any[] || []).map(r => r.period))).sort().reverse();
+    // Paginar: Supabase devuelve máx. 1000 filas por consulta y con ~210 art/mes
+    // se superan enseguida, lo que hacía desaparecer meses del selector.
+    const all: any[] = [];
+    const size = 1000; let pg = 0;
+    while (pg < 500) {
+      const { data } = await supabase.from('compras_articulos_import').select('period').range(pg * size, pg * size + size - 1);
+      const rows = (data as any[]) || [];
+      all.push(...rows);
+      if (rows.length < size) break;
+      pg++;
+    }
+    const uniq = Array.from(new Set(all.map(r => r.period))).sort().reverse();
     setPeriods(uniq);
     if (uniq.length && !uniq.includes(period)) setPeriod(uniq[0]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,8 +124,18 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
 
   // ── Serie histórica (evolución) ────────────────────────────────────────────
   const loadSerie = useCallback(async () => {
-    const [{ data }, { data: infl }, { data: mh }, { data: mi }] = await Promise.all([
-      supabase.from('compras_articulos_import').select('period, code, cantidad, total'),
+    // Paginar compras_articulos_import (puede superar 1000 filas con varios meses)
+    const data: any[] = [];
+    { const size = 1000; let pg = 0;
+      while (pg < 500) {
+        const { data: chunk } = await supabase.from('compras_articulos_import').select('period, code, cantidad, total').range(pg * size, pg * size + size - 1);
+        const rows = (chunk as any[]) || [];
+        data.push(...rows);
+        if (rows.length < size) break;
+        pg++;
+      }
+    }
+    const [{ data: infl }, { data: mh }, { data: mi }] = await Promise.all([
       supabase.from('monthly_inflation').select('month, inflation_pct'),
       supabase.from('menu_price_history').select('menu_item_id, old_price, new_price, change_date'),
       supabase.from('menu_items').select('id, price, menu_type'),
