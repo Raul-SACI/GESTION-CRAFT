@@ -16,7 +16,7 @@ import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react
 import { motion } from 'motion/react';
 import {
   ShoppingCart, Upload, Loader2, TrendingUp, TrendingDown, AlertTriangle,
-  Trash2, Plus, CheckCircle2, Package, Percent, Building2, DollarSign, RefreshCw
+  Trash2, Plus, CheckCircle2, Package, Percent, Building2, DollarSign, RefreshCw, Receipt
 } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
@@ -73,6 +73,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const [selCodes, setSelCodes] = useState<Set<string> | null>(null);  // artículos elegidos en Evolución
   const [evoSearch, setEvoSearch] = useState('');
   const [showInflDetail, setShowInflDetail] = useState(false);
+  const [ticketsByMonth, setTicketsByMonth] = useState<Record<string, { orders: number; covers: number }>>({}); // ventas: comandas y cubiertos por mes
 
   // ── Carga de períodos disponibles ──────────────────────────────────────────
   const loadPeriods = useCallback(async () => {
@@ -126,12 +127,37 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
       byPeriod[pr].total += toNum(r.total);
       byPeriod[pr].byCode[norm(r.code)] = { cantidad: toNum(r.cantidad), total: toNum(r.total) };
     });
+    const seriePeriods = Object.keys(byPeriod).sort();
     setSerie(Object.values(byPeriod).sort((x, y) => x.period.localeCompare(y.period)));
     const im: Record<string, number> = {};
     (infl as any[] || []).forEach(r => { im[r.month] = Number(r.inflation_pct) || 0; });
     setInflMap(im);
     setMenuHist((mh as any[]) || []);
     setMenuItems((mi as any[]) || []);
+
+    // Tickets/cubiertos por mes desde el módulo de Ventas (tabla sales, diaria, todas las sucursales)
+    const tk: Record<string, { orders: number; covers: number }> = {};
+    if (seriePeriods.length) {
+      const first = seriePeriods[0];
+      const last = seriePeriods[seriePeriods.length - 1];
+      const [ly, lm] = last.split('-').map(Number);
+      const endExclusive = lm === 12 ? `${ly + 1}-01-01` : `${ly}-${String(lm + 1).padStart(2, '0')}-01`;
+      const size = 1000; let pg = 0;
+      while (pg < 200) {
+        const { data: sv } = await supabase.from('sales').select('date, orders, covers')
+          .gte('date', `${first}-01`).lt('date', endExclusive).range(pg * size, pg * size + size - 1);
+        const rows = (sv as any[]) || [];
+        rows.forEach(r => {
+          const m = String(r.date).slice(0, 7);
+          if (!tk[m]) tk[m] = { orders: 0, covers: 0 };
+          tk[m].orders += Number(r.orders) || 0;
+          tk[m].covers += Number(r.covers) || 0;
+        });
+        if (rows.length < size) break;
+        pg++;
+      }
+    }
+    setTicketsByMonth(tk);
   }, []);
 
   useEffect(() => { if (tab === 'evolucion') loadSerie(); }, [tab, loadSerie, periods]);
@@ -463,6 +489,24 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
     return (bReal / a - 1) * 100;
   }, [serie, span, eerrInfl]);
 
+  // Compras vs Ventas: gasto, tickets (comandas) y compras por ticket por mes
+  const comprasVsVentas = useMemo(() => {
+    const rows = serie.map(s => {
+      const tk = ticketsByMonth[s.period];
+      const tickets = tk ? tk.orders : null;
+      const cpt = tickets && tickets > 0 ? s.total / tickets : null;
+      return { period: s.period, gasto: s.total, tickets, covers: tk ? tk.covers : null, cpt };
+    });
+    const hayTickets = rows.some(r => r.tickets != null && r.tickets > 0);
+    if (!span || !hayTickets) return { rows, hayTickets, ticketsVar: null as number | null, cptVarNom: null as number | null, cptVarReal: null as number | null };
+    const f = rows[0], l = rows[rows.length - 1];
+    const ticketsVar = f.tickets && l.tickets && f.tickets > 0 ? (l.tickets / f.tickets - 1) * 100 : null;
+    const cptVarNom = f.cpt && l.cpt && f.cpt > 0 ? (l.cpt / f.cpt - 1) * 100 : null;
+    const cptVarReal = (cptVarNom != null && eerrInfl != null && l.cpt && f.cpt)
+      ? ((l.cpt / (1 + eerrInfl / 100)) / f.cpt - 1) * 100 : null;
+    return { rows, hayTickets, ticketsVar, cptVarNom, cptVarReal };
+  }, [serie, ticketsByMonth, span, eerrInfl]);
+
   // Selección de artículos a mostrar en la tabla (default: top 8 por gasto del período actual)
   const defaultSel = useMemo(() => new Set<string>(arts.slice(0, 8).map(a => norm(a.code))), [arts]);
   const effSel: Set<string> = selCodes ?? defaultSel;
@@ -628,6 +672,59 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
                   </>
                 ) : (
                   <div className="rounded-xl px-4 py-3 border border-border-dim bg-bg-sidebar text-[11px] text-text-dim font-bold">Cargá al menos 2 meses para ver inflación y comparativas.</div>
+                )}
+
+                {/* Compras vs Ventas: ¿la caída del gasto se explica por menos ventas? */}
+                {comprasVsVentas.hayTickets ? (
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+                    <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-1">Compras vs Ventas · ¿la caída se justifica?</h3>
+                    <p className="text-[9px] text-text-dim font-bold uppercase mb-4">Tickets (comandas) del módulo de Ventas · compras por ticket</p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                      <Kpi icon={<Receipt size={16} />} label="Tickets (comandas)" value={comprasVsVentas.ticketsVar != null ? `${comprasVsVentas.ticketsVar > 0 ? '+' : ''}${comprasVsVentas.ticketsVar.toFixed(1)}%` : '—'} sub="variación primer vs último" />
+                      <Kpi icon={<ShoppingCart size={16} />} label="Compras / ticket (nominal)" value={comprasVsVentas.cptVarNom != null ? `${comprasVsVentas.cptVarNom > 0 ? '+' : ''}${comprasVsVentas.cptVarNom.toFixed(1)}%` : '—'} sub="gasto ÷ tickets" />
+                      <Kpi icon={<TrendingDown size={16} />} label="Compras / ticket (real)" value={comprasVsVentas.cptVarReal != null ? `${comprasVsVentas.cptVarReal > 0 ? '+' : ''}${comprasVsVentas.cptVarReal.toFixed(1)}%` : '— sin inflación'} sub="deflactado por inflación" warn={comprasVsVentas.cptVarReal != null && comprasVsVentas.cptVarReal > 0} />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                            <th className="px-3 py-2">Mes</th>
+                            <th className="px-3 py-2 text-right">Gasto compras</th>
+                            <th className="px-3 py-2 text-right">Tickets</th>
+                            <th className="px-3 py-2 text-right">Compras / ticket</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border-dim">
+                          {comprasVsVentas.rows.map(r => (
+                            <tr key={r.period} className="text-[11px] font-medium hover:bg-bg-accent/30">
+                              <td className="px-3 py-2 font-bold uppercase text-text-main">{periodLabel(r.period)}</td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums">{fmt(r.gasto)}</td>
+                              <td className="px-3 py-2 text-right font-mono tabular-nums">{r.tickets != null ? Math.round(r.tickets).toLocaleString('es-AR') : <span className="text-amber-500">sin datos</span>}</td>
+                              <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">{r.cpt != null ? fmt(r.cpt) : <span className="text-text-dim">—</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Veredicto compras vs ventas */}
+                    {gastoVar != null && comprasVsVentas.ticketsVar != null && (
+                      <div className="mt-4 rounded-lg px-4 py-3 border border-border-dim bg-bg-accent/40 text-[11px] font-bold text-text-main flex items-start gap-2">
+                        <AlertTriangle size={15} className="mt-0.5 shrink-0 text-brand-500" />
+                        <span>
+                          El gasto {gastoVar < 0 ? 'cayó' : 'subió'} <b>{Math.abs(gastoVar).toFixed(1)}%</b> nominal y los tickets {comprasVsVentas.ticketsVar < 0 ? 'cayeron' : 'subieron'} <b>{Math.abs(comprasVsVentas.ticketsVar).toFixed(1)}%</b>.{' '}
+                          {comprasVsVentas.cptVarReal != null ? (
+                            comprasVsVentas.cptVarReal < -3
+                              ? <>La compra por ticket bajó <b>{Math.abs(comprasVsVentas.cptVarReal).toFixed(1)}%</b> en términos reales: gastás menos por venta (mejor eficiencia de compra o menor stock; revisar que no falte mercadería).</>
+                              : comprasVsVentas.cptVarReal > 3
+                                ? <>La compra por ticket subió <b>{comprasVsVentas.cptVarReal.toFixed(1)}%</b> real: gastás más por cada venta (control de precios o desperdicio).</>
+                                : <>La compra por ticket quedó estable en términos reales: la variación del gasto se explica casi toda por el cambio en la cantidad de ventas.</>
+                          ) : <>Cargá la inflación para ver la compra por ticket en términos reales.</>}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl px-4 py-3 border border-border-dim bg-bg-sidebar text-[11px] text-text-dim font-bold">Compras vs Ventas: no encontré tickets cargados en el módulo de Ventas para este rango.</div>
                 )}
 
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
