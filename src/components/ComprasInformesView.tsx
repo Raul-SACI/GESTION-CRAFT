@@ -173,6 +173,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const importArticulos = async (file: File) => {
     if (isReadOnly) { alert('Tu rol es de SOLO LECTURA.'); return; }
     if (!impPeriod) { setMsg({ kind: 'err', text: 'Elegí el mes del reporte antes de importar.' }); return; }
+    if (!window.confirm(`¿Subir el RANKING DE ARTÍCULOS para ${periodLabel(impPeriod)}?\n\nArchivo: ${file.name}\nSi ese mes ya tenía datos, se reemplazan.`)) return;
     setBusy(true); setMsg(null);
     try {
       const rows = await readSheet(file);
@@ -220,6 +221,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
   const importProveedores = async (file: File) => {
     if (isReadOnly) { alert('Tu rol es de SOLO LECTURA.'); return; }
     if (!impPeriod) { setMsg({ kind: 'err', text: 'Elegí el mes del reporte antes de importar.' }); return; }
+    if (!window.confirm(`¿Subir el RANKING DE PROVEEDORES para ${periodLabel(impPeriod)}?\n\nArchivo: ${file.name}\nSi ese mes ya tenía datos, se reemplazan.`)) return;
     setBusy(true); setMsg(null);
     try {
       const rows = await readSheet(file);
@@ -627,7 +629,7 @@ export default function ComprasInformesView({ isReadOnly = false }: { isReadOnly
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
                 <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-3">Mes del reporte</h3>
                 <p className="text-[11px] text-text-dim mb-3">Los archivos de Tango no traen el mes adentro, así que elegilo acá antes de importar. Volver a importar un mes <b>reemplaza</b> lo cargado de ese mes.</p>
-                <input type="month" value={impPeriod} onChange={e => setImpPeriod(e.target.value)}
+                <input type="month" value={impPeriod} onChange={e => { setImpPeriod(e.target.value); setMsg(null); }}
                   className="bg-bg-accent border border-border-dim rounded-md px-3 py-2 text-[12px] font-bold text-text-main" />
               </div>
 
