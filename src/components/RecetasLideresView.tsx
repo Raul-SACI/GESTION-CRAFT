@@ -138,6 +138,16 @@ export default function RecetasLideresView({
     return m;
   }, [items, recipeMasters, productos]);
 
+  // Códigos que EXISTEN en algún maestro (Insumos, Recetas Prod./Suc., Productos),
+  // sin importar si tienen costo cargado. Sirve para distinguir "no existe" de "existe pero cuesta 0".
+  const knownCodes = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach(i => { if (i.code) s.add(String(i.code).trim()); });
+    recipeMasters.forEach((rm: any) => { if (rm.code) s.add(String(rm.code).trim()); });
+    productos.forEach((p: any) => { if (p.code) s.add(String(p.code).trim()); });
+    return s;
+  }, [items, recipeMasters, productos]);
+
   const cargar = async () => {
     setLoading(true);
     try {
@@ -778,7 +788,7 @@ export default function RecetasLideresView({
                       const codeStr = String(it.code || '').trim();
                       // ¿El código existe en algún maestro (Insumos o Recetas)? Si no, el componente
                       // está mal vinculado y por eso nunca va a traer costo.
-                      const codeKnown = codeStr !== '' && costByCode.has(codeStr);
+                      const codeKnown = codeStr !== '' && knownCodes.has(codeStr);
                       const unitCost = costByCode.get(codeStr) || 0;
                       const subtotal = unitCost * (parseQty(it.quantity) || 0);
                       return (
