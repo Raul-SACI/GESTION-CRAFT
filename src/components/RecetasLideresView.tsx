@@ -13,8 +13,10 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, Search, X, Save, Loader2, Upload, ImagePlus,
-  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator
+  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator, FileText
 } from 'lucide-react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -267,6 +269,55 @@ export default function RecetasLideresView({
   const costoReceta = (r: Recipe) =>
     (itemsByRecipe[r.id] || []).reduce((acc, it) => acc + (costByCode.get(String(it.code)) || 0) * (Number(it.quantity) || 0), 0);
 
+  // Exporta a PDF las recetas de la vista actual (respeta tipo, filtro y búsqueda),
+  // cada una con el detalle de insumos, precio unitario, subtotal y costo total.
+  const exportarPDF = () => {
+    const lista = recetasFiltradas;
+    if (!lista.length) { alert('No hay recetas para exportar en esta vista.'); return; }
+    const doc = new jsPDF();
+    const tipoLabel = TIPOS.find(t => t.id === tipo)?.label || '';
+    const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
+    const hoy = new Date().toLocaleDateString('es-AR');
+    const pageH = doc.internal.pageSize.getHeight();
+
+    doc.setFontSize(16); doc.setFont('helvetica', 'bold');
+    doc.text(`Recetas · ${tipoLabel}`, 14, 18);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(120);
+    doc.text(`${lista.length} receta(s) · Costos según último "Recalcular costos" · Generado ${hoy}`, 14, 24);
+    doc.setTextColor(0);
+    let y = 32;
+
+    lista.forEach(r => {
+      const its = itemsByRecipe[r.id] || [];
+      const rows = its.map(it => {
+        const q = Number(it.quantity) || 0;
+        const pu = costByCode.get(String(it.code)) || 0;
+        return [it.item_name || '', String(it.code || ''), q ? q.toLocaleString('es-AR') : '', it.unit || '', money(pu), money(pu * q)];
+      });
+      const total = costoReceta(r);
+      if (y > pageH - 40) { doc.addPage(); y = 18; }
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold'); doc.setTextColor(0);
+      const titulo = r.name + (r.code ? `  ·  Cód ${r.code}` : '') + (r.unit ? `  ·  ${r.unit}` : '');
+      doc.text(titulo, 14, y);
+      if (r.seccion) { doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(120); doc.text(String(r.seccion), 14, y + 4.5); doc.setTextColor(0); }
+      autoTable(doc, {
+        startY: y + (r.seccion ? 7 : 4),
+        head: [['Insumo', 'Código', 'Cantidad', 'Unidad', 'Precio unit.', 'Subtotal']],
+        body: rows.length ? rows : [['(sin insumos cargados)', '', '', '', '', '']],
+        foot: [[{ content: 'Costo total de la receta', colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } }, { content: money(total), styles: { halign: 'right', fontStyle: 'bold' } }]],
+        styles: { fontSize: 8, cellPadding: 1.5 },
+        headStyles: { fillColor: [237, 28, 36], textColor: 255, fontSize: 8 },
+        footStyles: { fillColor: [245, 245, 245], textColor: 0 },
+        columnStyles: { 2: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+        margin: { left: 14, right: 14 },
+        theme: 'grid',
+      });
+      y = (doc as any).lastAutoTable.finalY + 10;
+    });
+
+    doc.save(`Recetas_${tipoLabel.replace(/\s+/g, '_')}_${hoy.replace(/\//g, '-')}.pdf`);
+  };
+
   // ── Editor ──
   const abrirNueva = () => {
     setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true });
@@ -504,8 +555,14 @@ export default function RecetasLideresView({
               <p className="text-[9px] text-text-dim uppercase font-bold">Producción · En Sucursal · Platos de la Carta</p>
             </div>
           </div>
-          {!isReadOnly && (
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
+            <button onClick={exportarPDF}
+              title="Exporta las recetas de esta vista a PDF con insumos y costos"
+              className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/40 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all">
+              <FileText size={13} /> Exportar PDF
+            </button>
+            {!isReadOnly && (
+            <>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) importar(f); }} />
               <button onClick={recalcularCostos} disabled={recalc}
@@ -521,8 +578,9 @@ export default function RecetasLideresView({
                 className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all">
                 <Plus size={14} /> Nueva receta
               </button>
-            </div>
-          )}
+            </>
+            )}
+          </div>
         </div>
       </div>
 
