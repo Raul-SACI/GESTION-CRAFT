@@ -2886,10 +2886,26 @@ export default function FinanceView({
                                 ${(Number(p.amount) || 0).toLocaleString('es-AR')}
                               </td>
                               <td className="px-3 py-2.5 text-center">
-                                {pagada ? (
-                                  <span className="text-[8px] font-black uppercase bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded px-2 py-0.5">Pagada</span>
+                                {isReadOnly ? (
+                                  <span className={cn("text-[8px] font-black uppercase border rounded px-2 py-0.5",
+                                    pagada ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30" : "bg-red-500/10 text-red-500 border-red-500/30")}>
+                                    {pagada ? 'Pagada' : 'Pendiente'}
+                                  </span>
                                 ) : (
-                                  <span className="text-[8px] font-black uppercase bg-red-500/10 text-red-500 border border-red-500/30 rounded px-2 py-0.5">Pendiente</span>
+                                  <button
+                                    onClick={() => {
+                                      const msg = pagada
+                                        ? '¿Marcar esta cuota como PENDIENTE otra vez?'
+                                        : `¿Marcar como PAGADA?\n\n${entidad} · ${p.description || ''}\n$${(Number(p.amount) || 0).toLocaleString('es-AR')}`;
+                                      if (window.confirm(msg)) togglePaymentPaid(p.id);
+                                    }}
+                                    title={pagada ? 'Marcar como pendiente' : 'Marcar como pagada'}
+                                    className={cn("text-[8px] font-black uppercase border rounded px-2 py-1 transition-all cursor-pointer",
+                                      pagada
+                                        ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
+                                        : "bg-red-500/10 text-red-500 border-red-500/30 hover:bg-emerald-500/10 hover:text-emerald-600 hover:border-emerald-500/40")}>
+                                    {pagada ? '✓ Pagada' : 'Marcar pagada'}
+                                  </button>
                                 )}
                               </td>
                             </tr>
