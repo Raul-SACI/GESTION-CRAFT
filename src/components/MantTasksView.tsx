@@ -88,9 +88,19 @@ export default function MantTasksView({ currentUser }: { currentUser?: { name?: 
         const yearStart = `${yearNow}-01-01`;
         const yearEnd = `${yearNow}-12-31`;
 
-        // Claves ya existentes (plan+fecha) entre las tareas y entre las descartadas
+        // Claves ya existentes (plan+fecha) entre las tareas y entre las descartadas.
+        // Se registran TODAS las fechas que ocupa una tarea de plan para no regenerarla:
+        // - source_date: la ocurrencia del plan que representa.
+        // - original_date: si fue reprogramada, el día del que se movió (queda "ocupado"
+        //   para que el plan NO cree una copia nueva ahí al recargar).
+        // - scheduled_date: respaldo para tareas viejas sin source_date.
         const existentes = new Set<string>();
-        tareasActuales.forEach(tk => { if (tk.source_plan_id && tk.source_date) existentes.add(`${tk.source_plan_id}|${tk.source_date}`); });
+        tareasActuales.forEach(tk => {
+          if (!tk.source_plan_id) return;
+          if (tk.source_date) existentes.add(`${tk.source_plan_id}|${tk.source_date}`);
+          if (tk.original_date) existentes.add(`${tk.source_plan_id}|${tk.original_date}`);
+          if (tk.scheduled_date) existentes.add(`${tk.source_plan_id}|${tk.scheduled_date}`);
+        });
         (descartadas as any[]).forEach(d => { if (d.source_plan_id && d.source_date) existentes.add(`${d.source_plan_id}|${d.source_date}`); });
 
         const nuevas: any[] = [];
