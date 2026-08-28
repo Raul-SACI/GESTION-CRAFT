@@ -31,7 +31,15 @@ En cada proyecto que crees anotá, de *Settings → API*:
 
 ---
 
-## Paso 2 · Recrear el esquema (las tablas) en cada base demo
+## Paso 2 · Recrear el esquema (las tablas) en la base demo
+
+**Camino más simple (recomendado, sin tocar producción):** pegá y ejecutá
+`demo_schema.sql` en el SQL Editor del proyecto demo. Trae, a mano, solo las
+tablas que necesitan los módulos demo (personal, presupuestos, supervisiones,
+mantenimiento), con RLS desactivado. Después corré `demo_seed.sql`.
+
+Los dos caminos de abajo (pg_dump / SQL del repo) son alternativas para replicar
+TODO el esquema si algún día querés la app completa en la demo.
 
 Dos caminos. El **A** es el más exacto.
 
