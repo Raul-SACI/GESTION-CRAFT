@@ -21,7 +21,8 @@ import {
   ListPlus,
   Download,
   TrendingUp,
-  Store
+  Store,
+  AlertTriangle
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import jsPDF from 'jspdf';
@@ -41,7 +42,14 @@ interface MenuItem {
   previousPrice?: number | null;  // precio que tenía justo antes del último cambio
   previousDate?: string | null;   // fecha en que se dejó ese precio anterior
   externalCode?: string | null;   // código del artículo en el sistema del restaurante (Maxirest)
+  productId?: string | null;      // vínculo al Maestro de Platos (products.id)
+  cost?: number | null;           // costo de la receta del plato vinculado (products.cost)
+  hasProduct?: boolean;           // true si está vinculado a un plato del Maestro
 }
+
+type Plato = { id: string; name: string; code: string | null; category: string | null; cost: number | null };
+// Normaliza nombres para el cruce (sin acentos, mayúsculas, espacios colapsados)
+const normName = (s: any) => String(s ?? '').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 
 const MONTHS_ES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
@@ -103,6 +111,10 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     price: 0
   });
 
+  // Maestro de Platos (products) para vincular cada ítem y traer su costo de receta
+  const [platos, setPlatos] = useState<Plato[]>([]);
+  const [linkPick, setLinkPick] = useState<Record<string, string>>({}); // itemId -> texto de búsqueda del plato a vincular
+
   // Inflación acumulada del año (ene a último mes cargado), leída de monthly_inflation
   const [yearInflation, setYearInflation] = useState<number | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
@@ -143,6 +155,16 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const fetchData = async () => {
     setLoading(true);
     const { data } = await supabase.from('menu_items').select('*');
+    // Maestro de Platos (products): fuente de nombre, sección (category) y costo de receta
+    const { data: prods } = await supabase.from('products').select('id, name, code, category, cost').order('name');
+    const platosList: Plato[] = (prods as any[] || []).map(p => ({ id: p.id, name: p.name, code: p.code ?? null, category: p.category ?? null, cost: p.cost ?? null }));
+    setPlatos(platosList);
+    // Índices para el cruce automático
+    const platoById = new Map(platosList.map(p => [p.id, p]));
+    const platoByCode = new Map(platosList.filter(p => p.code).map(p => [normName(p.code), p]));
+    const nameCount: Record<string, number> = {};
+    platosList.forEach(p => { const k = normName(p.name); nameCount[k] = (nameCount[k] || 0) + 1; });
+    const platoByName = new Map(platosList.map(p => [normName(p.name), p]));
     // Traer todo el historial para calcular el precio base del año (el más antiguo) por producto
     const { data: history } = await supabase
       .from('menu_price_history')
@@ -230,10 +252,23 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         celiacos: [],
         pedidosya: []
       };
+      const autoLinks: { id: string; product_id: string }[] = []; // matches confiables a persistir
       data.forEach(item => {
         if (organized[item.menu_type]) {
           const base = baseByItem[item.id];
           const prev = prevByItem[item.id];
+          // Resolver el plato vinculado: 1) product_id ya guardado; 2) por código;
+          // 3) por nombre exacto y ÚNICO. Los confiables (2 y 3) se persisten.
+          let plato: Plato | undefined;
+          if (item.product_id && platoById.has(item.product_id)) {
+            plato = platoById.get(item.product_id);
+          } else {
+            const byCode = item.external_code ? platoByCode.get(normName(item.external_code)) : undefined;
+            const nk = normName(item.name);
+            const byName = nameCount[nk] === 1 ? platoByName.get(nk) : undefined;
+            plato = byCode || byName;
+            if (plato && !item.product_id) autoLinks.push({ id: item.id, product_id: plato.id });
+          }
           organized[item.menu_type].push({
             id: item.id,
             category: item.category,
@@ -244,11 +279,20 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             baseDate: base ? base.date : null,
             previousPrice: prev ? prev.price : null,
             previousDate: prev ? prev.date : null,
-            externalCode: item.external_code ?? null
+            externalCode: item.external_code ?? null,
+            productId: plato ? plato.id : (item.product_id ?? null),
+            hasProduct: !!plato,
+            cost: plato ? plato.cost : null
           });
         }
       });
       setMenus(organized);
+      // Persistir los vínculos automáticos confiables (una sola vez; luego ya quedan guardados)
+      if (autoLinks.length > 0 && !isReadOnly) {
+        for (const l of autoLinks) {
+          supabase.from('menu_items').update({ product_id: l.product_id }).eq('id', l.id).then(() => {});
+        }
+      }
     }
     setLoading(false);
   };
@@ -367,6 +411,23 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const mesLabel = (m: string) => {
     const [y, mo] = String(m).split('-');
     return `${MONTHS_ES[parseInt(mo) - 1] || mo} ${y}`;
+  };
+
+  // Vincula un ítem de la lista a un plato del Maestro (manual, desde el panel "sin vincular")
+  const linkItemToPlato = async (itemId: string, productId: string) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const plato = platos.find(p => p.id === productId);
+    if (!plato) return;
+    const { error } = await supabase.from('menu_items').update({ product_id: productId }).eq('id', itemId);
+    if (error) { alert('Error al vincular: ' + error.message); return; }
+    setMenus(prev => {
+      const next: Record<string, MenuItem[]> = { ...prev };
+      Object.keys(next).forEach(mt => {
+        next[mt] = next[mt].map(it => it.id === itemId ? { ...it, productId, hasProduct: true, cost: plato.cost } : it);
+      });
+      return next;
+    });
+    setLinkPick(p => { const n = { ...p }; delete n[itemId]; return n; });
   };
 
   const handleAddItem = async () => {
@@ -1060,6 +1121,47 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
           </div>
         )}
 
+        {/* Panel: ítems sin vincular al Maestro de Platos (para revisar y enganchar a mano) */}
+        {(() => {
+          const sinVincular = (menus[activeMenu] || []).filter(i => !i.hasProduct);
+          if (sinVincular.length === 0) return null;
+          return (
+            <details className="mx-6 mb-4 bg-amber-500/5 border border-amber-500/30 rounded-lg">
+              <summary className="cursor-pointer select-none px-4 py-3 text-[11px] font-black uppercase tracking-widest text-amber-600 flex items-center gap-2">
+                <AlertTriangle size={14} /> {sinVincular.length} ítem(s) sin vincular al Maestro de Platos · revisar
+              </summary>
+              <div className="px-4 pb-4 space-y-3">
+                <p className="text-[10px] text-text-dim">Enganchá cada ítem a su plato del Maestro para que traiga el costo de la receta. No cambia el precio ni el historial.</p>
+                {sinVincular.map(item => {
+                  const q = (linkPick[item.id] ?? item.name).toLowerCase();
+                  const sugerencias = platos.filter(p => normName(p.name).toLowerCase().includes(q.trim().toLowerCase()) || (p.code && String(p.code).includes(q.trim()))).slice(0, 6);
+                  return (
+                    <div key={item.id} className="bg-bg-card border border-border-dim rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <span className="text-[11px] font-black uppercase text-text-main">{item.name}</span>
+                        <span className="text-[9px] font-mono text-text-dim">{item.category}</span>
+                      </div>
+                      <input value={linkPick[item.id] ?? ''} placeholder={`Buscar plato… (ej: ${item.name})`}
+                        onChange={e => setLinkPick(p => ({ ...p, [item.id]: e.target.value }))}
+                        className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-bold mb-2 outline-none focus:border-brand-500" />
+                      <div className="flex flex-wrap gap-1.5">
+                        {sugerencias.length === 0 ? (
+                          <span className="text-[10px] text-text-dim italic">Sin coincidencias en el Maestro de Platos.</span>
+                        ) : sugerencias.map(p => (
+                          <button key={p.id} onClick={() => linkItemToPlato(item.id, p.id)}
+                            className="text-[10px] font-bold bg-brand-500/10 text-brand-500 border border-brand-500/40 hover:bg-brand-500/20 rounded px-2 py-1 uppercase">
+                            {p.name}{p.cost != null && p.cost > 0 ? ` · $${Math.round(p.cost).toLocaleString('es-AR')}` : ' · sin receta'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })()}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -1069,6 +1171,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Inicial<br/><span className="text-[8px] opacity-60">(01/01/2026)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Anterior<br/><span className="text-[8px] opacity-60">(antes del último cambio)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Actual</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Costo Receta<br/><span className="text-[8px] opacity-60">(food cost)</span></th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-center">Var. Año</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase text-text-dim tracking-widest text-right">Precio Ideal<br/><span className="text-[8px] opacity-60">(s/inflación)</span></th>
                 {activeMenu === 'pedidosya' && (
@@ -1127,6 +1230,25 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                         ${item.price.toLocaleString('es-AR')}
                       </span>
                     )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    {!item.hasProduct ? (
+                      <span className="text-[9px] font-black uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">sin vincular</span>
+                    ) : (item.cost == null || item.cost <= 0) ? (
+                      <span className="text-[9px] font-black uppercase text-text-dim bg-bg-accent border border-border-dim rounded px-2 py-0.5">sin receta</span>
+                    ) : (() => {
+                      const fc = item.price > 0 ? (item.cost / item.price) * 100 : null;
+                      return (
+                        <div>
+                          <p className="text-[13px] font-black font-mono text-text-main">${Math.round(item.cost).toLocaleString('es-AR')}</p>
+                          {fc != null && (
+                            <p className={cn("text-[8px] font-bold uppercase", fc <= 35 ? "text-emerald-500" : fc <= 45 ? "text-amber-500" : "text-red-500")}>
+                              food cost {fc.toFixed(0)}%
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-6 py-4 text-center">
                     {item.basePrice && item.basePrice > 0 ? (() => {

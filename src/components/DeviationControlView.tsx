@@ -2389,7 +2389,7 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
               {/* Productos Management */}
               <div className="bg-bg-sidebar border border-border-dim rounded-lg p-6 shadow-xl space-y-6">
                 <div className="flex items-center justify-between border-b border-border-dim pb-4">
-                  <h3 className="text-sm font-black uppercase text-teal-500 tracking-widest">Maestro de Productos</h3>
+                  <h3 className="text-sm font-black uppercase text-teal-500 tracking-widest">Maestro de Platos</h3>
                   <div className="flex gap-2">
                     <button
                       onClick={exportProductsXlsx}
