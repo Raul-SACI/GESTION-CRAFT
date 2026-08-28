@@ -223,7 +223,8 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
           const mapped = data.map((p: any) => ({
             id: p.id, area: p.area, sector: p.sector, title: p.title || p.name,
             type: p.type === 'monthly' ? 'monthly' : 'hourly',
-            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0)
+            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0),
+            monthlyHours: p.monthly_hours != null ? Number(p.monthly_hours) : undefined
           }));
           setSalaryScale(mapped);
           localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
@@ -322,12 +323,17 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
 
   const getMaestroRate = (roleId: string, roleLabel: string): number => {
     const positions = salaryScale || [];
+    // Sueldo mensual -> valor hora: se divide por las horas mensuales cargadas en el
+    // Maestro de salarios para ese puesto; si no se cargó, se asume 240 h/mes.
+    const rateOf = (p: any) => p.type === 'monthly'
+      ? (p.baseValue / (p.monthlyHours && p.monthlyHours > 0 ? p.monthlyHours : 240))
+      : p.baseValue;
     if (positions.length > 0) {
       const exact = positions.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-      if (exact) return exact.type === 'monthly' ? (exact.baseValue / 240) : exact.baseValue;
+      if (exact) return rateOf(exact);
 
       const approx = positions.find((p: any) => p.title.toLowerCase().includes(roleLabel.toLowerCase()) || roleLabel.toLowerCase().includes(p.title.toLowerCase()));
-      if (approx) return approx.type === 'monthly' ? (approx.baseValue / 240) : approx.baseValue;
+      if (approx) return rateOf(approx);
     }
     const defaultR = sucursalRolesList.find(r => r.id === roleId);
     return defaultR ? defaultR.defaultRate : 2500;

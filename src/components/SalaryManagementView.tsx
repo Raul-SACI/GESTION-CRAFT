@@ -56,6 +56,7 @@ interface SalaryPosition {
   baseMonth: string;
   prevBaseValue: number;
   prevBaseMonth: string;
+  monthlyHours?: number; // horas mensuales para convertir sueldo mensual -> valor hora (si no se carga, se asume 240)
   notes?: string;
   history?: SalaryHistory[];
 }
@@ -82,6 +83,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
       base_month: p.baseMonth || '',
       prev_base_value: p.prevBaseValue || 0,
       prev_base_month: p.prevBaseMonth || '',
+      monthly_hours: p.monthlyHours ?? null,
       notes: p.notes || '',
       history: p.history || []
     }));
@@ -118,6 +120,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
     baseMonth: '2026-05',
     prevBaseValue: 0,
     prevBaseMonth: '',
+    monthlyHours: undefined as number | undefined,
     notes: ''
   });
 
@@ -376,6 +379,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
           baseMonth: p.base_month || '',
           prevBaseValue: Number(p.prev_base_value ?? 0),
           prevBaseMonth: p.prev_base_month || '',
+          monthlyHours: p.monthly_hours != null ? Number(p.monthly_hours) : undefined,
           notes: p.notes || '',
           history: Array.isArray(p.history) ? p.history : []
         })));
@@ -399,6 +403,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
       baseMonth: newPos.baseMonth || '2026-05',
       prevBaseValue: newPos.prevBaseValue,
       prevBaseMonth: newPos.prevBaseMonth,
+      monthlyHours: newPos.type === 'monthly' ? newPos.monthlyHours : undefined,
       notes: newPos.notes,
       history: [
         { date: newPos.prevBaseMonth || '2026-01', value: newPos.prevBaseValue },
@@ -413,7 +418,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
 
     setPositions([...positions, pos]);
     setShowAddModal(false);
-    setNewPos({ area: '', sector: '', title: '', type: 'hourly', baseValue: 0, baseMonth: '2026-05', prevBaseValue: 0, prevBaseMonth: '', notes: '' });
+    setNewPos({ area: '', sector: '', title: '', type: 'hourly', baseValue: 0, baseMonth: '2026-05', prevBaseValue: 0, prevBaseMonth: '', monthlyHours: undefined, notes: '' });
   };
 
   const handleRemovePosition = (id: string, e?: React.MouseEvent) => {
@@ -1083,18 +1088,28 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                           </td>
                           <td className="px-2 py-3 text-right">
                             <div className="flex flex-col gap-1 items-end">
-                              <input 
+                              <input
                                 type="number"
                                 value={editRowDraft.baseValue || ''}
                                 onChange={e => setEditRowDraft({...editRowDraft, baseValue: parseFloat(e.target.value) || 0})}
                                 className="w-20 bg-bg-card font-mono font-bold text-right text-text-main border border-border-dim rounded px-2 py-1 outline-none focus:border-brand-500 text-[10px]"
                               />
-                              <input 
+                              <input
                                 type="month"
                                 value={editRowDraft.baseMonth}
                                 onChange={e => setEditRowDraft({...editRowDraft, baseMonth: e.target.value})}
                                 className="w-24 bg-bg-card text-[9px] border border-border-dim rounded px-1 py-0.5 outline-none font-bold"
                               />
+                              {editRowDraft.type === 'monthly' && (
+                                <input
+                                  type="number"
+                                  value={editRowDraft.monthlyHours || ''}
+                                  onChange={e => setEditRowDraft({...editRowDraft, monthlyHours: parseFloat(e.target.value) || undefined})}
+                                  placeholder="h/mes (240)"
+                                  title="Horas mensuales para el valor hora. Si se deja vacío se asume 240."
+                                  className="w-24 bg-bg-card text-[9px] text-right border border-amber-500/40 rounded px-1 py-0.5 outline-none font-bold"
+                                />
+                              )}
                             </div>
                           </td>
                           <td className="px-2 py-3 text-center">
@@ -1185,6 +1200,11 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                             <span className="font-mono font-bold text-text-main">${(pos.baseValue || 0).toLocaleString('es-AR')}</span>
                             {pos.baseMonth && (
                               <span className="text-[8px] font-black uppercase text-brand-500 opacity-60">REF: {pos.baseMonth}</span>
+                            )}
+                            {pos.type === 'monthly' && (
+                              <span className="text-[8px] font-black uppercase text-amber-600 opacity-80" title="Valor hora = sueldo mensual ÷ horas mensuales">
+                                ${Math.round((pos.baseValue || 0) / (pos.monthlyHours && pos.monthlyHours > 0 ? pos.monthlyHours : 240)).toLocaleString('es-AR')}/h · {pos.monthlyHours && pos.monthlyHours > 0 ? `${pos.monthlyHours}` : '240'} h/mes
+                              </span>
                             )}
                           </div>
                         </td>
@@ -1882,6 +1902,19 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                     </select>
                   </div>
                 </div>
+                {newPos.type === 'monthly' && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-text-dim uppercase">Horas mensuales (para el valor hora)</label>
+                    <input
+                      type="number"
+                      placeholder="Ej: 130 · si se deja vacío se asume 240"
+                      className="w-full bg-bg-accent border border-amber-500/40 rounded px-4 py-3 text-xs text-text-main font-mono outline-none focus:border-amber-500"
+                      value={(newPos as any).monthlyHours || ''}
+                      onChange={e => setNewPos({...newPos, monthlyHours: parseFloat(e.target.value) || undefined} as any)}
+                    />
+                    <p className="text-[9px] text-text-dim">Valor hora = sueldo mensual ÷ horas mensuales. Ej: $640.000 ÷ 130 = ${newPos.baseValue > 0 && (newPos as any).monthlyHours > 0 ? Math.round(newPos.baseValue / (newPos as any).monthlyHours).toLocaleString('es-AR') : '…'}/h</p>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-text-dim uppercase">Valor Anterior ($)</label>
