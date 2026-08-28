@@ -95,46 +95,43 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
   const [selectedMonth, setSelectedMonth] = useState('2026-06');
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [budgetsState, setBudgetsState] = useState<Record<string, any>>({});
+  const [prevBudgetsState, setPrevBudgetsState] = useState<Record<string, any>>({});
 
-  // Fetch budgets from Supabase
-  const loadAllBudgets = async () => {
+  // Carga los presupuestos de un mes y los agrupa por sucursal.
+  const fetchBudgetsFor = async (month: string): Promise<Record<string, any>> => {
+    const loaded: Record<string, any> = {};
+    branches.forEach(b => { loaded[b.id] = { rows: [], status: 'pending' }; });
     try {
       const { data, error } = await supabase
         .from('hour_budgets')
         .select('branch_id, position_id, position_name, week1, week2, week3, week4, week5, total_hours, total_cost, hourly_rate, hours_per_day, shift, status, staff_by_date, holidays_json')
-        .eq('month', selectedMonth);
-
-      if (error) {
-        console.error('Supabase error:', error.message);
-        return;
-      }
-
-      const loaded: Record<string, any> = {};
-
-      // Initialize all branches as empty
-      branches.forEach(b => {
-        loaded[b.id] = { rows: [], status: 'pending' };
-      });
-
-      // Fill in data from Supabase
+        .eq('month', month);
+      if (error) { console.error('Supabase error:', error.message); return loaded; }
       if (data && data.length > 0) {
         data.forEach((row: any) => {
-          if (!loaded[row.branch_id]) {
-            loaded[row.branch_id] = { rows: [], status: 'pending' };
-          }
+          if (!loaded[row.branch_id]) loaded[row.branch_id] = { rows: [], status: 'pending' };
           loaded[row.branch_id].rows.push(row);
           loaded[row.branch_id].status = row.status || 'pending';
         });
       }
-
-      setBudgetsState(loaded);
-    } catch(e: any) {
-      console.error('Error loading budgets:', e.message);
-    }
+    } catch (e: any) { console.error('Error loading budgets:', e.message); }
+    return loaded;
   };
+
+  const loadAllBudgets = async () => { setBudgetsState(await fetchBudgetsFor(selectedMonth)); };
 
   useEffect(() => {
     if (branches && branches.length > 0) loadAllBudgets();
+  }, [selectedMonth, branches.length]);
+
+  // Carga el mes anterior para comparar la variación
+  useEffect(() => {
+    if (branches && branches.length > 0) {
+      const [y, m] = selectedMonth.split('-').map(Number);
+      const d = new Date(y, m - 2, 1);
+      const pm = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      fetchBudgetsFor(pm).then(setPrevBudgetsState);
+    }
   }, [selectedMonth, branches.length]);
 
   const handleToggleApprove = async (branchId: string) => {
@@ -182,14 +179,15 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
   };
 
   // Upgraded custom calculations helper
-  const getBranchCalculatedBudget = (branchId: string) => {
-    const info = budgetsState[branchId];
+  // Cálculo del presupuesto de una sucursal a partir de su info (rows) y el mes.
+  // Se usa tanto para el mes actual como para el mes anterior (comparación).
+  const computeBudget = (info: any, month: string) => {
     if (!info) return { totalHours: 0, totalCost: 0, status: 'pending' };
 
     const status = info.status || 'pending';
     const holidays = info.holidays !== undefined ? info.holidays : 2;
 
-    const { dayCounts } = getDaysOfWeekCounts(selectedMonth);
+    const { dayCounts } = getDaysOfWeekCounts(month);
     const groupADays = info.groupADays || ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'];
     const groupBDays = info.groupBDays || ['Viernes', 'Sábado'];
 
@@ -273,6 +271,17 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
 
     return { totalHours, totalCost, status };
   };
+
+  const getBranchCalculatedBudget = (branchId: string) => computeBudget(budgetsState[branchId], selectedMonth);
+
+  // Mes anterior (para la comparación de variación)
+  const prevMonth = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const d = new Date(y, m - 2, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }, [selectedMonth]);
+
+  const getPrevBranchBudget = (branchId: string) => computeBudget(prevBudgetsState[branchId], prevMonth);
 
   // Totals calculations across all branches
   const consolidatedMetrics = useMemo(() => {
@@ -383,6 +392,8 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
                     <th className="px-6 py-4">Sucursal</th>
                     <th className="px-4 py-4 text-center">Horas Presupuestadas</th>
                     <th className="px-4 py-4 text-center">Costo Mensual Proyectado</th>
+                    <th className="px-4 py-4 text-center">Mes Anterior (aprob.)</th>
+                    <th className="px-4 py-4 text-center">Variación</th>
                     <th className="px-4 py-4 text-center">Estado</th>
                     <th className="px-6 py-4 text-right font-black">Acciones</th>
                   </tr>
@@ -390,6 +401,10 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
                 <tbody className="divide-y divide-border-dim/50">
                   {branches.map(b => {
                     const calc = getBranchCalculatedBudget(b.id);
+                    const prev = getPrevBranchBudget(b.id);
+                    // Solo comparamos contra el mes anterior si estaba APROBADO y con monto.
+                    const prevApproved = prev.status === 'approved' && prev.totalCost > 0;
+                    const variacion = prevApproved ? ((calc.totalCost - prev.totalCost) / prev.totalCost) * 100 : null;
                     const isApproved = calc.status === 'approved';
                     const isSelected = selectedBranch?.id === b.id;
 
@@ -411,6 +426,18 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
                         </td>
                         <td className="px-4 py-4 text-center font-mono font-bold text-brand-500 text-xs font-black">
                           ${calc.totalCost.toLocaleString('es-AR')}
+                        </td>
+                        <td className="px-4 py-4 text-center font-mono font-bold text-text-dim text-xs">
+                          {prevApproved ? `$${prev.totalCost.toLocaleString('es-AR')}` : <span className="text-text-dim/50">— sin aprob.</span>}
+                        </td>
+                        <td className="px-4 py-4 text-center">
+                          {variacion != null ? (
+                            <span className={cn("inline-flex items-center gap-1 font-mono font-black text-xs px-2 py-0.5 rounded",
+                              Math.abs(variacion) < 0.05 ? "text-text-dim bg-text-dim/10"
+                                : variacion > 0 ? "text-red-500 bg-red-500/10" : "text-emerald-500 bg-emerald-500/10")}>
+                              {Math.abs(variacion) < 0.05 ? 'Sin cambios' : `${variacion > 0 ? '▲ +' : '▼ '}${variacion.toFixed(1)}%`}
+                            </span>
+                          ) : <span className="text-text-dim/50 text-xs">—</span>}
                         </td>
                         <td className="px-4 py-4 text-center">
                           {isApproved ? (
