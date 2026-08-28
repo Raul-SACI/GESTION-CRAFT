@@ -12,14 +12,20 @@ usuarios que solo ven los módulos que elijas.
 
 ---
 
-## Paso 1 · Crear las bases de datos demo (Supabase)
+## Paso 1 · Crear la base de datos demo (Supabase)
 
-Se necesitan **dos** proyectos Supabase nuevos (la app usa dos bases):
+Producción usa **dos** proyectos (histórico), pero **para la demo alcanza con UNO
+solo**: se verificó que los nombres de tabla de Mantenimiento (`activos`,
+`configuracion`, `mantenimientos`, `reparaciones`, `tareas`, `tareas_descartadas`)
+**no chocan** con ninguno de la base principal (que usa `tasks`, no `tareas`).
+Por eso ambos esquemas pueden convivir en el mismo proyecto.
 
-1. **CRAFT DEMO – Principal** (equivale a la base principal actual).
-2. **CRAFT DEMO – Mantenimiento** (equivale a la base de Mantenimiento).
+- **Opción recomendada (1 proyecto):** crear **CRAFT DEMO** y meter ahí los dos
+  esquemas. En Vercel, las 4 variables apuntan todas al mismo proyecto.
+- **Opción alternativa (2 proyectos):** replicar exactamente producción con
+  **CRAFT DEMO – Principal** y **CRAFT DEMO – Mantenimiento** por separado.
 
-En cada uno anotá, de *Settings → API*:
+En cada proyecto que crees anotá, de *Settings → API*:
 - Project URL
 - anon public key
 
@@ -46,6 +52,10 @@ psql "postgresql://<CONN_DEMO_MANT>" -f schema_mant.sql
 Las cadenas de conexión (`CONN_*`) salen de *Supabase → Settings → Database →
 Connection string*. `--schema-only` garantiza que **no se copia ningún dato
 real**, solo la estructura.
+
+> **Con 1 solo proyecto demo:** `CONN_DEMO_PRINCIPAL` y `CONN_DEMO_MANT` son la
+> **misma** cadena (la del único proyecto demo). Corré los dos `psql` contra ese
+> mismo proyecto: como no hay choque de nombres, quedan todas las tablas juntas.
 
 ### Camino B (alternativo): correr los SQL del repo
 
@@ -103,6 +113,10 @@ hiciera falta, `mant_tareas_original_date.sql`.
 
    > Las dos de `MANT_` son nuevas: si no se cargan, la app cae en la base de
    > Mantenimiento **de producción** (por eso hay que cargarlas en la demo).
+   >
+   > **Si usás 1 solo proyecto** (opción recomendada): poné la misma URL en
+   > `VITE_SUPABASE_URL` y `VITE_MANT_SUPABASE_URL`, y la misma key en
+   > `VITE_SUPABASE_ANON_KEY` y `VITE_MANT_SUPABASE_ANON_KEY`.
 3. Deploy. Queda en una URL propia (ej. `demo-craft.vercel.app`).
 
 **Producción no se toca**: sigue sin esas variables `MANT_` y usa su base real.
