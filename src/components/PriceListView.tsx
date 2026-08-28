@@ -106,15 +106,18 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     pedidosya: []
   });
 
-  const [newItem, setNewItem] = useState({
+  const [newItem, setNewItem] = useState<{ category: string; name: string; price: number; productId: string | null }>({
     category: '',
     name: '',
-    price: 0
+    price: 0,
+    productId: null
   });
 
   // Maestro de Platos (products) para vincular cada ítem y traer su costo de receta
   const [platos, setPlatos] = useState<Plato[]>([]);
+  const [secciones, setSecciones] = useState<string[]>([]); // Maestro Secciones Carta
   const [linkPick, setLinkPick] = useState<Record<string, string>>({}); // itemId -> texto de búsqueda del plato a vincular
+  const [platoSearch, setPlatoSearch] = useState(''); // búsqueda de plato en "Agregar ítem"
 
   // Inflación acumulada del año (ene a último mes cargado), leída de monthly_inflation
   const [yearInflation, setYearInflation] = useState<number | null>(null);
@@ -160,6 +163,9 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     const { data: prods } = await supabase.from('products').select('id, name, code, category, cost').order('name');
     const platosList: Plato[] = (prods as any[] || []).map(p => ({ id: p.id, name: p.name, code: p.code ?? null, category: p.category ?? null, cost: p.cost ?? null }));
     setPlatos(platosList);
+    // Secciones de la carta (Maestro Secciones Carta = recipe_masters tipo 'seccion_carta')
+    const { data: secs } = await supabase.from('recipe_masters').select('name').eq('tipo', 'seccion_carta').order('name');
+    setSecciones(Array.from(new Set((secs as any[] || []).map(s => String(s.name || '').toUpperCase().trim()).filter(Boolean))));
 
     // ¿Qué platos tienen RECETA de verdad? Un plato con receta costeada tiene una op_recipes
     // (tipo 'carta') CON ítems. Si no, products.cost puede ser un valor sembrado (= precio) y
@@ -459,15 +465,24 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
   const handleAddItem = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
-    if (!newItem.name || newItem.price <= 0) return;
-    
+    if (!newItem.productId) { alert('Elegí un plato del Maestro de Platos.'); return; }
+    if (newItem.price <= 0) { alert('Cargá un precio válido.'); return; }
+    const plato = platos.find(p => p.id === newItem.productId);
+    if (!plato) { alert('El plato elegido no existe en el Maestro.'); return; }
+    // Evitar duplicar el mismo plato en esta carta
+    if ((menus[activeMenu] || []).some(i => i.productId === plato.id)) {
+      alert('Ese plato ya está en esta carta.'); return;
+    }
+
     const { data, error } = await supabase.from('menu_items').insert([{
       menu_type: activeMenu,
-      category: newItem.category.toUpperCase(),
-      name: newItem.name.toUpperCase(),
+      category: (newItem.category || plato.category || '').toUpperCase(),
+      name: plato.name.toUpperCase(),
       price: newItem.price,
+      product_id: plato.id,
       last_update: new Date().toISOString().split('T')[0]
     }]).select().single();
+    if (error) { alert('Error al agregar: ' + error.message); return; }
 
     if (data) {
       // Registrar el precio inicial como primer punto del historial
@@ -475,18 +490,10 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
         menuItemId: data.id, menuType: activeMenu, category: data.category,
         itemName: data.name, oldPrice: null, newPrice: data.price, date: data.last_update
       });
-      setMenus({
-        ...menus,
-        [activeMenu]: [...menus[activeMenu], {
-          id: data.id,
-          category: data.category,
-          name: data.name,
-          price: data.price,
-          lastUpdate: data.last_update
-        }]
-      });
       setShowAddModal(false);
-      setNewItem({ category: '', name: '', price: 0 });
+      setNewItem({ category: '', name: '', price: 0, productId: null });
+      setPlatoSearch('');
+      await fetchData(); // recarga con el vínculo y el costo/receta resueltos
     }
   };
 
@@ -1036,7 +1043,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             <TrendingUp size={13} /> Simular Venta
           </button>
           <button 
-            onClick={() => setShowAddModal(true)}
+            onClick={() => { setNewItem({ category: '', name: '', price: 0, productId: null }); setPlatoSearch(''); setShowAddModal(true); }}
             className="bg-brand-500 text-black px-6 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2"
           >
             <Plus size={14} /> Agregar Item
@@ -1387,29 +1394,62 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               </h3>
               
               <div className="space-y-4">
+                {/* Plato del Maestro (obligatorio): trae nombre, sección y costo */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-dim uppercase">Categoría</label>
-                  <input
-                    type="text"
-                    list="cat-suggestions"
-                    placeholder="Ej: Entradas, Carnes, Bebidas..."
-                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500"
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Plato (del Maestro de Platos)</label>
+                  {newItem.productId ? (
+                    <div className="flex items-center justify-between gap-2 bg-brand-500/10 border border-brand-500/40 rounded px-4 py-3">
+                      <div>
+                        <p className="text-xs font-black uppercase text-text-main">{newItem.name}</p>
+                        {(() => { const p = platos.find(x => x.id === newItem.productId); return (
+                          <p className="text-[9px] font-bold uppercase text-text-dim">{p?.category || 'sin sección'} · {p && p.cost != null && p.cost > 0 ? `costo $${Math.round(p.cost).toLocaleString('es-AR')}` : 'sin receta'}</p>
+                        ); })()}
+                      </div>
+                      <button onClick={() => { setNewItem({ ...newItem, productId: null, name: '', category: '' }); setPlatoSearch(''); }}
+                        className="text-text-dim hover:text-red-500 text-[9px] font-black uppercase">cambiar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Buscar plato por nombre o código…"
+                        className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500"
+                        value={platoSearch}
+                        onChange={e => setPlatoSearch(e.target.value)}
+                      />
+                      {platoSearch.trim() && (
+                        <div className="max-h-44 overflow-y-auto border border-border-dim rounded divide-y divide-border-dim/50">
+                          {(() => {
+                            const q = platoSearch.trim().toLowerCase();
+                            const yaEnCarta = new Set((menus[activeMenu] || []).map(i => i.productId).filter(Boolean));
+                            const res = platos.filter(p => !yaEnCarta.has(p.id) && (normName(p.name).toLowerCase().includes(q) || (p.code && String(p.code).includes(platoSearch.trim())))).slice(0, 30);
+                            if (res.length === 0) return <div className="px-3 py-3 text-[10px] text-text-dim italic">No hay platos que coincidan (¿falta darlo de alta en el Maestro de Platos?).</div>;
+                            return res.map(p => (
+                              <button key={p.id} onClick={() => { setNewItem({ ...newItem, productId: p.id, name: p.name, category: p.category || '' }); setPlatoSearch(''); }}
+                                className="w-full text-left px-3 py-2 hover:bg-brand-500/10 flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase text-text-main">{p.name}</span>
+                                <span className="text-[9px] font-mono text-text-dim shrink-0">{p.category || '—'}</span>
+                              </button>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                {/* Sección (del Maestro Secciones Carta) */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-text-dim uppercase">Sección (Maestro Secciones Carta)</label>
+                  <select
+                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500 uppercase font-bold"
                     value={newItem.category}
                     onChange={e => setNewItem({...newItem, category: e.target.value})}
-                  />
-                  <datalist id="cat-suggestions">
-                    {availableCategories.map(c => <option key={c} value={c} />)}
-                  </datalist>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-text-dim uppercase">Nombre del Producto</label>
-                  <input 
-                    type="text" 
-                    placeholder="Nombre completo"
-                    className="w-full bg-bg-accent border border-border-dim rounded px-4 py-3 text-xs text-text-main outline-none focus:border-brand-500"
-                    value={newItem.name}
-                    onChange={e => setNewItem({...newItem, name: e.target.value})}
-                  />
+                  >
+                    <option value="">— Elegir sección —</option>
+                    {Array.from(new Set([...(newItem.category ? [newItem.category.toUpperCase()] : []), ...secciones])).map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-text-dim uppercase">Precio Sugerido ($)</label>
