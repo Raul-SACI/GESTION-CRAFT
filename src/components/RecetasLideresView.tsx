@@ -217,7 +217,7 @@ export default function RecetasLideresView({
   }, []);
 
   // Maestro que corresponde al tipo actual (nombre + unidad + código)
-  const masterLabel = tipo === 'carta' ? 'Maestro de Productos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
+  const masterLabel = tipo === 'carta' ? 'Maestro de Platos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
   const masterOptions = useMemo(() => {
     if (tipo === 'carta') return productos.map(p => ({ name: p.name, unit: '', code: p.code || '', category: p.category || '' }));
     return recipeMasters.filter(m => m.tipo === tipo).map(m => ({ name: m.name, unit: m.unit || '', code: m.code || '', category: '' }));
