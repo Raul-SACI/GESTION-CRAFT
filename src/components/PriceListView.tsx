@@ -45,6 +45,7 @@ interface MenuItem {
   productId?: string | null;      // vínculo al Maestro de Platos (products.id)
   cost?: number | null;           // costo de la receta del plato vinculado (products.cost)
   hasProduct?: boolean;           // true si está vinculado a un plato del Maestro
+  hasRecipe?: boolean;            // true si el plato tiene una receta costeada real (op_recipes con ítems)
 }
 
 type Plato = { id: string; name: string; code: string | null; category: string | null; cost: number | null };
@@ -159,6 +160,31 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     const { data: prods } = await supabase.from('products').select('id, name, code, category, cost').order('name');
     const platosList: Plato[] = (prods as any[] || []).map(p => ({ id: p.id, name: p.name, code: p.code ?? null, category: p.category ?? null, cost: p.cost ?? null }));
     setPlatos(platosList);
+
+    // ¿Qué platos tienen RECETA de verdad? Un plato con receta costeada tiene una op_recipes
+    // (tipo 'carta') CON ítems. Si no, products.cost puede ser un valor sembrado (= precio) y
+    // no un costo real: en ese caso mostramos "sin receta" en vez de un food cost falso.
+    const { data: cartaRecs } = await supabase.from('op_recipes').select('id, code, name').eq('tipo', 'carta');
+    const recIds: string[] = (cartaRecs as any[] || []).map(r => r.id);
+    const recipeIdsWithItems = new Set<string>();
+    if (recIds.length > 0) {
+      let from = 0; const page = 1000;
+      while (true) {
+        const { data: its } = await supabase.from('op_recipe_items').select('recipe_id').in('recipe_id', recIds).range(from, from + page - 1);
+        const chunk = (its as any[]) || [];
+        chunk.forEach(i => { if (i.recipe_id) recipeIdsWithItems.add(i.recipe_id); });
+        if (chunk.length < page) break;
+        from += page;
+      }
+    }
+    const recipeCodes = new Set<string>();
+    const recipeNames = new Set<string>();
+    (cartaRecs as any[] || []).forEach(r => {
+      if (!recipeIdsWithItems.has(r.id)) return;
+      if (r.code) recipeCodes.add(normName(r.code));
+      if (r.name) recipeNames.add(normName(r.name));
+    });
+    const platoTieneReceta = (p?: Plato) => !!p && (recipeCodes.has(normName(p.code)) || recipeNames.has(normName(p.name)));
     // Índices para el cruce automático
     const platoById = new Map(platosList.map(p => [p.id, p]));
     const platoByCode = new Map(platosList.filter(p => p.code).map(p => [normName(p.code), p]));
@@ -282,7 +308,8 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             externalCode: item.external_code ?? null,
             productId: plato ? plato.id : (item.product_id ?? null),
             hasProduct: !!plato,
-            cost: plato ? plato.cost : null
+            cost: plato ? plato.cost : null,
+            hasRecipe: platoTieneReceta(plato)
           });
         }
       });
@@ -1234,7 +1261,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                   <td className="px-6 py-4 text-right">
                     {!item.hasProduct ? (
                       <span className="text-[9px] font-black uppercase text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-0.5">sin vincular</span>
-                    ) : (item.cost == null || item.cost <= 0) ? (
+                    ) : (!item.hasRecipe || item.cost == null || item.cost <= 0) ? (
                       <span className="text-[9px] font-black uppercase text-text-dim bg-bg-accent border border-border-dim rounded px-2 py-0.5">sin receta</span>
                     ) : (() => {
                       const fc = item.price > 0 ? (item.cost / item.price) * 100 : null;
