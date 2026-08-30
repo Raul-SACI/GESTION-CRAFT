@@ -159,6 +159,15 @@ create table if not exists public.activos (
   location text,
   asset_brand text,
   asset_model text,
+  asset_serial text,
+  acquisition_cost text,
+  acquisition_cost_usd text,
+  added_date text,
+  notes text,
+  inactive boolean default false,
+  inactive_date text,
+  qr_code text,
+  image_url text,
   created_at timestamptz default now()
 );
 
@@ -203,23 +212,26 @@ create table if not exists public.tareas_descartadas (
 create table if not exists public.reparaciones (
   id text primary key default gen_random_uuid()::text,
   asset_id text,
-  total_cost numeric default 0,
-  date date,
+  branch text,
   description text,
+  date date,
+  responsible text,
+  parts text,
+  labor_cost text,
+  parts_cost text,
+  total_cost text,
+  pay_type text,
   created_at timestamptz default now()
 );
 
--- ── Desactivar RLS en todas (acceso abierto, como en producción) ────────────
+-- ── Desactivar RLS y dar permisos a la anon key en TODAS las tablas public ──
+-- (la app usa la clave pública; sin esto los desplegables salen vacíos)
+grant usage on schema public to anon, authenticated;
 do $$
-declare t text;
+declare r record;
 begin
-  foreach t in array array[
-    'branches','profiles','roles_config','employees','salary_positions','hour_budgets',
-    'supervision_checklists','supervision_schedules','supervision_responses',
-    'supervisor_agenda','supervisor_tasks',
-    'configuracion','activos','mantenimientos','tareas','tareas_descartadas','reparaciones'
-  ]
-  loop
-    execute format('alter table public.%I disable row level security', t);
+  for r in select tablename from pg_tables where schemaname = 'public' loop
+    execute format('alter table public.%I disable row level security', r.tablename);
+    execute format('grant all on public.%I to anon, authenticated', r.tablename);
   end loop;
 end $$;
