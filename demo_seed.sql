@@ -75,9 +75,11 @@ ON CONFLICT DO NOTHING;
 
 -- 7) MANTENIMIENTO: config de sucursales/categorías/ubicaciones ----------------
 --    (Mantenimiento maneja las sucursales por NOMBRE en la tabla configuracion)
+-- OJO: 'categories' es un OBJETO agrupado {grupo: [cat...]}, no una lista plana
+-- (Inventario recorre Object.values(...).forEach(arr => arr.forEach(...))).
 INSERT INTO public.configuracion (id, data) VALUES
   ('branches',   '["DEMO NORTE","DEMO CENTRO"]'::jsonb),
-  ('categories', '["Cocina","Frío","Salón","Instalaciones"]'::jsonb),
+  ('categories', '{"General": ["Cocina","Frío","Salón","Instalaciones"]}'::jsonb),
   ('locations',  '["Cocina","Depósito","Salón","Baños"]'::jsonb)
 ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data;
 
