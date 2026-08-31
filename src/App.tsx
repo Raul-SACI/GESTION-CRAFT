@@ -1336,9 +1336,11 @@ function AppContent() {
           {Object.entries(menuConfig).map(([sectionName, items]) => {
             const typedItems = items as MenuItem[];
             const permittedItems = typedItems.filter(item => {
-              // Usuarios/Roles solo visible para administrador
+              // Usuarios/Roles y Gestión Sucursales: visibles para admin/dueño, o para
+              // cualquier rol que los tenga habilitados explícitamente en sus módulos.
               if (item.id === 'usuarios' || item.id === 'sucursales') {
-                return currentUser.role === 'administrador' || currentUser.role === 'dueño';
+                return currentUser.role === 'administrador' || currentUser.role === 'dueño'
+                  || (currentUser.permissions || []).includes(item.id);
               }
               if (currentUser.role === 'administrador' || currentUser.role === 'dueño') return true;
               if (!currentUser.permissions || currentUser.permissions.length === 0) return false;
