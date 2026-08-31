@@ -50,6 +50,7 @@ create table if not exists public.employees (
   username text unique,
   password text default '',
   active boolean default true,
+  is_active boolean default true,
   sexo text, dni text, fecha_ingreso text, fecha_nacimiento text,
   talle_remera text, talle_pantalon text, telefono text, email text, domicilio text,
   created_at timestamptz default now()

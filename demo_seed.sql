@@ -54,12 +54,16 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- 5) EMPLEADOS FICTICIOS (Maestro de Personal) --------------------------------
-INSERT INTO public.employees (legajo, name, branch_id, position, username, password, active)
+INSERT INTO public.employees (legajo, name, branch_id, position, username, password, active, is_active)
 VALUES
-  ('D001', 'JOHN DEMO',   'demo-norte',  'ENCARGADO', 'john.demo',   '', true),
-  ('D002', 'JANE DEMO',   'demo-norte',  'CAJERO',    'jane.demo',   '', true),
-  ('D003', 'MIKE DEMO',   'demo-centro', 'COCINERO',  'mike.demo',   '', true),
-  ('D004', 'SARAH DEMO',  'demo-centro', 'ENCARGADO DE DELIVERY', 'sarah.demo', '', true)
+  ('D001', 'JOHN DEMO',   'demo-norte',  'ENCARGADO', 'john.demo',   '', true, true),
+  ('D002', 'JANE DEMO',   'demo-norte',  'CAJERO',    'jane.demo',   '', true, true),
+  ('D003', 'MIKE DEMO',   'demo-centro', 'COCINERO',  'mike.demo',   '', true, true),
+  ('D004', 'SARAH DEMO',  'demo-centro', 'ENCARGADO DE DELIVERY', 'sarah.demo', '', true, true),
+  -- Líderes (position con "Líder") para Agenda de Supervisores
+  ('L001', 'CARLOS LIDER','demo-norte',  'Líder Operativo', 'carlos.lider', '', true, true),
+  ('L002', 'LUCIA LIDER', 'demo-centro', 'Líder de Cocina', 'lucia.lider',  '', true, true),
+  ('L003', 'PEDRO LIDER', 'demo-norte',  'Líder de Salón',  'pedro.lider',  '', true, true)
 ON CONFLICT DO NOTHING;
 
 -- 6) UN PRESUPUESTO DE HORAS CARGADO Y APROBADO (para Aprobación) --------------
