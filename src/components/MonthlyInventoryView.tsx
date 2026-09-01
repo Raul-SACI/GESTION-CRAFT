@@ -54,11 +54,19 @@ export default function MonthlyInventoryView({ branches, selectedBranchId, userR
     if (!fixedBranchId && selectedBranchId && selectedBranchId !== 'all') setBranchId(selectedBranchId);
   }, [selectedBranchId, fixedBranchId]);
 
-  // Maestro de insumos
+  // Catálogo de insumos: Maestro de Insumos (stock_items) + Maestro Recetas Producción
+  // (recipe_masters tipo 'produccion'), para poder inventariar también los elaborados.
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.from('stock_items').select('id, name, unit, category, code, cost').order('name');
-      if (data) setItems(data as MasterItem[]);
+      const [{ data: si }, { data: rm }] = await Promise.all([
+        supabase.from('stock_items').select('id, name, unit, category, code, cost').order('name'),
+        supabase.from('recipe_masters').select('id, name, unit, code, cost, tipo').eq('tipo', 'produccion').order('name'),
+      ]);
+      const insumos = (si as MasterItem[]) || [];
+      const produccion: MasterItem[] = ((rm as any[]) || []).map(m => ({
+        id: m.id, name: m.name, unit: m.unit || '', category: 'PRODUCCIÓN', code: m.code || '', cost: m.cost,
+      }));
+      setItems([...insumos, ...produccion]);
     })();
   }, []);
 
