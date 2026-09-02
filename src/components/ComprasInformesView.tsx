@@ -52,7 +52,7 @@ const periodLabel = (p: string) => {
 };
 
 export default function ComprasInformesView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
-  const [tab, setTab] = useState<'resumen' | 'evolucion' | 'cotizaciones' | 'importar'>('resumen');
+  const [tab, setTab] = useState<'resumen' | 'evolucion' | 'anual' | 'cotizaciones' | 'importar'>('resumen');
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string>(() => {
     const d = new Date();
@@ -68,6 +68,10 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
   // Serie completa (para evolución): total por período y precio unitario por código
   const [serie, setSerie] = useState<{ period: string; total: number; byCode: Record<string, { cantidad: number; total: number }> }[]>([]);
+  const [serieDesc, setSerieDesc] = useState<Record<string, string>>({}); // código -> descripción (global, todos los meses)
+  const [anualYear, setAnualYear] = useState<string>('');
+  const [anualCode, setAnualCode] = useState<string>('');
+  const [anualSearch, setAnualSearch] = useState('');
   const [inflMap, setInflMap] = useState<Record<string, number>>({}); // mes 'YYYY-MM' -> % mensual (EERR)
   const [menuHist, setMenuHist] = useState<any[]>([]);                 // menu_price_history
   const [menuItems, setMenuItems] = useState<any[]>([]);               // menu_items (precio actual)
@@ -129,7 +133,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     const data: any[] = [];
     { const size = 1000; let pg = 0;
       while (pg < 500) {
-        const { data: chunk } = await supabase.from('compras_articulos_import').select('period, code, cantidad, total').range(pg * size, pg * size + size - 1);
+        const { data: chunk } = await supabase.from('compras_articulos_import').select('period, code, description, cantidad, total').range(pg * size, pg * size + size - 1);
         const rows = (chunk as any[]) || [];
         data.push(...rows);
         if (rows.length < size) break;
@@ -142,14 +146,17 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
       supabase.from('menu_items').select('id, price, menu_type'),
     ]);
     const byPeriod: Record<string, { period: string; total: number; byCode: Record<string, { cantidad: number; total: number }> }> = {};
+    const descG: Record<string, string> = {};
     (data as any[] || []).forEach(r => {
       const pr = r.period;
       if (!byPeriod[pr]) byPeriod[pr] = { period: pr, total: 0, byCode: {} };
       byPeriod[pr].total += toNum(r.total);
       byPeriod[pr].byCode[norm(r.code)] = { cantidad: toNum(r.cantidad), total: toNum(r.total) };
+      if (r.description) descG[norm(r.code)] = r.description;
     });
     const seriePeriods = Object.keys(byPeriod).sort();
     setSerie(Object.values(byPeriod).sort((x, y) => x.period.localeCompare(y.period)));
+    setSerieDesc(descG);
     const im: Record<string, number> = {};
     (infl as any[] || []).forEach(r => { im[r.month] = Number(r.inflation_pct) || 0; });
     setInflMap(im);
@@ -195,7 +202,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     setTicketsByMonth(tk);
   }, [branches]);
 
-  useEffect(() => { if (tab === 'evolucion') loadSerie(); }, [tab, loadSerie, periods]);
+  useEffect(() => { if (tab === 'evolucion' || tab === 'anual') loadSerie(); }, [tab, loadSerie, periods]);
 
   // ── Reconciliación con el Maestro de Insumos ───────────────────────────────
   const recon = useMemo(() => {
@@ -574,6 +581,52 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
   const impactoTotal = useMemo(() => precioEvo.reduce((s, r) => s + (r.impacto ?? 0), 0), [precioEvo]);
 
+  // ── VISTA ANUAL POR INSUMO ──────────────────────────────────────────────────
+  // Años con datos (de los períodos cargados)
+  const aniosDisponibles = useMemo(() => {
+    const set = new Set<string>();
+    serie.forEach(s => set.add(s.period.slice(0, 4)));
+    return Array.from(set).sort().reverse();
+  }, [serie]);
+  const anualYearEff = anualYear || aniosDisponibles[0] || String(new Date().getFullYear());
+
+  // Lista de insumos para elegir (código + descripción), de todos los meses
+  const insumosLista = useMemo(() => {
+    return Object.keys(serieDesc)
+      .map(code => ({ code, desc: serieDesc[code] || code }))
+      .sort((a, b) => a.desc.localeCompare(b.desc));
+  }, [serieDesc]);
+
+  // Filas del año para el insumo elegido: 12 meses con cantidad, precio unit., gasto y variación
+  const anualRows = useMemo(() => {
+    if (!anualCode) return [] as { mes: string; cantidad: number | null; pu: number | null; total: number | null; varPct: number | null }[];
+    const rows: { mes: string; cantidad: number | null; pu: number | null; total: number | null; varPct: number | null }[] = [];
+    let prevPu: number | null = null;
+    for (let m = 1; m <= 12; m++) {
+      const period = `${anualYearEff}-${String(m).padStart(2, '0')}`;
+      const s = serie.find(x => x.period === period);
+      const d = s ? s.byCode[anualCode] : undefined;
+      const cantidad = d ? d.cantidad : null;
+      const total = d ? d.total : null;
+      const pu = d && d.cantidad > 0 ? d.total / d.cantidad : null;
+      const varPct = (pu != null && prevPu != null && prevPu > 0) ? ((pu - prevPu) / prevPu) * 100 : null;
+      rows.push({ mes: period, cantidad, pu, total, varPct });
+      if (pu != null) prevPu = pu;
+    }
+    return rows;
+  }, [anualCode, anualYearEff, serie]);
+
+  const anualTotals = useMemo(() => {
+    const conDatos = anualRows.filter(r => r.total != null);
+    const qty = conDatos.reduce((a, r) => a + (r.cantidad || 0), 0);
+    const tot = conDatos.reduce((a, r) => a + (r.total || 0), 0);
+    const primeros = anualRows.filter(r => r.pu != null);
+    const puIni = primeros.length ? primeros[0].pu! : null;
+    const puFin = primeros.length ? primeros[primeros.length - 1].pu! : null;
+    const varAnual = (puIni != null && puFin != null && puIni > 0) ? ((puFin - puIni) / puIni) * 100 : null;
+    return { qty, tot, varAnual, puIni, puFin };
+  }, [anualRows]);
+
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       {/* Encabezado */}
@@ -596,7 +649,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
       {/* Pestañas */}
       <div className="flex gap-1 p-1 bg-bg-sidebar border border-border-dim rounded-lg w-fit shadow-sm flex-wrap">
-        {([['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['cotizaciones', 'Cotizaciones (Top)'], ['importar', 'Importar']] as const).map(([k, l]) => (
+        {([['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['anual', 'Anual por insumo'], ['cotizaciones', 'Cotizaciones (Top)'], ['importar', 'Importar']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn('px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all',
               tab === k ? 'bg-brand-500 text-black shadow' : 'text-text-dim hover:text-text-main')}>{l}</button>
@@ -849,6 +902,121 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                   </div>
                   <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Var. = último vs primer mes con datos. Impacto $/mes = (precio último − precio primero) × cantidad del último mes: cuánto pesa ese cambio de precio en el gasto real. Rojo = encarece / cuesta más.</p>
                 </div>
+              </div>
+            )
+          )}
+
+          {/* ───────────────── ANUAL POR INSUMO ───────────────── */}
+          {tab === 'anual' && (
+            serie.length === 0 ? <EmptyState onImport={() => setTab('importar')} /> : (
+              <div className="space-y-5">
+                {/* Selección: año + insumo */}
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+                  <div className="flex flex-wrap items-end gap-4">
+                    <div>
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Año</label>
+                      <select value={anualYearEff} onChange={e => setAnualYear(e.target.value)}
+                        className="bg-bg-accent border border-border-dim rounded-md px-3 py-2 text-[12px] font-bold text-text-main">
+                        {aniosDisponibles.map(y => <option key={y} value={y}>{y}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1 min-w-[240px]">
+                      <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Insumo</label>
+                      <input value={anualSearch} onChange={e => setAnualSearch(e.target.value)} placeholder="Buscar insumo por nombre o código…"
+                        className="w-full bg-bg-accent border border-border-dim rounded-md px-3 py-2 text-[11px] font-bold" />
+                      {anualSearch.trim() && (
+                        <div className="mt-1 max-h-52 overflow-y-auto border border-border-dim rounded-md divide-y divide-border-dim/50 bg-bg-sidebar">
+                          {(() => {
+                            const q = anualSearch.trim().toLowerCase();
+                            const res = insumosLista.filter(i => i.desc.toLowerCase().includes(q) || i.code.includes(anualSearch.trim())).slice(0, 40);
+                            if (!res.length) return <div className="px-3 py-2 text-[10px] text-text-dim italic">Sin coincidencias.</div>;
+                            return res.map(i => (
+                              <button key={i.code} onClick={() => { setAnualCode(i.code); setAnualSearch(''); }}
+                                className="w-full text-left px-3 py-2 hover:bg-brand-500/10 flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-bold uppercase text-text-main">{i.desc}</span>
+                                <span className="text-[9px] font-mono text-text-dim shrink-0">{i.code}</span>
+                              </button>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                      {anualCode && !anualSearch.trim() && (
+                        <div className="mt-1 text-[11px] font-black uppercase text-brand-500">{serieDesc[anualCode] || anualCode} <span className="text-text-dim font-mono">· {anualCode}</span></div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {!anualCode ? (
+                  <div className="rounded-xl px-4 py-8 border border-border-dim bg-bg-sidebar text-center text-[12px] text-text-dim font-bold">Elegí un insumo para ver su evolución mes a mes del {anualYearEff}.</div>
+                ) : (
+                  <>
+                    {/* Resumen del año */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <Kpi icon={<Package size={16} />} label="Cantidad total" value={Math.round(anualTotals.qty).toLocaleString('es-AR')} sub={`${anualYearEff}`} />
+                      <Kpi icon={<DollarSign size={16} />} label="Gasto total del año" value={fmt(anualTotals.tot)} sub="suma de meses" />
+                      <Kpi icon={<TrendingUp size={16} />} label="Precio unit. (últ. mes)" value={anualTotals.puFin != null ? fmt2(anualTotals.puFin) : '—'} sub={anualTotals.puIni != null ? `desde ${fmt2(anualTotals.puIni)}` : ''} />
+                      <Kpi icon={<Percent size={16} />} label="Variación de precio (año)" value={anualTotals.varAnual != null ? `${anualTotals.varAnual > 0 ? '+' : ''}${anualTotals.varAnual.toFixed(1)}%` : '—'} sub="primer vs último mes" warn={anualTotals.varAnual != null && anualTotals.varAnual > 0} />
+                    </div>
+
+                    {/* Tabla mes a mes */}
+                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm overflow-hidden">
+                      <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-4">{serieDesc[anualCode] || anualCode} · {anualYearEff}</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+                              <th className="px-3 py-2">Mes</th>
+                              <th className="px-3 py-2 text-right">Cantidad</th>
+                              <th className="px-3 py-2 text-right">Precio unitario</th>
+                              <th className="px-3 py-2 text-right">Gasto total</th>
+                              <th className="px-3 py-2 text-right">Var. precio</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border-dim">
+                            {anualRows.map(r => (
+                              <tr key={r.mes} className={cn("text-[11px] font-medium hover:bg-bg-accent/30", r.total == null && "opacity-40")}>
+                                <td className="px-3 py-2 font-bold uppercase text-text-main">{periodLabel(r.mes)}</td>
+                                <td className="px-3 py-2 text-right font-mono tabular-nums">{r.cantidad != null ? r.cantidad.toLocaleString('es-AR') : '—'}</td>
+                                <td className="px-3 py-2 text-right font-mono tabular-nums">{r.pu != null ? fmt2(r.pu) : '—'}</td>
+                                <td className="px-3 py-2 text-right font-mono tabular-nums">{r.total != null ? fmt(r.total) : '—'}</td>
+                                <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">
+                                  {r.varPct != null ? <span className={r.varPct > 0 ? 'text-red-500' : r.varPct < 0 ? 'text-emerald-500' : 'text-text-dim'}>{r.varPct > 0 ? '+' : ''}{r.varPct.toFixed(1)}%</span> : <span className="text-text-dim">—</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="text-[11px] font-black border-t-2 border-border-dim">
+                              <td className="px-3 py-2.5 uppercase text-brand-500">Total {anualYearEff}</td>
+                              <td className="px-3 py-2.5 text-right font-mono tabular-nums">{Math.round(anualTotals.qty).toLocaleString('es-AR')}</td>
+                              <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-dim">—</td>
+                              <td className="px-3 py-2.5 text-right font-mono tabular-nums">{fmt(anualTotals.tot)}</td>
+                              <td className="px-3 py-2.5 text-right font-mono tabular-nums">{anualTotals.varAnual != null ? <span className={anualTotals.varAnual > 0 ? 'text-red-500' : 'text-emerald-500'}>{anualTotals.varAnual > 0 ? '+' : ''}{anualTotals.varAnual.toFixed(1)}%</span> : '—'}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                      <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Precio unitario = gasto ÷ cantidad de cada mes. Var. precio = vs el mes anterior con datos. Los meses sin compras aparecen atenuados.</p>
+                    </div>
+
+                    {/* Gráfico de precio unitario */}
+                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+                      <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-4">Precio unitario · mes a mes</h3>
+                      <div className="h-56">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={anualRows.map(r => ({ name: periodLabel(r.mes).split(' ')[0], Precio: r.pu != null ? Math.round(r.pu) : null }))} margin={{ left: 4, right: 16, top: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-dim)" />
+                            <XAxis dataKey="name" tick={{ fontSize: 9 }} />
+                            <YAxis tick={{ fontSize: 9 }} tickFormatter={(v) => '$' + (v / 1000).toFixed(1) + 'k'} />
+                            <Tooltip formatter={(v: any) => fmt2(v)} />
+                            <Line type="monotone" dataKey="Precio" stroke={BRAND} strokeWidth={2.5} dot={{ r: 3 }} connectNulls />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )
           )}
