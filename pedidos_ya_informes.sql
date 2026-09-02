@@ -14,6 +14,23 @@
 -- no, Craft). La sucursal se guarda con el nombre tal cual viene en el archivo.
 -- ============================================================================
 
+-- ── Comercial por período (fuente: resumen de ventas, todos los locales) ──────
+-- Un archivo trae el total por local del rango descargado. Como no trae fechas,
+-- se etiqueta con la semana del negocio elegida al importar (0 = mes completo).
+create table if not exists public.py_comercial_periodo (
+  anio       integer not null,
+  mes        integer not null,
+  semana     integer not null default 0,  -- 0=mes completo, 1..4 semanas
+  sucursal   text    not null,
+  marca      text    not null default 'Craft',
+  pedidos    integer not null default 0,
+  venta      numeric not null default 0,
+  ticket     numeric not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (anio, mes, semana, sucursal)
+);
+create index if not exists py_comercial_periodo_am on public.py_comercial_periodo (anio, mes);
+
 -- ── Comercial diario por sucursal (fuente: estado de cuenta XLSX, por pedido) ─
 create table if not exists public.py_comercial_dia (
   fecha             date    not null,
@@ -85,11 +102,13 @@ create table if not exists public.py_config (
 );
 
 -- Permisos (RLS abierto, igual que el resto del proyecto)
+alter table public.py_comercial_periodo disable row level security;
 alter table public.py_comercial_dia disable row level security;
 alter table public.py_reclamos      disable row level security;
 alter table public.py_liquidacion   disable row level security;
 alter table public.py_config        disable row level security;
 
+grant all on public.py_comercial_periodo to anon, authenticated;
 grant all on public.py_comercial_dia to anon, authenticated;
 grant all on public.py_reclamos      to anon, authenticated;
 grant all on public.py_liquidacion   to anon, authenticated;
