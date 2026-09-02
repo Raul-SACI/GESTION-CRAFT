@@ -1,19 +1,22 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Star, 
-  Save, 
-  RefreshCw, 
-  TrendingUp, 
-  Award, 
-  AlertCircle, 
-  Building2, 
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import {
+  Star,
+  Save,
+  RefreshCw,
+  TrendingUp,
+  Award,
+  AlertCircle,
+  Building2,
   Calendar,
   ChevronLeft,
   ChevronRight,
   Info,
   Coffee,
-  Database
+  Database,
+  BarChart3
 } from 'lucide-react';
+
+const PedidosYaInformesView = lazy(() => import('./PedidosYaInformesView'));
 import { motion } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -47,6 +50,37 @@ interface TwoChannelRating {
 }
 
 export default function PedidosYaView({ branches, isReadOnly = false }: PedidosYaViewProps) {
+  const [mainTab, setMainTab] = useState<'calificaciones' | 'informes'>('informes');
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap gap-2">
+        {([
+          ['informes', 'Informes', BarChart3],
+          ['calificaciones', 'Calificaciones', Star],
+        ] as const).map(([k, l, Icon]) => (
+          <button key={k} onClick={() => setMainTab(k)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2.5 text-[11px] font-black uppercase tracking-wider rounded-lg border transition-colors',
+              mainTab === k
+                ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-500/10'
+                : 'bg-bg-sidebar text-text-dim border-border-dim hover:text-text-main'
+            )}>
+            <Icon size={14} /> {l}
+          </button>
+        ))}
+      </div>
+      {mainTab === 'calificaciones'
+        ? <CalificacionesPanel branches={branches} isReadOnly={isReadOnly} />
+        : (
+          <Suspense fallback={<div className="flex items-center justify-center py-20"><RefreshCw size={22} className="animate-spin text-rose-500" /></div>}>
+            <PedidosYaInformesView branches={branches} isReadOnly={isReadOnly} />
+          </Suspense>
+        )}
+    </div>
+  );
+}
+
+function CalificacionesPanel({ branches, isReadOnly = false }: PedidosYaViewProps) {
   const activeBranches = useMemo(() => {
     return branches.filter(b => b.id !== 'all' && b.id !== 'virtual' && b.isActive);
   }, [branches]);
