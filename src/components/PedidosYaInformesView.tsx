@@ -2,13 +2,13 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import * as pdfjsLib from 'pdfjs-dist';
 // @ts-ignore - Vite resolves the worker file to a URL
@@ -84,7 +84,7 @@ const SEM_BG: Record<string, string> = {
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 type ComPeriodo = { anio: number; mes: number; semana: number; sucursal: string; marca: string; pedidos: number; venta: number; ticket: number };
-type ComDia = { fecha: string; sucursal: string; marca: string; pedidos: number };
+type ComDia = { fecha: string; sucursal: string; marca: string; pedidos: number; venta_bruta: number; venta_neta: number };
 type Reclamo = { fecha: string; sucursal: string; marca: string; tipo: string; nro_pedido: string | null; motivo: string | null; monto: number };
 type Liquidacion = {
   period_start: string; period_end: string;
@@ -100,7 +100,7 @@ interface Props { branches?: Branch[]; isReadOnly?: boolean; }
 const READONLY_MSG = 'Tu rol tiene acceso de SOLO LECTURA. No podés importar ni modificar datos en este módulo.';
 
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
-  const [tab, setTab] = useState<'comercial' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
+  const [tab, setTab] = useState<'comercial' | 'dia' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
   const [comDia, setComDia] = useState<ComDia[]>([]);
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
@@ -120,7 +120,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
       const [per, dia, rec, liq, cfg] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
-        supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos').gte('fecha', start).lte('fecha', end),
+        supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
         supabase.from('py_reclamos').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
@@ -201,6 +201,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       <div className="flex flex-wrap gap-1 border-b border-border-dim/60">
         {([
           ['comercial', 'Comercial', BarChart3],
+          ['dia', 'Por día', CalendarDays],
           ['liquidaciones', 'Liquidaciones', Banknote],
           ['reclamos', 'Reclamos', MessageSquareWarning],
           ['importar', 'Importar', Upload],
@@ -214,7 +215,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         ))}
       </div>
 
-      {(tab === 'comercial' || tab === 'reclamos') && (
+      {(tab === 'comercial' || tab === 'dia' || tab === 'reclamos') && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/80">
             <button onClick={prevMonth} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronLeft size={15} /></button>
@@ -232,6 +233,10 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
           metrica={metrica} setMetrica={setMetrica} verPor={verPor} setVerPor={setVerPor} metricOf={metricOf} metricFmt={metricFmt}
           lastWeekWithData={lastWeekWithData} varPct={varPct} semaforos={semaforos} chartData={chartData} chartColors={chartColors}
           onGoImport={() => setTab('importar')} month={month} />
+      )}
+      {tab === 'dia' && (
+        <DiaSemanaTab comDia={comDia} verPor={verPor} setVerPor={setVerPor} metrica={metrica} setMetrica={setMetrica}
+          chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
       )}
       {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
       {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
@@ -342,6 +347,117 @@ function ComercialTab(props: any) {
           </ResponsiveContainer>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// POR DÍA DE LA SEMANA (fuente: estado de cuenta, por pedido)
+// ════════════════════════════════════════════════════════════════════════════
+const DOW = [
+  { i: 1, l: 'Lun' }, { i: 2, l: 'Mar' }, { i: 3, l: 'Mié' }, { i: 4, l: 'Jue' },
+  { i: 5, l: 'Vie' }, { i: 6, l: 'Sáb' }, { i: 0, l: 'Dom' },
+];
+function DiaSemanaTab({ comDia, verPor, setVerPor, metrica, setMetrica, chartColors, onGoImport, month, loading }: any) {
+  if (loading && comDia.length === 0) return <Loader />;
+  if (comDia.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay datos por día para ${monthLabel(month)}. Importá el estado de cuenta (Excel) de Pedidos Ya.`} />;
+
+  const metricas: [string, string][] = [['venta', 'Venta'], ['pedidos', 'Pedidos'], ['ticket', 'Ticket prom.']];
+  const grupos: string[] = verPor === 'marca' ? ['Craft', 'Craft Café'] : Array.from(new Set(comDia.map((r: ComDia) => r.sucursal))).sort() as string[];
+
+  // data[grupo][dowIndex] = {pedidos, venta}
+  type A = { pedidos: number; venta: number };
+  const zero = (): A => ({ pedidos: 0, venta: 0 });
+  const data: Record<string, Record<number, A>> = {};
+  const totByDow: Record<number, A> = {};
+  DOW.forEach(d => { totByDow[d.i] = zero(); });
+  comDia.forEach((r: ComDia) => {
+    const g = verPor === 'marca' ? deriveMarca(r.sucursal) : r.sucursal;
+    const [y, m, dd] = r.fecha.split('-').map(Number);
+    const dow = new Date(y, m - 1, dd).getDay();
+    (data[g] ||= {}); (data[g][dow] ||= zero());
+    data[g][dow].pedidos += r.pedidos; data[g][dow].venta += r.venta_bruta;
+    totByDow[dow].pedidos += r.pedidos; totByDow[dow].venta += r.venta_bruta;
+  });
+  const mOf = (a?: A): number | null => !a ? null : metrica === 'venta' ? a.venta : metrica === 'pedidos' ? a.pedidos : (a.pedidos > 0 ? a.venta / a.pedidos : null);
+  const mFmt = (v: number | null) => v == null ? '—' : metrica === 'pedidos' ? fmtNum(v) : metrica === 'ticket' ? fmt(v) : fmtK(v);
+
+  const chartData = DOW.map(d => {
+    const e: any = { name: d.l };
+    grupos.forEach(g => { e[g] = mOf(data[g]?.[d.i]) ?? undefined; });
+    return e;
+  });
+
+  // día top (por venta total)
+  let bestDow = DOW[0], bestVal = -1;
+  DOW.forEach(d => { if (totByDow[d.i].venta > bestVal) { bestVal = totByDow[d.i].venta; bestDow = d; } });
+  const DOW_FULL: Record<number, string> = { 1: 'Lunes', 2: 'Martes', 3: 'Miércoles', 4: 'Jueves', 5: 'Viernes', 6: 'Sábado', 0: 'Domingo' };
+
+  const renderRow = (label: string, cells: Record<number, A>, isTotal = false, marca?: string) => (
+    <tr key={label} className={cn('border-t border-border-dim/30', isTotal ? 'bg-bg-accent/25 font-black' : 'hover:bg-bg-accent/10')}>
+      <td className={cn('p-3 text-left whitespace-nowrap text-text-main', isTotal ? '' : 'font-bold')}>
+        {marca && <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-2', marca === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />}{label}
+      </td>
+      {DOW.map(d => <td key={d.i} className="p-3 text-center font-mono tabular-nums text-text-main">{mFmt(mOf(cells?.[d.i]))}</td>)}
+    </tr>
+  );
+
+  const rows: React.ReactNode[] = [];
+  if (verPor === 'marca') ['Craft', 'Craft Café'].forEach(g => data[g] && rows.push(renderRow(g, data[g], false, g)));
+  else {
+    const byMarca: Record<string, string[]> = { 'Craft': [], 'Craft Café': [] };
+    grupos.forEach(s => byMarca[deriveMarca(s)].push(s));
+    (['Craft', 'Craft Café'] as const).forEach(mk => {
+      if (!byMarca[mk].length) return;
+      rows.push(<tr key={`h-${mk}`} className="bg-bg-accent/15"><td colSpan={8} className="px-3 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-text-dim">{mk}</td></tr>);
+      byMarca[mk].forEach(s => data[s] && rows.push(renderRow(s, data[s], false, mk)));
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {(['marca', 'local'] as const).map(v => (
+            <button key={v} onClick={() => setVerPor(v)} className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded flex items-center gap-1.5', verPor === v ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
+              {v === 'marca' ? <Tag size={11} /> : <Store size={11} />}{v === 'marca' ? 'Por marca' : 'Por local'}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {metricas.map(([k, l]) => <button key={k} onClick={() => setMetrica(k)} className={cn('px-2.5 py-1.5 text-[10px] font-black uppercase rounded', metrica === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>)}
+        </div>
+        <div className="ml-auto text-[10px] font-black uppercase tracking-wider text-text-dim">Día más fuerte: <span className="text-rose-500">{DOW_FULL[bestDow.i]}</span> · {fmtK(bestVal)}</div>
+      </div>
+
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
+        <table className="w-full text-[12px] border-collapse min-w-[720px]">
+          <thead><tr className="bg-bg-accent/20 text-text-dim">
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">{verPor === 'marca' ? 'Marca' : 'Local'}</th>
+            {DOW.map(d => <th key={d.i} className="p-3 text-center text-[9px] font-black uppercase tracking-widest">{d.l}</th>)}
+          </tr></thead>
+          <tbody>{rows}{renderRow('TOTAL', totByDow, true)}</tbody>
+        </table>
+      </div>
+
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg p-5">
+        <h3 className="text-xs font-black text-text-main uppercase tracking-wider flex items-center gap-2 mb-4">
+          <CalendarDays size={15} className="text-rose-500" /> {metricas.find(m => m[0] === metrica)?.[1]} por día de la semana
+        </h3>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#30363D55" />
+              <XAxis dataKey="name" stroke="#8B949E" fontSize={10} fontWeight="bold" tickLine={false} />
+              <YAxis stroke="#8B949E" fontSize={9} tickLine={false} width={55} tickFormatter={(v) => metrica === 'pedidos' ? fmtNum(v) : fmtK(v)} />
+              <Tooltip contentStyle={{ backgroundColor: '#161B22', borderColor: '#30363D', borderRadius: 8, fontSize: 11 }} formatter={(v: any) => mFmt(v)} cursor={{ fill: '#ffffff08' }} />
+              <Legend wrapperStyle={{ fontSize: 10, fontWeight: 'bold' }} />
+              {grupos.map((g, i) => <Bar key={g} dataKey={g} fill={chartColors[i % chartColors.length]} radius={[3, 3, 0, 0]} />)}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Calculado con la fecha real de cada pedido (estado de cuenta). Cubre los períodos que hayas importado.</p>
     </div>
   );
 }
