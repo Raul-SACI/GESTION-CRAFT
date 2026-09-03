@@ -74,6 +74,26 @@ create table if not exists public.py_ads_dia (
 );
 create index if not exists py_ads_dia_fecha on public.py_ads_dia (fecha);
 
+-- ── Operativo por período (fuente: opsSummary, todos los locales) ─────────────
+-- Un archivo con el total por local del rango. Sin fechas -> se etiqueta con la
+-- semana del negocio elegida al importar (0 = mes completo).
+create table if not exists public.py_operativo_periodo (
+  anio        integer not null,
+  mes         integer not null,
+  semana      integer not null default 0,
+  sucursal    text    not null,
+  marca       text    not null default 'Craft',
+  no_disp_seg numeric not null default 0,   -- tiempo no disponible (segundos)
+  rechazo     numeric not null default 0,   -- cancelaciones evitables (%)
+  espera      numeric not null default 0,   -- tiempo de espera evitable (%)
+  prep_seg    numeric not null default 0,   -- tiempo de preparación promedio (segundos)
+  reclamos    numeric not null default 0,   -- pedidos con reclamos (%)
+  listos      numeric not null default 0,   -- pedidos marcados como listos (%)
+  updated_at  timestamptz not null default now(),
+  primary key (anio, mes, semana, sucursal)
+);
+create index if not exists py_operativo_periodo_am on public.py_operativo_periodo (anio, mes);
+
 -- ── Conectividad / desconexión (fuente: offlineDurationPerDay, por día) ───────
 create table if not exists public.py_conectividad_dia (
   fecha       date    not null,
@@ -146,6 +166,7 @@ create table if not exists public.py_config (
 alter table public.py_comercial_periodo disable row level security;
 alter table public.py_comercial_dia disable row level security;
 alter table public.py_ads_dia       disable row level security;
+alter table public.py_operativo_periodo disable row level security;
 alter table public.py_conectividad_dia disable row level security;
 alter table public.py_prep_dia       disable row level security;
 alter table public.py_reclamos      disable row level security;
@@ -155,6 +176,7 @@ alter table public.py_config        disable row level security;
 grant all on public.py_comercial_periodo to anon, authenticated;
 grant all on public.py_comercial_dia to anon, authenticated;
 grant all on public.py_ads_dia       to anon, authenticated;
+grant all on public.py_operativo_periodo to anon, authenticated;
 grant all on public.py_conectividad_dia to anon, authenticated;
 grant all on public.py_prep_dia       to anon, authenticated;
 grant all on public.py_reclamos      to anon, authenticated;

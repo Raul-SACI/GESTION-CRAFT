@@ -74,6 +74,7 @@ const DEFAULT_SEMAFOROS: Record<string, SemCfg> = {
   conectividad: { verde: 5, amarillo: 10, dir: 'menor' },
   prep: { verde: 20, amarillo: 30, dir: 'menor' },
   demorados: { verde: 10, amarillo: 20, dir: 'menor' },
+  listos: { verde: 98, amarillo: 95, dir: 'mayor' },
   var_venta: { verde: 0, amarillo: -10, dir: 'mayor' },
 };
 const SEM_LABEL: Record<string, string> = {
@@ -84,6 +85,7 @@ const SEM_LABEL: Record<string, string> = {
   conectividad: '% de desconexión (tiempo offline)',
   prep: 'Tiempo de preparación (minutos)',
   demorados: 'Pedidos demorados (% s/pedidos)',
+  listos: 'Pedidos marcados como listos (%)',
   var_venta: 'Variación de venta vs semana anterior (%)',
 };
 const semColor = (value: number | null, cfg?: SemCfg): 'g' | 'y' | 'r' | 'n' => {
@@ -104,6 +106,7 @@ type ComDia = { fecha: string; sucursal: string; marca: string; pedidos: number;
 type AdsDia = { fecha: string; sucursal: string; marca: string; campania: string; clicks: number; ordenes: number; ingresos: number; costo: number };
 type ConectDia = { fecha: string; sucursal: string; marca: string; min_no_disp: number; min_prog: number };
 type PrepDia = { fecha: string; sucursal: string; marca: string; prep_min: number; demorados: number; total: number };
+type OpsPeriodo = { anio: number; mes: number; semana: number; sucursal: string; marca: string; no_disp_seg: number; rechazo: number; espera: number; prep_seg: number; reclamos: number; listos: number };
 type Reclamo = { fecha: string; sucursal: string; marca: string; tipo: string; nro_pedido: string | null; motivo: string | null; monto: number };
 type Liquidacion = {
   period_start: string; period_end: string;
@@ -144,6 +147,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const [adsDia, setAdsDia] = useState<AdsDia[]>([]);
   const [conect, setConect] = useState<ConectDia[]>([]);
   const [prep, setPrep] = useState<PrepDia[]>([]);
+  const [opsPeriodo, setOpsPeriodo] = useState<OpsPeriodo[]>([]);
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
   const [semaforos, setSemaforos] = useState<Record<string, SemCfg>>(DEFAULT_SEMAFOROS);
@@ -159,12 +163,13 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
     try {
       const start = `${month}-01`;
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
-      const [per, dia, ads, con, prp, rec, liq, cfg] = await Promise.all([
+      const [per, dia, ads, con, prp, ops, rec, liq, cfg] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
         supabase.from('py_ads_dia').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_conectividad_dia').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_prep_dia').select('*').gte('fecha', start).lte('fecha', end),
+        supabase.from('py_operativo_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_reclamos').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
@@ -176,6 +181,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       setAdsDia(((ads.data as any[]) || []).map(r => ({ ...r, clicks: N(r.clicks), ordenes: N(r.ordenes), ingresos: N(r.ingresos), costo: N(r.costo) })));
       setConect(((con.data as any[]) || []).map(r => ({ ...r, min_no_disp: N(r.min_no_disp), min_prog: N(r.min_prog) })));
       setPrep(((prp.data as any[]) || []).map(r => ({ ...r, prep_min: N(r.prep_min), demorados: N(r.demorados), total: N(r.total) })));
+      setOpsPeriodo(((ops.data as any[]) || []).map(r => ({ ...r, no_disp_seg: N(r.no_disp_seg), rechazo: N(r.rechazo), espera: N(r.espera), prep_seg: N(r.prep_seg), reclamos: N(r.reclamos), listos: N(r.listos) })));
       setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
       setLiquidaciones(((liq.data as any[]) || []).map(r => {
         const o: any = { ...r };
@@ -299,7 +305,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
             semaforos={semaforos} chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
         )}
         {tab === 'operativo' && (
-          <OperativoTab conect={conect} prep={prep} verPor={verPor} setVerPor={setVerPor}
+          <OperativoTab ops={opsPeriodo} verPor={verPor} setVerPor={setVerPor}
             semaforos={semaforos} onGoImport={() => setTab('importar')} month={month} loading={loading} />
         )}
         {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
@@ -679,62 +685,80 @@ function PublicidadTab({ adsDia, periodo, verPor, setVerPor, semaforos, chartCol
 // ════════════════════════════════════════════════════════════════════════════
 // OPERATIVO (conectividad + tiempo de preparación)
 // ════════════════════════════════════════════════════════════════════════════
-function OperativoTab({ conect, prep, verPor, setVerPor, semaforos, onGoImport, month, loading }: any) {
-  const [metrica, setMetrica] = useState<'conectividad' | 'prep' | 'demorados'>('conectividad');
-  if (loading && conect.length === 0 && prep.length === 0) return <Loader />;
-  if (conect.length === 0 && prep.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay datos operativos para ${monthLabel(month)}. Importá los reportes de conectividad (Operaciones → tiempo no disponible) y tiempo de preparación.`} />;
+function OperativoTab({ ops, verPor, setVerPor, semaforos, onGoImport, month, loading }: any) {
+  const [metrica, setMetrica] = useState<'no_disp' | 'rechazo' | 'espera' | 'prep' | 'reclamos' | 'listos'>('prep');
+  if (loading && ops.length === 0) return <Loader />;
+  if (ops.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay datos operativos para ${monthLabel(month)}. Importá el resumen de Operaciones (Reportes → Operaciones → Descargar).`} />;
 
-  const src: any[] = metrica === 'conectividad' ? conect : prep;
-  const grupos: string[] = verPor === 'marca' ? ['Craft', 'Craft Café'] : Array.from(new Set(src.map((r: any) => r.sucursal))).sort() as string[];
+  const grupos: string[] = verPor === 'marca' ? ['Craft', 'Craft Café'] : Array.from(new Set(ops.map((r: OpsPeriodo) => r.sucursal))).sort() as string[];
 
-  // acumulador según métrica
-  type Acc = { noDisp: number; prog: number; prepSum: number; prepN: number; dem: number; tot: number };
-  const zero = (): Acc => ({ noDisp: 0, prog: 0, prepSum: 0, prepN: 0, dem: 0, tot: 0 });
-  const add = (a: Acc, r: any) => {
-    if (metrica === 'conectividad') { a.noDisp += r.min_no_disp; a.prog += r.min_prog; }
-    else { a.prepSum += r.prep_min; a.prepN += 1; a.dem += r.demorados; a.tot += r.total; }
-  };
+  // acumulador por grupo × semana: suma tiempos y promedia %
+  type Acc = { noDisp: number; prepSum: number; rechazo: number; espera: number; reclamos: number; listos: number; n: number };
+  const zero = (): Acc => ({ noDisp: 0, prepSum: 0, rechazo: 0, espera: 0, reclamos: 0, listos: 0, n: 0 });
+  const add = (a: Acc, r: OpsPeriodo) => { a.noDisp += r.no_disp_seg; a.prepSum += r.prep_seg; a.rechazo += r.rechazo; a.espera += r.espera; a.reclamos += r.reclamos; a.listos += r.listos; a.n += 1; };
   const val = (a: Acc): number | null => {
-    if (!a) return null;
-    if (metrica === 'conectividad') return a.prog > 0 ? (a.noDisp / a.prog) * 100 : null;
-    if (metrica === 'prep') return a.prepN > 0 ? a.prepSum / a.prepN : null;
-    return a.tot > 0 ? (a.dem / a.tot) * 100 : null;
+    if (!a || a.n === 0) return null;
+    switch (metrica) {
+      case 'no_disp': return a.noDisp / 3600;            // horas
+      case 'prep': return (a.prepSum / a.n) / 60;         // minutos promedio
+      case 'rechazo': return a.rechazo / a.n;
+      case 'espera': return a.espera / a.n;
+      case 'reclamos': return a.reclamos / a.n;
+      case 'listos': return a.listos / a.n;
+    }
   };
-  const fmtV = (v: number | null): string => v == null ? '—' : metrica === 'prep' ? v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' min' : fmtPct(v);
-  const semKey = metrica; // 'conectividad' | 'prep' | 'demorados'
+  const fmtV = (v: number | null): string => {
+    if (v == null) return '—';
+    if (metrica === 'no_disp') { const tot = Math.round(v * 60); const h = Math.floor(tot / 60), m = tot % 60; return h > 0 ? `${h}h ${m}m` : `${m}min`; }
+    if (metrica === 'prep') return v.toLocaleString('es-AR', { maximumFractionDigits: 1 }) + ' min';
+    return fmtPct(v, 2);
+  };
+  const semKeyOf: Record<string, string | null> = { no_disp: null, rechazo: 'cancelacion', espera: null, prep: 'prep', reclamos: 'reclamos', listos: 'listos' };
+  const semKey = semKeyOf[metrica];
 
-  const data: Record<string, { weeks: Acc[]; mes: Acc }> = {};
-  const ens = (g: string) => (data[g] ||= { weeks: [zero(), zero(), zero(), zero()], mes: zero() });
-  src.forEach((r: any) => { const g = verPor === 'marca' ? deriveMarca(r.sucursal) : r.sucursal; const w = weekOfMonth(r.fecha) - 1; const c = ens(g); add(c.weeks[w], r); add(c.mes, r); });
-  const total = { weeks: [zero(), zero(), zero(), zero()], mes: zero() };
-  src.forEach((r: any) => { const w = weekOfMonth(r.fecha) - 1; add(total.weeks[w], r); add(total.mes, r); });
+  // data[grupo] = { weeks[4], mes }
+  const data: Record<string, { weeks: Acc[]; mesExp: Acc | null }> = {};
+  const ens = (g: string) => (data[g] ||= { weeks: [zero(), zero(), zero(), zero()], mesExp: null });
+  ops.forEach((r: OpsPeriodo) => {
+    const g = verPor === 'marca' ? deriveMarca(r.sucursal) : r.sucursal;
+    const c = ens(g);
+    if (r.semana >= 1 && r.semana <= 4) add(c.weeks[r.semana - 1], r);
+    else { (c.mesExp ||= zero()); add(c.mesExp, r); }
+  });
+  // mes: si hay semanas cargadas, promedia/su­ma esas; si no, usa el import "mes completo"
+  const mesOf = (c: { weeks: Acc[]; mesExp: Acc | null }): Acc => {
+    const wk = c.weeks.reduce((a, w) => { a.noDisp += w.noDisp; a.prepSum += w.prepSum; a.rechazo += w.rechazo; a.espera += w.espera; a.reclamos += w.reclamos; a.listos += w.listos; a.n += w.n; return a; }, zero());
+    return wk.n > 0 ? wk : (c.mesExp || zero());
+  };
+  const totalCell = (which: number | 'mes'): Acc => {
+    const t = zero();
+    grupos.forEach(g => { const c = data[g]; if (!c) return; const src = which === 'mes' ? mesOf(c) : c.weeks[which]; t.noDisp += src.noDisp; t.prepSum += src.prepSum; t.rechazo += src.rechazo; t.espera += src.espera; t.reclamos += src.reclamos; t.listos += src.listos; t.n += src.n; });
+    return t;
+  };
 
-  const metricas: [string, string][] = [['conectividad', 'Conectividad'], ['prep', 'Tiempo prep.'], ['demorados', '% demorados']];
-
-  const cellNode = (a: Acc) => { const v = val(a); const sc = semColor(v, semaforos[semKey]); return v == null ? <span className="text-text-dim">—</span> : <span className={cn('px-1.5 py-0.5 rounded border font-mono', SEM_BG[sc])}>{fmtV(v)}</span>; };
-  const renderRow = (label: string, cell: { weeks: Acc[]; mes: Acc }, isTotal = false, marca?: string) => (
+  const metricas: [string, string][] = [['prep', 'Tiempo prep.'], ['no_disp', 'No disponible'], ['rechazo', 'Cancelaciones'], ['espera', 'Espera evit.'], ['reclamos', 'Reclamos'], ['listos', 'Marcados listos']];
+  const cellNode = (a: Acc) => { const v = val(a); const sc = semKey ? semColor(v, semaforos[semKey]) : 'n'; return v == null ? <span className="text-text-dim">—</span> : semKey ? <span className={cn('px-1.5 py-0.5 rounded border font-mono', SEM_BG[sc])}>{fmtV(v)}</span> : <span className="font-mono text-text-main">{fmtV(v)}</span>; };
+  const renderRow = (label: string, weeks: Acc[], mes: Acc, isTotal = false, marca?: string) => (
     <tr key={label} className={cn('border-t border-border-dim/30', isTotal ? 'bg-bg-accent/25 font-black' : 'hover:bg-bg-accent/10')}>
       <td className={cn('p-3 text-left whitespace-nowrap text-text-main', isTotal ? '' : 'font-bold')}>
         {marca && <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-2', marca === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />}{label}
       </td>
-      {[0, 1, 2, 3].map(w => <td key={w} className="p-3 text-center">{cellNode(cell.weeks[w])}</td>)}
-      <td className="p-3 text-center bg-bg-accent/20">{cellNode(cell.mes)}</td>
+      {[0, 1, 2, 3].map(w => <td key={w} className="p-3 text-center">{cellNode(weeks[w])}</td>)}
+      <td className="p-3 text-center bg-bg-accent/20">{cellNode(mes)}</td>
     </tr>
   );
 
   const rows: React.ReactNode[] = [];
-  if (verPor === 'marca') ['Craft', 'Craft Café'].forEach(g => data[g] && rows.push(renderRow(g, data[g], false, g)));
+  if (verPor === 'marca') ['Craft', 'Craft Café'].forEach(g => data[g] && rows.push(renderRow(g, data[g].weeks, mesOf(data[g]), false, g)));
   else {
     const byMarca: Record<string, string[]> = { 'Craft': [], 'Craft Café': [] };
     grupos.forEach(s => byMarca[deriveMarca(s)].push(s));
     (['Craft', 'Craft Café'] as const).forEach(mk => {
       if (!byMarca[mk].length) return;
       rows.push(<tr key={`h-${mk}`} className="bg-bg-accent/15"><td colSpan={6} className="px-3 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-text-dim">{mk}</td></tr>);
-      byMarca[mk].forEach(s => data[s] && rows.push(renderRow(s, data[s], false, mk)));
+      byMarca[mk].forEach(s => data[s] && rows.push(renderRow(s, data[s].weeks, mesOf(data[s]), false, mk)));
     });
   }
-
-  const faltaConect = conect.length === 0, faltaPrep = prep.length === 0;
 
   return (
     <div className="space-y-5">
@@ -751,10 +775,6 @@ function OperativoTab({ conect, prep, verPor, setVerPor, semaforos, onGoImport, 
         </div>
       </div>
 
-      {((metrica === 'conectividad' && faltaConect) || ((metrica === 'prep' || metrica === 'demorados') && faltaPrep)) && (
-        <div className="text-[11px] text-amber-400 flex items-center gap-1.5"><AlertTriangle size={13} /> Falta importar el reporte de {metrica === 'conectividad' ? 'conectividad (tiempo no disponible)' : 'tiempo de preparación'} para este mes.</div>
-      )}
-
       <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
         <table className="w-full text-[12px] border-collapse min-w-[680px]">
           <thead><tr className="bg-bg-accent/20 text-text-dim">
@@ -762,13 +782,16 @@ function OperativoTab({ conect, prep, verPor, setVerPor, semaforos, onGoImport, 
             {SEM_RANGO.map((r, i) => <th key={i} className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Sem {i + 1}<div className="text-[7px] opacity-60 font-bold">{r}</div></th>)}
             <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest bg-bg-accent/30">Mes</th>
           </tr></thead>
-          <tbody>{rows}{renderRow('TOTAL', total, true)}</tbody>
+          <tbody>{rows}{renderRow('TOTAL', [totalCell(0), totalCell(1), totalCell(2), totalCell(3)], totalCell('mes'), true)}</tbody>
         </table>
       </div>
       <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} />
-        {metrica === 'conectividad' ? ' % de tiempo que el local estuvo desconectado (menos es mejor).' :
-         metrica === 'prep' ? ' Minutos promedio de preparación por día.' :
-         ' % de pedidos entregados con demora.'}
+        {metrica === 'no_disp' ? ' Tiempo total que el local estuvo desconectado (menos es mejor).' :
+         metrica === 'prep' ? ' Minutos promedio de preparación.' :
+         metrica === 'rechazo' ? ' % de pedidos cancelados/rechazados de forma evitable.' :
+         metrica === 'espera' ? ' % de órdenes con tiempo de espera evitable.' :
+         metrica === 'reclamos' ? ' % de pedidos con reclamos de clientes.' :
+         ' % de pedidos marcados como listos (más es mejor).'} Por marca, los % son promedio de los locales.
       </p>
     </div>
   );
@@ -935,7 +958,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
           <ul className="mt-2 space-y-1 list-disc pl-4">
             <li><b className="text-text-main">Resumen de ventas – todos los locales</b> (Reportes → Ventas → Descargar) → venta, pedidos y ticket por local. Como no trae fechas, elegí abajo a qué <b>semana</b> corresponde.</li>
             <li><b className="text-text-main">Reporte detallado de campañas</b> (Publicidad en la app → Descargar) → inversión, ROAS y % de ads (usa sus fechas).</li>
-            <li><b className="text-text-main">Conectividad y tiempo de preparación</b> (Reportes → Operaciones) → % de desconexión y minutos de cocina (usan sus fechas).</li>
+            <li><b className="text-text-main">Resumen de Operaciones – todos los locales</b> (Reportes → Operaciones → Descargar) → no disponible, cancelaciones, espera, preparación, reclamos y marcados listos por local. Sin fechas: elegí abajo la <b>semana</b>.</li>
             <li><b className="text-text-main">Estado de cuenta (Excel)</b> → reclamos y detalle por pedido (usa sus fechas).</li>
             <li><b className="text-text-main">Estado de cuenta (PDF)</b> → liquidación / P&amp;L (período domingo a sábado).</li>
           </ul>
@@ -1012,6 +1035,9 @@ async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   if (headerTxt.includes('tiempo promedio de preparaci')) {
     return importPrep(sheets, wb.SheetNames);
   }
+  if (headerTxt.includes('unavailable time') || headerTxt.includes('order rejection rate') || headerTxt.includes('marcados como listos') || headerTxt.includes('preparación promedio') || headerTxt.includes('preparacion promedio')) {
+    return importOpsSummary(sheets, wb.SheetNames, ctx);
+  }
   if ((headerTxt.includes('restaurant name') || headerTxt.includes('nombre del restaurante') || headerTxt.includes('local')) &&
       (headerTxt.includes('sales') || headerTxt.includes('ventas')) && headerTxt.includes('ticket')) {
     return importResumenVentas(sheets, wb.SheetNames, ctx);
@@ -1031,6 +1057,41 @@ function findCols(rows: any[][], want: Record<string, string[]>, maxRows = 8) {
     if (hits >= Math.ceil(Object.keys(want).length * 0.5)) return { headerRow: i, idx };
   }
   return null;
+}
+
+// ── Resumen de Operaciones (opsSummary, todos los locales, por período) ───────
+async function importOpsSummary(sheets: Record<string, any[][]>, names: string[], ctx: ImpCtx): Promise<string> {
+  const rows = sheets[names[0]] || [];
+  const f = findCols(rows, {
+    name: ['nombre del restaurante', 'restaurant', 'nombre', 'local'],
+    no_disp: ['unavailable time', 'tiempo no disponible', 'hora no disponible'],
+    rechazo: ['order rejection', 'rejection rate', 'cancelaciones evitables'],
+    espera: ['espera evitable', 'waiting', 'espera'],
+    prep: ['preparación promedio', 'preparacion promedio', 'preparaci'],
+    reclamos: ['customer complaints', 'complaints', 'pedidos con reclamos'],
+    listos: ['marcados como listos', 'marked as ready', 'marcados'],
+  });
+  if (!f) throw new Error('no reconocí las columnas del resumen de operaciones.');
+  const out: OpsPeriodo[] = [];
+  for (let i = f.headerRow + 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const sucursal = f.idx.name != null ? norm(r[f.idx.name]) : ''; if (!sucursal || /total/i.test(sucursal)) continue;
+    out.push({
+      anio: ctx.anio, mes: ctx.mes, semana: ctx.semana, sucursal, marca: deriveMarca(sucursal),
+      no_disp_seg: f.idx.no_disp != null ? toNum(r[f.idx.no_disp]) : 0,
+      rechazo: f.idx.rechazo != null ? toNum(r[f.idx.rechazo]) : 0,
+      espera: f.idx.espera != null ? toNum(r[f.idx.espera]) : 0,
+      prep_seg: f.idx.prep != null ? toNum(r[f.idx.prep]) : 0,
+      reclamos: f.idx.reclamos != null ? toNum(r[f.idx.reclamos]) : 0,
+      listos: f.idx.listos != null ? toNum(r[f.idx.listos]) : 0,
+    });
+  }
+  if (out.length === 0) throw new Error('sin filas de locales válidas.');
+  await supabase.from('py_operativo_periodo').delete().eq('anio', ctx.anio).eq('mes', ctx.mes).eq('semana', ctx.semana);
+  const { error } = await supabase.from('py_operativo_periodo').insert(out);
+  if (error) throw new Error('guardando operativo: ' + error.message);
+  const per = ctx.semana === 0 ? `${MESES[ctx.mes - 1]} ${ctx.anio} (mes)` : `${MESES[ctx.mes - 1]} ${ctx.anio} · Sem ${ctx.semana}`;
+  return `operaciones · ${out.length} locales → ${per}.`;
 }
 
 // ── Resumen de ventas (todos los locales, por período) ────────────────────────
