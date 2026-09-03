@@ -154,19 +154,19 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
       status: nextStatus
     };
 
-    // Guardar estado en Supabase
+    // Guardar estado en Supabase (única fuente de verdad)
     try {
-      await supabase.from('hour_budgets')
+      const { error } = await supabase.from('hour_budgets')
         .update({ status: nextStatus })
         .eq('branch_id', branchId)
         .eq('month', selectedMonth);
-    } catch(e) {
+      if (error) throw error;
+    } catch(e: any) {
       console.error('Error actualizando estado en Supabase:', e);
+      alert('No se pudo actualizar el estado en Supabase: ' + (e.message || e));
+      return;
     }
-    
-    // Backup localStorage
-    localStorage.setItem(`hour_budget_${branchId}_${selectedMonth}`, JSON.stringify(updated));
-    
+
     // Update local state
     setBudgetsState(prev => ({
       ...prev,
