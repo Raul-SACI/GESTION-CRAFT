@@ -52,6 +52,14 @@ const parseFechaISO = (v: any): string | null => {
   return null;
 };
 
+// Semana fija del negocio a partir del día del mes: 1-7, 8-14, 15-21, 22-fin
+const weekOfMonth = (iso: string): 1 | 2 | 3 | 4 => {
+  const d = parseInt((iso || '').slice(8, 10), 10);
+  if (!d || d <= 7) return 1;
+  if (d <= 14) return 2;
+  if (d <= 21) return 3;
+  return 4;
+};
 const monthLabel = (mk: string) => { const [y, m] = mk.split('-'); return `${MESES[(parseInt(m, 10) || 1) - 1]} ${y}`; };
 const dmy = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
 const SEM_RANGO = ['1-7', '8-14', '15-21', '22-fin'];
@@ -103,7 +111,7 @@ interface Props { branches?: Branch[]; isReadOnly?: boolean; }
 const READONLY_MSG = 'Tu rol tiene acceso de SOLO LECTURA. No podés importar ni modificar datos en este módulo.';
 
 class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
-  constructor(props: any) { super(props); this.state = { error: null }; }
+  state: { error: Error | null } = { error: null };
   static getDerivedStateFromError(error: Error) { return { error }; }
   componentDidCatch(error: any, info: any) { console.error('PedidosYa Informes crash:', error, info); }
   render() {
@@ -116,6 +124,7 @@ class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
         </div>
       );
     }
+    // @ts-ignore - React.Component provee props en runtime
     return this.props.children;
   }
 }
