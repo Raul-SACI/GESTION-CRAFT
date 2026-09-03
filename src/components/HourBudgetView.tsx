@@ -557,7 +557,9 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
         return {
           branch_id: branchIdKey,
           month: selectedMonth,
-          position_id: r.roleId || r.id,
+          // El turno va codificado en el position_id (_maana / _tarde) para que
+          // Mañana y Tarde no colisionen y el turno se recupere al cargar.
+          position_id: `${r.roleId || r.id}_${(r.shift || 'tarde').toLowerCase().replace(/[^a-z]/g, '')}`,
           position_name: r.roleLabel || r.positionName || r.roleId,
           week1: r.staffByDate ? Object.values(staffByDate).slice(0, 7).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week1 || 0),
           week2: r.staffByDate ? Object.values(staffByDate).slice(7, 14).reduce((a: number, b: number) => a + b * hpd, 0) : (r.week2 || 0),
