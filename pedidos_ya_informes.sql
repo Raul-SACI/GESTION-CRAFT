@@ -58,6 +58,22 @@ create table if not exists public.py_comercial_dia (
 create index if not exists py_comercial_dia_fecha on public.py_comercial_dia (fecha);
 create index if not exists py_comercial_dia_marca on public.py_comercial_dia (marca);
 
+-- ── Publicidad / Ads (fuente: reporte detallado de campañas, por día) ─────────
+-- Trae fechas, así que se re-agrupa por la semana del negocio automáticamente.
+create table if not exists public.py_ads_dia (
+  fecha      date    not null,
+  sucursal   text    not null,
+  marca      text    not null default 'Craft',
+  campania   text    not null default '—',  -- Keyword / Gold Vip / Display...
+  clicks     integer not null default 0,
+  ordenes    integer not null default 0,
+  ingresos   numeric not null default 0,     -- ventas atribuidas a ads
+  costo      numeric not null default 0,     -- inversión en ads
+  updated_at timestamptz not null default now(),
+  primary key (fecha, sucursal, campania)
+);
+create index if not exists py_ads_dia_fecha on public.py_ads_dia (fecha);
+
 -- ── Reclamos y reintegros (fuente: estado de cuenta XLSX, hojas 2 y 3) ────────
 create table if not exists public.py_reclamos (
   id           bigint generated always as identity primary key,
@@ -104,12 +120,14 @@ create table if not exists public.py_config (
 -- Permisos (RLS abierto, igual que el resto del proyecto)
 alter table public.py_comercial_periodo disable row level security;
 alter table public.py_comercial_dia disable row level security;
+alter table public.py_ads_dia       disable row level security;
 alter table public.py_reclamos      disable row level security;
 alter table public.py_liquidacion   disable row level security;
 alter table public.py_config        disable row level security;
 
 grant all on public.py_comercial_periodo to anon, authenticated;
 grant all on public.py_comercial_dia to anon, authenticated;
+grant all on public.py_ads_dia       to anon, authenticated;
 grant all on public.py_reclamos      to anon, authenticated;
 grant all on public.py_liquidacion   to anon, authenticated;
 grant all on public.py_config        to anon, authenticated;

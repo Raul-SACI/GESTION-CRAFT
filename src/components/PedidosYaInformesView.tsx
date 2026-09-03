@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -85,6 +85,7 @@ const SEM_BG: Record<string, string> = {
 // ── Tipos ────────────────────────────────────────────────────────────────────
 type ComPeriodo = { anio: number; mes: number; semana: number; sucursal: string; marca: string; pedidos: number; venta: number; ticket: number };
 type ComDia = { fecha: string; sucursal: string; marca: string; pedidos: number; venta_bruta: number; venta_neta: number };
+type AdsDia = { fecha: string; sucursal: string; marca: string; campania: string; clicks: number; ordenes: number; ingresos: number; costo: number };
 type Reclamo = { fecha: string; sucursal: string; marca: string; tipo: string; nro_pedido: string | null; motivo: string | null; monto: number };
 type Liquidacion = {
   period_start: string; period_end: string;
@@ -100,9 +101,10 @@ interface Props { branches?: Branch[]; isReadOnly?: boolean; }
 const READONLY_MSG = 'Tu rol tiene acceso de SOLO LECTURA. No podés importar ni modificar datos en este módulo.';
 
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
-  const [tab, setTab] = useState<'comercial' | 'dia' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
+  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
   const [comDia, setComDia] = useState<ComDia[]>([]);
+  const [adsDia, setAdsDia] = useState<AdsDia[]>([]);
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
   const [semaforos, setSemaforos] = useState<Record<string, SemCfg>>(DEFAULT_SEMAFOROS);
@@ -118,15 +120,17 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
     try {
       const start = `${month}-01`;
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
-      const [per, dia, rec, liq, cfg] = await Promise.all([
+      const [per, dia, ads, rec, liq, cfg] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
+        supabase.from('py_ads_dia').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_reclamos').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
       ]);
       setPeriodo((per.data as ComPeriodo[]) || []);
       setComDia((dia.data as ComDia[]) || []);
+      setAdsDia((ads.data as AdsDia[]) || []);
       setReclamos((rec.data as Reclamo[]) || []);
       setLiquidaciones((liq.data as Liquidacion[]) || []);
       if (cfg.data?.value) setSemaforos({ ...DEFAULT_SEMAFOROS, ...(cfg.data.value as any) });
@@ -202,6 +206,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         {([
           ['comercial', 'Comercial', BarChart3],
           ['dia', 'Por día', CalendarDays],
+          ['publicidad', 'Publicidad', Megaphone],
           ['liquidaciones', 'Liquidaciones', Banknote],
           ['reclamos', 'Reclamos', MessageSquareWarning],
           ['importar', 'Importar', Upload],
@@ -215,7 +220,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         ))}
       </div>
 
-      {(tab === 'comercial' || tab === 'dia' || tab === 'reclamos') && (
+      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'reclamos') && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/80">
             <button onClick={prevMonth} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronLeft size={15} /></button>
@@ -237,6 +242,10 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       {tab === 'dia' && (
         <DiaSemanaTab comDia={comDia} verPor={verPor} setVerPor={setVerPor} metrica={metrica} setMetrica={setMetrica}
           chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
+      )}
+      {tab === 'publicidad' && (
+        <PublicidadTab adsDia={adsDia} periodo={periodo} verPor={verPor} setVerPor={setVerPor}
+          semaforos={semaforos} chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
       )}
       {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
       {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
@@ -463,6 +472,155 @@ function DiaSemanaTab({ comDia, verPor, setVerPor, metrica, setMetrica, chartCol
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// PUBLICIDAD / ADS (fuente: reporte detallado de campañas, por día)
+// ════════════════════════════════════════════════════════════════════════════
+type AdsAgg = { costo: number; ingresos: number; ordenes: number };
+const zeroAds = (): AdsAgg => ({ costo: 0, ingresos: 0, ordenes: 0 });
+function PublicidadTab({ adsDia, periodo, verPor, setVerPor, semaforos, chartColors, onGoImport, month, loading }: any) {
+  const [metrica, setMetrica] = useState<'inversion' | 'ventas' | 'roas' | 'pct' | 'ordenes'>('inversion');
+  if (loading && adsDia.length === 0) return <Loader />;
+  if (adsDia.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay datos de publicidad para ${monthLabel(month)}. Importá el reporte detallado de campañas (Publicidad en la app → Descargar).`} />;
+
+  const grupos: string[] = verPor === 'marca' ? ['Craft', 'Craft Café'] : Array.from(new Set(adsDia.map((r: AdsDia) => r.sucursal))).sort() as string[];
+
+  // ads por grupo × semana (fecha real)
+  const ads: Record<string, { weeks: AdsAgg[]; mes: AdsAgg }> = {};
+  const ensA = (g: string) => (ads[g] ||= { weeks: [zeroAds(), zeroAds(), zeroAds(), zeroAds()], mes: zeroAds() });
+  const addA = (a: AdsAgg, r: AdsDia) => { a.costo += r.costo; a.ingresos += r.ingresos; a.ordenes += r.ordenes; };
+  adsDia.forEach((r: AdsDia) => { const g = verPor === 'marca' ? deriveMarca(r.sucursal) : r.sucursal; const w = weekOfMonth(r.fecha) - 1; const c = ensA(g); addA(c.weeks[w], r); addA(c.mes, r); });
+  const totalAds = { weeks: [zeroAds(), zeroAds(), zeroAds(), zeroAds()], mes: zeroAds() };
+  adsDia.forEach((r: AdsDia) => { const w = weekOfMonth(r.fecha) - 1; addA(totalAds.weeks[w], r); addA(totalAds.mes, r); });
+
+  // venta por grupo × semana (para % inversión)
+  const ventaCell: Record<string, { weeks: number[]; mes: number; mesExp: number | null }> = {};
+  const ensV = (g: string) => (ventaCell[g] ||= { weeks: [0, 0, 0, 0], mes: 0, mesExp: null });
+  periodo.forEach((r: ComPeriodo) => { const g = verPor === 'marca' ? deriveMarca(r.sucursal) : r.sucursal; const c = ensV(g); if (r.semana >= 1 && r.semana <= 4) c.weeks[r.semana - 1] += r.venta; else c.mesExp = (c.mesExp || 0) + r.venta; });
+  const ventaOf = (g: string, w: number | 'mes'): number => { const c = ventaCell[g]; if (!c) return 0; if (w === 'mes') { const s = c.weeks.reduce((a, b) => a + b, 0); return s > 0 ? s : (c.mesExp || 0); } return c.weeks[w]; };
+  const ventaTotal = (w: number | 'mes'): number => grupos.reduce((s, g) => s + ventaOf(g, w), 0);
+
+  const mOf = (a: AdsAgg, venta: number): number | null => {
+    if (!a) return null;
+    if (metrica === 'inversion') return a.costo || null;
+    if (metrica === 'ventas') return a.ingresos || null;
+    if (metrica === 'ordenes') return a.ordenes || null;
+    if (metrica === 'roas') return a.costo > 0 ? a.ingresos / a.costo : null;
+    return venta > 0 ? (a.costo / venta) * 100 : null; // pct
+  };
+  const mFmt = (v: number | null): string => v == null ? '—' : metrica === 'roas' ? v.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '×' : metrica === 'pct' ? fmtPct(v) : metrica === 'ordenes' ? fmtNum(v) : fmtK(v);
+
+  const metricas: [string, string][] = [['inversion', 'Inversión'], ['ventas', 'Ventas x ads'], ['roas', 'ROAS'], ['pct', '% inversión'], ['ordenes', 'Órdenes']];
+
+  // totales / heroes
+  const invTot = totalAds.mes.costo, ingTot = totalAds.mes.ingresos, ordTot = totalAds.mes.ordenes;
+  const roasTot = invTot > 0 ? ingTot / invTot : 0;
+  const ventaMesTot = ventaTotal('mes');
+  const pctTot = ventaMesTot > 0 ? (invTot / ventaMesTot) * 100 : null;
+  const semPct = semColor(pctTot, semaforos.ads);
+
+  // split por campaña (mes)
+  const byCamp: Record<string, AdsAgg> = {};
+  adsDia.forEach((r: AdsDia) => { const k = r.campania || '—'; (byCamp[k] ||= zeroAds()); byCamp[k].costo += r.costo; byCamp[k].ingresos += r.ingresos; byCamp[k].ordenes += r.ordenes; });
+  const campanias = Object.entries(byCamp).sort((a, b) => b[1].costo - a[1].costo);
+
+  const renderRow = (label: string, cell: { weeks: AdsAgg[]; mes: AdsAgg }, g: string | null, isTotal = false, marca?: string) => (
+    <tr key={label} className={cn('border-t border-border-dim/30', isTotal ? 'bg-bg-accent/25 font-black' : 'hover:bg-bg-accent/10')}>
+      <td className={cn('p-3 text-left whitespace-nowrap text-text-main', isTotal ? '' : 'font-bold')}>
+        {marca && <span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-2', marca === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />}{label}
+      </td>
+      {[0, 1, 2, 3].map(w => {
+        const v = mOf(cell.weeks[w], g ? ventaOf(g, w) : ventaTotal(w));
+        const sc = metrica === 'pct' ? semColor(v, semaforos.ads) : 'n';
+        return <td key={w} className="p-3 text-center font-mono tabular-nums text-text-main">
+          {metrica === 'pct' && v != null ? <span className={cn('px-1.5 py-0.5 rounded border', SEM_BG[sc])}>{mFmt(v)}</span> : mFmt(v)}
+        </td>;
+      })}
+      <td className="p-3 text-center font-mono tabular-nums font-black text-text-main bg-bg-accent/20">
+        {(() => { const v = mOf(cell.mes, g ? ventaOf(g, 'mes') : ventaTotal('mes')); const sc = metrica === 'pct' ? semColor(v, semaforos.ads) : 'n'; return metrica === 'pct' && v != null ? <span className={cn('px-1.5 py-0.5 rounded border', SEM_BG[sc])}>{mFmt(v)}</span> : mFmt(v); })()}
+      </td>
+    </tr>
+  );
+
+  const rows: React.ReactNode[] = [];
+  if (verPor === 'marca') ['Craft', 'Craft Café'].forEach(g => ads[g] && rows.push(renderRow(g, ads[g], g, false, g)));
+  else {
+    const byMarca: Record<string, string[]> = { 'Craft': [], 'Craft Café': [] };
+    grupos.forEach(s => byMarca[deriveMarca(s)].push(s));
+    (['Craft', 'Craft Café'] as const).forEach(mk => {
+      if (!byMarca[mk].length) return;
+      rows.push(<tr key={`h-${mk}`} className="bg-bg-accent/15"><td colSpan={6} className="px-3 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-text-dim">{mk}</td></tr>);
+      byMarca[mk].forEach(s => ads[s] && rows.push(renderRow(s, ads[s], s, false, mk)));
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* heroes */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <HeroCard label="Inversión en ads" value={fmt(invTot)} sub={`${fmtNum(ordTot)} órdenes`} accent="amber" />
+        <HeroCard label="Ventas por ads" value={fmt(ingTot)} sub="atribuidas a publicidad" accent="emerald" />
+        <HeroCard label="ROAS" value={`${roasTot.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}×`} sub="ventas / inversión" accent="rose" />
+        <div className={cn('p-4 rounded-xl border', SEM_BG[semPct])}>
+          <div className="text-[9px] font-black uppercase tracking-widest opacity-80">% Inversión s/venta</div>
+          <div className="text-2xl font-black font-mono mt-1">{fmtPct(pctTot)}</div>
+          <div className="text-[10px] font-bold mt-0.5">meta 3%</div>
+        </div>
+      </div>
+
+      {/* controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {(['marca', 'local'] as const).map(v => (
+            <button key={v} onClick={() => setVerPor(v)} className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded flex items-center gap-1.5', verPor === v ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
+              {v === 'marca' ? <Tag size={11} /> : <Store size={11} />}{v === 'marca' ? 'Por marca' : 'Por local'}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {metricas.map(([k, l]) => <button key={k} onClick={() => setMetrica(k as any)} className={cn('px-2.5 py-1.5 text-[10px] font-black uppercase rounded', metrica === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>)}
+        </div>
+      </div>
+
+      {/* tabla */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
+        <table className="w-full text-[12px] border-collapse min-w-[680px]">
+          <thead><tr className="bg-bg-accent/20 text-text-dim">
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">{verPor === 'marca' ? 'Marca' : 'Local'}</th>
+            {SEM_RANGO.map((r, i) => <th key={i} className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Sem {i + 1}<div className="text-[7px] opacity-60 font-bold">{r}</div></th>)}
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest bg-bg-accent/30">Mes</th>
+          </tr></thead>
+          <tbody>{rows}{renderRow('TOTAL', totalAds, null, true)}</tbody>
+        </table>
+      </div>
+      {metrica === 'pct' && <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> % inversión usa la venta del resumen. Si una semana no tiene venta cargada, aparece “—”.</p>}
+
+      {/* split por campaña */}
+      <Panel title="Inversión por tipo de campaña (mes)">
+        <table className="w-full text-[12px]">
+          <thead><tr className="text-text-dim">
+            <th className="p-2 text-left text-[9px] uppercase font-black">Campaña</th>
+            <th className="p-2 text-right text-[9px] uppercase font-black">Inversión</th>
+            <th className="p-2 text-right text-[9px] uppercase font-black">Ventas x ads</th>
+            <th className="p-2 text-right text-[9px] uppercase font-black">ROAS</th>
+            <th className="p-2 text-center text-[9px] uppercase font-black">Órdenes</th>
+          </tr></thead>
+          <tbody>
+            {campanias.map(([c, v]) => (
+              <tr key={c} className="border-t border-border-dim/25">
+                <td className="p-2 text-left text-text-main font-bold">{c}</td>
+                <td className="p-2 text-right font-mono text-amber-400">{fmt(v.costo)}</td>
+                <td className="p-2 text-right font-mono text-emerald-400">{fmt(v.ingresos)}</td>
+                <td className="p-2 text-right font-mono text-text-main">{v.costo > 0 ? (v.ingresos / v.costo).toFixed(1) + '×' : '—'}</td>
+                <td className="p-2 text-center font-mono text-text-main">{fmtNum(v.ordenes)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // LIQUIDACIONES (P&L)
 // ════════════════════════════════════════════════════════════════════════════
 function LiquidacionesTab({ liquidaciones, onGoImport }: { liquidaciones: Liquidacion[]; onGoImport: () => void }) {
@@ -622,6 +780,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
           <span className="font-black text-amber-500 uppercase">Antes de importar.</span> La app reconoce cada archivo por su contenido:
           <ul className="mt-2 space-y-1 list-disc pl-4">
             <li><b className="text-text-main">Resumen de ventas – todos los locales</b> (Reportes → Ventas → Descargar) → venta, pedidos y ticket por local. Como no trae fechas, elegí abajo a qué <b>semana</b> corresponde.</li>
+            <li><b className="text-text-main">Reporte detallado de campañas</b> (Publicidad en la app → Descargar) → inversión, ROAS y % de ads (usa sus fechas).</li>
             <li><b className="text-text-main">Estado de cuenta (Excel)</b> → reclamos y detalle por pedido (usa sus fechas).</li>
             <li><b className="text-text-main">Estado de cuenta (PDF)</b> → liquidación / P&amp;L (período domingo a sábado).</li>
           </ul>
@@ -689,11 +848,14 @@ async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   if (headerTxt.includes('monto bruto de la venta') || (headerTxt.includes('sucursal') && headerTxt.includes('venta neta'))) {
     return importEstadoCuentaXLSX(sheets, wb.SheetNames);
   }
+  if (headerTxt.includes('retorno de la inversi') || (headerTxt.includes('clicks') && headerTxt.includes('costo') && headerTxt.includes('ingresos'))) {
+    return importAdsDetallado(sheets, wb.SheetNames);
+  }
   if ((headerTxt.includes('restaurant name') || headerTxt.includes('nombre del restaurante') || headerTxt.includes('local')) &&
       (headerTxt.includes('sales') || headerTxt.includes('ventas')) && headerTxt.includes('ticket')) {
     return importResumenVentas(sheets, wb.SheetNames, ctx);
   }
-  throw new Error('archivo no reconocido (esperado: resumen de ventas, estado de cuenta Excel o PDF).');
+  throw new Error('archivo no reconocido (esperado: resumen de ventas, reporte de campañas, estado de cuenta Excel o PDF).');
 }
 
 function findCols(rows: any[][], want: Record<string, string[]>, maxRows = 8) {
@@ -734,6 +896,39 @@ async function importResumenVentas(sheets: Record<string, any[][]>, names: strin
   if (error) throw new Error('guardando resumen: ' + error.message);
   const per = ctx.semana === 0 ? `${MESES[ctx.mes - 1]} ${ctx.anio} (mes)` : `${MESES[ctx.mes - 1]} ${ctx.anio} · Sem ${ctx.semana}`;
   return `resumen de ventas · ${out.length} locales → ${per}.`;
+}
+
+// ── Reporte detallado de campañas (ADS, por día) ──────────────────────────────
+async function importAdsDetallado(sheets: Record<string, any[][]>, names: string[]): Promise<string> {
+  const rows = sheets[names[0]] || [];
+  const f = findCols(rows, {
+    fecha: ['fecha'], local: ['nombre del local', 'local'], campania: ['añadir producto', 'campaña', 'campania'],
+    clicks: ['clicks'], ordenes: ['órdenes', 'ordenes'], ingresos: ['ingresos'], costo: ['costo'],
+  });
+  if (!f) throw new Error('no reconocí las columnas del reporte de campañas.');
+  const map: Record<string, AdsDia> = {};
+  const dates = new Set<string>();
+  for (let i = f.headerRow + 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const fecha = parseFechaISO(f.idx.fecha != null ? r[f.idx.fecha] : ''); if (!fecha) continue;
+    const sucursal = f.idx.local != null ? norm(r[f.idx.local]) : ''; if (!sucursal) continue;
+    const campania = f.idx.campania != null ? (norm(r[f.idx.campania]) || '—') : '—';
+    dates.add(fecha);
+    const key = `${fecha}|${sucursal}|${campania}`;
+    const a = (map[key] ||= { fecha, sucursal, marca: deriveMarca(sucursal), campania, clicks: 0, ordenes: 0, ingresos: 0, costo: 0 });
+    a.clicks += f.idx.clicks != null ? Math.round(toNum(r[f.idx.clicks])) : 0;
+    a.ordenes += f.idx.ordenes != null ? Math.round(toNum(r[f.idx.ordenes])) : 0;
+    a.ingresos += f.idx.ingresos != null ? toNum(r[f.idx.ingresos]) : 0;
+    a.costo += f.idx.costo != null ? toNum(r[f.idx.costo]) : 0;
+  }
+  const out = Object.values(map);
+  if (out.length === 0) throw new Error('sin filas de campañas válidas.');
+  const dateArr = Array.from(dates);
+  for (let i = 0; i < dateArr.length; i += 200) await supabase.from('py_ads_dia').delete().in('fecha', dateArr.slice(i, i + 200));
+  for (let i = 0; i < out.length; i += 400) { const { error } = await supabase.from('py_ads_dia').insert(out.slice(i, i + 400)); if (error) throw new Error('guardando ads: ' + error.message); }
+  const sorted = dateArr.sort();
+  const inv = out.reduce((s, r) => s + r.costo, 0);
+  return `campañas · ${out.length} filas (${dmy(sorted[0])}–${dmy(sorted[sorted.length - 1])}), inversión ${fmt(inv)}.`;
 }
 
 // ── Estado de cuenta XLSX (reclamos + pedidos por día para tasa) ───────────────
