@@ -62,12 +62,14 @@ const DEFAULT_SEMAFOROS: Record<string, SemCfg> = {
   cancelacion: { verde: 2, amarillo: 5, dir: 'menor' },
   reclamos: { verde: 3, amarillo: 6, dir: 'menor' },
   comision: { verde: 18, amarillo: 20, dir: 'menor' },
+  ads: { verde: 3, amarillo: 5, dir: 'menor' },
   var_venta: { verde: 0, amarillo: -10, dir: 'mayor' },
 };
 const SEM_LABEL: Record<string, string> = {
   cancelacion: 'Tasa de cancelación / rechazo (% s/pedidos)',
   reclamos: 'Tasa de reclamos (% s/pedidos)',
   comision: 'Comisión efectiva (% s/venta)',
+  ads: '% de inversión en ads (meta, s/venta)',
   var_venta: 'Variación de venta vs semana anterior (%)',
 };
 const semColor = (value: number | null, cfg?: SemCfg): 'g' | 'y' | 'r' | 'n' => {
@@ -100,6 +102,24 @@ type Agg = { pedidos: number; venta: number };
 interface Props { branches?: Branch[]; isReadOnly?: boolean; }
 const READONLY_MSG = 'Tu rol tiene acceso de SOLO LECTURA. No podés importar ni modificar datos en este módulo.';
 
+class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: any) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: any, info: any) { console.error('PedidosYa Informes crash:', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-5 bg-red-500/5 border border-red-500/20 rounded-xl">
+          <div className="flex items-center gap-2 text-red-400 font-black uppercase text-[11px]"><AlertTriangle size={14} /> Se produjo un error al mostrar esta sección</div>
+          <pre className="mt-2 text-[11px] font-mono text-red-300 whitespace-pre-wrap break-words">{this.state.error.message}</pre>
+          <p className="mt-2 text-[10px] text-text-dim">Cambiá de pestaña y volvé a intentar. Si persiste, avisá con este mensaje.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
@@ -128,11 +148,17 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
       ]);
-      setPeriodo((per.data as ComPeriodo[]) || []);
-      setComDia((dia.data as ComDia[]) || []);
-      setAdsDia((ads.data as AdsDia[]) || []);
-      setReclamos((rec.data as Reclamo[]) || []);
-      setLiquidaciones((liq.data as Liquidacion[]) || []);
+      // PostgREST puede devolver los numeric como texto; forzamos a número.
+      const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+      setPeriodo(((per.data as any[]) || []).map(r => ({ ...r, pedidos: N(r.pedidos), venta: N(r.venta), ticket: N(r.ticket) })));
+      setComDia(((dia.data as any[]) || []).map(r => ({ ...r, pedidos: N(r.pedidos), venta_bruta: N(r.venta_bruta), venta_neta: N(r.venta_neta) })));
+      setAdsDia(((ads.data as any[]) || []).map(r => ({ ...r, clicks: N(r.clicks), ordenes: N(r.ordenes), ingresos: N(r.ingresos), costo: N(r.costo) })));
+      setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
+      setLiquidaciones(((liq.data as any[]) || []).map(r => {
+        const o: any = { ...r };
+        ['ventas_netas', 'ventas_netas_app', 'ventas_netas_fuera', 'servicios_pedidosya', 'cargos_operativos', 'publicidad', 'pub_gold_vip', 'pub_keywords', 'pub_display', 'reintegros', 'ajustes', 'impuestos', 'ventas_fuera_app_cobradas', 'total_liquidado'].forEach(k => { o[k] = N(r[k]); });
+        return o;
+      }));
       if (cfg.data?.value) setSemaforos({ ...DEFAULT_SEMAFOROS, ...(cfg.data.value as any) });
     } catch (e) {
       console.warn('PedidosYa Informes load error', e);
@@ -233,24 +259,26 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         </div>
       )}
 
-      {tab === 'comercial' && (
-        <ComercialTab hasData={hasData} loading={loading} grupos={grupos} aggData={aggData} totalRow={totalRow} mesOf={mesOf}
-          metrica={metrica} setMetrica={setMetrica} verPor={verPor} setVerPor={setVerPor} metricOf={metricOf} metricFmt={metricFmt}
-          lastWeekWithData={lastWeekWithData} varPct={varPct} semaforos={semaforos} chartData={chartData} chartColors={chartColors}
-          onGoImport={() => setTab('importar')} month={month} />
-      )}
-      {tab === 'dia' && (
-        <DiaSemanaTab comDia={comDia} verPor={verPor} setVerPor={setVerPor} metrica={metrica} setMetrica={setMetrica}
-          chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
-      )}
-      {tab === 'publicidad' && (
-        <PublicidadTab adsDia={adsDia} periodo={periodo} verPor={verPor} setVerPor={setVerPor}
-          semaforos={semaforos} chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
-      )}
-      {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
-      {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
-      {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
-      {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
+      <TabErrorBoundary key={tab}>
+        {tab === 'comercial' && (
+          <ComercialTab hasData={hasData} loading={loading} grupos={grupos} aggData={aggData} totalRow={totalRow} mesOf={mesOf}
+            metrica={metrica} setMetrica={setMetrica} verPor={verPor} setVerPor={setVerPor} metricOf={metricOf} metricFmt={metricFmt}
+            lastWeekWithData={lastWeekWithData} varPct={varPct} semaforos={semaforos} chartData={chartData} chartColors={chartColors}
+            onGoImport={() => setTab('importar')} month={month} />
+        )}
+        {tab === 'dia' && (
+          <DiaSemanaTab comDia={comDia} verPor={verPor} setVerPor={setVerPor} metrica={metrica} setMetrica={setMetrica}
+            chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
+        )}
+        {tab === 'publicidad' && (
+          <PublicidadTab adsDia={adsDia} periodo={periodo} verPor={verPor} setVerPor={setVerPor}
+            semaforos={semaforos} chartColors={chartColors} onGoImport={() => setTab('importar')} month={month} loading={loading} />
+        )}
+        {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
+        {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
+        {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
+        {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
+      </TabErrorBoundary>
     </div>
   );
 }
