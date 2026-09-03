@@ -74,6 +74,31 @@ create table if not exists public.py_ads_dia (
 );
 create index if not exists py_ads_dia_fecha on public.py_ads_dia (fecha);
 
+-- ── Conectividad / desconexión (fuente: offlineDurationPerDay, por día) ───────
+create table if not exists public.py_conectividad_dia (
+  fecha       date    not null,
+  sucursal    text    not null,
+  marca       text    not null default 'Craft',
+  min_no_disp numeric not null default 0,  -- minutos no disponible
+  min_prog    numeric not null default 0,  -- minutos programados
+  updated_at  timestamptz not null default now(),
+  primary key (fecha, sucursal)
+);
+create index if not exists py_conectividad_dia_fecha on public.py_conectividad_dia (fecha);
+
+-- ── Tiempo de preparación (fuente: preparationTimePerDay, por día) ────────────
+create table if not exists public.py_prep_dia (
+  fecha      date    not null,
+  sucursal   text    not null,
+  marca      text    not null default 'Craft',
+  prep_min   numeric not null default 0,  -- promedio del día (minutos)
+  demorados  integer not null default 0,  -- pedidos demorados
+  total      integer not null default 0,  -- pedidos del día (reconstruido de la tasa)
+  updated_at timestamptz not null default now(),
+  primary key (fecha, sucursal)
+);
+create index if not exists py_prep_dia_fecha on public.py_prep_dia (fecha);
+
 -- ── Reclamos y reintegros (fuente: estado de cuenta XLSX, hojas 2 y 3) ────────
 create table if not exists public.py_reclamos (
   id           bigint generated always as identity primary key,
@@ -121,6 +146,8 @@ create table if not exists public.py_config (
 alter table public.py_comercial_periodo disable row level security;
 alter table public.py_comercial_dia disable row level security;
 alter table public.py_ads_dia       disable row level security;
+alter table public.py_conectividad_dia disable row level security;
+alter table public.py_prep_dia       disable row level security;
 alter table public.py_reclamos      disable row level security;
 alter table public.py_liquidacion   disable row level security;
 alter table public.py_config        disable row level security;
@@ -128,6 +155,8 @@ alter table public.py_config        disable row level security;
 grant all on public.py_comercial_periodo to anon, authenticated;
 grant all on public.py_comercial_dia to anon, authenticated;
 grant all on public.py_ads_dia       to anon, authenticated;
+grant all on public.py_conectividad_dia to anon, authenticated;
+grant all on public.py_prep_dia       to anon, authenticated;
 grant all on public.py_reclamos      to anon, authenticated;
 grant all on public.py_liquidacion   to anon, authenticated;
 grant all on public.py_config        to anon, authenticated;
