@@ -211,9 +211,7 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   const [selectedMonth, setSelectedMonth] = useState('2026-05');
   const [currentTab, setCurrentTab] = useState<'table' | 'map' | 'simulate'>('table');
   // Escala salarial desde Supabase (fuente de verdad para valor hora)
-  const [salaryScale, setSalaryScale] = useState<any[]>(() => {
-    try { return JSON.parse(localStorage.getItem('craft_salary_positions') || '[]'); } catch { return []; }
-  });
+  const [salaryScale, setSalaryScale] = useState<any[]>([]);
 
   useEffect(() => {
     const loadScale = async () => {
@@ -227,7 +225,6 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
             monthlyHours: p.monthly_hours != null ? Number(p.monthly_hours) : undefined
           }));
           setSalaryScale(mapped);
-          localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
         }
       } catch (e) { console.error('Error cargando escala salarial:', e); }
     };
@@ -371,14 +368,11 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
   // Sync pendingHolidays when holidaysList loads
   useEffect(() => { setPendingHolidays([...holidaysList]); }, [holidaysList.length]);
 
-  // Load roster from Supabase when no localStorage data (cross-device sync)
+  // Cargar el roster SIEMPRE desde Supabase (única fuente de verdad, accesible
+  // desde cualquier PC/lugar). No se usa localStorage.
   useEffect(() => {
-    if (!localBranchId || localBranchId === 'all') return;
-    const storageKey = `hour_budget_v2_${localBranchId}_${selectedMonth}`;
-    const hasLocalData = !!localStorage.getItem(storageKey);
-    if (hasLocalData) return; // LocalStorage has data, use it
-    
-    // No local data - load from Supabase
+    if (!localBranchId || localBranchId === 'all') { setRows([]); setBudgetStatus('pending'); return; }
+    let cancelled = false;
     const loadRoster = async () => {
       try {
         const { data } = await supabase
@@ -386,14 +380,15 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
           .select('*')
           .eq('branch_id', localBranchId)
           .eq('month', selectedMonth);
+        if (cancelled) return;
         if (data && data.length > 0) {
           const loadedRows: BudgetRow[] = data.map((r: any) => ({
-            id: r.id || `sb-${Math.random().toString(36).substr(2,9)}`,
+            id: r.id || `sb-${Math.random().toString(36).substr(2, 9)}`,
             branchId: r.branch_id,
             roleId: r.position_id?.replace(/_(?:ma[nñ]?ana|tarde)$/i, '') || r.position_id,
             roleLabel: r.position_name || r.position_id,
-            // El turno se toma de la columna shift; si viene vacía, se deduce del position_id
-            // (Mañana queda como '_maana' porque la ñ se quita al armar el id).
+            // El turno se toma de la columna shift; si viene vacía, se deduce del
+            // position_id (Mañana queda como '_maana' porque la ñ se quita al armar el id).
             shift: (r.shift === 'Mañana' || r.shift === 'Tarde')
               ? r.shift
               : (/_ma[nñ]?ana$/i.test(String(r.position_id || '')) ? 'Mañana' : 'Tarde'),
@@ -401,19 +396,26 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
             hourlyRate: r.hourly_rate || 0,
             countGroupA: 1,
             countGroupB: 1,
-            staffByDate: r.staff_by_date ? (() => { try { return JSON.parse(r.staff_by_date); } catch(e) { return {}; } })() : {}
+            staffByDate: r.staff_by_date ? (() => { try { return JSON.parse(r.staff_by_date); } catch (e) { return {}; } })() : {}
           }));
           setRows(loadedRows);
-          setBudgetStatus(data[0]?.status || 'draft');
-          console.log('[Budget] Loaded', loadedRows.length, 'rows from Supabase');
+          setBudgetStatus(data[0]?.status || 'pending');
+        } else {
+          setRows([]);
+          setBudgetStatus('pending');
         }
-      } catch(e) { console.warn('[Budget] Supabase load error:', e); }
+      } catch (e) {
+        console.warn('[Budget] Supabase load error:', e);
+        if (!cancelled) { setRows([]); setBudgetStatus('pending'); }
+      }
     };
     loadRoster();
+    return () => { cancelled = true; };
   }, [localBranchId, selectedMonth]);
 
-  // Load holidays from Supabase
+  // Cargar feriados del mes desde Supabase (única fuente).
   useEffect(() => {
+    let cancelled = false;
     const loadHolidays = async () => {
       try {
         const { data: hData } = await supabase
@@ -421,110 +423,15 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
           .select('holiday_dates')
           .eq('month', selectedMonth)
           .maybeSingle();
-        if (hData?.holiday_dates && hData.holiday_dates.length > 0) {
-          setHolidaysList(hData.holiday_dates);
-          localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(hData.holiday_dates));
-        }
-      } catch(e) {
-        const cached = localStorage.getItem(`hour_budget_holidays_${selectedMonth}`);
-        if (cached) try { setHolidaysList(JSON.parse(cached)); } catch(e2) {}
+        if (cancelled) return;
+        setHolidaysList(hData?.holiday_dates && hData.holiday_dates.length > 0 ? hData.holiday_dates : []);
+      } catch (e) {
+        if (!cancelled) setHolidaysList([]);
       }
     };
     loadHolidays();
+    return () => { cancelled = true; };
   }, [selectedMonth]);
-
-  // Load saved budget V2 or fall back & upgrade from V1
-  useEffect(() => {
-    const branchIdKey = localBranchId === 'all' ? '1' : localBranchId;
-    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
-    const storageKeyV1 = `hour_budget_${branchIdKey}_${selectedMonth}`;
-    
-    const savedV2 = localStorage.getItem(storageKeyV2);
-    const savedV1 = localStorage.getItem(storageKeyV1);
-    
-    const computedWeeks = getWeeksForMonth(selectedMonth);
-    
-    // Load holidays from localStorage cache (Supabase loaded separately)
-    const globalHolidaysKey = `hour_budget_holidays_${selectedMonth}`;
-    let resolvedHolidays: string[] = [];
-    let hasGlobalHolidays = false;
-    const cached = localStorage.getItem(globalHolidaysKey);
-    if (cached) { try { resolvedHolidays = JSON.parse(cached); hasGlobalHolidays = true; } catch(e) {} }
-
-    if (savedV2) {
-      try {
-        const parsed = JSON.parse(savedV2);
-        if (parsed.rows) {
-          setRows(parsed.rows);
-        }
-        
-        // Migrate to global key if not set yet, but exists in this branch V2 budget
-        if (!hasGlobalHolidays && parsed.holidaysList && Array.isArray(parsed.holidaysList) && parsed.holidaysList.length > 0) {
-          resolvedHolidays = parsed.holidaysList;
-          localStorage.setItem(globalHolidaysKey, JSON.stringify(resolvedHolidays));
-          hasGlobalHolidays = true;
-        }
-        
-        setHolidaysList(resolvedHolidays);
-        if (parsed.status) setBudgetStatus(parsed.status);
-      } catch (e) {
-        console.error('Error loading budget V2:', e);
-      }
-    } else if (savedV1) {
-      try {
-        const parsed = JSON.parse(savedV1);
-        const legacyRows = parsed.rows || [];
-        
-        // Dynamic upgrade holidays
-        if (!hasGlobalHolidays) {
-          const legacyHolidaysCount = parsed.holidays || 0;
-          const generatedHolidays: string[] = [];
-          let count = 0;
-          
-          computedWeeks.forEach(week => {
-            week.days.forEach(day => {
-              if (day.isInMonth && day.dayName === 'Domingo' && count < legacyHolidaysCount) {
-                generatedHolidays.push(day.dateStr);
-                count++;
-              }
-            });
-          });
-          resolvedHolidays = generatedHolidays;
-          localStorage.setItem(globalHolidaysKey, JSON.stringify(resolvedHolidays));
-        }
-        setHolidaysList(resolvedHolidays);
-
-        const upgradedRows = legacyRows.map((r: any) => {
-          const staffByDate: Record<string, number> = {};
-          computedWeeks.forEach(week => {
-            week.days.forEach(day => {
-              if (day.isInMonth) {
-                const isWeekend = ['Viernes', 'Sábado'].includes(day.dayName);
-                staffByDate[day.dateStr] = isWeekend ? (r.countGroupB ?? r.countGroupA) : r.countGroupA;
-              }
-            });
-          });
-
-          return {
-            ...r,
-            countGroupA: r.countGroupA ?? 1,
-            countGroupB: r.countGroupB ?? 2,
-            staffByDate
-          };
-        });
-
-        setRows(upgradedRows);
-        if (parsed.status) setBudgetStatus(parsed.status);
-      } catch (e) {
-        console.error('Error upgrading budget V1:', e);
-      }
-    } else {
-      // By user request, show months and weeks that don't have saved data empty by default
-      setRows([]);
-      setHolidaysList(resolvedHolidays);
-      setBudgetStatus('pending');
-    }
-  }, [localBranchId, selectedMonth, sucursalRolesList]);
 
   const handleSaveBudget = async () => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
@@ -577,19 +484,18 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
       });
       
       // Borrar registros previos del mes/sucursal y reinsertar
-      await supabase.from('hour_budgets').delete().eq('branch_id', branchIdKey).eq('month', selectedMonth);
+      const del = await supabase.from('hour_budgets').delete().eq('branch_id', branchIdKey).eq('month', selectedMonth);
+      if (del.error) throw del.error;
       if (upsertData.length > 0) {
-        await supabase.from('hour_budgets').insert(upsertData);
+        const ins = await supabase.from('hour_budgets').insert(upsertData);
+        if (ins.error) throw ins.error;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error guardando en Supabase:', e);
+      alert('No se pudo guardar en Supabase: ' + (e.message || e) + '\n\nRevisá la conexión e intentá de nuevo.');
+      return;
     }
-    
-    // También guardar localmente como respaldo
-    const storageKeyV2 = `hour_budget_v2_${branchIdKey}_${selectedMonth}`;
-    localStorage.setItem(storageKeyV2, JSON.stringify({ rows, holidaysList, status: budgetStatus }));
-    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(holidaysList));
-    
+
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
@@ -607,7 +513,6 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     const updated = [...pendingHolidays].sort();
     setHolidaysList(updated);
-    localStorage.setItem(`hour_budget_holidays_${selectedMonth}`, JSON.stringify(updated));
     try {
       const { error } = await supabase
         .from('budget_holidays')
@@ -1153,10 +1058,6 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
       return; // Don't proceed if save failed
     }
 
-    // Also save to localStorage
-    const storageKeyV2 = `hour_budget_v2_${activeBranchId}_${selectedMonth}`;
-    localStorage.setItem(storageKeyV2, JSON.stringify({ rows: newRows, holidaysList, status: budgetStatus }));
-    
     setImportModalSuccess(true);
     setTimeout(() => {
       setImportModalSuccess(false);
@@ -1574,28 +1475,26 @@ export default function HourBudgetView({ selectedBranchId, branches, isReadOnly 
           </div>
 
           <button
-            onClick={() => {
-              if (confirm('⚠️ ¿Estás seguro de que deseas eliminar TODOS los presupuestos cargados hasta ahora en todas las sucursales y meses? Esta acción no se puede deshacer y te permitirá realizar una importación limpia.')) {
-                // Clear all keys from localStorage that start with hour_budget
-                const keysToRemove: string[] = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                  const key = localStorage.key(i);
-                  if (key && (key.startsWith('hour_budget_') || key.startsWith('hour_budget'))) {
-                    keysToRemove.push(key);
-                  }
+            onClick={async () => {
+              if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+              const branchIdKey = localBranchId === 'all' ? (branches[0]?.id || localBranchId) : localBranchId;
+              const label = `${activeBranch?.name || branchIdKey} · ${selectedMonth}`;
+              if (confirm(`⚠️ ¿Eliminar el presupuesto de ${label}? Esta acción borra los datos en Supabase (para todos) y no se puede deshacer.`)) {
+                try {
+                  const { error } = await supabase.from('hour_budgets').delete().eq('branch_id', branchIdKey).eq('month', selectedMonth);
+                  if (error) throw error;
+                  setRows([]);
+                  setHolidaysList([]);
+                  setSelectedRowIds([]);
+                  setBudgetStatus('pending');
+                  alert(`Presupuesto de ${label} vaciado con éxito.`);
+                } catch (e: any) {
+                  alert('No se pudo borrar en Supabase: ' + (e.message || e));
                 }
-                keysToRemove.forEach(k => localStorage.removeItem(k));
-                
-                // Reset state
-                setRows([]);
-                setHolidaysList([]);
-                setSelectedRowIds([]);
-                alert('¡Datos correspondientes a todos los presupuestos vaciados con éxito! Procediendo a recargar la página.');
-                window.location.reload();
               }
             }}
             className="text-[9.5px] font-black uppercase text-red-550 hover:text-red-400 bg-red-500/5 hover:bg-red-500/10 transition-all flex items-center gap-1.5 border border-red-500/20 px-3.5 py-1.5 rounded shrink-0 cursor-pointer"
-            title="Eliminar absolutamente todos los datos de presupuestos cargados para re-importar de cero"
+            title="Vaciar el presupuesto de esta sucursal y mes (en Supabase)"
           >
             <Trash2 size={13} className="stroke-[2.5]" /> Limpiar Todo
           </button>
