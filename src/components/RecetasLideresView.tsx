@@ -128,6 +128,10 @@ export default function RecetasLideresView({
   const [saving, setSaving] = useState(false);
   const [ingSearch, setIngSearch] = useState('');
   const [recalc, setRecalc] = useState(false);
+  // Selección para exportar a PDF
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportSel, setExportSel] = useState<Set<string>>(new Set());
+  const [exportSearch, setExportSearch] = useState('');
 
   // Mapa de costos por código: insumos (stock_items) + recetas maestro (produccion/sucursal),
   // para valorizar la receta también cuando un "insumo" es una receta.
@@ -271,9 +275,8 @@ export default function RecetasLideresView({
 
   // Exporta a PDF las recetas de la vista actual (respeta tipo, filtro y búsqueda),
   // cada una con el detalle de insumos, precio unitario, subtotal y costo total.
-  const exportarPDF = () => {
-    const lista = recetasFiltradas;
-    if (!lista.length) { alert('No hay recetas para exportar en esta vista.'); return; }
+  const exportarPDF = (lista: Recipe[]) => {
+    if (!lista || !lista.length) { alert('No hay recetas seleccionadas para exportar.'); return; }
     const doc = new jsPDF();
     const tipoLabel = TIPOS.find(t => t.id === tipo)?.label || '';
     const money = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
@@ -556,8 +559,8 @@ export default function RecetasLideresView({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={exportarPDF}
-              title="Exporta las recetas de esta vista a PDF con insumos y costos"
+            <button onClick={() => { setExportSel(new Set(recetasFiltradas.map(r => r.id))); setExportSearch(''); setExportOpen(true); }}
+              title="Elegí qué recetas exportar a PDF con insumos y costos"
               className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/40 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all">
               <FileText size={13} /> Exportar PDF
             </button>
@@ -654,6 +657,70 @@ export default function RecetasLideresView({
           ))}
         </div>
       )}
+
+      {/* ── Modal: elegir recetas a exportar ── */}
+      {exportOpen && (() => {
+        const visibles = recetasFiltradas.filter(r => {
+          const q = exportSearch.trim().toLowerCase();
+          if (!q) return true;
+          return (r.name || '').toLowerCase().includes(q) || String(r.code || '').toLowerCase().includes(q) || (r.seccion || '').toLowerCase().includes(q);
+        });
+        const visIds = visibles.map(r => r.id);
+        const allVisSel = visIds.length > 0 && visIds.every(id => exportSel.has(id));
+        const toggle = (id: string) => setExportSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+        const setAllVis = (on: boolean) => setExportSel(prev => { const n = new Set(prev); visIds.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-start md:items-center justify-center p-3 overflow-y-auto" onClick={() => setExportOpen(false)}>
+            <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full my-4 shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-border-dim">
+                <div>
+                  <h3 className="text-sm font-black uppercase text-text-main tracking-wider flex items-center gap-2"><FileText size={15} className="text-brand-500" /> Exportar recetas a PDF</h3>
+                  <p className="text-[9px] text-text-dim uppercase font-bold mt-0.5">{TIPOS.find(t => t.id === tipo)?.label} · elegí cuáles incluir</p>
+                </div>
+                <button onClick={() => setExportOpen(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+
+              <div className="p-3 border-b border-border-dim flex flex-wrap items-center gap-2">
+                <input value={exportSearch} onChange={e => setExportSearch(e.target.value)} placeholder="Buscar por nombre, código o sección…"
+                  className="flex-1 min-w-[180px] bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none focus:border-brand-500" />
+                <button onClick={() => setAllVis(true)} className="px-2.5 py-1.5 text-[10px] font-black uppercase rounded bg-bg-accent border border-border-dim text-text-dim hover:text-text-main">Todas</button>
+                <button onClick={() => setAllVis(false)} className="px-2.5 py-1.5 text-[10px] font-black uppercase rounded bg-bg-accent border border-border-dim text-text-dim hover:text-text-main">Ninguna</button>
+              </div>
+
+              <div className="overflow-y-auto p-2" style={{ minHeight: 120 }}>
+                {visibles.length === 0 ? (
+                  <div className="text-center text-[11px] text-text-dim py-8 font-bold uppercase">No hay recetas que coincidan</div>
+                ) : (
+                  <label className="flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-text-dim cursor-pointer select-none border-b border-border-dim/50">
+                    <input type="checkbox" checked={allVisSel} onChange={e => setAllVis(e.target.checked)} />
+                    Seleccionar todo lo visible ({visibles.length})
+                  </label>
+                )}
+                {visibles.map(r => (
+                  <label key={r.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-bg-accent/40 rounded cursor-pointer select-none">
+                    <input type="checkbox" checked={exportSel.has(r.id)} onChange={() => toggle(r.id)} />
+                    <span className="flex-1 text-[12px] font-bold text-text-main truncate">{r.name}
+                      {r.seccion && <span className="text-[9px] text-text-dim font-normal ml-2 uppercase">{r.seccion}</span>}
+                    </span>
+                    {r.code && <span className="text-[9px] text-text-dim font-mono shrink-0">Cód {r.code}</span>}
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 p-4 border-t border-border-dim">
+                <span className="text-[10px] font-black uppercase text-text-dim">{exportSel.size} seleccionada(s)</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setExportOpen(false)} className="px-3 py-2 text-[10px] font-black uppercase rounded bg-bg-accent border border-border-dim text-text-dim hover:text-text-main">Cancelar</button>
+                  <button onClick={() => { const sel = recetasFiltradas.filter(r => exportSel.has(r.id)); if (!sel.length) { alert('Elegí al menos una receta.'); return; } exportarPDF(sel); setExportOpen(false); }}
+                    className="flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase rounded bg-brand-500 hover:bg-brand-600 text-white disabled:opacity-40" disabled={exportSel.size === 0}>
+                    <FileText size={13} /> Exportar {exportSel.size > 0 ? `(${exportSel.size})` : ''}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Editor modal ── */}
       {editing && (
