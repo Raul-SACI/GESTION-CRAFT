@@ -4,7 +4,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Loader2, Plus, Search, Trash2, Pencil, QrCode, X, Package } from 'lucide-react';
+import { Loader2, Plus, Search, Trash2, Pencil, QrCode, X, Package, Wrench } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabaseMant } from '../lib/supabase';
 import { cn } from '../lib/utils';
@@ -55,6 +55,25 @@ export default function MantInventoryView() {
   // Modales
   const [editing, setEditing] = useState<Partial<Asset> | null>(null);
   const [qrAsset, setQrAsset] = useState<Asset | null>(null);
+  // Historial de reparaciones del activo
+  const [historyAsset, setHistoryAsset] = useState<Asset | null>(null);
+  const [historyReps, setHistoryReps] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const openHistory = async (a: Asset) => {
+    setHistoryAsset(a);
+    setHistoryReps([]);
+    setHistoryLoading(true);
+    try {
+      const { data } = await supabaseMant.from('reparaciones').select('*').eq('asset_id', a.id);
+      const rows = (data || []).slice().sort((x: any, y: any) => String(y.date || '').localeCompare(String(x.date || '')));
+      setHistoryReps(rows);
+    } catch (e) {
+      setHistoryReps([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadAll = async () => {
@@ -236,7 +255,12 @@ export default function MantInventoryView() {
             <tbody>
               {filtered.map(a => (
                 <tr key={a.id} className={cn("border-b border-border-dim/30 hover:bg-bg-accent/20 transition-colors text-[11px]", a.inactive && "opacity-50")}>
-                  <td className="px-4 py-2.5 font-black text-text-main uppercase">{a.name}</td>
+                  <td className="px-4 py-2.5 font-black uppercase">
+                    <button onClick={() => openHistory(a)} title="Ver reparaciones de este bien"
+                      className="text-left text-text-main hover:text-brand-500 transition-colors underline decoration-transparent hover:decoration-brand-500/60 underline-offset-2">
+                      {a.name}
+                    </button>
+                  </td>
                   <td className="px-4 py-2.5 text-text-dim uppercase">{a.category}</td>
                   <td className="px-4 py-2.5 text-text-dim uppercase">{a.branch}</td>
                   <td className="px-4 py-2.5 text-text-dim uppercase">{a.location || '-'}</td>
@@ -249,6 +273,7 @@ export default function MantInventoryView() {
                   </td>
                   <td className="px-4 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => openHistory(a)} title="Ver reparaciones" className="p-1.5 text-text-dim hover:text-amber-500 transition-colors"><Wrench size={14} /></button>
                       <button onClick={() => setQrAsset(a)} title="Ver QR" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><QrCode size={14} /></button>
                       <button onClick={() => setEditing({ ...a })} title="Editar" className="p-1.5 text-text-dim hover:text-brand-500 transition-colors"><Pencil size={14} /></button>
                       <button onClick={() => deleteAsset(a)} title="Eliminar" className="p-1.5 text-text-dim hover:text-red-500 transition-colors"><Trash2 size={14} /></button>
@@ -324,6 +349,75 @@ export default function MantInventoryView() {
                 {saving ? <Loader2 size={14} className="animate-spin" /> : null} Guardar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: historial de reparaciones */}
+      {historyAsset && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-start md:items-center justify-center p-3 overflow-y-auto" onClick={() => setHistoryAsset(null)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl max-w-2xl w-full my-4 shadow-2xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-border-dim">
+              <div>
+                <h3 className="text-sm font-black uppercase text-text-main tracking-wider flex items-center gap-2"><Wrench size={15} className="text-amber-500" /> Reparaciones</h3>
+                <p className="text-[10px] text-text-dim uppercase font-bold mt-0.5">{historyAsset.name}{historyAsset.branch ? ` · ${historyAsset.branch}` : ''}</p>
+              </div>
+              <button onClick={() => setHistoryAsset(null)} className="p-1.5 text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+
+            {(() => {
+              const total = historyReps.reduce((s, r) => s + (parseFloat(r.total_cost) || 0), 0);
+              return (
+                <>
+                  {!historyLoading && historyReps.length > 0 && (
+                    <div className="flex flex-wrap gap-4 px-4 py-3 border-b border-border-dim bg-bg-accent/20">
+                      <div><div className="text-[8px] font-black uppercase text-text-dim tracking-widest">Reparaciones</div><div className="text-lg font-black text-text-main font-mono">{historyReps.length}</div></div>
+                      <div><div className="text-[8px] font-black uppercase text-text-dim tracking-widest">Costo total</div><div className="text-lg font-black text-amber-500 font-mono">${fmt(total)}</div></div>
+                      <div><div className="text-[8px] font-black uppercase text-text-dim tracking-widest">Última</div><div className="text-lg font-black text-text-main font-mono">{historyReps[0]?.date || '—'}</div></div>
+                    </div>
+                  )}
+
+                  <div className="overflow-y-auto p-3" style={{ minHeight: 120 }}>
+                    {historyLoading ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-2"><Loader2 size={22} className="animate-spin text-amber-500" /><span className="text-[10px] text-text-dim font-black uppercase tracking-widest">Cargando…</span></div>
+                    ) : historyReps.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
+                        <Wrench size={26} className="text-text-dim" />
+                        <p className="text-[11px] text-text-dim font-bold">Este bien todavía no tiene reparaciones registradas.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {historyReps.map((r: any) => (
+                          <div key={r.id} className="border border-border-dim rounded-lg p-3 bg-bg-accent/10">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="text-[12px] font-bold text-text-main">{r.description || 'Reparación'}</div>
+                                <div className="text-[9px] text-text-dim font-bold uppercase tracking-wider mt-0.5">
+                                  {r.date || '—'}{r.time ? ` · ${r.time}` : ''}
+                                  {r.responsible ? ` · ${r.responsible}` : ''}{r.responsible_type ? ` (${r.responsible_type})` : ''}
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-[13px] font-black text-amber-500 font-mono">${fmt(r.total_cost)}</div>
+                                {r.pay_type && <div className="text-[8px] text-text-dim font-bold uppercase">{r.pay_type}</div>}
+                              </div>
+                            </div>
+                            {(parseFloat(r.labor_cost) > 0 || parseFloat(r.parts_cost) > 0 || r.parts) && (
+                              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 pt-2 border-t border-border-dim/50 text-[9.5px] text-text-dim">
+                                {parseFloat(r.labor_cost) > 0 && <span>Mano de obra: <b className="text-text-main">${fmt(r.labor_cost)}</b></span>}
+                                {parseFloat(r.parts_cost) > 0 && <span>Repuestos: <b className="text-text-main">${fmt(r.parts_cost)}</b></span>}
+                                {r.parts && <span>Detalle: <b className="text-text-main">{r.parts}</b></span>}
+                                {r.source === 'qr' && <span className="text-brand-500 font-bold">vía QR</span>}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
