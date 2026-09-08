@@ -286,6 +286,20 @@ export default function ConsolidatedEncargadoView({
     (winners.horas.has(r.branchId) ? 1 : 0) +
     (winners.banderas.has(r.branchId) ? 1 : 0);
 
+  // Totales para la fila TOTAL (solo tiene sentido en el consolidado, con >1 sucursal)
+  const totals = useMemo(() => {
+    const netSales = rows.reduce((s, r) => s + (r.hasSales ? r.netSales : 0), 0);
+    const conCmv = rows.filter(r => r.cmvPct !== null);
+    const cmvNum = conCmv.reduce((s, r) => s + (r.detail?.cmvMonto || 0), 0);
+    const cmvDen = conCmv.reduce((s, r) => s + r.netSales, 0);
+    const cmvPct = cmvDen > 0 ? (cmvNum / cmvDen) * 100 : null;
+    const conHoras = rows.filter(r => r.hoursDevPct !== null);
+    const hoursDevPct = conHoras.length ? conHoras.reduce((s, r) => s + (r.hoursDevPct as number), 0) / conHoras.length : null;
+    const redFlags = rows.reduce((s, r) => s + r.redFlags, 0);
+    const blackFlags = rows.reduce((s, r) => s + r.blackFlags, 0);
+    return { netSales, cmvPct, hoursDevPct, redFlags, blackFlags };
+  }, [rows]);
+
   const T = () => <Trophy size={12} className="inline text-amber-500 ml-1.5 -mt-0.5" />;
 
   return (
@@ -441,6 +455,22 @@ export default function ConsolidatedEncargadoView({
                   </React.Fragment>
                 );
               })}
+              {rows.length > 1 && (
+                <tr className="text-[11px] font-black bg-bg-accent/30 border-t-2 border-border-dim">
+                  <td className="px-3 py-3 uppercase text-text-main">Total ({rows.length} sucursales)</td>
+                  <td className="px-3 py-3 text-right font-mono text-text-main">{fmtMoney(totals.netSales)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-text-main">{totals.cmvPct !== null ? `${totals.cmvPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}</td>
+                  <td className="px-3 py-3 text-right font-mono text-text-main">{totals.hoursDevPct !== null ? `${totals.hoursDevPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}</td>
+                  <td className="px-3 py-3 text-right font-mono text-text-main">
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      <Flag size={10} className={totals.redFlags > 0 ? "text-red-500" : "text-text-dim"} />
+                      {totals.redFlags + totals.blackFlags}
+                      <span className="text-[8px] text-text-dim">({totals.redFlags}R·{totals.blackFlags}N)</span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-center text-text-dim">—</td>
+                </tr>
+              )}
             </tbody>
           </table>
           <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70 leading-relaxed">
