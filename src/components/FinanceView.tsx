@@ -284,6 +284,8 @@ export default function FinanceView({
   const [currentDateStr, setCurrentDateStr] = useState(() => toLocalISO(new Date()));
   
   const [payments, setPayments] = useState<ScheduledPayment[]>([]);
+  // Pagos de honorarios profesionales (módulo Honorarios) — impactan el flujo estimado (solo lectura acá)
+  const [honorariosPagos, setHonorariosPagos] = useState<any[]>([]);
   const [cuotaVista, setCuotaVista] = useState<'todas' | 'pend'>('todas'); // indicador cuotas por mes/semana
   const [dataLoaded, setDataLoaded] = useState(false);
   // Cheques emitidos (Santander) — impactan como pasivo bancario en su fecha de pago.
@@ -526,6 +528,12 @@ export default function FinanceView({
             try { await supabase.from('finance_liabilities').upsert([{ type: 'weekly_closing', entity_name: 'CIERRE_SEMANAL', amount: 0, notes: JSON.stringify(lsClos) }], { onConflict: 'type' }); } catch (e) { /* ignore */ }
           }
         }
+
+        // Honorarios profesionales (tabla propia) — para reflejarlos en el flujo estimado
+        try {
+          const { data: hon } = await supabase.from('honorarios_pagos').select('*');
+          if (!cancelled && Array.isArray(hon)) setHonorariosPagos(hon);
+        } catch (e) { /* tabla puede no existir todavía */ }
 
         if (!cancelled) {
           if (byType['finance_entries']) setEntries(byType['finance_entries']);
@@ -801,8 +809,24 @@ export default function FinanceView({
       };
     });
 
-    return [...entries, ...paymentEntries];
-  }, [entries, payments, periodType, activeWeekRange, activeMonthRange]);
+    // Honorarios profesionales: cada pago con fecha impacta el flujo en su semana.
+    const honorariosEntries: FinanceEntry[] = (honorariosPagos || [])
+      .filter((h: any) => h && h.fecha_pago && (Number(h.importe) || 0) > 0)
+      .map((h: any) => {
+        const cuenta = String(h.cuenta || 'efectivo').toLowerCase().trim();
+        const acc = ACCOUNTS.some(a => a.id === cuenta) ? cuenta : 'efectivo';
+        return {
+          id: `honorario-${h.id}`,
+          date: String(h.fecha_pago).slice(0, 10),
+          itemId: h.item_id || 'hon_other',
+          amounts: { [acc]: Number(h.importe) || 0 },
+          isExecuted: h.estado === 'pagado',
+          description: `Honorarios: ${h.nombre || 'Asesor'}`,
+        } as FinanceEntry;
+      });
+
+    return [...entries, ...paymentEntries, ...honorariosEntries];
+  }, [entries, payments, honorariosPagos, periodType, activeWeekRange, activeMonthRange]);
 
   // Filter entries for the selected week / month
   const filteredEntriesForActivePeriod = useMemo(() => {
