@@ -289,6 +289,7 @@ export default function ConsolidatedEncargadoView({
   // Totales para la fila TOTAL (solo tiene sentido en el consolidado, con >1 sucursal)
   const totals = useMemo(() => {
     const netSales = rows.reduce((s, r) => s + (r.hasSales ? r.netSales : 0), 0);
+    const projected = rows.reduce((s, r) => s + (r.detail?.projected || 0), 0);
     const conCmv = rows.filter(r => r.cmvPct !== null);
     const cmvNum = conCmv.reduce((s, r) => s + (r.detail?.cmvMonto || 0), 0);
     const cmvDen = conCmv.reduce((s, r) => s + r.netSales, 0);
@@ -297,7 +298,7 @@ export default function ConsolidatedEncargadoView({
     const hoursDevPct = conHoras.length ? conHoras.reduce((s, r) => s + (r.hoursDevPct as number), 0) / conHoras.length : null;
     const redFlags = rows.reduce((s, r) => s + r.redFlags, 0);
     const blackFlags = rows.reduce((s, r) => s + r.blackFlags, 0);
-    return { netSales, cmvPct, hoursDevPct, redFlags, blackFlags };
+    return { netSales, projected, cmvPct, hoursDevPct, redFlags, blackFlags };
   }, [rows]);
 
   const T = () => <Trophy size={12} className="inline text-amber-500 ml-1.5 -mt-0.5" />;
@@ -360,8 +361,10 @@ export default function ConsolidatedEncargadoView({
                       <span className="mr-1.5 text-brand-500">{isExp ? '▾' : '▸'}</span>{r.branchName}
                     </td>
                     <td className={cn("px-3 py-3 text-right font-mono", winners.ventas.has(r.branchId) ? "text-amber-600 font-black" : "text-text-main")}>
-                      {r.hasSales ? fmtMoney(r.netSales) : <span className="text-text-dim">—</span>}
-                      {winners.ventas.has(r.branchId) && <T />}
+                      <div className="flex flex-col items-end leading-tight">
+                        <span>{r.hasSales ? fmtMoney(r.netSales) : <span className="text-text-dim">—</span>}{winners.ventas.has(r.branchId) && <T />}</span>
+                        {r.detail.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(r.detail.projected)}</span>}
+                      </div>
                     </td>
                     <td className={cn("px-3 py-3 text-right font-mono", winners.cmv.has(r.branchId) ? "text-amber-600 font-black" : "text-text-main")}>
                       {r.cmvPct !== null ? `${r.cmvPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}
@@ -458,7 +461,12 @@ export default function ConsolidatedEncargadoView({
               {rows.length > 1 && (
                 <tr className="text-[11px] font-black bg-bg-accent/30 border-t-2 border-border-dim">
                   <td className="px-3 py-3 uppercase text-text-main">Total ({rows.length} sucursales)</td>
-                  <td className="px-3 py-3 text-right font-mono text-text-main">{fmtMoney(totals.netSales)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-text-main">
+                    <div className="flex flex-col items-end leading-tight">
+                      <span>{fmtMoney(totals.netSales)}</span>
+                      {totals.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(totals.projected)}</span>}
+                    </div>
+                  </td>
                   <td className="px-3 py-3 text-right font-mono text-text-main">{totals.cmvPct !== null ? `${totals.cmvPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}</td>
                   <td className="px-3 py-3 text-right font-mono text-text-main">{totals.hoursDevPct !== null ? `${totals.hoursDevPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}</td>
                   <td className="px-3 py-3 text-right font-mono text-text-main">
