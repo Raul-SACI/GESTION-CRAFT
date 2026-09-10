@@ -800,14 +800,18 @@ export default function DeviationControlView({
         // Match PRIMERO por código y, si no hay, por nombre (no duplica renombrados).
         const { data: existing } = await supabase.from('products').select('id, name, code');
         const norm = (v: any) => String(v ?? '').trim().toUpperCase();
-        const byName = new Map<string, string>();
-        const byCode = new Map<string, string>();
-        (existing || []).forEach((p: any) => { byName.set(norm(p.name), p.id); const c = norm(p.code); if (c) byCode.set(c, p.id); });
+        const byName = new Map<string, string>();          // nombre -> primer id
+        const byCode = new Map<string, string[]>();         // código -> TODOS los ids (para unificar duplicados de la base)
+        (existing || []).forEach((p: any) => {
+          const nn = norm(p.name); if (nn && !byName.has(nn)) byName.set(nn, p.id);
+          const c = norm(p.code); if (c) { const arr = byCode.get(c) || []; arr.push(p.id); byCode.set(c, arr); }
+        });
 
         const seenCode = new Set<string>();
         const seenName = new Set<string>();
         const toInsert: any[] = [];
         const toUpdate: { id: string; patch: any }[] = [];
+        const dupCodes = new Set<string>();  // códigos que en la base tienen más de un producto (duplicados)
         data.forEach((row: any) => {
           const name = String(row.Nombre || row.name || '').toUpperCase().trim();
           if (!name) return;
@@ -822,14 +826,18 @@ export default function DeviationControlView({
           seenName.add(nname);
           // Costo: si la celda viene vacía (null) NO se toca el costo existente (red de seguridad).
           const cost = costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price);
-          const id = (ncode && byCode.get(ncode)) || byName.get(nname);
-          if (id) {
-            const patch: any = { name, category };
-            if (code) patch.code = code;
-            if (cost !== null) patch.cost = cost;
-            toUpdate.push({ id, patch });
+          const armarPatch = () => { const patch: any = { name, category }; if (code) patch.code = code; if (cost !== null) patch.cost = cost; return patch; };
+
+          const idsPorCodigo = ncode ? (byCode.get(ncode) || []) : [];
+          if (idsPorCodigo.length > 0) {
+            // Actualiza TODOS los productos que comparten ese código: así, si había un
+            // duplicado con el nombre viejo, también se corrige (no queda el nombre viejo).
+            if (idsPorCodigo.length > 1) dupCodes.add(ncode);
+            idsPorCodigo.forEach(id => toUpdate.push({ id, patch: armarPatch() }));
           } else {
-            toInsert.push({ name, category, code, cost });
+            const idPorNombre = byName.get(nname);
+            if (idPorNombre) toUpdate.push({ id: idPorNombre, patch: armarPatch() });
+            else toInsert.push({ name, category, code, cost });
           }
         });
 
@@ -837,13 +845,24 @@ export default function DeviationControlView({
           const { error } = await supabase.from('products').insert(toInsert);
           if (error) throw error;
         }
+        // Actualiza y CAPTURA errores (antes se tragaban en silencio y decía "actualizado" aunque fallara).
+        let updFallos = 0;
+        const erroresMsg = new Set<string>();
         for (let i = 0; i < toUpdate.length; i += 25) {
-          await Promise.all(toUpdate.slice(i, i + 25).map(u =>
+          const res = await Promise.all(toUpdate.slice(i, i + 25).map(u =>
             supabase.from('products').update(u.patch).eq('id', u.id)
           ));
+          res.forEach(r => { if (r.error) { updFallos++; erroresMsg.add(r.error.message); } });
         }
         await reloadProducts();
-        alert(`Importación lista: ${toInsert.length} producto(s) nuevo(s), ${toUpdate.length} actualizado(s) (no se duplican).`);
+        let msg = `Importación lista: ${toInsert.length} nuevo(s), ${toUpdate.length - updFallos} actualizado(s).`;
+        if (dupCodes.size > 0) {
+          msg += `\n\n⚠️ Hay código(s) REPETIDO(S) en la base: ${Array.from(dupCodes).join(', ')}.\nActualicé TODOS los productos con esos códigos al nombre nuevo, pero quedan filas duplicadas. Revisá esos códigos y borrá/inhabilitá las filas que sobren.`;
+        }
+        if (updFallos > 0) {
+          msg += `\n\n❌ ${updFallos} actualización(es) fallaron: ${Array.from(erroresMsg).join(' | ')}`;
+        }
+        alert(msg);
       } catch (err: any) {
         alert('Error al importar productos: ' + err.message);
       } finally {

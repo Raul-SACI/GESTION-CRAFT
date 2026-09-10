@@ -119,13 +119,15 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         const n = parseFloat(t); return isNaN(n) ? NaN : n;
       };
 
-      // Índices de lo existente: por CÓDIGO (prioridad) y por NOMBRE (respaldo)
-      const byCode = new Map<string, any>();
+      // Índices de lo existente: por CÓDIGO (prioridad) y por NOMBRE (respaldo).
+      // byCode guarda TODOS los registros de cada código para poder unificar duplicados.
+      const byCode = new Map<string, any[]>();
       const byName = new Map<string, any>();
-      rows.forEach(r => { const c = norm(r.code); if (c) byCode.set(c, r); byName.set(norm(r.name), r); });
+      rows.forEach(r => { const c = norm(r.code); if (c) { const arr = byCode.get(c) || []; arr.push(r); byCode.set(c, arr); } const nn = norm(r.name); if (!byName.has(nn)) byName.set(nn, r); });
 
       const aCrear: any[] = [];
       const aActualizar: Array<{ id: string; data: any }> = [];
+      const dupCodes = new Set<string>();
       const vistosCodigo = new Set<string>();
       const vistosNombre = new Set<string>();
       let seq = 0;
@@ -144,21 +146,24 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         const unitVal = showUnit ? (pick(row, 'unidad', 'unit', 'um') || null) : null;
         const costRaw = pick(row, 'costo', 'precio', 'cost', 'price');
         const costVal = showCost && costRaw !== '' ? parseCost(costRaw) : null;
+        const armarPatch = () => { const patch: any = { name }; if (showUnit && unitVal) patch.unit = unitVal; if (code) patch.code = code; if (costVal !== null && !isNaN(costVal)) patch.cost = costVal; return patch; };
 
-        // match: primero por código; si no, por nombre
-        const existente = (ncode && byCode.get(ncode)) || byName.get(nname);
-        if (existente) {
-          const patch: any = { name };
-          if (showUnit && unitVal) patch.unit = unitVal;
-          if (code) patch.code = code; // si el archivo trae código, lo setea/actualiza
-          if (costVal !== null && !isNaN(costVal)) patch.cost = costVal;
-          aActualizar.push({ id: existente.id, data: patch });
+        // match: primero por código (TODOS los que lo comparten); si no, por nombre
+        const porCodigo = ncode ? (byCode.get(ncode) || []) : [];
+        if (porCodigo.length > 0) {
+          if (porCodigo.length > 1) dupCodes.add(ncode);
+          porCodigo.forEach(r => aActualizar.push({ id: r.id, data: armarPatch() }));
         } else {
-          aCrear.push({
-            id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
-            tipo, name, unit: unitVal, code: code || null,
-            cost: costVal !== null && !isNaN(costVal) ? costVal : null,
-          });
+          const porNombre = byName.get(nname);
+          if (porNombre) {
+            aActualizar.push({ id: porNombre.id, data: armarPatch() });
+          } else {
+            aCrear.push({
+              id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
+              tipo, name, unit: unitVal, code: code || null,
+              cost: costVal !== null && !isNaN(costVal) ? costVal : null,
+            });
+          }
         }
       });
 
@@ -172,7 +177,9 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       for (let i = 0; i < aCrear.length; i += 200) { const { error } = await supabase.from('recipe_masters').insert(aCrear.slice(i, i + 200)); if (error) throw error; }
       let fallos = 0;
       for (const upd of aActualizar) { const { error } = await supabase.from('recipe_masters').update(upd.data).eq('id', upd.id); if (error) fallos++; }
-      alert(`Importación lista: ${aCrear.length} nuevo(s), ${aActualizar.length} actualizado(s)` + (fallos ? `, ${fallos} con error al actualizar.` : '.'));
+      let msg = `Importación lista: ${aCrear.length} nuevo(s), ${aActualizar.length - fallos} actualizado(s)` + (fallos ? `, ${fallos} con error al actualizar.` : '.');
+      if (dupCodes.size > 0) msg += `\n\n⚠️ Hay código(s) REPETIDO(S) en la base: ${Array.from(dupCodes).join(', ')}. Actualicé todos al nombre nuevo, pero quedan filas duplicadas: revisalas y inhabilitá las que sobren.`;
+      alert(msg);
       await cargar();
     } catch (err: any) { alert('Error al importar: ' + (err.message || err)); }
     setBusy(false);
