@@ -797,25 +797,40 @@ export default function DeviationControlView({
 
         // Importación IDEMPOTENTE: si el producto ya existe (por nombre), se ACTUALIZA
         // (categoría, código, costo) en vez de crear un duplicado. Solo se insertan los nuevos.
-        const { data: existing } = await supabase.from('products').select('id, name');
+        // Match PRIMERO por código y, si no hay, por nombre (no duplica renombrados).
+        const { data: existing } = await supabase.from('products').select('id, name, code');
+        const norm = (v: any) => String(v ?? '').trim().toUpperCase();
         const byName = new Map<string, string>();
-        (existing || []).forEach((p: any) => byName.set(String(p.name || '').trim().toUpperCase(), p.id));
+        const byCode = new Map<string, string>();
+        (existing || []).forEach((p: any) => { byName.set(norm(p.name), p.id); const c = norm(p.code); if (c) byCode.set(c, p.id); });
 
-        const seen = new Set<string>();
+        const seenCode = new Set<string>();
+        const seenName = new Set<string>();
         const toInsert: any[] = [];
-        const toUpdate: { id: string; category: string; code: string | null; cost: number | null }[] = [];
+        const toUpdate: { id: string; patch: any }[] = [];
         data.forEach((row: any) => {
           const name = String(row.Nombre || row.name || '').toUpperCase().trim();
-          if (!name || seen.has(name)) return;
-          seen.add(name);
+          if (!name) return;
           const category = String(row.Categoria || row.category || 'SIN CATEGORIA').toUpperCase().trim();
           // Código del PRODUCTO (acepta el encabezado explícito y los genéricos).
           const codeRaw = row['Codigo Producto'] ?? row['Código Producto'] ?? row['Codigo del Producto'] ?? row['Código del Producto'] ?? row.Codigo ?? row['Código'] ?? row.code;
           const code = (codeRaw === undefined || codeRaw === null) ? null : (String(codeRaw).trim() || null);
+          const ncode = code ? norm(code) : '';
+          const nname = norm(name);
+          if (ncode ? seenCode.has(ncode) : seenName.has(nname)) return;
+          if (ncode) seenCode.add(ncode);
+          seenName.add(nname);
+          // Costo: si la celda viene vacía (null) NO se toca el costo existente (red de seguridad).
           const cost = costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price);
-          const id = byName.get(name);
-          if (id) toUpdate.push({ id, category, code, cost });
-          else toInsert.push({ name, category, code, cost });
+          const id = (ncode && byCode.get(ncode)) || byName.get(nname);
+          if (id) {
+            const patch: any = { category };
+            if (code) patch.code = code;
+            if (cost !== null) patch.cost = cost;
+            toUpdate.push({ id, patch });
+          } else {
+            toInsert.push({ name, category, code, cost });
+          }
         });
 
         if (toInsert.length > 0) {
@@ -824,7 +839,7 @@ export default function DeviationControlView({
         }
         for (let i = 0; i < toUpdate.length; i += 25) {
           await Promise.all(toUpdate.slice(i, i + 25).map(u =>
-            supabase.from('products').update({ category: u.category, code: u.code, cost: u.cost }).eq('id', u.id)
+            supabase.from('products').update(u.patch).eq('id', u.id)
           ));
         }
         await reloadProducts();
