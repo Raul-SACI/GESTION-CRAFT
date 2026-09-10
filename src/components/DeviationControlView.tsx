@@ -824,7 +824,7 @@ export default function DeviationControlView({
           const cost = costParse(row.Costo ?? row.costo ?? row.Precio ?? row.precio ?? row.cost ?? row.price);
           const id = (ncode && byCode.get(ncode)) || byName.get(nname);
           if (id) {
-            const patch: any = { category };
+            const patch: any = { name, category };
             if (code) patch.code = code;
             if (cost !== null) patch.cost = cost;
             toUpdate.push({ id, patch });
