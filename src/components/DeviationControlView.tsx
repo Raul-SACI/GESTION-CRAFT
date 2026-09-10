@@ -853,6 +853,64 @@ export default function DeviationControlView({
     reader.readAsBinaryString(file);
   };
 
+  // Inactiva (NO borra) los platos ACTIVOS cuyo código/nombre NO están en el archivo de referencia.
+  // No rompe recetas ni Recetas para Desvíos (solo marca is_active = false).
+  const inactivarProductosFaltantes = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const wb = XLSX.read(evt.target?.result, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws) as any[];
+        const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+
+        const codigosArchivo = new Set<string>();
+        const nombresArchivo = new Set<string>();
+        data.forEach((row: any) => {
+          const name = String(row.Nombre || row.name || '').trim();
+          const codeRaw = row['Codigo Producto'] ?? row['Código Producto'] ?? row['Codigo del Producto'] ?? row['Código del Producto'] ?? row.Codigo ?? row['Código'] ?? row.code;
+          if (name) nombresArchivo.add(norm(name));
+          if (codeRaw !== undefined && codeRaw !== null && String(codeRaw).trim() !== '') codigosArchivo.add(norm(codeRaw));
+        });
+
+        if (codigosArchivo.size === 0 && nombresArchivo.size === 0) {
+          alert('El archivo no tiene registros legibles (revisá que haya columna NOMBRE o CÓDIGO).'); setLoading(false); if (e.target) e.target.value = ''; return;
+        }
+
+        const faltantes = products.filter((p: any) =>
+          p.is_active !== false &&
+          !((p.code && codigosArchivo.has(norm(p.code))) || nombresArchivo.has(norm(p.name)))
+        );
+
+        if (faltantes.length === 0) { alert('Todos los platos activos están presentes en el archivo. No hay nada para inactivar.'); setLoading(false); if (e.target) e.target.value = ''; return; }
+
+        const ejemplos = faltantes.slice(0, 12).map((p: any) => `  • ${p.code ? p.code + ' ' : ''}${p.name}`).join('\n');
+        const resumen = `Se van a INACTIVAR ${faltantes.length} plato(s) que NO están en el archivo:\n\n` +
+          ejemplos + (faltantes.length > 12 ? `\n  … y ${faltantes.length - 12} más` : '') +
+          `\n\nNO se borran (quedan inhabilitados y podés reactivarlos cuando quieras).\nNo se rompen recetas ni Recetas para Desvíos.\n\n¿Confirmás?`;
+        if (!window.confirm(resumen)) { setLoading(false); if (e.target) e.target.value = ''; return; }
+
+        for (let i = 0; i < faltantes.length; i += 50) {
+          const ids = faltantes.slice(i, i + 50).map((p: any) => p.id);
+          const { error } = await supabase.from('products').update({ is_active: false }).in('id', ids);
+          if (error) throw error;
+        }
+        await reloadProducts();
+        alert(`Listo: ${faltantes.length} plato(s) inactivado(s).`);
+      } catch (err: any) {
+        alert('Error al inactivar faltantes: ' + err.message);
+      } finally {
+        setLoading(false);
+        if (e.target) e.target.value = '';
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const fetchRecipes = async () => {
     const { data, error } = await supabase
       .from('recipes')
@@ -2426,6 +2484,13 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                       Importar
                       <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleImportProducts} />
                     </label>
+                    {!isReadOnly && (
+                      <label title="Inhabilita (sin borrar) los platos que NO estén en el archivo de referencia" className="flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded cursor-pointer hover:border-amber-500 transition-all text-text-dim hover:text-amber-500 text-[9px] font-black uppercase">
+                        <EyeOff size={14} />
+                        Inactivar faltantes
+                        <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={inactivarProductosFaltantes} />
+                      </label>
+                    )}
                   </div>
                 </div>
 

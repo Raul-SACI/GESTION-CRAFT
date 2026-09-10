@@ -179,6 +179,60 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
     if (e.target) e.target.value = '';
   };
 
+  // Inactiva (NO borra) los registros ACTIVOS cuyo código/nombre NO están en el archivo de referencia.
+  // Sirve para "limpiar" el maestro dejándolo igual a un Excel maestro, sin romper recetas ni perder historial.
+  const inactivarFaltantes = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const pick = (row: any, ...keys: string[]) => { for (const k of Object.keys(row)) { if (keys.some(x => k.trim().toLowerCase() === x)) return String(row[k] ?? '').trim(); } return ''; };
+      const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+
+      const codigosArchivo = new Set<string>();
+      const nombresArchivo = new Set<string>();
+      data.forEach(row => {
+        const nameRaw = pick(row, 'nombre', 'name', 'producto', 'plato', 'descripcion');
+        const code = pick(row, 'codigo', 'código', 'code', 'cod');
+        if (code) codigosArchivo.add(norm(code));
+        if (nameRaw) nombresArchivo.add(norm(nameRaw));
+      });
+
+      if (codigosArchivo.size === 0 && nombresArchivo.size === 0) {
+        alert('El archivo no tiene registros legibles (revisá que haya columna NOMBRE o CÓDIGO).'); setBusy(false); if (e.target) e.target.value = ''; return;
+      }
+
+      // Activos que NO aparecen en el archivo (ni por código ni por nombre)
+      const faltantes = rows.filter(r =>
+        r.is_active !== false &&
+        !((r.code && codigosArchivo.has(norm(r.code))) || nombresArchivo.has(norm(r.name)))
+      );
+
+      if (faltantes.length === 0) { alert('Todos los registros activos están presentes en el archivo. No hay nada para inactivar.'); setBusy(false); if (e.target) e.target.value = ''; return; }
+
+      const ejemplos = faltantes.slice(0, 12).map(r => `  • ${r.code ? r.code + ' ' : ''}${r.name}`).join('\n');
+      const resumen = `Se van a INACTIVAR ${faltantes.length} registro(s) que NO están en el archivo:\n\n` +
+        ejemplos + (faltantes.length > 12 ? `\n  … y ${faltantes.length - 12} más` : '') +
+        `\n\nNO se borran (quedan inhabilitados y podés reactivarlos cuando quieras).\nNo se rompen recetas ni se pierde historial.\n\n¿Confirmás?`;
+      if (!window.confirm(resumen)) { setBusy(false); if (e.target) e.target.value = ''; return; }
+
+      let fallos = 0;
+      for (let i = 0; i < faltantes.length; i += 50) {
+        const ids = faltantes.slice(i, i + 50).map(r => r.id);
+        const { error } = await supabase.from('recipe_masters').update({ is_active: false }).in('id', ids);
+        if (error) fallos++;
+      }
+      alert(`Listo: ${faltantes.length - (fallos ? faltantes.length : 0)} registro(s) inactivado(s)` + (fallos ? ` — hubo ${fallos} bloque(s) con error.` : '.'));
+      await cargar();
+    } catch (err: any) { alert('Error al inactivar faltantes: ' + (err.message || err)); }
+    setBusy(false);
+    if (e.target) e.target.value = '';
+  };
+
   // Exporta a Excel los registros actuales del maestro (respetando qué columnas aplican).
   const exportar = () => {
     const data = rows.map(r => {
@@ -210,6 +264,10 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
             <label className={cn("flex items-center gap-2 px-3 py-1.5 bg-bg-accent border rounded cursor-pointer transition-all text-[9px] font-black uppercase", c.borderSoft, c.text, busy && 'opacity-60 pointer-events-none')}>
               <Upload size={14} /> Importar
               <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={importar} />
+            </label>
+            <label title="Inhabilita (sin borrar) los que NO estén en el archivo de referencia" className={cn("flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded cursor-pointer transition-all text-text-dim hover:text-amber-500 hover:border-amber-500 text-[9px] font-black uppercase", busy && 'opacity-60 pointer-events-none')}>
+              <EyeOff size={14} /> Inactivar faltantes
+              <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={inactivarFaltantes} />
             </label>
           </>
           )}
