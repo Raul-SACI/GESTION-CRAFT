@@ -119,13 +119,15 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         const n = parseFloat(t); return isNaN(n) ? NaN : n;
       };
 
-      // Índices de lo existente: por CÓDIGO (prioridad) y por NOMBRE (respaldo)
-      const byCode = new Map<string, any>();
+      // Índices de lo existente: por CÓDIGO (prioridad) y por NOMBRE (respaldo).
+      // byCode guarda TODOS los registros de cada código para poder unificar duplicados.
+      const byCode = new Map<string, any[]>();
       const byName = new Map<string, any>();
-      rows.forEach(r => { const c = norm(r.code); if (c) byCode.set(c, r); byName.set(norm(r.name), r); });
+      rows.forEach(r => { const c = norm(r.code); if (c) { const arr = byCode.get(c) || []; arr.push(r); byCode.set(c, arr); } const nn = norm(r.name); if (!byName.has(nn)) byName.set(nn, r); });
 
       const aCrear: any[] = [];
       const aActualizar: Array<{ id: string; data: any }> = [];
+      const dupCodes = new Set<string>();
       const vistosCodigo = new Set<string>();
       const vistosNombre = new Set<string>();
       let seq = 0;
@@ -144,21 +146,24 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
         const unitVal = showUnit ? (pick(row, 'unidad', 'unit', 'um') || null) : null;
         const costRaw = pick(row, 'costo', 'precio', 'cost', 'price');
         const costVal = showCost && costRaw !== '' ? parseCost(costRaw) : null;
+        const armarPatch = () => { const patch: any = { name }; if (showUnit && unitVal) patch.unit = unitVal; if (code) patch.code = code; if (costVal !== null && !isNaN(costVal)) patch.cost = costVal; return patch; };
 
-        // match: primero por código; si no, por nombre
-        const existente = (ncode && byCode.get(ncode)) || byName.get(nname);
-        if (existente) {
-          const patch: any = { name };
-          if (showUnit && unitVal) patch.unit = unitVal;
-          if (code) patch.code = code; // si el archivo trae código, lo setea/actualiza
-          if (costVal !== null && !isNaN(costVal)) patch.cost = costVal;
-          aActualizar.push({ id: existente.id, data: patch });
+        // match: primero por código (TODOS los que lo comparten); si no, por nombre
+        const porCodigo = ncode ? (byCode.get(ncode) || []) : [];
+        if (porCodigo.length > 0) {
+          if (porCodigo.length > 1) dupCodes.add(ncode);
+          porCodigo.forEach(r => aActualizar.push({ id: r.id, data: armarPatch() }));
         } else {
-          aCrear.push({
-            id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
-            tipo, name, unit: unitVal, code: code || null,
-            cost: costVal !== null && !isNaN(costVal) ? costVal : null,
-          });
+          const porNombre = byName.get(nname);
+          if (porNombre) {
+            aActualizar.push({ id: porNombre.id, data: armarPatch() });
+          } else {
+            aCrear.push({
+              id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
+              tipo, name, unit: unitVal, code: code || null,
+              cost: costVal !== null && !isNaN(costVal) ? costVal : null,
+            });
+          }
         }
       });
 
@@ -172,9 +177,65 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       for (let i = 0; i < aCrear.length; i += 200) { const { error } = await supabase.from('recipe_masters').insert(aCrear.slice(i, i + 200)); if (error) throw error; }
       let fallos = 0;
       for (const upd of aActualizar) { const { error } = await supabase.from('recipe_masters').update(upd.data).eq('id', upd.id); if (error) fallos++; }
-      alert(`Importación lista: ${aCrear.length} nuevo(s), ${aActualizar.length} actualizado(s)` + (fallos ? `, ${fallos} con error al actualizar.` : '.'));
+      let msg = `Importación lista: ${aCrear.length} nuevo(s), ${aActualizar.length - fallos} actualizado(s)` + (fallos ? `, ${fallos} con error al actualizar.` : '.');
+      if (dupCodes.size > 0) msg += `\n\n⚠️ Hay código(s) REPETIDO(S) en la base: ${Array.from(dupCodes).join(', ')}. Actualicé todos al nombre nuevo, pero quedan filas duplicadas: revisalas y inhabilitá las que sobren.`;
+      alert(msg);
       await cargar();
     } catch (err: any) { alert('Error al importar: ' + (err.message || err)); }
+    setBusy(false);
+    if (e.target) e.target.value = '';
+  };
+
+  // Inactiva (NO borra) los registros ACTIVOS cuyo código/nombre NO están en el archivo de referencia.
+  // Sirve para "limpiar" el maestro dejándolo igual a un Excel maestro, sin romper recetas ni perder historial.
+  const inactivarFaltantes = async (e: ChangeEvent<HTMLInputElement>) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      const pick = (row: any, ...keys: string[]) => { for (const k of Object.keys(row)) { if (keys.some(x => k.trim().toLowerCase() === x)) return String(row[k] ?? '').trim(); } return ''; };
+      const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+
+      const codigosArchivo = new Set<string>();
+      const nombresArchivo = new Set<string>();
+      data.forEach(row => {
+        const nameRaw = pick(row, 'nombre', 'name', 'producto', 'plato', 'descripcion');
+        const code = pick(row, 'codigo', 'código', 'code', 'cod');
+        if (code) codigosArchivo.add(norm(code));
+        if (nameRaw) nombresArchivo.add(norm(nameRaw));
+      });
+
+      if (codigosArchivo.size === 0 && nombresArchivo.size === 0) {
+        alert('El archivo no tiene registros legibles (revisá que haya columna NOMBRE o CÓDIGO).'); setBusy(false); if (e.target) e.target.value = ''; return;
+      }
+
+      // Activos que NO aparecen en el archivo (ni por código ni por nombre)
+      const faltantes = rows.filter(r =>
+        r.is_active !== false &&
+        !((r.code && codigosArchivo.has(norm(r.code))) || nombresArchivo.has(norm(r.name)))
+      );
+
+      if (faltantes.length === 0) { alert('Todos los registros activos están presentes en el archivo. No hay nada para inactivar.'); setBusy(false); if (e.target) e.target.value = ''; return; }
+
+      const ejemplos = faltantes.slice(0, 12).map(r => `  • ${r.code ? r.code + ' ' : ''}${r.name}`).join('\n');
+      const resumen = `Se van a INACTIVAR ${faltantes.length} registro(s) que NO están en el archivo:\n\n` +
+        ejemplos + (faltantes.length > 12 ? `\n  … y ${faltantes.length - 12} más` : '') +
+        `\n\nNO se borran (quedan inhabilitados y podés reactivarlos cuando quieras).\nNo se rompen recetas ni se pierde historial.\n\n¿Confirmás?`;
+      if (!window.confirm(resumen)) { setBusy(false); if (e.target) e.target.value = ''; return; }
+
+      let fallos = 0;
+      for (let i = 0; i < faltantes.length; i += 50) {
+        const ids = faltantes.slice(i, i + 50).map(r => r.id);
+        const { error } = await supabase.from('recipe_masters').update({ is_active: false }).in('id', ids);
+        if (error) fallos++;
+      }
+      alert(`Listo: ${faltantes.length - (fallos ? faltantes.length : 0)} registro(s) inactivado(s)` + (fallos ? ` — hubo ${fallos} bloque(s) con error.` : '.'));
+      await cargar();
+    } catch (err: any) { alert('Error al inactivar faltantes: ' + (err.message || err)); }
     setBusy(false);
     if (e.target) e.target.value = '';
   };
@@ -210,6 +271,10 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
             <label className={cn("flex items-center gap-2 px-3 py-1.5 bg-bg-accent border rounded cursor-pointer transition-all text-[9px] font-black uppercase", c.borderSoft, c.text, busy && 'opacity-60 pointer-events-none')}>
               <Upload size={14} /> Importar
               <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={importar} />
+            </label>
+            <label title="Inhabilita (sin borrar) los que NO estén en el archivo de referencia" className={cn("flex items-center gap-2 px-3 py-1.5 bg-bg-accent border border-border-dim rounded cursor-pointer transition-all text-text-dim hover:text-amber-500 hover:border-amber-500 text-[9px] font-black uppercase", busy && 'opacity-60 pointer-events-none')}>
+              <EyeOff size={14} /> Inactivar faltantes
+              <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={inactivarFaltantes} />
             </label>
           </>
           )}
