@@ -111,25 +111,68 @@ export default function RecipeMastersManager({ tipo, title, color = 'purple', is
       const wb = XLSX.read(buf, { type: 'array' });
       const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
       const pick = (row: any, ...keys: string[]) => { for (const k of Object.keys(row)) { if (keys.some(x => k.trim().toLowerCase() === x)) return String(row[k] ?? '').trim(); } return ''; };
-      const existentes = new Set(rows.map(r => r.name.trim().toUpperCase()));
-      const nuevos: any[] = [];
+      const norm = (v: any) => String(v ?? '').trim().toUpperCase();
+      const parseCost = (s: string): number => {
+        let t = String(s).replace(/[^0-9.,-]/g, '');
+        if (/,\d{1,2}$/.test(t) || (t.includes('.') && t.includes(','))) t = t.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+        else t = t.replace(',', '.');
+        const n = parseFloat(t); return isNaN(n) ? NaN : n;
+      };
+
+      // Índices de lo existente: por CÓDIGO (prioridad) y por NOMBRE (respaldo)
+      const byCode = new Map<string, any>();
+      const byName = new Map<string, any>();
+      rows.forEach(r => { const c = norm(r.code); if (c) byCode.set(c, r); byName.set(norm(r.name), r); });
+
+      const aCrear: any[] = [];
+      const aActualizar: Array<{ id: string; data: any }> = [];
+      const vistosCodigo = new Set<string>();
+      const vistosNombre = new Set<string>();
       let seq = 0;
       data.forEach(row => {
-        const name = pick(row, 'nombre', 'name', 'producto', 'plato', 'descripcion').toUpperCase();
-        if (!name || existentes.has(name)) return;
-        existentes.add(name);
+        const nameRaw = pick(row, 'nombre', 'name', 'producto', 'plato', 'descripcion');
+        if (!nameRaw) return;
+        const name = nameRaw.toUpperCase();
+        const code = pick(row, 'codigo', 'código', 'code', 'cod');
+        const ncode = norm(code);
+        const nname = norm(name);
+        // no procesar dos veces la misma clave dentro del mismo archivo
+        if (ncode ? vistosCodigo.has(ncode) : vistosNombre.has(nname)) return;
+        if (ncode) vistosCodigo.add(ncode);
+        vistosNombre.add(nname);
+
+        const unitVal = showUnit ? (pick(row, 'unidad', 'unit', 'um') || null) : null;
         const costRaw = pick(row, 'costo', 'precio', 'cost', 'price');
-        nuevos.push({
-          id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
-          tipo, name,
-          unit: showUnit ? (pick(row, 'unidad', 'unit', 'um') || null) : null,
-          code: pick(row, 'codigo', 'código', 'code', 'cod') || null,
-          cost: showCost && costRaw !== '' ? Number(costRaw.replace(',', '.')) : null,
-        });
+        const costVal = showCost && costRaw !== '' ? parseCost(costRaw) : null;
+
+        // match: primero por código; si no, por nombre
+        const existente = (ncode && byCode.get(ncode)) || byName.get(nname);
+        if (existente) {
+          const patch: any = { name };
+          if (showUnit && unitVal) patch.unit = unitVal;
+          if (code) patch.code = code; // si el archivo trae código, lo setea/actualiza
+          if (costVal !== null && !isNaN(costVal)) patch.cost = costVal;
+          aActualizar.push({ id: existente.id, data: patch });
+        } else {
+          aCrear.push({
+            id: `rm_${tipo.slice(0, 3)}_${Date.now()}${seq++}${Math.random().toString(36).slice(2, 4)}`,
+            tipo, name, unit: unitVal, code: code || null,
+            cost: costVal !== null && !isNaN(costVal) ? costVal : null,
+          });
+        }
       });
-      if (nuevos.length === 0) { alert('No se encontraron registros nuevos para importar (revisá que haya columna NOMBRE).'); setBusy(false); if (e.target) e.target.value = ''; return; }
-      for (let i = 0; i < nuevos.length; i += 200) { const { error } = await supabase.from('recipe_masters').insert(nuevos.slice(i, i + 200)); if (error) throw error; }
-      alert(`Se importaron ${nuevos.length} registro(s) nuevo(s).`);
+
+      if (aCrear.length === 0 && aActualizar.length === 0) { alert('No se encontraron registros para importar (revisá que haya columna NOMBRE).'); setBusy(false); if (e.target) e.target.value = ''; return; }
+      const resumen = `Se van a procesar ${aCrear.length + aActualizar.length} registro(s):\n\n` +
+        `  • ${aCrear.length} NUEVOS (se crean)\n` +
+        `  • ${aActualizar.length} EXISTENTES (se actualizan por código o, si no, por nombre)\n\n` +
+        `Los existentes se ACTUALIZAN (precio, nombre, unidad) manteniendo su ID: no se duplican y no se rompen las recetas.\n\n¿Confirmás la importación?`;
+      if (!window.confirm(resumen)) { setBusy(false); if (e.target) e.target.value = ''; return; }
+
+      for (let i = 0; i < aCrear.length; i += 200) { const { error } = await supabase.from('recipe_masters').insert(aCrear.slice(i, i + 200)); if (error) throw error; }
+      let fallos = 0;
+      for (const upd of aActualizar) { const { error } = await supabase.from('recipe_masters').update(upd.data).eq('id', upd.id); if (error) fallos++; }
+      alert(`Importación lista: ${aCrear.length} nuevo(s), ${aActualizar.length} actualizado(s)` + (fallos ? `, ${fallos} con error al actualizar.` : '.'));
       await cargar();
     } catch (err: any) { alert('Error al importar: ' + (err.message || err)); }
     setBusy(false);
