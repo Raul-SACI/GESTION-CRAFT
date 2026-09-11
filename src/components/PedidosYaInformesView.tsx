@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -108,6 +108,7 @@ type ConectDia = { fecha: string; sucursal: string; marca: string; min_no_disp: 
 type PrepDia = { fecha: string; sucursal: string; marca: string; prep_min: number; demorados: number; total: number };
 type OpsPeriodo = { anio: number; mes: number; semana: number; sucursal: string; marca: string; no_disp_seg: number; rechazo: number; espera: number; prep_seg: number; reclamos: number; listos: number };
 type Reclamo = { fecha: string; sucursal: string; marca: string; tipo: string; nro_pedido: string | null; motivo: string | null; monto: number };
+type ProductoPeriodo = { anio: number; mes: number; semana: number; producto: string; unidades: number; importe: number };
 type Liquidacion = {
   period_start: string; period_end: string;
   ventas_netas: number; ventas_netas_app: number; ventas_netas_fuera: number;
@@ -141,7 +142,7 @@ class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
 }
 
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
-  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'importar' | 'config'>('comercial');
+  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'ranking' | 'importar' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
   const [comDia, setComDia] = useState<ComDia[]>([]);
   const [adsDia, setAdsDia] = useState<AdsDia[]>([]);
@@ -149,6 +150,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const [prep, setPrep] = useState<PrepDia[]>([]);
   const [opsPeriodo, setOpsPeriodo] = useState<OpsPeriodo[]>([]);
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
+  const [productos, setProductos] = useState<ProductoPeriodo[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
   const [semaforos, setSemaforos] = useState<Record<string, SemCfg>>(DEFAULT_SEMAFOROS);
   const [loading, setLoading] = useState(false);
@@ -163,7 +165,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
     try {
       const start = `${month}-01`;
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
-      const [per, dia, ads, con, prp, ops, rec, liq, cfg] = await Promise.all([
+      const [per, dia, ads, con, prp, ops, rec, liq, cfg, prod] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
         supabase.from('py_ads_dia').select('*').gte('fecha', start).lte('fecha', end),
@@ -173,6 +175,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         supabase.from('py_reclamos').select('*').gte('fecha', start).lte('fecha', end),
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
+        supabase.from('py_productos_periodo').select('*').eq('anio', yy).eq('mes', mm),
       ]);
       // PostgREST puede devolver los numeric como texto; forzamos a número.
       const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
@@ -183,6 +186,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       setPrep(((prp.data as any[]) || []).map(r => ({ ...r, prep_min: N(r.prep_min), demorados: N(r.demorados), total: N(r.total) })));
       setOpsPeriodo(((ops.data as any[]) || []).map(r => ({ ...r, no_disp_seg: N(r.no_disp_seg), rechazo: N(r.rechazo), espera: N(r.espera), prep_seg: N(r.prep_seg), reclamos: N(r.reclamos), listos: N(r.listos) })));
       setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
+      setProductos(((prod.data as any[]) || []).map(r => ({ ...r, unidades: N(r.unidades), importe: N(r.importe) })));
       setLiquidaciones(((liq.data as any[]) || []).map(r => {
         const o: any = { ...r };
         ['ventas_netas', 'ventas_netas_app', 'ventas_netas_fuera', 'servicios_pedidosya', 'cargos_operativos', 'publicidad', 'pub_gold_vip', 'pub_keywords', 'pub_display', 'reintegros', 'ajustes', 'impuestos', 'ventas_fuera_app_cobradas', 'total_liquidado'].forEach(k => { o[k] = N(r[k]); });
@@ -265,6 +269,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
           ['operativo', 'Operativo', Activity],
           ['liquidaciones', 'Liquidaciones', Banknote],
           ['reclamos', 'Reclamos', MessageSquareWarning],
+          ['ranking', 'Ranking', Trophy],
           ['importar', 'Importar', Upload],
           ['config', 'Semáforos', Settings2],
         ] as const).map(([k, l, Icon]) => (
@@ -276,7 +281,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         ))}
       </div>
 
-      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos') && (
+      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos' || tab === 'ranking') && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/80">
             <button onClick={prevMonth} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronLeft size={15} /></button>
@@ -310,6 +315,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         )}
         {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
         {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
+        {tab === 'ranking' && <RankingTab productos={productos} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
         {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
         {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
       </TabErrorBoundary>
@@ -956,6 +962,84 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// RANKING DE PRODUCTOS (Ventas por producto, consolidado)
+// ════════════════════════════════════════════════════════════════════════════
+function RankingTab({ productos, month, loading, onGoImport }: { productos: ProductoPeriodo[]; month: string; loading: boolean; onGoImport: () => void }) {
+  const [orden, setOrden] = useState<'importe' | 'unidades'>('importe');
+  const [search, setSearch] = useState('');
+  if (loading && productos.length === 0) return <Loader />;
+  if (productos.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay ranking de productos para ${monthLabel(month)}. Importá el reporte "Ventas por producto" de Pedidos Ya (Reportes → Ventas → Ventas por producto → Descargar).`} />;
+
+  // Si se importó por semana, un mismo producto viene en varias filas: se suman unidades e importe.
+  const map = new Map<string, { producto: string; unidades: number; importe: number }>();
+  productos.forEach(p => {
+    const k = (p.producto || '').trim().toUpperCase();
+    const e = map.get(k) || { producto: p.producto, unidades: 0, importe: 0 };
+    e.unidades += p.unidades; e.importe += p.importe; map.set(k, e);
+  });
+  const totU = Array.from(map.values()).reduce((s, p) => s + p.unidades, 0);
+  const totI = Array.from(map.values()).reduce((s, p) => s + p.importe, 0);
+  const q = search.trim().toLowerCase();
+  let lista = Array.from(map.values());
+  if (q) lista = lista.filter(p => p.producto.toLowerCase().includes(q));
+  lista.sort((a, b) => orden === 'importe' ? b.importe - a.importe : b.unidades - a.unidades);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <HeroCard label="Productos distintos" value={fmtNum(map.size)} sub="en el ranking" accent="rose" />
+        <HeroCard label="Unidades vendidas" value={fmtNum(totU)} sub="total del mes" accent="emerald" />
+        <HeroCard label="Importe total" value={fmt(totI)} sub="ventas por producto" accent="red" />
+      </div>
+      <div className="flex flex-wrap items-center gap-2 justify-between">
+        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {([['importe', 'Por importe'], ['unidades', 'Por unidades']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setOrden(k)}
+              className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', orden === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+          ))}
+        </div>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
+          className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[11px] text-text-main outline-none w-[220px]" />
+      </div>
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
+        <table className="w-full text-[12px] border-collapse min-w-[640px]">
+          <thead><tr className="bg-bg-accent/20 text-text-dim">
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest w-10">#</th>
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Producto</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Unidades</th>
+            <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Importe</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">% s/total</th>
+            <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Ticket prom.</th>
+          </tr></thead>
+          <tbody>{lista.map((p, i) => {
+            const pct = orden === 'importe' ? (totI > 0 ? (p.importe / totI) * 100 : 0) : (totU > 0 ? (p.unidades / totU) * 100 : 0);
+            const tk = p.unidades > 0 ? p.importe / p.unidades : 0;
+            return (
+              <tr key={p.producto} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                <td className="p-3 text-center font-mono text-text-dim">{i + 1}</td>
+                <td className="p-3 text-left text-text-main font-bold">{p.producto}</td>
+                <td className="p-3 text-center font-mono text-text-main">{fmtNum(p.unidades)}</td>
+                <td className="p-3 text-right font-mono text-text-main">{fmt(p.importe)}</td>
+                <td className="p-3 text-center font-mono text-text-dim">{fmtPct(pct)}</td>
+                <td className="p-3 text-right font-mono text-text-dim">{fmt(tk)}</td>
+              </tr>
+            );
+          })}</tbody>
+          <tfoot><tr className="border-t border-border-dim bg-bg-accent/25 font-black">
+            <td></td><td className="p-3 text-left text-text-main">TOTAL</td>
+            <td className="p-3 text-center font-mono text-text-main">{fmtNum(totU)}</td>
+            <td className="p-3 text-right font-mono text-text-main">{fmt(totI)}</td>
+            <td className="p-3 text-center font-mono text-text-dim">100%</td>
+            <td className="p-3 text-right font-mono text-text-dim">{fmt(totU > 0 ? totI / totU : 0)}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Ranking consolidado (todos los locales). El % es sobre el total del mes según el orden elegido (importe o unidades). El ticket promedio es importe ÷ unidades.</p>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // IMPORTAR
 // ════════════════════════════════════════════════════════════════════════════
 function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; onDone: () => void; defMonth: string }) {
@@ -996,6 +1080,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
             <li><b className="text-text-main">Resumen de ventas – todos los locales</b> (Reportes → Ventas → Descargar) → venta, pedidos y ticket por local. Como no trae fechas, elegí abajo a qué <b>semana</b> corresponde.</li>
             <li><b className="text-text-main">Reporte detallado de campañas</b> (Publicidad en la app → Descargar) → inversión, ROAS y % de ads (usa sus fechas).</li>
             <li><b className="text-text-main">Resumen de Operaciones – todos los locales</b> (Reportes → Operaciones → Descargar) → no disponible, cancelaciones, espera, preparación, reclamos y marcados listos por local. Sin fechas: elegí abajo la <b>semana</b>.</li>
+            <li><b className="text-text-main">Ventas por producto</b> (Reportes → Ventas → "Ventas por producto" → Descargar) → ranking de productos por unidades e importe (consolidado, todos los locales). Sin fechas: elegí abajo la <b>semana</b> o "mes completo".</li>
             <li><b className="text-text-main">Estado de cuenta (Excel)</b> → reclamos y detalle por pedido (usa sus fechas).</li>
             <li><b className="text-text-main">Estado de cuenta (PDF)</b> → liquidación / P&amp;L (período domingo a sábado).</li>
           </ul>
@@ -1074,6 +1159,10 @@ async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   }
   if (headerTxt.includes('unavailable time') || headerTxt.includes('order rejection rate') || headerTxt.includes('marcados como listos') || headerTxt.includes('preparación promedio') || headerTxt.includes('preparacion promedio')) {
     return importOpsSummary(sheets, wb.SheetNames, ctx);
+  }
+  if (headerTxt.includes('product weight') ||
+      (headerTxt.includes('producto') && headerTxt.includes('ventas') && !headerTxt.includes('ticket') && !headerTxt.includes('sucursal') && !headerTxt.includes('restaurant'))) {
+    return importPopularDishes(sheets, wb.SheetNames, ctx);
   }
   if ((headerTxt.includes('restaurant name') || headerTxt.includes('nombre del restaurante') || headerTxt.includes('local')) &&
       (headerTxt.includes('sales') || headerTxt.includes('ventas')) && headerTxt.includes('ticket')) {
@@ -1155,6 +1244,35 @@ async function importResumenVentas(sheets: Record<string, any[][]>, names: strin
   if (error) throw new Error('guardando resumen: ' + error.message);
   const per = ctx.semana === 0 ? `${MESES[ctx.mes - 1]} ${ctx.anio} (mes)` : `${MESES[ctx.mes - 1]} ${ctx.anio} · Sem ${ctx.semana}`;
   return `resumen de ventas · ${out.length} locales → ${per}.`;
+}
+
+// ── Ranking de productos (popularDishes / Ventas por producto, consolidado) ───
+async function importPopularDishes(sheets: Record<string, any[][]>, names: string[], ctx: ImpCtx): Promise<string> {
+  const rows = sheets[names[0]] || [];
+  const f = findCols(rows, {
+    producto: ['producto', 'product name', 'plato', 'item', 'product'],
+    unidades: ['total', 'unidades', 'cantidad', 'units', 'qty'],
+    importe: ['ventas', 'sales', 'importe', 'monto', 'revenue'],
+  });
+  if (!f || f.idx.producto == null) throw new Error('no reconocí las columnas del ranking de productos (esperado: Producto, Total, Ventas).');
+  const out: ProductoPeriodo[] = [];
+  const seen = new Set<string>();
+  for (let i = f.headerRow + 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const producto = norm(r[f.idx.producto]); if (!producto || /^total/i.test(producto)) continue;
+    const unidades = f.idx.unidades != null ? Math.round(toNum(r[f.idx.unidades])) : 0;
+    const importe = f.idx.importe != null ? toNum(r[f.idx.importe]) : 0;
+    if (unidades === 0 && importe === 0) continue;
+    const k = producto.toUpperCase();
+    if (seen.has(k)) continue; seen.add(k);
+    out.push({ anio: ctx.anio, mes: ctx.mes, semana: ctx.semana, producto, unidades, importe });
+  }
+  if (out.length === 0) throw new Error('sin filas de productos válidas.');
+  await supabase.from('py_productos_periodo').delete().eq('anio', ctx.anio).eq('mes', ctx.mes).eq('semana', ctx.semana);
+  const { error } = await supabase.from('py_productos_periodo').insert(out);
+  if (error) throw new Error('guardando ranking de productos: ' + error.message);
+  const per = ctx.semana === 0 ? `${MESES[ctx.mes - 1]} ${ctx.anio} (mes)` : `${MESES[ctx.mes - 1]} ${ctx.anio} · Sem ${ctx.semana}`;
+  return `ranking de productos · ${out.length} productos → ${per}.`;
 }
 
 // localiza la fila de encabezado que contiene todos los términos dados
