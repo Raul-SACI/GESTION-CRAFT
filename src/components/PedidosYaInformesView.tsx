@@ -895,6 +895,9 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
   const bySuc: Record<string, { n: number; monto: number }> = {};
   recl.forEach(r => { (bySuc[r.sucursal] ||= { n: 0, monto: 0 }); bySuc[r.sucursal].n++; bySuc[r.sucursal].monto += Math.abs(r.monto); });
   const sucursales = Object.entries(bySuc).sort((a, b) => b[1].monto - a[1].monto);
+  // Pedidos por local (del resumen por día) para calcular la tasa de reclamos de cada local
+  const pedidosPorSuc: Record<string, number> = {};
+  comDia.forEach(r => { pedidosPorSuc[r.sucursal] = (pedidosPorSuc[r.sucursal] || 0) + r.pedidos; });
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -918,9 +921,32 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
         </Panel>
         <Panel title="Reclamos por local">
           <table className="w-full text-[12px]">
-            <thead><tr className="text-text-dim"><th className="p-2 text-left text-[9px] uppercase font-black">Local</th><th className="p-2 text-center text-[9px] uppercase font-black">Reclamos</th><th className="p-2 text-right text-[9px] uppercase font-black">Costo</th></tr></thead>
-            <tbody>{sucursales.length === 0 ? <tr><td colSpan={3} className="p-4 text-center text-text-dim text-[11px]">Sin reclamos</td></tr> :
-              sucursales.map(([s, v]) => <tr key={s} className="border-t border-border-dim/25"><td className="p-2 text-left text-text-main">{s}</td><td className="p-2 text-center font-mono text-text-main">{v.n}</td><td className="p-2 text-right font-mono text-red-400">{fmt(v.monto)}</td></tr>)}
+            <thead><tr className="text-text-dim">
+              <th className="p-2 text-left text-[9px] uppercase font-black">Local</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Reclamos</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Pedidos</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Tasa</th>
+              <th className="p-2 text-right text-[9px] uppercase font-black">Costo</th>
+            </tr></thead>
+            <tbody>{sucursales.length === 0 ? <tr><td colSpan={5} className="p-4 text-center text-text-dim text-[11px]">Sin reclamos</td></tr> :
+              sucursales.map(([s, v]) => {
+                const ped = pedidosPorSuc[s] || 0;
+                const tasaLocal = ped > 0 ? (v.n / ped) * 100 : null;
+                const semLocal = semColor(tasaLocal, semaforos.reclamos);
+                return (
+                <tr key={s} className="border-t border-border-dim/25">
+                  <td className="p-2 text-left text-text-main">{s}</td>
+                  <td className="p-2 text-center font-mono text-text-main">{v.n}</td>
+                  <td className="p-2 text-center font-mono text-text-dim">{ped > 0 ? fmtNum(ped) : '—'}</td>
+                  <td className="p-2 text-center">
+                    {tasaLocal == null ? <span className="text-text-dim">—</span> : (
+                      <span className={cn('inline-block font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border', SEM_BG[semLocal])}>{fmtPct(tasaLocal)}</span>
+                    )}
+                  </td>
+                  <td className="p-2 text-right font-mono text-red-400">{fmt(v.monto)}</td>
+                </tr>
+                );
+              })}
             </tbody>
           </table>
         </Panel>
