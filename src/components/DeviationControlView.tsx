@@ -142,12 +142,27 @@ export default function DeviationControlView({
   const isAdmin = currentUserRole === 'administrador' || currentUserRole === 'dueño';
 
   // Recargar maestros desde Supabase para reflejar cambios al instante en pantalla
+  // Trae TODAS las filas de una tabla, paginando de a 1000 (Supabase corta en 1000 por consulta).
+  // Sin esto, un catálogo con más de 1000 registros haría que los import no encuentren lo existente
+  // (y actualicen mal o dupliquen). Devuelve el listado completo.
+  const fetchAllRows = async (table: string, cols: string): Promise<any[]> => {
+    const all: any[] = [];
+    const page = 1000;
+    for (let from = 0; ; from += page) {
+      const { data, error } = await supabase.from(table).select(cols).range(from, from + page - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < page) break;
+    }
+    return all;
+  };
+
   const reloadItems = async () => {
-    const { data } = await supabase.from('stock_items').select('*').order('name');
+    const data = await fetchAllRows('stock_items', '*').catch(() => null);
     if (data) setItems(data.map((i: any) => ({ id: i.id, name: i.name, unit: i.unit, cost: i.cost, category: i.category, code: i.code, is_active: i.is_active })));
   };
   const reloadProducts = async () => {
-    const { data } = await supabase.from('products').select('*').order('name');
+    const data = await fetchAllRows('products', '*').catch(() => null);
     if (data) setProducts(data.map((p: any) => ({ id: p.id, name: p.name, category: p.category, is_active: p.is_active, code: p.code, cost: p.cost })) as any);
   };
   // Trae los artículos del Maestro Recetas Producción (recipe_masters, tipo=produccion).
@@ -693,9 +708,11 @@ export default function DeviationControlView({
           const unit = pickCol(row, 'Unidad', 'unit', 'u.m.', 'um', 'medida').toLowerCase();
           const category = pickCol(row, 'Categoria', 'Categoría', 'category', 'rubro').toUpperCase();
           const code = pickCol(row, 'Codigo', 'Código', 'code', 'cod').toUpperCase();
-          const cost = parseCost(pickRaw(row, 'Costo', 'cost', 'precio', 'costo unitario'));
+          const costRaw = pickRaw(row, 'Costo', 'cost', 'precio', 'costo unitario');
+          const cost = parseCost(costRaw);
           if (!name || !unit) descartadas.push(`Fila ${idx + 2}${name ? ` (${name})` : ''}: falta ${!name ? 'NOMBRE' : ''}${!name && !unit ? ' y ' : ''}${!unit ? 'UNIDAD' : ''}`);
-          return { name, unit, category: category || null, code: code || null, cost };
+          // hasCost: si la columna Costo NO trae valor, no se pisa el precio existente con 0
+          return { name, unit, category: category || null, code: code || null, cost, hasCost: costRaw !== undefined };
         }).filter(i => i.name && i.unit);
 
         // Nada válido para importar: explicar POR QUÉ
@@ -712,23 +729,32 @@ export default function DeviationControlView({
         }
 
         // Confirmación antes de cargar
-        // Separar en NUEVOS y EXISTENTES (matcheando por código, o por nombre si no tiene código)
+        // Separar en NUEVOS y EXISTENTES (matcheando por código, o por nombre si no tiene código).
+        // IMPORTANTE: se relee TODO el maestro paginado (no el estado, que podía estar cortado en 1000)
+        // y por código se actualizan TODAS las filas que lo comparten (unifica duplicados).
         const norm = (s: any) => String(s || '').trim().toUpperCase();
-        const porCodigo = new Map<string, any>();
+        const existentes = await fetchAllRows('stock_items', 'id, name, code');
+        const porCodigo = new Map<string, any[]>();
         const porNombre = new Map<string, any>();
-        (items as any[]).forEach(it => {
-          if (it.code) porCodigo.set(norm(it.code), it);
-          porNombre.set(norm(it.name), it);
+        existentes.forEach(it => {
+          if (it.code) { const k = norm(it.code); const arr = porCodigo.get(k) || []; arr.push(it); porCodigo.set(k, arr); }
+          const nn = norm(it.name); if (!porNombre.has(nn)) porNombre.set(nn, it);
         });
 
         const aCrear: any[] = [];
         const aActualizar: Array<{ id: string; data: any }> = [];
+        const dupCodes = new Set<string>();
         newItems.forEach(ni => {
-          const existente = (ni.code && porCodigo.get(norm(ni.code))) || porNombre.get(norm(ni.name));
-          if (existente) {
-            aActualizar.push({ id: existente.id, data: ni });
+          const patch: any = { name: ni.name, unit: ni.unit, category: ni.category, code: ni.code };
+          if (ni.hasCost) patch.cost = ni.cost; // sólo pisa el precio si la celda Costo trae valor
+          const ids = ni.code ? (porCodigo.get(norm(ni.code)) || []) : [];
+          if (ids.length > 0) {
+            if (ids.length > 1) dupCodes.add(norm(ni.code));
+            ids.forEach(it => aActualizar.push({ id: it.id, data: { ...patch } }));
           } else {
-            aCrear.push(ni);
+            const porN = porNombre.get(norm(ni.name));
+            if (porN) aActualizar.push({ id: porN.id, data: patch });
+            else aCrear.push({ name: ni.name, unit: ni.unit, category: ni.category, code: ni.code, cost: ni.cost });
           }
         });
 
@@ -754,11 +780,12 @@ export default function DeviationControlView({
           const { error } = await supabase.from('stock_items').insert(aCrear);
           if (error) throw error;
         }
-        // Actualizar los existentes (mantiene el ID → no rompe recetas)
+        // Actualizar los existentes (mantiene el ID → no rompe recetas). Captura el error real.
         let fallosUpdate = 0;
+        const errMsgs = new Set<string>();
         for (const upd of aActualizar) {
           const { error } = await supabase.from('stock_items').update(upd.data).eq('id', upd.id);
-          if (error) fallosUpdate++;
+          if (error) { fallosUpdate++; errMsgs.add(error.message); }
         }
 
         await reloadItems();
@@ -766,7 +793,8 @@ export default function DeviationControlView({
           `✓ Importación completada.\n\n` +
           `  • ${aCrear.length} insumos creados\n` +
           `  • ${aActualizar.length - fallosUpdate} insumos actualizados\n` +
-          (fallosUpdate > 0 ? `  • ${fallosUpdate} no se pudieron actualizar\n` : '') +
+          (fallosUpdate > 0 ? `  • ❌ ${fallosUpdate} no se pudieron actualizar: ${Array.from(errMsgs).join(' | ')}\n` : '') +
+          (dupCodes.size > 0 ? `\n⚠️ Código(s) repetido(s) en la base: ${Array.from(dupCodes).join(', ')}. Actualicé todas las filas con esos códigos; revisá y quitá las duplicadas.\n` : '') +
           (descartadas.length > 0 ? `\nSe descartaron ${descartadas.length} filas:\n${descartadas.slice(0, 5).join('\n')}${descartadas.length > 5 ? `\n… y ${descartadas.length - 5} más` : ''}` : '')
         );
       } catch (err: any) {
@@ -798,7 +826,7 @@ export default function DeviationControlView({
         // Importación IDEMPOTENTE: si el producto ya existe (por nombre), se ACTUALIZA
         // (categoría, código, costo) en vez de crear un duplicado. Solo se insertan los nuevos.
         // Match PRIMERO por código y, si no hay, por nombre (no duplica renombrados).
-        const { data: existing } = await supabase.from('products').select('id, name, code');
+        const existing = await fetchAllRows('products', 'id, name, code');
         const norm = (v: any) => String(v ?? '').trim().toUpperCase();
         const byName = new Map<string, string>();          // nombre -> primer id
         const byCode = new Map<string, string[]>();         // código -> TODOS los ids (para unificar duplicados de la base)
