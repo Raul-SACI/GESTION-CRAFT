@@ -108,7 +108,7 @@ type ConectDia = { fecha: string; sucursal: string; marca: string; min_no_disp: 
 type PrepDia = { fecha: string; sucursal: string; marca: string; prep_min: number; demorados: number; total: number };
 type OpsPeriodo = { anio: number; mes: number; semana: number; sucursal: string; marca: string; no_disp_seg: number; rechazo: number; espera: number; prep_seg: number; reclamos: number; listos: number };
 type Reclamo = { fecha: string; sucursal: string; marca: string; tipo: string; nro_pedido: string | null; motivo: string | null; monto: number };
-type ProductoPeriodo = { anio: number; mes: number; semana: number; producto: string; unidades: number; importe: number };
+type ProductoPeriodo = { anio: number; mes: number; semana: number; marca: string; producto: string; unidades: number; importe: number };
 type Liquidacion = {
   period_start: string; period_end: string;
   ventas_netas: number; ventas_netas_app: number; ventas_netas_fuera: number;
@@ -186,7 +186,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       setPrep(((prp.data as any[]) || []).map(r => ({ ...r, prep_min: N(r.prep_min), demorados: N(r.demorados), total: N(r.total) })));
       setOpsPeriodo(((ops.data as any[]) || []).map(r => ({ ...r, no_disp_seg: N(r.no_disp_seg), rechazo: N(r.rechazo), espera: N(r.espera), prep_seg: N(r.prep_seg), reclamos: N(r.reclamos), listos: N(r.listos) })));
       setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
-      setProductos(((prod.data as any[]) || []).map(r => ({ ...r, unidades: N(r.unidades), importe: N(r.importe) })));
+      setProductos(((prod.data as any[]) || []).map(r => ({ ...r, marca: r.marca || 'Craft', unidades: N(r.unidades), importe: N(r.importe) })));
       setLiquidaciones(((liq.data as any[]) || []).map(r => {
         const o: any = { ...r };
         ['ventas_netas', 'ventas_netas_app', 'ventas_netas_fuera', 'servicios_pedidosya', 'cargos_operativos', 'publicidad', 'pub_gold_vip', 'pub_keywords', 'pub_display', 'reintegros', 'ajustes', 'impuestos', 'ventas_fuera_app_cobradas', 'total_liquidado'].forEach(k => { o[k] = N(r[k]); });
@@ -966,13 +966,18 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
 // ════════════════════════════════════════════════════════════════════════════
 function RankingTab({ productos, month, loading, onGoImport }: { productos: ProductoPeriodo[]; month: string; loading: boolean; onGoImport: () => void }) {
   const [orden, setOrden] = useState<'importe' | 'unidades'>('importe');
+  const [marca, setMarca] = useState<'Craft' | 'Craft Café'>('Craft');
   const [search, setSearch] = useState('');
   if (loading && productos.length === 0) return <Loader />;
-  if (productos.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay ranking de productos para ${monthLabel(month)}. Importá el reporte "Ventas por producto" de Pedidos Ya (Reportes → Ventas → Ventas por producto → Descargar).`} />;
+  if (productos.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay ranking de productos para ${monthLabel(month)}. Importá el reporte "Ventas por producto" de Pedidos Ya (Reportes → Ventas → Ventas por producto → Descargar), uno para Resto y otro para Café.`} />;
+
+  const hayResto = productos.some(p => (p.marca || 'Craft') !== 'Craft Café');
+  const hayCafe = productos.some(p => (p.marca || 'Craft') === 'Craft Café');
+  const marcaActiva: 'Craft' | 'Craft Café' = (marca === 'Craft Café' && hayCafe) ? 'Craft Café' : (marca === 'Craft' && hayResto) ? 'Craft' : (hayCafe ? 'Craft Café' : 'Craft');
 
   // Si se importó por semana, un mismo producto viene en varias filas: se suman unidades e importe.
   const map = new Map<string, { producto: string; unidades: number; importe: number }>();
-  productos.forEach(p => {
+  productos.filter(p => (p.marca || 'Craft') === marcaActiva).forEach(p => {
     const k = (p.producto || '').trim().toUpperCase();
     const e = map.get(k) || { producto: p.producto, unidades: 0, importe: 0 };
     e.unidades += p.unidades; e.importe += p.importe; map.set(k, e);
@@ -992,11 +997,21 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
         <HeroCard label="Importe total" value={fmt(totI)} sub="ventas por producto" accent="red" />
       </div>
       <div className="flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
-          {([['importe', 'Por importe'], ['unidades', 'Por unidades']] as const).map(([k, l]) => (
-            <button key={k} onClick={() => setOrden(k)}
-              className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', orden === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+            {([['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setMarca(k)}
+                className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded', marcaActiva === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
+                <span className={cn('inline-block w-1.5 h-1.5 rounded-full', k === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />{l}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+            {([['importe', 'Por importe'], ['unidades', 'Por unidades']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setOrden(k)}
+                className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', orden === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+            ))}
+          </div>
         </div>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
           className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[11px] text-text-main outline-none w-[220px]" />
@@ -1050,6 +1065,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
   const [anio, setAnio] = useState(dy);
   const [mes, setMes] = useState(dm);
   const [semana, setSemana] = useState(0); // 0 = mes completo
+  const [marcaProd, setMarcaProd] = useState<'Craft' | 'Craft Café'>('Craft'); // solo para "Ventas por producto"
   useEffect(() => { setAnio(dy); setMes(dm); }, [dy, dm]);
 
   const handleFiles = async (files: FileList | null) => {
@@ -1057,11 +1073,11 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
     if (isReadOnly) { alert(READONLY_MSG); return; }
     const arr = Array.from(files);
     const per = semana === 0 ? `${MESES[mes - 1]} ${anio} (mes completo)` : `${MESES[mes - 1]} ${anio} · Semana ${semana} (${SEM_RANGO[semana - 1]})`;
-    if (!window.confirm(`¿Importar ${arr.length} archivo(s)?\n\n· ${arr.map(f => f.name).join('\n· ')}\n\nEl RESUMEN DE VENTAS (todos los locales) se cargará en: ${per}.\nEl estado de cuenta / PDF usan sus propias fechas.\n\nReimportar reemplaza esos datos, no los duplica.`)) return;
+    if (!window.confirm(`¿Importar ${arr.length} archivo(s)?\n\n· ${arr.map(f => f.name).join('\n· ')}\n\nEl RESUMEN DE VENTAS (todos los locales) se cargará en: ${per}.\nEl RANKING de "Ventas por producto" se cargará como marca: ${marcaProd === 'Craft Café' ? 'CRAFT CAFÉ' : 'CRAFT RESTO'}.\nEl estado de cuenta / PDF usan sus propias fechas.\n\nReimportar reemplaza esos datos, no los duplica.`)) return;
     setBusy(true); setMsg(null);
     const results: string[] = []; let anyErr = false;
     for (const file of arr) {
-      try { results.push(`✓ ${file.name}: ${await importOne(file, { anio, mes, semana })}`); }
+      try { results.push(`✓ ${file.name}: ${await importOne(file, { anio, mes, semana, marca: marcaProd })}`); }
       catch (e: any) { anyErr = true; results.push(`✗ ${file.name}: ${e.message || e}`); }
     }
     setBusy(false);
@@ -1080,7 +1096,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
             <li><b className="text-text-main">Resumen de ventas – todos los locales</b> (Reportes → Ventas → Descargar) → venta, pedidos y ticket por local. Como no trae fechas, elegí abajo a qué <b>semana</b> corresponde.</li>
             <li><b className="text-text-main">Reporte detallado de campañas</b> (Publicidad en la app → Descargar) → inversión, ROAS y % de ads (usa sus fechas).</li>
             <li><b className="text-text-main">Resumen de Operaciones – todos los locales</b> (Reportes → Operaciones → Descargar) → no disponible, cancelaciones, espera, preparación, reclamos y marcados listos por local. Sin fechas: elegí abajo la <b>semana</b>.</li>
-            <li><b className="text-text-main">Ventas por producto</b> (Reportes → Ventas → "Ventas por producto" → Descargar) → ranking de productos por unidades e importe (consolidado, todos los locales). Sin fechas: elegí abajo la <b>semana</b> o "mes completo".</li>
+            <li><b className="text-text-main">Ventas por producto</b> (Reportes → Ventas → "Ventas por producto" → Descargar) → ranking de productos por unidades e importe. El archivo es consolidado (no separa Resto de Café): bajá <b>uno con los locales Resto</b> y <b>otro con los Café</b>, y elegí abajo la <b>marca</b> antes de subir cada uno. Sin fechas: elegí también la <b>semana</b> o "mes completo".</li>
             <li><b className="text-text-main">Estado de cuenta (Excel)</b> → reclamos y detalle por pedido (usa sus fechas).</li>
             <li><b className="text-text-main">Estado de cuenta (PDF)</b> → liquidación / P&amp;L (período domingo a sábado).</li>
           </ul>
@@ -1104,6 +1120,18 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
             ))}
           </div>
           <span className="text-[10px] text-text-dim font-bold">{semana === 0 ? 'todo el mes' : SEM_RANGO[semana - 1]}</span>
+        </div>
+        <div className="mt-3 pt-3 border-t border-border-dim/60 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">Marca del "Ventas por producto":</span>
+          <div className="flex gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/60">
+            {([['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
+              <button key={k} onClick={() => setMarcaProd(k)}
+                className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded', marcaProd === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
+                <span className={cn('inline-block w-1.5 h-1.5 rounded-full', k === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />{l}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] text-text-dim font-bold">bajá un archivo por cada marca (seleccionando esos locales en el portal) y elegí acá cuál es antes de subirlo</span>
         </div>
       </div>
 
@@ -1134,7 +1162,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
 }
 
 // ── dispatch de importación ──────────────────────────────────────────────────
-type ImpCtx = { anio: number; mes: number; semana: number };
+type ImpCtx = { anio: number; mes: number; semana: number; marca?: string };
 async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop();
   if (ext === 'pdf') return importLiquidacionPDF(file);
@@ -1255,6 +1283,7 @@ async function importPopularDishes(sheets: Record<string, any[][]>, names: strin
     importe: ['ventas', 'sales', 'importe', 'monto', 'revenue'],
   });
   if (!f || f.idx.producto == null) throw new Error('no reconocí las columnas del ranking de productos (esperado: Producto, Total, Ventas).');
+  const marca = ctx.marca === 'Craft Café' ? 'Craft Café' : 'Craft';
   const out: ProductoPeriodo[] = [];
   const seen = new Set<string>();
   for (let i = f.headerRow + 1; i < rows.length; i++) {
@@ -1265,14 +1294,15 @@ async function importPopularDishes(sheets: Record<string, any[][]>, names: strin
     if (unidades === 0 && importe === 0) continue;
     const k = producto.toUpperCase();
     if (seen.has(k)) continue; seen.add(k);
-    out.push({ anio: ctx.anio, mes: ctx.mes, semana: ctx.semana, producto, unidades, importe });
+    out.push({ anio: ctx.anio, mes: ctx.mes, semana: ctx.semana, marca, producto, unidades, importe });
   }
   if (out.length === 0) throw new Error('sin filas de productos válidas.');
-  await supabase.from('py_productos_periodo').delete().eq('anio', ctx.anio).eq('mes', ctx.mes).eq('semana', ctx.semana);
+  // El borrado es por marca: importar Café no pisa el ranking de Resto (ni al revés).
+  await supabase.from('py_productos_periodo').delete().eq('anio', ctx.anio).eq('mes', ctx.mes).eq('semana', ctx.semana).eq('marca', marca);
   const { error } = await supabase.from('py_productos_periodo').insert(out);
   if (error) throw new Error('guardando ranking de productos: ' + error.message);
   const per = ctx.semana === 0 ? `${MESES[ctx.mes - 1]} ${ctx.anio} (mes)` : `${MESES[ctx.mes - 1]} ${ctx.anio} · Sem ${ctx.semana}`;
-  return `ranking de productos · ${out.length} productos → ${per}.`;
+  return `ranking de productos (${marca === 'Craft Café' ? 'Café' : 'Resto'}) · ${out.length} productos → ${per}.`;
 }
 
 // localiza la fila de encabezado que contiene todos los términos dados
