@@ -329,6 +329,12 @@ function ComercialTab(props: any) {
 
   const metricas: [string, string][] = [['venta', 'Venta'], ['pedidos', 'Pedidos'], ['ticket', 'Ticket prom.']];
 
+  // Composición: % del mes de cada local/marca sobre el total. Sólo aplica a métricas sumables
+  // (Venta y Pedidos); el Ticket promedio es un promedio, no se compone → se muestra "—".
+  const totalMes = metricOf(mesOf(totalRow)) || 0;
+  const compAplica = metrica !== 'ticket' && totalMes > 0;
+  const compFmt = (v: number) => `${(v * 100).toFixed(1)}%`;
+
   const renderRow = (label: string, cell: { weeks: any[]; mesExplicit: any }, isTotal = false, marca?: string) => {
     const lastW = lastWeekWithData;
     const cur = lastW >= 0 ? metricOf(cell.weeks[lastW]) : null;
@@ -343,6 +349,10 @@ function ComercialTab(props: any) {
         </td>
         {[0, 1, 2, 3].map(w => <td key={w} className="p-3 text-center font-mono tabular-nums text-text-main">{metricFmt(metricOf(cell.weeks[w]))}</td>)}
         <td className="p-3 text-center font-mono tabular-nums font-black text-text-main bg-bg-accent/20">{metricFmt(metricOf(mesOf(cell)))}</td>
+        <td className="p-3 text-center font-mono tabular-nums text-text-dim">
+          {!compAplica ? <span className="text-text-dim">—</span>
+            : <span className={cn(isTotal && 'font-black text-text-main')}>{isTotal ? '100%' : compFmt(metricOf(mesOf(cell)) / totalMes)}</span>}
+        </td>
         <td className="p-3 text-center">
           {dv == null ? <span className="text-text-dim">—</span> : (
             <span className={cn('inline-flex items-center gap-1 font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border', SEM_BG[sem])}>
@@ -362,7 +372,7 @@ function ComercialTab(props: any) {
     grupos.forEach((s: string) => byMarca[deriveMarca(s)].push(s));
     (['Craft', 'Craft Café'] as const).forEach(mk => {
       if (byMarca[mk].length === 0) return;
-      rows.push(<tr key={`h-${mk}`} className="bg-bg-accent/15"><td colSpan={7} className="px-3 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-text-dim">{mk}</td></tr>);
+      rows.push(<tr key={`h-${mk}`} className="bg-bg-accent/15"><td colSpan={8} className="px-3 py-1.5 text-left text-[9px] font-black uppercase tracking-widest text-text-dim">{mk}</td></tr>);
       byMarca[mk].forEach(s => aggData[s] && rows.push(renderRow(s, aggData[s], false, mk)));
     });
   }
@@ -393,6 +403,7 @@ function ComercialTab(props: any) {
               <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">{verPor === 'marca' ? 'Marca' : 'Local'}</th>
               {SEM_RANGO.map((r, i) => <th key={i} className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Sem {i + 1}<div className="text-[7px] opacity-60 font-bold">{r}</div></th>)}
               <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest bg-bg-accent/30">Mes</th>
+              <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Comp.</th>
               <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Δ últ. sem</th>
             </tr>
           </thead>
