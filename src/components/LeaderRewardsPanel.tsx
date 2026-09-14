@@ -58,6 +58,7 @@ export default function LeaderRewardsPanel({
 }) {
   const [rules, setRules] = useState<PerformanceLeaderConfig[]>([]);
   const [monthReports, setMonthReports] = useState<any[]>([]);
+  const [monthAdjustments, setMonthAdjustments] = useState<any[]>([]);
   const [leaderSuggestions, setLeaderSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -100,6 +101,14 @@ export default function LeaderRewardsPanel({
         .select('*')
         .eq('month', month);
       setMonthReports(reportData || []);
+
+      // Ajustes manuales de premio (cargados en el Dashboard por administración). Se suman a la
+      // base del líder para que el premio del líder refleje el premio ajustado de cada sucursal.
+      const { data: adjData } = await supabase
+        .from('performance_adjustments')
+        .select('branch_id, role, amount')
+        .eq('month', month);
+      setMonthAdjustments(adjData || []);
 
       // Sugerencias de nombres de líderes (usuarios con rol de líder), best-effort
       try {
@@ -169,7 +178,11 @@ export default function LeaderRewardsPanel({
     const relevant = rolesForSource(roleForBranch);
     const rows = monthReports.filter(r => r.branch_id === branchId && relevant.includes(r.role));
     const closedRows = rows.filter(r => r.closed_at);
-    const obtained = closedRows.reduce((s, r) => s + sumObtainedPrizes(r), 0);
+    // Ajuste manual de administración (Dashboard) para esta sucursal y los roles relevantes.
+    const adj = monthAdjustments
+      .filter((a: any) => a.branch_id === branchId && relevant.includes(a.role))
+      .reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
+    const obtained = closedRows.reduce((s, r) => s + sumObtainedPrizes(r), 0) + adj;
     // Para un rol específico: pendiente si esa fila no está cerrada.
     // Para "todos": pendiente si ninguna fila del branch está cerrada.
     const pending =
