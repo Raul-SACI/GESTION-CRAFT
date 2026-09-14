@@ -885,6 +885,29 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  {(() => {
+                    const t = shown.reduce((a, d) => {
+                      a.compras += d.comprasMovimientos || 0;
+                      a.net += d.netCurrent || 0;
+                      if (d.cmv !== null && d.existenciasCargadas) a.cmv += d.cmv;
+                      return a;
+                    }, { compras: 0, cmv: 0, net: 0 });
+                    const cmPctT = t.net > 0 ? (t.compras / t.net) * 100 : null;
+                    const cmvPctT = t.net > 0 ? (t.cmv / t.net) * 100 : null;
+                    const col = (v: number) => v > 35 ? 'text-red-500' : v > 30 ? 'text-amber-500' : 'text-emerald-500';
+                    return (
+                      <tr className="text-[11px] font-black border-t-2 border-border-dim bg-bg-accent/40">
+                        <td className="px-3 py-2.5 font-black uppercase text-text-main">Total</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(t.compras)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono">{cmPctT !== null ? <span className={col(cmPctT)}>{cmPctT.toFixed(1)}%</span> : <span className="text-text-dim">—</span>}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(t.cmv)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(t.net)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono">{cmvPctT !== null ? <span className={col(cmvPctT)}>{cmvPctT.toFixed(1)}%</span> : <span className="text-text-dim">—</span>}</td>
+                      </tr>
+                    );
+                  })()}
+                </tfoot>
               </table>
             </div>
             {shown.some(d => d.cmv !== null && !d.existenciasCargadas) && (
