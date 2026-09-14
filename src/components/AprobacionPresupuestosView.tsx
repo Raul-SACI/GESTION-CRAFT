@@ -490,95 +490,46 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
               </div>
 
               <div className="divide-y divide-border-dim/40 max-h-96 overflow-y-auto pr-1">
-                {/* Check if new Rows schema or legacy Positions */}
-                {budgetsState[selectedBranch.id]?.rows && Array.isArray(budgetsState[selectedBranch.id].rows) ? (
-                  budgetsState[selectedBranch.id].rows.map((row: BudgetRow) => {
-                    const bInfo = budgetsState[selectedBranch.id];
-                    const { dayCounts } = getDaysOfWeekCounts(selectedMonth);
-                    const groupADays = bInfo.groupADays || ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Domingo'];
-                    const groupBDays = bInfo.groupBDays || ['Viernes', 'Sábado'];
-                    const holidays = bInfo.holidays !== undefined ? bInfo.holidays : 2;
-
-                    let countDaysGroupA = 0;
-                    let countDaysGroupB = 0;
-                    groupADays.forEach((day: string) => {
-                      countDaysGroupA += dayCounts[day] || 0;
-                    });
-                    groupBDays.forEach((day: string) => {
-                      countDaysGroupB += dayCounts[day] || 0;
-                    });
-
-                    const hoursA = countDaysGroupA * row.countGroupA * row.hoursPerDay;
-                    const hoursB = countDaysGroupB * row.countGroupB * row.hoursPerDay;
-                    const posMonthlyHs = hoursA + hoursB;
-                    const holidayHs = holidays * row.countGroupB * row.hoursPerDay;
-                    const totalCostRow = (posMonthlyHs * row.hourlyRate) + (holidayHs * row.hourlyRate);
-
-                    return (
-                      <div key={row.id} className="py-2.5 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-bold text-text-main uppercase font-sans tracking-wide">
-                            {row.roleLabel} <span className="text-[9px] font-black text-brand-500">[{row.shift}]</span>
-                          </p>
-                          <p className="text-[9px] text-[#8C959F] mt-0.5 font-bold">
-                            Nom: {row.countGroupA}p • Esp: {row.countGroupB}p • {row.hoursPerDay}h/d
-                          </p>
+                {(budgetsState[selectedBranch.id]?.rows && Array.isArray(budgetsState[selectedBranch.id].rows) && budgetsState[selectedBranch.id].rows.length > 0) ? (
+                  // Se muestran los puestos tal como se guardaron en Supabase (position_name, total_hours, total_cost…),
+                  // usando los totales ya calculados por el Presupuestador. Ordenados por costo desc.
+                  [...budgetsState[selectedBranch.id].rows]
+                    .sort((a: any, b: any) => Number(b.total_cost || 0) - Number(a.total_cost || 0))
+                    .map((row: any, idx: number) => {
+                      const nombre = row.position_name || row.position_id || 'Puesto';
+                      const hs = Number(row.total_hours || 0);
+                      const costo = Number(row.total_cost || 0);
+                      const rate = Number(row.hourly_rate || 0);
+                      const hpd = Number(row.hours_per_day || 0);
+                      return (
+                        <div key={`${row.position_id || 'p'}-${idx}`} className="py-2.5 flex justify-between items-center text-xs">
+                          <div>
+                            <p className="font-bold text-text-main uppercase font-sans tracking-wide">
+                              {nombre} {row.shift && <span className="text-[9px] font-black text-brand-500">[{row.shift}]</span>}
+                            </p>
+                            <p className="text-[9px] text-[#8C959F] mt-0.5 font-bold">
+                              {hpd ? `${hpd}h/día` : ''}{hpd && rate ? ' • ' : ''}{rate ? `$${rate.toLocaleString('es-AR')}/h` : ''}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-mono font-black text-text-main">${costo.toLocaleString('es-AR')}</p>
+                            <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
+                              {hs.toLocaleString('es-AR', { maximumFractionDigits: 1 })} horas
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="font-mono font-black text-text-main">${totalCostRow.toLocaleString()}</p>
-                          <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
-                            {posMonthlyHs} horas
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
+                      );
+                    })
                 ) : (
-                  // No legacy data
-                  [].map((pos: LegacyBudgetPosition) => {
-                    const bInfo = budgetsState[selectedBranch.id] || {
-                      daysInMonth: 30,
-                      fridays: 4,
-                      saturdays: 4,
-                      sundays: 4,
-                      holidays: 2
-                    };
-                    const weekendDaysCount = bInfo.fridays + bInfo.saturdays + bInfo.sundays;
-                    const weekdayDaysCount = Math.max(0, bInfo.daysInMonth - weekendDaysCount);
-                    const posMonthlyHs = (weekdayDaysCount * pos.countWeekday * pos.hoursPerDay) + (weekendDaysCount * pos.countWeekend * pos.hoursPerDay);
-                    const posMonthlyTotal = (posMonthlyHs * pos.hourlyRate) + (bInfo.holidays * pos.countWeekend * pos.hoursPerDay * pos.hourlyRate);
-
-                    return (
-                      <div key={pos.id} className="py-2.5 flex justify-between items-center text-xs">
-                        <div>
-                          <p className="font-bold text-text-main uppercase font-sans tracking-wide">{pos.name}</p>
-                          <p className="text-[9px] text-[#8C959F] mt-0.5 font-bold">
-                            Lu-Ju: {pos.countWeekday}p • Vi-Do: {pos.countWeekend}p • {pos.hoursPerDay}h/d
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-mono font-black text-text-main">${posMonthlyTotal.toLocaleString()}</p>
-                          <p className="text-[9px] font-mono text-brand-500 font-bold tracking-tight uppercase">
-                            {posMonthlyHs} horas
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
+                  <div className="py-6 text-center text-[10px] font-bold uppercase text-text-dim">Sin puestos cargados para esta sucursal.</div>
                 )}
               </div>
 
               <div className="bg-bg-accent/50 border border-border-dim p-4 rounded-lg space-y-2 mt-4">
                 <div className="flex justify-between text-xs">
-                  <span className="text-text-dim uppercase font-bold">Costo Proyectado Feriados:</span>
+                  <span className="text-text-dim uppercase font-bold">Horas totales:</span>
                   <span className="font-mono font-black text-brand-500">
-                    ${(budgetsState[selectedBranch.id]?.rows 
-                    ? budgetsState[selectedBranch.id].rows.reduce((acc: number, p: BudgetRow) => {
-                        const bInfo = budgetsState[selectedBranch.id];
-                        const holidays = bInfo.holidays !== undefined ? bInfo.holidays : 2;
-                        return acc + (holidays * (p.countGroupB * p.hoursPerDay) * p.hourlyRate);
-                      }, 0)
-                    : 0).toLocaleString()}
+                    {getBranchCalculatedBudget(selectedBranch.id).totalHours.toLocaleString('es-AR', { maximumFractionDigits: 1 })}h
                   </span>
                 </div>
                 <div className="flex justify-between text-xs border-t border-border-dim/40 pt-2 font-black">
