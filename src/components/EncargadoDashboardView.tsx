@@ -118,6 +118,12 @@ export default function EncargadoDashboardView({
   const [deviationInput, setDeviationInput] = useState('');
   const [deviationNote, setDeviationNote] = useState('');
   const [itemNamesById, setItemNamesById] = useState<Record<string, string>>({});
+  // Desvío cargado a mano POR INSUMO (por sucursal y mes). Cuando hay al menos uno, el premio
+  // de desvío se calcula con estos valores (los insumos sin cargar cuentan como sin premio).
+  const [stockItemOverrides, setStockItemOverrides] = useState<Record<string, { pct: number; note?: string }>>({});
+  const [itemDevInputs, setItemDevInputs] = useState<Record<string, string>>({});
+  const [itemDevSaving, setItemDevSaving] = useState(false);
+  const [itemDevSearch, setItemDevSearch] = useState('');
   // Venta teórica por semana e insumo, calculada desde el ranking (no depende de que esté
   // persistida en inventory_logs). weeklyVtByItem[week_number][item_id] = venta teórica.
   const [weeklyVtByItem, setWeeklyVtByItem] = useState<Record<number, Record<string, number>>>({});
@@ -1047,8 +1053,24 @@ export default function EncargadoDashboardView({
 
   const autoStockDeviation = autoStockDeviationData.value;
 
-  // Desvío efectivo: si administración cargó un valor a mano para este mes/sucursal, se usa ese.
-  const averageStockDeviation = stockDeviationOverride ? stockDeviationOverride.value : autoStockDeviation;
+  // Lista de insumos de la planilla (los controlados; si no hay filtro, los que tienen datos).
+  // Es la base del N del premio y de la carga manual por insumo.
+  const insumosPlanilla = useMemo(() => {
+    const withData = new Set((rawInventoryLogs || []).map((d: any) => d.item_id).filter(Boolean));
+    const ids = controlledItemIds.length > 0
+      ? controlledItemIds.filter(id => itemNamesById[id] || withData.has(id))
+      : Array.from(withData) as string[];
+    return ids.map(id => ({ id, name: itemNamesById[id] || id })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [controlledItemIds, itemNamesById, rawInventoryLogs]);
+
+  // ¿Hay desvío cargado a mano por insumo? Entonces el premio se calcula con esos valores.
+  const manualItemMode = Object.keys(stockItemOverrides).length > 0;
+
+  // Desvío efectivo (número que se muestra): si hay carga por insumo, es el promedio de los
+  // insumos cargados; si hay un valor único a mano, ese; si no, el automático.
+  const averageStockDeviation = manualItemMode
+    ? (() => { const vals = Object.values(stockItemOverrides).map((o: { pct: number; note?: string }) => Math.abs(o.pct)); return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0; })()
+    : stockDeviationOverride ? stockDeviationOverride.value : autoStockDeviation;
 
   // ── Desvío SEMANA A SEMANA por insumo (para el premio celda por celda) ──
   // El premio de desvío de stock se gana por cada (semana × insumo) que quede bajo el objetivo,
@@ -1056,6 +1078,19 @@ export default function EncargadoDashboardView({
   //   (premio del tramo alcanzado) ÷ 4 semanas ÷ N insumos.
   const weeklyStockDetail = useMemo(() => {
     const empty = { insumos: [] as Array<{ id: string; name: string; weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> }>, N: 0 };
+    // MODO MANUAL POR INSUMO: si administración cargó desvíos por insumo, el premio se calcula
+    // con esos valores. Cada insumo cargado usa su % en las 4 semanas; los NO cargados cuentan
+    // como sin premio (celdas nulas) pero igual entran en N (denominador).
+    if (Object.keys(stockItemOverrides).length > 0) {
+      const insumos = insumosPlanilla.map(({ id, name }) => {
+        const ov = stockItemOverrides[id];
+        const weeks: Array<{ pct: number; desvio: number; efTeorica: number; ef: number } | null> = ov
+          ? [0, 1, 2, 3].map(() => ({ pct: ov.pct, desvio: 0, efTeorica: 0, ef: 0 }))
+          : [null, null, null, null];
+        return { id, name, weeks };
+      });
+      return { insumos, N: insumos.length };
+    }
     const [yy, mm] = selectedMonth.split('-').map(Number);
     const lastDay = new Date(yy, mm, 0).getDate();
     const dayOf = (d: any) => Number(String(d.date || '').substring(8, 10));
@@ -1105,7 +1140,7 @@ export default function EncargadoDashboardView({
     });
     insumos.sort((a, b) => a.name.localeCompare(b.name));
     return { insumos, N: insumos.length };
-  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem, isAlmacenBranch]);
+  }, [rawInventoryLogs, selectedMonth, controlledItemIds, itemNamesById, weeklyVtByItem, isAlmacenBranch, stockItemOverrides, insumosPlanilla]);
 
   // Calcula el premio de desvío celda por celda para una escala de tramos dada.
   const computeStockCellPrize = (tiers: any[], isLowerBetter: boolean) => {
@@ -1337,6 +1372,52 @@ export default function EncargadoDashboardView({
     await supabase.from('stock_deviation_overrides').delete().eq('id', stockDeviationOverride.id);
     setShowDeviationModal(false);
     await cargarDesvioManual();
+  };
+
+  // --- DESVÍO DE STOCK CARGADO A MANO POR INSUMO (por sucursal y mes) ---
+  const cargarDesviosPorInsumo = async () => {
+    if (!selectedBranchId || selectedBranchId === 'all') { setStockItemOverrides({}); return; }
+    try {
+      const { data } = await supabase
+        .from('stock_deviation_item_overrides')
+        .select('item_id, pct, note')
+        .eq('branch_id', selectedBranchId)
+        .eq('month', selectedMonth);
+      const map: Record<string, { pct: number; note?: string }> = {};
+      (data || []).forEach((r: any) => { if (r.item_id) map[r.item_id] = { pct: Number(r.pct) || 0, note: r.note || undefined }; });
+      setStockItemOverrides(map);
+    } catch { setStockItemOverrides({}); }
+  };
+  useEffect(() => { cargarDesviosPorInsumo(); }, [selectedBranchId, selectedMonth]);
+
+  const guardarDesviosPorInsumo = async () => {
+    if (!esAdmin) { alert('Solo la administración puede cargar el desvío.'); return; }
+    if (!selectedBranchId || selectedBranchId === 'all') { alert('Elegí una sucursal concreta.'); return; }
+    setItemDevSaving(true);
+    try {
+      const rowsUp: any[] = []; const idsDel: string[] = [];
+      insumosPlanilla.forEach(({ id }) => {
+        const raw = String(itemDevInputs[id] ?? '').trim();
+        const dbId = `${selectedBranchId}_${selectedMonth}_${id}`;
+        if (raw === '') { idsDel.push(dbId); return; }
+        const val = parseFloat(raw.replace(',', '.'));
+        if (isNaN(val)) return;
+        rowsUp.push({ id: dbId, branch_id: selectedBranchId, month: selectedMonth, item_id: id, pct: val, note: deviationNote || null, updated_at: new Date().toISOString() });
+      });
+      if (rowsUp.length > 0) { const { error } = await supabase.from('stock_deviation_item_overrides').upsert(rowsUp, { onConflict: 'id' }); if (error) throw error; }
+      if (idsDel.length > 0) { await supabase.from('stock_deviation_item_overrides').delete().in('id', idsDel); }
+      setShowDeviationModal(false);
+      await cargarDesviosPorInsumo();
+    } catch (e: any) { alert('Error al guardar: ' + (e.message || e)); }
+    setItemDevSaving(false);
+  };
+
+  const borrarDesviosPorInsumo = async () => {
+    if (!esAdmin) return;
+    if (!window.confirm('¿Quitar TODOS los desvíos cargados a mano de esta sucursal/mes y volver al cálculo automático?')) return;
+    await supabase.from('stock_deviation_item_overrides').delete().eq('branch_id', selectedBranchId).eq('month', selectedMonth);
+    setShowDeviationModal(false);
+    await cargarDesviosPorInsumo();
   };
 
   const guardarAjuste = async (role: string, roleLabel: string) => {
@@ -2197,16 +2278,23 @@ export default function EncargadoDashboardView({
                 )}
                 {esAdmin && selectedBranchId !== 'all' && (
                   <button
-                    onClick={() => { setDeviationInput(stockDeviationOverride ? String(stockDeviationOverride.value) : ''); setDeviationNote(stockDeviationOverride?.note || ''); setShowDeviationModal(true); }}
+                    onClick={() => {
+                      const init: Record<string, string> = {};
+                      Object.entries(stockItemOverrides).forEach(([id, o]) => { init[id] = String((o as { pct: number }).pct).replace('.', ','); });
+                      setItemDevInputs(init);
+                      setDeviationNote('');
+                      setItemDevSearch('');
+                      setShowDeviationModal(true);
+                    }}
                     className={cn(
                       "px-3 py-1.5 rounded border text-[8px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
-                      stockDeviationOverride
+                      manualItemMode
                         ? "bg-amber-500/10 border-amber-500/40 text-amber-600 hover:bg-amber-500/20"
                         : "bg-bg-accent border-border-dim text-text-dim hover:text-text-main"
                     )}
-                    title="Cargar a mano el desvío de stock de la planilla de Control de Desvíos">
+                    title="Cargar a mano el desvío de stock por insumo (de la planilla de Control de Desvíos)">
                     <Pencil size={11} />
-                    {stockDeviationOverride ? `Desvío cargado: ${stockDeviationOverride.value}` : 'Cargar desvío a mano'}
+                    {manualItemMode ? `Desvío a mano: ${Object.keys(stockItemOverrides).length} insumo(s)` : 'Cargar desvío a mano'}
                   </button>
                 )}
               </div>
@@ -2390,53 +2478,72 @@ export default function EncargadoDashboardView({
       {/* Modal: cargar el desvío de stock a mano */}
       {showDeviationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowDeviationModal(false)}>
-          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between">
-              <h3 className="text-xs font-black uppercase tracking-widest text-brand-500">Desvío de Stock · Carga Manual</h3>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim flex items-center justify-between shrink-0">
+              <h3 className="text-xs font-black uppercase tracking-widest text-brand-500">Desvío de Stock · Carga Manual por Insumo</h3>
               <button onClick={() => setShowDeviationModal(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-3 overflow-y-auto">
               <p className="text-[10px] text-text-dim font-bold leading-relaxed">
-                Ingresá el desvío que muestra la planilla de <strong>Control de Desvíos</strong> para esta sucursal y mes
-                (el promedio de los insumos de la semana). Este valor reemplaza al cálculo automático para el premio.
+                Cargá el desvío <strong>por insumo</strong> (%) que muestra la planilla de <strong>Control de Desvíos</strong> para esta sucursal y mes.
+                Ese valor se aplica a las 4 semanas y reemplaza al cálculo automático para el premio.
+                <span className="text-amber-600"> Los insumos que dejes vacíos cuentan como sin premio.</span>
               </p>
-              <div>
-                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Desvío (%)</label>
-                <input
-                  type="text" inputMode="decimal" value={deviationInput}
-                  onChange={e => setDeviationInput(e.target.value)}
-                  placeholder="Ej: 1,32"
-                  className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-sm font-mono font-black text-text-main outline-none focus:border-brand-500"
-                />
-              </div>
-              <div>
-                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Nota (opcional)</label>
-                <input
-                  type="text" value={deviationNote}
-                  onChange={e => setDeviationNote(e.target.value)}
-                  placeholder="Ej: promedio semana 4 de junio"
-                  className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500"
-                />
-              </div>
-              {stockDeviationOverride && (
-                <p className="text-[9px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
-                  Actualmente cargado: <strong>{stockDeviationOverride.value}%</strong>
-                  {stockDeviationOverride.note ? ` · ${stockDeviationOverride.note}` : ''}
+              {insumosPlanilla.length === 0 ? (
+                <p className="text-[10px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
+                  No hay insumos controlados para esta sucursal/mes. Configurá los insumos a controlar o cargá el inventario primero.
                 </p>
+              ) : (
+                <>
+                  <div className="relative">
+                    <input type="text" value={itemDevSearch} onChange={e => setItemDevSearch(e.target.value)} placeholder="Buscar insumo…"
+                      className="w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  </div>
+                  <div className="grid grid-cols-[1fr_92px] gap-2 items-center px-1">
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest">Insumo</span>
+                    <span className="text-[8px] font-black uppercase text-text-dim tracking-widest text-right">Desvío %</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {insumosPlanilla
+                      .filter(it => !itemDevSearch.trim() || it.name.toLowerCase().includes(itemDevSearch.trim().toLowerCase()))
+                      .map(it => (
+                        <div key={it.id} className="grid grid-cols-[1fr_92px] gap-2 items-center">
+                          <span className="text-[11px] font-bold text-text-main uppercase truncate" title={it.name}>{it.name}</span>
+                          <input type="text" inputMode="decimal"
+                            value={itemDevInputs[it.id] ?? ''}
+                            onChange={e => setItemDevInputs(prev => ({ ...prev, [it.id]: e.target.value }))}
+                            placeholder="—"
+                            className="w-full bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-mono font-black text-text-main outline-none focus:border-brand-500 text-right" />
+                        </div>
+                      ))}
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Nota (opcional, para todos)</label>
+                    <input type="text" value={deviationNote} onChange={e => setDeviationNote(e.target.value)} placeholder="Ej: planilla Control de Desvíos - agosto"
+                      className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  </div>
+                  {manualItemMode && (
+                    <p className="text-[9px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-2">
+                      Ya hay <strong>{Object.keys(stockItemOverrides).length}</strong> insumo(s) cargado(s) a mano. El premio se está calculando con estos valores.
+                    </p>
+                  )}
+                </>
               )}
             </div>
-            <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2">
-              {stockDeviationOverride ? (
-                <button onClick={borrarDesvioManual}
+            <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2 shrink-0">
+              {manualItemMode ? (
+                <button onClick={borrarDesviosPorInsumo}
                   className="px-3 py-2 rounded text-[9px] font-black uppercase text-red-500 hover:bg-red-500/10 transition-all">
-                  Quitar y usar automático
+                  Quitar todo y usar automático
                 </button>
               ) : <span />}
               <div className="flex gap-2">
                 <button onClick={() => setShowDeviationModal(false)}
                   className="px-4 py-2 rounded border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main">Cancelar</button>
-                <button onClick={guardarDesvioManual}
-                  className="px-4 py-2 rounded bg-brand-500 text-white text-[9px] font-black uppercase hover:bg-brand-600 transition-all">Guardar</button>
+                <button onClick={guardarDesviosPorInsumo} disabled={itemDevSaving || insumosPlanilla.length === 0}
+                  className="px-4 py-2 rounded bg-brand-500 text-white text-[9px] font-black uppercase hover:bg-brand-600 transition-all disabled:opacity-50">
+                  {itemDevSaving ? 'Guardando…' : 'Guardar'}
+                </button>
               </div>
             </div>
           </div>
