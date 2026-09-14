@@ -1335,7 +1335,7 @@ export default function PerformanceAdminView({
               <span>PDF Objetivos</span>
             </button>
             <button
-              onClick={exportResultsPDF}
+              onClick={() => exportResultsPDF()}
               disabled={loading}
               className="px-3.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-600 border border-emerald-500/25 text-emerald-500 hover:text-white rounded text-[11px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
               title="Exportar en un solo PDF los premios a pagar de todas las sucursales y todos los roles"
