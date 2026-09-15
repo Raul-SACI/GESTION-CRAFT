@@ -31,6 +31,7 @@ type Quote = { proveedor: string; precio: number };
 type ArtRow = { code: string; description: string; cantidad: number; total: number; pct_participacion: number; pct_acumulado: number };
 type ProvRow = { razon_social: string; total_neto: number; total: number; pct_participacion: number; pct_acumulado: number };
 type CotizRow = { code: string; description: string; precio_actual: number; quotes: Quote[]; revisado_por: string };
+type DetalleRow = { fecha: string; code: string | null; description: string | null; proveedor: string | null; cantidad: number; importe: number };
 
 const BRAND = '#ED1C24';
 const fmt = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
@@ -52,7 +53,7 @@ const periodLabel = (p: string) => {
 };
 
 export default function ComprasInformesView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
-  const [tab, setTab] = useState<'resumen' | 'evolucion' | 'anual' | 'cotizaciones' | 'importar'>('resumen');
+  const [tab, setTab] = useState<'resumen' | 'evolucion' | 'diario' | 'anual' | 'cotizaciones' | 'importar'>('resumen');
   const [periods, setPeriods] = useState<string[]>([]);
   const [period, setPeriod] = useState<string>(() => {
     const d = new Date();
@@ -63,6 +64,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
   const [arts, setArts] = useState<ArtRow[]>([]);
   const [provs, setProvs] = useState<ProvRow[]>([]);
   const [cotiz, setCotiz] = useState<CotizRow[]>([]);
+  const [detalle, setDetalle] = useState<DetalleRow[]>([]);
   const [stockCodes, setStockCodes] = useState<Set<string>>(new Set());
   const [stockNames, setStockNames] = useState<Map<string, string>>(new Map());
 
@@ -101,19 +103,35 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
   useEffect(() => { loadPeriods(); }, [loadPeriods]);
 
+  // Trae TODO el detalle del mes (puede superar 1000 filas → se pagina).
+  const fetchAllDetalle = async (per: string): Promise<DetalleRow[]> => {
+    const out: DetalleRow[] = []; const size = 1000;
+    for (let pg = 0; pg < 100; pg++) {
+      const { data } = await supabase.from('compras_detalle_import')
+        .select('fecha, code, description, proveedor, cantidad, importe')
+        .eq('period', per).range(pg * size, pg * size + size - 1);
+      const rows = (data as any[]) || [];
+      rows.forEach(r => out.push({ fecha: r.fecha, code: r.code, description: r.description, proveedor: r.proveedor, cantidad: Number(r.cantidad) || 0, importe: Number(r.importe) || 0 }));
+      if (rows.length < size) break;
+    }
+    return out;
+  };
+
   // ── Carga del período seleccionado ─────────────────────────────────────────
   const loadPeriod = useCallback(async () => {
     if (!period) return;
     setLoading(true);
     try {
-      const [{ data: a }, { data: p }, { data: c }, { data: st }] = await Promise.all([
+      const [{ data: a }, { data: p }, { data: c }, { data: st }, detData] = await Promise.all([
         supabase.from('compras_articulos_import').select('*').eq('period', period).order('total', { ascending: false }),
         supabase.from('compras_proveedores_import').select('*').eq('period', period).order('total', { ascending: false }),
         supabase.from('compras_cotizaciones').select('*').eq('period', period),
         supabase.from('stock_items').select('code, name'),
+        fetchAllDetalle(period),
       ]);
       setArts((a as ArtRow[]) || []);
       setProvs((p as ProvRow[]) || []);
+      setDetalle(detData);
       setCotiz(((c as any[]) || []).map(r => ({ code: r.code, description: r.description, precio_actual: r.precio_actual, quotes: r.quotes || [], revisado_por: r.revisado_por || '' })));
       const codes = new Set<string>();
       const names = new Map<string, string>();
@@ -222,9 +240,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
   // ── IMPORTACIÓN ────────────────────────────────────────────────────────────
   const [busy, setBusy] = useState(false);
-  const [impPeriod, setImpPeriod] = useState(period);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
-  useEffect(() => { setImpPeriod(period); }, [period]);
 
   const readSheet = (file: File): Promise<any[][]> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -254,96 +270,6 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     return null;
   };
 
-  const importArticulos = async (file: File) => {
-    if (isReadOnly) { alert('Tu rol es de SOLO LECTURA.'); return; }
-    if (!impPeriod) { setMsg({ kind: 'err', text: 'Elegí el mes del reporte antes de importar.' }); return; }
-    if (!window.confirm(`¿Subir el RANKING DE ARTÍCULOS para ${periodLabel(impPeriod)}?\n\nArchivo: ${file.name}\nSi ese mes ya tenía datos, se reemplazan.`)) return;
-    setBusy(true); setMsg(null);
-    try {
-      const rows = await readSheet(file);
-      const found = findCols(rows, {
-        code: ['cód', 'cod', 'artículo', 'articulo'], description: ['descrip'],
-        cantidad: ['cantidad'], total: ['total'],
-        pct_participacion: ['participación', 'participacion'], pct_acumulado: ['acumulado'],
-      });
-      if (!found) throw new Error('No reconocí las columnas del "Ranking por artículo". Verificá que sea ese reporte de Tango.');
-      const { headerRow, idx } = found;
-      const parsed: any[] = [];
-      for (let i = headerRow + 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        const code = norm(r[idx.code]);
-        const desc = norm(r[idx.description]);
-        if (!code && !desc) continue;
-        if (!code) continue; // filas de total/subtotal sin código
-        parsed.push({
-          period: impPeriod, code, description: desc,
-          cantidad: toNum(r[idx.cantidad]), total: toNum(r[idx.total]),
-          pct_participacion: toNum(r[idx.pct_participacion]), pct_acumulado: toNum(r[idx.pct_acumulado]),
-        });
-      }
-      if (!parsed.length) throw new Error('No encontré filas de datos en el archivo.');
-      // Reemplaza el período: borra e inserta
-      await supabase.from('compras_articulos_import').delete().eq('period', impPeriod);
-      const CHUNK = 500;
-      for (let i = 0; i < parsed.length; i += CHUNK) {
-        const { error } = await supabase.from('compras_articulos_import').insert(parsed.slice(i, i + CHUNK));
-        if (error) throw error;
-      }
-      // Refresca precio_actual de las cotizaciones existentes de ese período
-      await refreshCotizPrecios(impPeriod, parsed);
-      setMsg({ kind: 'ok', text: `Ranking de artículos importado: ${parsed.length} filas para ${periodLabel(impPeriod)}.` });
-      await loadPeriods();
-      setPeriod(impPeriod);
-      await loadPeriod();
-    } catch (e: any) {
-      setMsg({ kind: 'err', text: 'Error al importar artículos: ' + (e.message || e) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const importProveedores = async (file: File) => {
-    if (isReadOnly) { alert('Tu rol es de SOLO LECTURA.'); return; }
-    if (!impPeriod) { setMsg({ kind: 'err', text: 'Elegí el mes del reporte antes de importar.' }); return; }
-    if (!window.confirm(`¿Subir el RANKING DE PROVEEDORES para ${periodLabel(impPeriod)}?\n\nArchivo: ${file.name}\nSi ese mes ya tenía datos, se reemplazan.`)) return;
-    setBusy(true); setMsg(null);
-    try {
-      const rows = await readSheet(file);
-      const found = findCols(rows, {
-        razon_social: ['razón', 'razon', 'proveedor', 'social'],
-        total_neto: ['neto'], total: ['total'],
-        pct_participacion: ['participación', 'participacion'], pct_acumulado: ['acumulado'],
-      });
-      if (!found) throw new Error('No reconocí las columnas del "Ranking de proveedores". Verificá que sea ese reporte de Tango.');
-      const { headerRow, idx } = found;
-      const parsed: any[] = [];
-      const seen = new Set<string>();
-      for (let i = headerRow + 1; i < rows.length; i++) {
-        const r = rows[i]; if (!r) continue;
-        const rs = norm(r[idx.razon_social]);
-        if (!rs) continue;
-        if (seen.has(rs.toLowerCase())) continue; seen.add(rs.toLowerCase());
-        parsed.push({
-          period: impPeriod, razon_social: rs,
-          total_neto: idx.total_neto != null ? toNum(r[idx.total_neto]) : null,
-          total: toNum(r[idx.total]),
-          pct_participacion: toNum(r[idx.pct_participacion]), pct_acumulado: toNum(r[idx.pct_acumulado]),
-        });
-      }
-      if (!parsed.length) throw new Error('No encontré filas de datos en el archivo.');
-      await supabase.from('compras_proveedores_import').delete().eq('period', impPeriod);
-      const { error } = await supabase.from('compras_proveedores_import').insert(parsed);
-      if (error) throw error;
-      setMsg({ kind: 'ok', text: `Ranking de proveedores importado: ${parsed.length} filas para ${periodLabel(impPeriod)}.` });
-      await loadPeriods();
-      setPeriod(impPeriod);
-      await loadPeriod();
-    } catch (e: any) {
-      setMsg({ kind: 'err', text: 'Error al importar proveedores: ' + (e.message || e) });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   // Actualiza el precio_actual (=total/cantidad) de las cotizaciones ya cargadas
   const refreshCotizPrecios = async (per: string, parsedArts: any[]) => {
@@ -393,8 +319,10 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
       type ArtAcc = { code: string; description: string; cantidad: number; total: number };
       type ProvAcc = { razon_social: string; total: number };
+      type DetAcc = { fecha: string; code: string; description: string; proveedor: string; cantidad: number; importe: number };
       const artByMonth: Record<string, Record<string, ArtAcc>> = {};
       const provByMonth: Record<string, Record<string, ProvAcc>> = {};
+      const detByMonth: Record<string, Record<string, DetAcc>> = {}; // detalle por (fecha|code|proveedor) para la vista día/semana
       let filas = 0;
 
       for (let i = headerRow + 1; i < rows.length; i++) {
@@ -419,6 +347,12 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
           const p = (pm[prov] = pm[prov] || { razon_social: prov, total: 0 });
           p.total += importe;
         }
+        // Detalle diario: una fila por (fecha, artículo, proveedor)
+        const dm = (detByMonth[period] = detByMonth[period] || {});
+        const dkey = `${fecha}|${code}|${prov}`;
+        const dd = (dm[dkey] = dm[dkey] || { fecha, code, description: desc, proveedor: prov, cantidad: 0, importe: 0 });
+        if (!dd.description && desc) dd.description = desc;
+        dd.cantidad += cantidad; dd.importe += importe;
       }
 
       const meses = Array.from(new Set([...Object.keys(artByMonth), ...Object.keys(provByMonth)])).sort();
@@ -458,6 +392,17 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
         }
         totalProv += provRows.length;
 
+        // Detalle diario (para la vista por día/semana)
+        const detRows = Object.values(detByMonth[period] || {}).map(d => ({
+          period, fecha: d.fecha, code: d.code || null, description: d.description || null,
+          proveedor: d.proveedor || null, cantidad: d.cantidad, importe: d.importe,
+        }));
+        await supabase.from('compras_detalle_import').delete().eq('period', period);
+        for (let i = 0; i < detRows.length; i += CHUNK) {
+          const { error } = await supabase.from('compras_detalle_import').insert(detRows.slice(i, i + CHUNK));
+          if (error) throw error;
+        }
+
         await refreshCotizPrecios(period, artRows);
       }
 
@@ -481,6 +426,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
         supabase.from('compras_articulos_import').delete().eq('period', period),
         supabase.from('compras_proveedores_import').delete().eq('period', period),
         supabase.from('compras_cotizaciones').delete().eq('period', period),
+        supabase.from('compras_detalle_import').delete().eq('period', period),
       ]);
       await loadPeriods();
       await loadPeriod();
@@ -763,7 +709,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
 
       {/* Pestañas */}
       <div className="flex gap-1 p-1 bg-bg-sidebar border border-border-dim rounded-lg w-fit shadow-sm flex-wrap">
-        {([['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['anual', 'Anual por insumo'], ['cotizaciones', 'Cotizaciones (Top)'], ['importar', 'Importar']] as const).map(([k, l]) => (
+        {([['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['diario', 'Por día/semana'], ['anual', 'Anual por insumo'], ['cotizaciones', 'Cotizaciones (Top)'], ['importar', 'Importar']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn('px-4 py-2 rounded-md text-[10px] font-black uppercase tracking-widest transition-all',
               tab === k ? 'bg-brand-500 text-black shadow' : 'text-text-dim hover:text-text-main')}>{l}</button>
@@ -1232,36 +1178,26 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
             )
           )}
 
+          {/* ───────────────── POR DÍA / SEMANA ───────────────── */}
+          {tab === 'diario' && (
+            <DiarioView detalle={detalle} period={period} onImport={() => setTab('importar')} />
+          )}
+
           {/* ───────────────── IMPORTAR ───────────────── */}
           {tab === 'importar' && (
             <div className="space-y-5 max-w-3xl">
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
-                <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-3">Mes del reporte</h3>
-                <p className="text-[11px] text-text-dim mb-3">Solo para los reportes <b>Ranking por artículo</b> y <b>Ranking de proveedores</b> (esos no traen el mes adentro). El <b>Detalle de Compras por Artículo</b> trae la fecha y detecta el mes solo. Volver a importar un mes <b>reemplaza</b> lo cargado de ese mes.</p>
-                <input type="month" value={impPeriod} onChange={e => { setImpPeriod(e.target.value); setMsg(null); }}
-                  className="bg-bg-accent border border-border-dim rounded-md px-3 py-2 text-[12px] font-bold text-text-main" />
+                <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-2">Importar compras de Tango</h3>
+                <p className="text-[11px] text-text-dim">Subí el reporte <b>Detalle de Compras por Artículo</b>. Como trae la <b>fecha</b> en cada línea, detecta el mes solo y arma todo (ranking por artículo y por proveedor, evolución y compras por día/semana). Volver a importar un mes <b>reemplaza</b> lo cargado de ese mes.</p>
               </div>
 
               {msg && (
                 <div className={cn('rounded-lg px-4 py-3 text-[11px] font-bold border', msg.kind === 'ok' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600' : 'bg-red-500/10 border-red-500/30 text-red-500')}>{msg.text}</div>
               )}
 
-              <ImportCard title="⭐ Detalle de Compras por Artículo (recomendado · un solo archivo)"
-                desc="Reporte transaccional de Tango: Fecha · Proveedor · Cód. Artículo · Descripción · Cantidad · Importe. Trae la FECHA adentro: detecta el mes solo y arma el ranking por artículo y por proveedor automáticamente (no hace falta elegir el mes)."
+              <ImportCard title="Detalle de Compras por Artículo (un solo archivo)"
+                desc="Reporte transaccional de Tango: Fecha · Proveedor · Cód. Artículo · Descripción · Cantidad · Importe."
                 busy={busy} disabled={isReadOnly} onFile={importDetalle} />
-
-              <div className="relative flex items-center gap-3 py-1">
-                <div className="h-px bg-border-dim flex-1" />
-                <span className="text-[9px] font-black uppercase tracking-widest text-text-dim">o subí los rankings agregados por separado</span>
-                <div className="h-px bg-border-dim flex-1" />
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <ImportCard title="Ranking por artículo" desc="Reporte de Tango: Cód. Artículo · Descripción · Cantidad · Total · % Participación · % Acumulado" busy={busy} disabled={isReadOnly || !impPeriod}
-                  onFile={importArticulos} />
-                <ImportCard title="Ranking de proveedores" desc="Reporte de Tango: Razón social · Total neto · Total · % Participación · % Acumulado" busy={busy} disabled={isReadOnly || !impPeriod}
-                  onFile={importProveedores} />
-              </div>
 
               {hasData && !isReadOnly && (
                 <button onClick={borrarPeriodo} disabled={busy} className="flex items-center gap-1.5 text-[10px] font-bold text-red-500 hover:text-red-600">
@@ -1344,8 +1280,144 @@ function EmptyState({ onImport }: { onImport: () => void }) {
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <div className="p-4 bg-bg-sidebar border border-border-dim rounded-2xl mb-4"><ShoppingCart className="text-text-dim" size={36} /></div>
       <h3 className="text-sm font-black uppercase text-text-main">Sin datos para este período</h3>
-      <p className="text-[11px] text-text-dim max-w-sm mt-1 mb-4">Importá los reportes de Tango (Ranking por artículo y Ranking de proveedores) para ver indicadores, evolución y cotizaciones.</p>
-      <button onClick={onImport} className="flex items-center gap-2 bg-brand-500 text-black rounded-md px-4 py-2 text-[11px] font-black uppercase tracking-wider"><Upload size={14} /> Importar reportes</button>
+      <p className="text-[11px] text-text-dim max-w-sm mt-1 mb-4">Importá el reporte de Tango <b>Detalle de Compras por Artículo</b> para ver indicadores, evolución, compras por día/semana y cotizaciones.</p>
+      <button onClick={onImport} className="flex items-center gap-2 bg-brand-500 text-black rounded-md px-4 py-2 text-[11px] font-black uppercase tracking-wider"><Upload size={14} /> Importar reporte</button>
+    </div>
+  );
+}
+
+// ── Vista de compras POR DÍA / SEMANA, por insumo o por proveedor ──────────────
+function DiarioView({ detalle, period, onImport }: { detalle: DetalleRow[]; period: string; onImport: () => void }) {
+  const [dim, setDim] = useState<'insumo' | 'proveedor'>('insumo');
+  const [gran, setGran] = useState<'dia' | 'semana'>('semana');
+  const [sel, setSel] = useState<string>('__ALL__');
+  const [search, setSearch] = useState('');
+
+  const keyOf = (r: DetalleRow) => dim === 'insumo' ? (r.code || '—') : (r.proveedor || '—');
+  const labelOf = (r: DetalleRow) => dim === 'insumo' ? `${r.code || ''}${r.description ? ' · ' + r.description : ''}`.trim() : (r.proveedor || '—');
+
+  // Entidades ordenadas por importe (para el selector)
+  const entidades = useMemo(() => {
+    const m = new Map<string, { key: string; label: string; total: number }>();
+    detalle.forEach(r => { const k = keyOf(r); const e = m.get(k) || { key: k, label: labelOf(r), total: 0 }; e.total += r.importe; if (!e.label && labelOf(r)) e.label = labelOf(r); m.set(k, e); });
+    return Array.from(m.values()).sort((a, b) => b.total - a.total);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detalle, dim]);
+
+  const weekOf = (fecha: string) => { const d = parseInt((fecha || '').slice(8, 10), 10); return !d || d <= 7 ? 1 : d <= 14 ? 2 : d <= 21 ? 3 : 4; };
+
+  const serie = useMemo(() => {
+    const filtered = sel === '__ALL__' ? detalle : detalle.filter(r => keyOf(r) === sel);
+    const buckets = new Map<string, { label: string; importe: number; cantidad: number; n: number; order: number }>();
+    filtered.forEach(r => {
+      let key: string, label: string, order: number;
+      if (gran === 'dia') { key = r.fecha; label = `${(r.fecha || '').slice(8, 10)}/${(r.fecha || '').slice(5, 7)}`; order = parseInt((r.fecha || '').slice(8, 10), 10) || 0; }
+      else { const w = weekOf(r.fecha); key = `S${w}`; label = `Sem ${w}`; order = w; }
+      const b = buckets.get(key) || { label, importe: 0, cantidad: 0, n: 0, order };
+      b.importe += r.importe; b.cantidad += r.cantidad; b.n += 1; buckets.set(key, b);
+    });
+    return Array.from(buckets.values()).sort((a, b) => a.order - b.order);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detalle, sel, dim, gran]);
+
+  const totalImporte = serie.reduce((s, b) => s + b.importe, 0);
+  const totalCant = serie.reduce((s, b) => s + b.cantidad, 0);
+  const filteredEnt = search.trim() ? entidades.filter(e => e.label.toLowerCase().includes(search.trim().toLowerCase())) : entidades;
+  const selLabel = sel === '__ALL__' ? 'Todas las compras' : (entidades.find(e => e.key === sel)?.label || sel);
+
+  if (!detalle || detalle.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="p-4 bg-bg-sidebar border border-border-dim rounded-2xl mb-4"><ShoppingCart className="text-text-dim" size={36} /></div>
+        <h3 className="text-sm font-black uppercase text-text-main">Sin detalle diario para {periodLabel(period)}</h3>
+        <p className="text-[11px] text-text-dim max-w-sm mt-1 mb-4">Esta vista usa el <b>Detalle de Compras por Artículo</b>. Importá (o volvé a importar) ese archivo para ver las compras por día y por semana.</p>
+        <button onClick={onImport} className="flex items-center gap-2 bg-brand-500 text-black rounded-md px-4 py-2 text-[11px] font-black uppercase tracking-wider"><Upload size={14} /> Ir a Importar</button>
+      </div>
+    );
+  }
+
+  const Toggle = ({ opts, value, onChange }: { opts: [string, string][]; value: string; onChange: (v: any) => void }) => (
+    <div className="inline-flex gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/60">
+      {opts.map(([k, l]) => (
+        <button key={k} onClick={() => onChange(k)}
+          className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded transition-colors', value === k ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Toggle opts={[['insumo', 'Por insumo'], ['proveedor', 'Por proveedor']]} value={dim} onChange={(v) => { setDim(v); setSel('__ALL__'); setSearch(''); }} />
+        <Toggle opts={[['dia', 'Por día'], ['semana', 'Por semana']]} value={gran} onChange={setGran} />
+        <div className="flex items-center gap-2 ml-auto">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={`Buscar ${dim}…`}
+            className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[11px] text-text-main outline-none w-[170px]" />
+          <select value={sel} onChange={e => setSel(e.target.value)}
+            className="bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-bold text-text-main outline-none max-w-[280px]">
+            <option value="__ALL__">Todos (total de compras)</option>
+            {filteredEnt.slice(0, 400).map(e => <option key={e.key} value={e.key}>{e.label} — {fmt(e.total)}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Kpi icon={<DollarSign size={16} />} label="Importe del mes" value={fmt(totalImporte)} sub={selLabel} />
+        <Kpi icon={<Package size={16} />} label="Cantidad total" value={totalCant.toLocaleString('es-AR')} sub={gran === 'dia' ? 'por día' : 'por semana'} />
+        <Kpi icon={<Building2 size={16} />} label={dim === 'insumo' ? 'Insumos distintos' : 'Proveedores'} value={String(entidades.length)} sub={periodLabel(period)} />
+      </div>
+
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+        <h3 className="text-[11px] font-black uppercase text-brand-500 tracking-wider mb-3">{selLabel} · {gran === 'dia' ? 'por día' : 'por semana'}</h3>
+        {serie.length === 0 ? (
+          <p className="text-[11px] text-text-dim py-8 text-center">Sin compras para esta selección.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={serie} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,148,148,.15)" />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: any) => '$' + Math.round(Number(v) / 1000).toLocaleString('es-AR') + 'k'} width={54} />
+              <Tooltip formatter={(v: any, n: any) => n === 'importe' ? [fmt(Number(v)), 'Importe'] : [Number(v).toLocaleString('es-AR'), 'Cantidad']}
+                contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+              <Bar dataKey="importe" fill={BRAND} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
+        <table className="w-full text-left text-[12px]">
+          <thead>
+            <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
+              <th className="px-3 py-2">{gran === 'dia' ? 'Día' : 'Semana'}</th>
+              <th className="px-3 py-2 text-right"># compras</th>
+              <th className="px-3 py-2 text-right">Cantidad</th>
+              <th className="px-3 py-2 text-right">Importe</th>
+              <th className="px-3 py-2 text-right">% del mes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-dim">
+            {serie.map(b => (
+              <tr key={b.label} className="text-[11px] hover:bg-bg-accent/30">
+                <td className="px-3 py-2 font-bold text-text-main">{b.label}</td>
+                <td className="px-3 py-2 text-right font-mono text-text-dim">{b.n}</td>
+                <td className="px-3 py-2 text-right font-mono text-text-dim">{b.cantidad.toLocaleString('es-AR')}</td>
+                <td className="px-3 py-2 text-right font-mono text-text-main">{fmt(b.importe)}</td>
+                <td className="px-3 py-2 text-right font-mono text-text-dim">{totalImporte > 0 ? ((b.importe / totalImporte) * 100).toFixed(1) + '%' : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="text-[11px] font-black border-t-2 border-border-dim bg-bg-accent/30">
+              <td className="px-3 py-2.5 uppercase text-text-main">Total</td>
+              <td className="px-3 py-2.5 text-right font-mono text-text-dim">{serie.reduce((s, b) => s + b.n, 0)}</td>
+              <td className="px-3 py-2.5 text-right font-mono text-text-main">{totalCant.toLocaleString('es-AR')}</td>
+              <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(totalImporte)}</td>
+              <td className="px-3 py-2.5 text-right font-mono text-text-dim">100%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
