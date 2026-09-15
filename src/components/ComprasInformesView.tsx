@@ -193,26 +193,22 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
       const manual: Record<string, number> = {};
       const { data: ord } = await supabase.from('monthly_orders').select('month, orders, scope').in('scope', opIds);
       (ord as any[] || []).forEach(r => { manual[r.month] = (manual[r.month] || 0) + (Number(r.orders) || 0); });
-      // 2) Automático: comprobantes únicos (branch|fecha|comprobante) por mes, con respaldo a orders
-      const seen: Record<string, Set<string>> = {};
-      const fallback: Record<string, number> = {};
+      // 2) Automático: suma del campo "orders" por mes (igual que la tabla Ventas por Sucursal /
+      //    módulo Tickets/Órdenes), no conteo de comprobantes únicos.
+      const auto: Record<string, number> = {};
       const size = 1000; let pg = 0;
       while (pg < 60) {
-        const { data: tkr } = await supabase.from('sales_tickets').select('branch_id, date, orders, comprobante')
+        const { data: tkr } = await supabase.from('sales_tickets').select('date, orders')
           .in('branch_id', opIds).range(pg * size, pg * size + size - 1);
         const rows = (tkr as any[]) || [];
         rows.forEach(t => {
           if (!t.date) return;
           const m = String(t.date).slice(0, 7);
-          const comp = (t.comprobante != null && String(t.comprobante).trim() !== '') ? String(t.comprobante).trim() : null;
-          if (comp) { (seen[m] ||= new Set()).add(`${t.branch_id}|${String(t.date)}|${comp}`); }
-          else { fallback[m] = (fallback[m] || 0) + Number(t.orders || 0); }
+          auto[m] = (auto[m] || 0) + (Number(t.orders) || 0);
         });
         if (rows.length < size) break;
         pg++;
       }
-      const auto: Record<string, number> = {};
-      new Set([...Object.keys(seen), ...Object.keys(fallback)]).forEach(m => { auto[m] = (seen[m]?.size || 0) + (fallback[m] || 0); });
       // 3) Combinar: automático pisa al manual cuando existe y es > 0
       Object.assign(tk, manual);
       Object.entries(auto).forEach(([m, o]) => { if (o > 0) tk[m] = o; });
