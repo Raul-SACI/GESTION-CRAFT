@@ -27,7 +27,7 @@ import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
-type Quote = { proveedor: string; precio: number };
+type Quote = { proveedor: string; precio: number; nota?: string };
 type ArtRow = { code: string; description: string; cantidad: number; total: number; pct_participacion: number; pct_acumulado: number };
 type ProvRow = { razon_social: string; total_neto: number; total: number; pct_participacion: number; pct_acumulado: number };
 type CotizRow = { code: string; description: string; precio_actual: number; quotes: Quote[]; revisado_por: string };
@@ -471,7 +471,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     if (isReadOnly) return;
     setSavingCode(code);
     try {
-      const clean = quotes.filter(q => norm(q.proveedor) || q.precio > 0).map(q => ({ proveedor: norm(q.proveedor), precio: toNum(q.precio) }));
+      const clean = quotes.filter(q => norm(q.proveedor) || q.precio > 0 || norm(q.nota)).map(q => { const o: Quote = { proveedor: norm(q.proveedor), precio: toNum(q.precio) }; if (norm(q.nota)) o.nota = norm(q.nota); return o; });
       const { error } = await supabase.from('compras_cotizaciones').upsert({
         period, code, description, precio_actual: precioActual, quotes: clean, revisado_por: norm(revisado_por), updated_at: new Date().toISOString(),
       }, { onConflict: 'period,code' });
@@ -490,7 +490,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
   const [draft, setDraft] = useState<Record<string, { quotes: Quote[]; revisado_por: string }>>({});
   const getDraft = (code: string, base: CotizRow | undefined) => {
     if (draft[code]) return draft[code];
-    return { quotes: base?.quotes?.length ? base.quotes : [{ proveedor: '', precio: 0 }], revisado_por: base?.revisado_por || '' };
+    return { quotes: base?.quotes?.length ? base.quotes : [{ proveedor: '', precio: 0, nota: '' }], revisado_por: base?.revisado_por || '' };
   };
   const setDraftFor = (code: string, val: { quotes: Quote[]; revisado_por: string }) => setDraft(d => ({ ...d, [code]: val }));
 
@@ -1127,27 +1127,38 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                         {/* Cotizaciones */}
                         <div className="space-y-2">
                           {d.quotes.map((q, qi) => {
-                            const esMejor = q.precio > 0 && mejorLive != null && q.precio === mejorLive;
                             const dif = q.precio > 0 && r.precioActual > 0 ? ((q.precio - r.precioActual) / r.precioActual) * 100 : null;
+                            const esBarato = q.precio > 0 && r.precioActual > 0 && q.precio < r.precioActual;   // más barato que lo que pagás hoy
+                            const esMejor = esBarato && mejorLive != null && q.precio === mejorLive;             // el más barato Y por debajo del actual
+                            const esCaro = q.precio > 0 && r.precioActual > 0 && q.precio > r.precioActual;      // más caro que hoy
                             return (
-                              <div key={qi} className="flex items-center gap-2">
-                                <input placeholder="Proveedor" value={q.proveedor} disabled={isReadOnly}
-                                  onChange={e => { const qs = [...d.quotes]; qs[qi] = { ...qs[qi], proveedor: e.target.value }; setDraftFor(r.code, { ...d, quotes: qs }); }}
-                                  className="flex-1 min-w-0 bg-bg-accent border border-border-dim rounded-md px-2 py-1.5 text-[11px] font-bold" />
-                                <div className="relative">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-text-dim">$</span>
-                                  <input type="number" placeholder="Precio" value={q.precio || ''} disabled={isReadOnly}
-                                    onChange={e => { const qs = [...d.quotes]; qs[qi] = { ...qs[qi], precio: toNum(e.target.value) }; setDraftFor(r.code, { ...d, quotes: qs }); }}
-                                    className={cn('w-28 bg-bg-accent border rounded-md pl-5 pr-2 py-1.5 text-[11px] font-mono tabular-nums', esMejor ? 'border-emerald-500 text-emerald-600 font-black' : 'border-border-dim')} />
+                              <div key={qi} className="bg-bg-accent/30 border border-border-dim/60 rounded-lg p-2 space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <input placeholder="Proveedor" value={q.proveedor} disabled={isReadOnly}
+                                    onChange={e => { const qs = [...d.quotes]; qs[qi] = { ...qs[qi], proveedor: e.target.value }; setDraftFor(r.code, { ...d, quotes: qs }); }}
+                                    className="flex-1 min-w-0 bg-bg-card border border-border-dim rounded-md px-2 py-1.5 text-[11px] font-bold" />
+                                  <div className="relative">
+                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-text-dim">$</span>
+                                    <input type="number" placeholder="Precio" value={q.precio || ''} disabled={isReadOnly}
+                                      onChange={e => { const qs = [...d.quotes]; qs[qi] = { ...qs[qi], precio: toNum(e.target.value) }; setDraftFor(r.code, { ...d, quotes: qs }); }}
+                                      className={cn('w-28 bg-bg-card border rounded-md pl-5 pr-2 py-1.5 text-[11px] font-mono tabular-nums', esMejor ? 'border-emerald-500 text-emerald-600 font-black' : esCaro ? 'border-red-500/40 text-red-500' : 'border-border-dim')} />
+                                  </div>
+                                  <span className={cn('text-[10px] font-mono w-16 text-right', dif == null ? 'text-text-dim' : dif < 0 ? 'text-emerald-500' : 'text-red-500')}>
+                                    {dif != null ? `${dif > 0 ? '+' : ''}${dif.toFixed(0)}%` : ''}
+                                  </span>
+                                  {esMejor
+                                    ? <span className="text-[8px] font-black uppercase bg-emerald-500/20 text-emerald-600 px-1.5 py-0.5 rounded shrink-0">Mejor</span>
+                                    : esCaro
+                                      ? <span className="text-[8px] font-black uppercase bg-red-500/15 text-red-500 px-1.5 py-0.5 rounded shrink-0">Más caro</span>
+                                      : <span className="w-[42px] shrink-0" />}
+                                  {!isReadOnly && (
+                                    <button onClick={() => { const qs = d.quotes.filter((_, x) => x !== qi); setDraftFor(r.code, { ...d, quotes: qs.length ? qs : [{ proveedor: '', precio: 0, nota: '' }] }); }}
+                                      className="text-text-dim hover:text-red-500 p-1"><Trash2 size={13} /></button>
+                                  )}
                                 </div>
-                                <span className={cn('text-[10px] font-mono w-16 text-right', dif == null ? 'text-text-dim' : dif < 0 ? 'text-emerald-500' : 'text-red-500')}>
-                                  {dif != null ? `${dif > 0 ? '+' : ''}${dif.toFixed(0)}%` : ''}
-                                </span>
-                                {esMejor && <span className="text-[8px] font-black uppercase bg-emerald-500/20 text-emerald-600 px-1.5 py-0.5 rounded">Mejor</span>}
-                                {!isReadOnly && (
-                                  <button onClick={() => { const qs = d.quotes.filter((_, x) => x !== qi); setDraftFor(r.code, { ...d, quotes: qs.length ? qs : [{ proveedor: '', precio: 0 }] }); }}
-                                    className="text-text-dim hover:text-red-500 p-1"><Trash2 size={13} /></button>
-                                )}
+                                <input placeholder="Observación (ej: más barato pero no hace factura A / no recibe cheques)…" value={q.nota || ''} disabled={isReadOnly}
+                                  onChange={e => { const qs = [...d.quotes]; qs[qi] = { ...qs[qi], nota: e.target.value }; setDraftFor(r.code, { ...d, quotes: qs }); }}
+                                  className="w-full bg-bg-card border border-border-dim/60 rounded-md px-2 py-1 text-[10px] text-text-dim" />
                               </div>
                             );
                           })}
@@ -1156,7 +1167,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                         <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
                           <div className="flex items-center gap-2">
                             {!isReadOnly && (
-                              <button onClick={() => setDraftFor(r.code, { ...d, quotes: [...d.quotes, { proveedor: '', precio: 0 }] })}
+                              <button onClick={() => setDraftFor(r.code, { ...d, quotes: [...d.quotes, { proveedor: '', precio: 0, nota: '' }] })}
                                 className="flex items-center gap-1 text-[10px] font-bold text-brand-500 hover:text-brand-600"><Plus size={13} /> Agregar cotización</button>
                             )}
                             <input placeholder="Revisado por…" value={d.revisado_por} disabled={isReadOnly}
