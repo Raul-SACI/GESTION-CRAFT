@@ -98,6 +98,7 @@ const SYSTEM_MODULES = [
   { id: 'mkt_giftcard', label: 'Gift Card', category: 'Marketing & Comercial' },
   { id: 'mkt_cuentas', label: 'Cuentas y Contraseñas', category: 'Marketing & Comercial' },
   { id: 'mkt_drive', label: 'Drive MKT', category: 'Marketing & Comercial' },
+  { id: 'informes_compras', label: 'Informes de Compras', category: 'Compras & Stock' },
 ];
 
 export default function UsersView({ selectedBranchId, branches, onUsersChanged, isReadOnly = false }: { selectedBranchId: string, branches: Branch[], onUsersChanged?: () => void, isReadOnly?: boolean }) {
