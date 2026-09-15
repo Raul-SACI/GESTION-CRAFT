@@ -358,6 +358,120 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     }
   };
 
+  // ── DETALLE DE COMPRAS POR ARTÍCULO (Tango, transaccional) ──────────────────
+  // Un solo archivo con Fecha · Proveedor · Cód. Artículo · Descripción · Cantidad · Importe.
+  // Como trae la FECHA por línea, detecta el/los mes(es) solo y deriva el ranking por artículo
+  // y por proveedor de cada mes (reemplaza lo cargado de esos meses).
+  const importDetalle = async (file: File) => {
+    if (isReadOnly) { alert('Tu rol es de SOLO LECTURA.'); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const rows = await readSheet(file);
+      const found = findCols(rows, {
+        fecha: ['fecha'],
+        prov: ['nombre prov', 'razón social', 'razon social', 'proveedor'],
+        code: ['artículo', 'articulo'],
+        description: ['descrip'],
+        cantidad: ['cantidad'],
+        importe: ['importe', 'gravado'],
+      });
+      if (!found) throw new Error('No reconocí las columnas del "Detalle de Compras por Artículo". Esperaba: Fecha · Nombre Prov. · Cód. Artículo · Descripción · Cantidad · Importe Gravado.');
+      const { headerRow, idx } = found;
+
+      // Fecha de Excel (serial) o texto dd/mm/aaaa → 'YYYY-MM-DD'
+      const ymd = (v: any): string | null => {
+        if (typeof v === 'number' && isFinite(v)) {
+          const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+        }
+        const s = String(v ?? '').trim();
+        let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+        if (m) { let y = m[3]; if (y.length === 2) y = '20' + y; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+        m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+        return null;
+      };
+
+      type ArtAcc = { code: string; description: string; cantidad: number; total: number };
+      type ProvAcc = { razon_social: string; total: number };
+      const artByMonth: Record<string, Record<string, ArtAcc>> = {};
+      const provByMonth: Record<string, Record<string, ProvAcc>> = {};
+      let filas = 0;
+
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        const fecha = ymd(r[idx.fecha]); if (!fecha) continue;
+        const period = fecha.slice(0, 7);
+        const code = norm(r[idx.code]);
+        const desc = norm(r[idx.description]);
+        const importe = toNum(r[idx.importe]);
+        const cantidad = idx.cantidad != null ? toNum(r[idx.cantidad]) : 0;
+        const prov = idx.prov != null ? norm(r[idx.prov]) : '';
+        if (!code && !prov) continue;
+        filas++;
+        if (code) {
+          const am = (artByMonth[period] = artByMonth[period] || {});
+          const a = (am[code] = am[code] || { code, description: desc, cantidad: 0, total: 0 });
+          if (!a.description && desc) a.description = desc;
+          a.cantidad += cantidad; a.total += importe;
+        }
+        if (prov) {
+          const pm = (provByMonth[period] = provByMonth[period] || {});
+          const p = (pm[prov] = pm[prov] || { razon_social: prov, total: 0 });
+          p.total += importe;
+        }
+      }
+
+      const meses = Array.from(new Set([...Object.keys(artByMonth), ...Object.keys(provByMonth)])).sort();
+      if (meses.length === 0) throw new Error('No encontré filas con fecha e importe en el archivo.');
+      if (!window.confirm(`El archivo tiene ${filas} líneas de compra en: ${meses.map(periodLabel).join(', ')}.\n\nSe genera el ranking por artículo y por proveedor de cada mes (reemplaza lo ya cargado de esos meses). ¿Confirmás?`)) { setBusy(false); return; }
+
+      const CHUNK = 500;
+      let totalArt = 0, totalProv = 0;
+      for (const period of meses) {
+        // Ranking por artículo
+        const arts = Object.values(artByMonth[period] || {}).sort((a, b) => b.total - a.total);
+        const sumArt = arts.reduce((s, a) => s + a.total, 0);
+        let acc = 0;
+        const artRows = arts.map(a => {
+          const pct = sumArt > 0 ? (a.total / sumArt) * 100 : 0; acc += pct;
+          return { period, code: a.code, description: a.description, cantidad: a.cantidad, total: a.total, pct_participacion: pct, pct_acumulado: acc };
+        });
+        await supabase.from('compras_articulos_import').delete().eq('period', period);
+        for (let i = 0; i < artRows.length; i += CHUNK) {
+          const { error } = await supabase.from('compras_articulos_import').insert(artRows.slice(i, i + CHUNK));
+          if (error) throw error;
+        }
+        totalArt += artRows.length;
+
+        // Ranking de proveedores
+        const provs = Object.values(provByMonth[period] || {}).sort((a, b) => b.total - a.total);
+        const sumProv = provs.reduce((s, p) => s + p.total, 0);
+        let accP = 0;
+        const provRows = provs.map(p => {
+          const pct = sumProv > 0 ? (p.total / sumProv) * 100 : 0; accP += pct;
+          return { period, razon_social: p.razon_social, total_neto: p.total, total: p.total, pct_participacion: pct, pct_acumulado: accP };
+        });
+        await supabase.from('compras_proveedores_import').delete().eq('period', period);
+        for (let i = 0; i < provRows.length; i += CHUNK) {
+          const { error } = await supabase.from('compras_proveedores_import').insert(provRows.slice(i, i + CHUNK));
+          if (error) throw error;
+        }
+        totalProv += provRows.length;
+
+        await refreshCotizPrecios(period, artRows);
+      }
+
+      setMsg({ kind: 'ok', text: `Detalle importado: ${totalArt} artículo(s) y ${totalProv} proveedor(es) en ${meses.length} mes(es) (${meses.map(periodLabel).join(', ')}).` });
+      await loadPeriods();
+      setPeriod(meses[meses.length - 1]);
+      await loadPeriod();
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: 'Error al importar el detalle: ' + (e.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const borrarPeriodo = async () => {
     if (isReadOnly) return;
     if (!window.confirm(`¿Borrar TODA la importación de ${periodLabel(period)} (artículos, proveedores y cotizaciones)?`)) return;
@@ -1123,7 +1237,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
             <div className="space-y-5 max-w-3xl">
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
                 <h3 className="text-xs font-black uppercase text-brand-500 tracking-wider mb-3">Mes del reporte</h3>
-                <p className="text-[11px] text-text-dim mb-3">Los archivos de Tango no traen el mes adentro, así que elegilo acá antes de importar. Volver a importar un mes <b>reemplaza</b> lo cargado de ese mes.</p>
+                <p className="text-[11px] text-text-dim mb-3">Solo para los reportes <b>Ranking por artículo</b> y <b>Ranking de proveedores</b> (esos no traen el mes adentro). El <b>Detalle de Compras por Artículo</b> trae la fecha y detecta el mes solo. Volver a importar un mes <b>reemplaza</b> lo cargado de ese mes.</p>
                 <input type="month" value={impPeriod} onChange={e => { setImpPeriod(e.target.value); setMsg(null); }}
                   className="bg-bg-accent border border-border-dim rounded-md px-3 py-2 text-[12px] font-bold text-text-main" />
               </div>
@@ -1131,6 +1245,16 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
               {msg && (
                 <div className={cn('rounded-lg px-4 py-3 text-[11px] font-bold border', msg.kind === 'ok' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600' : 'bg-red-500/10 border-red-500/30 text-red-500')}>{msg.text}</div>
               )}
+
+              <ImportCard title="⭐ Detalle de Compras por Artículo (recomendado · un solo archivo)"
+                desc="Reporte transaccional de Tango: Fecha · Proveedor · Cód. Artículo · Descripción · Cantidad · Importe. Trae la FECHA adentro: detecta el mes solo y arma el ranking por artículo y por proveedor automáticamente (no hace falta elegir el mes)."
+                busy={busy} disabled={isReadOnly} onFile={importDetalle} />
+
+              <div className="relative flex items-center gap-3 py-1">
+                <div className="h-px bg-border-dim flex-1" />
+                <span className="text-[9px] font-black uppercase tracking-widest text-text-dim">o subí los rankings agregados por separado</span>
+                <div className="h-px bg-border-dim flex-1" />
+              </div>
 
               <div className="grid md:grid-cols-2 gap-4">
                 <ImportCard title="Ranking por artículo" desc="Reporte de Tango: Cód. Artículo · Descripción · Cantidad · Total · % Participación · % Acumulado" busy={busy} disabled={isReadOnly || !impPeriod}
