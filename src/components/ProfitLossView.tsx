@@ -461,15 +461,15 @@ export default function ProfitLossView({
 
   // Filas del Estado de Resultados: [Concepto, Proy $, Proy USD, Proy %, Real $, Real USD, Real %, Var %]
   const buildStatementRows = () => {
-    const rows: { label: string; isHeader: boolean; vals: (string | number)[] }[] = [];
+    const rows: { label: string; isHeader: boolean; isSubtotal: boolean; vals: (string | number)[] }[] = [];
     PL_STRUCTURE.forEach(def => {
-      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, vals: [] }); return; }
+      if (def.type === 'header') { rows.push({ label: def.label, isHeader: true, isSubtotal: false, vals: [] }); return; }
       const v = computed[def.key] || emptyLine();
       const projPctV = pct(v.projPesos, ventasNetasProj);
       const realPctV = pct(v.realPesos, ventasNetasReal);
       const varPct = v.projPesos !== 0 && v.realPesos !== 0 ? ((v.realPesos - v.projPesos) / Math.abs(v.projPesos)) * 100 : null;
       rows.push({
-        label: (def.indent ? '   ' : '') + def.label, isHeader: false,
+        label: (def.indent ? '   ' : '') + def.label, isHeader: false, isSubtotal: def.type === 'subtotal',
         vals: [
           nMoney(v.projPesos), nMoney(v.projUsd), projPctV ? projPctV.toFixed(1) + '%' : '-',
           nMoney(v.realPesos), nMoney(v.realUsd), realPctV ? realPctV.toFixed(1) + '%' : '-',
@@ -499,7 +499,8 @@ export default function ProfitLossView({
     doc.setFontSize(13); doc.text('Estado de Resultados' + (soloReal ? ' (Real)' : ''), 14, 14);
     doc.setFontSize(9); doc.text(`${scopeNameExp} · ${selectedMonth}`, 14, 20);
     const nCols = soloReal ? 4 : 8;
-    const body = buildStatementRows().map(r => r.isHeader
+    const stmtRows = buildStatementRows();
+    const body = stmtRows.map(r => r.isHeader
       ? [{ content: r.label, colSpan: nCols, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
       : soloReal
         // Solo columnas Real: vals[3]=Real $, vals[4]=Real USD, vals[5]=Real %
@@ -510,10 +511,17 @@ export default function ProfitLossView({
         ? [['Concepto', 'Real $', 'Real USD', 'Real %']]
         : [['Concepto', 'Proy. $', 'Proy. USD', 'Proy. %', 'Real $', 'Real USD', 'Real %', 'Var. %']],
       body: body as any, startY: 25, styles: { fontSize: 7, cellPadding: 1.5 },
-      headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
+      headStyles: { fillColor: [193, 18, 31], fontSize: 7, halign: 'center' },
       columnStyles: soloReal
-        ? { 0: { cellWidth: 100 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } }
-        : { 0: { cellWidth: 60 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+        ? { 0: { cellWidth: 100, halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' }, 3: { halign: 'center' } }
+        : { 0: { cellWidth: 60, halign: 'left' }, 1: { halign: 'center' }, 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' } },
+      // Resaltar en negrita + fondo suave las filas que totalizan (subtotales)
+      didParseCell: (d: any) => {
+        if (d.section === 'body') {
+          const meta = stmtRows[d.row.index];
+          if (meta && meta.isSubtotal) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [238, 240, 243]; d.cell.styles.textColor = [20, 20, 20]; }
+        }
+      },
     });
     doc.save(`EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}${soloReal ? '_real' : ''}.pdf`);
   };
