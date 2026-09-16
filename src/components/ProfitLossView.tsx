@@ -494,20 +494,34 @@ export default function ProfitLossView({
     XLSX.writeFile(wb, `EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}.xlsx`);
   };
 
-  const exportStatementPDF = () => {
+  const exportStatementPDF = (soloReal = false) => {
     const doc = new jsPDF({ orientation: 'landscape' });
-    doc.setFontSize(13); doc.text('Estado de Resultados', 14, 14);
+    doc.setFontSize(13); doc.text('Estado de Resultados' + (soloReal ? ' (Real)' : ''), 14, 14);
     doc.setFontSize(9); doc.text(`${scopeNameExp} · ${selectedMonth}`, 14, 20);
+    const nCols = soloReal ? 4 : 8;
     const body = buildStatementRows().map(r => r.isHeader
-      ? [{ content: r.label, colSpan: 8, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
-      : [r.label.trim(), ...r.vals.map(v => typeof v === 'number' ? money(v) : v)]);
+      ? [{ content: r.label, colSpan: nCols, styles: { fontStyle: 'bold', fillColor: [245, 230, 230], textColor: [193, 18, 31] } as any }]
+      : soloReal
+        // Solo columnas Real: vals[3]=Real $, vals[4]=Real USD, vals[5]=Real %
+        ? [r.label.trim(), ...[r.vals[3], r.vals[4], r.vals[5]].map(v => typeof v === 'number' ? money(v) : v)]
+        : [r.label.trim(), ...r.vals.map(v => typeof v === 'number' ? money(v) : v)]);
     autoTable(doc, {
-      head: [['Concepto', 'Proy. $', 'Proy. USD', 'Proy. %', 'Real $', 'Real USD', 'Real %', 'Var. %']],
+      head: soloReal
+        ? [['Concepto', 'Real $', 'Real USD', 'Real %']]
+        : [['Concepto', 'Proy. $', 'Proy. USD', 'Proy. %', 'Real $', 'Real USD', 'Real %', 'Var. %']],
       body: body as any, startY: 25, styles: { fontSize: 7, cellPadding: 1.5 },
       headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
-      columnStyles: { 0: { cellWidth: 60 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+      columnStyles: soloReal
+        ? { 0: { cellWidth: 100 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } }
+        : { 0: { cellWidth: 60 }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
     });
-    doc.save(`EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}.pdf`);
+    doc.save(`EERR_${scopeNameExp.replace(/\s+/g, '_')}_${selectedMonth}${soloReal ? '_real' : ''}.pdf`);
+  };
+
+  // Pregunta si incluir el proyectado o solo el real, y exporta.
+  const exportStatementPDFAsk = () => {
+    const full = window.confirm('¿Incluir el PROYECTADO en el PDF?\n\n· Aceptar = Proyectado + Real (comparativo)\n· Cancelar = solo Real');
+    exportStatementPDF(!full);
   };
 
   const fmtUsdExp = (n: number) => (n === 0 ? '' : 'US$' + Math.abs(Math.round(n)).toLocaleString('es-AR'));
@@ -617,7 +631,7 @@ export default function ProfitLossView({
                 className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-emerald-500/20 transition-all flex items-center gap-2">
                 <FileSpreadsheet size={14} /> Excel
               </button>
-              <button onClick={tab === 'branches' ? exportBranchesPDF : tab === 'yearly' ? exportYearlyPDF : exportStatementPDF}
+              <button onClick={tab === 'branches' ? exportBranchesPDF : tab === 'yearly' ? exportYearlyPDF : exportStatementPDFAsk}
                 className="bg-red-500/10 border border-red-500/30 text-red-600 rounded px-3 py-2 text-[10px] font-black uppercase hover:bg-red-500/20 transition-all flex items-center gap-2">
                 <FileText size={14} /> PDF
               </button>
