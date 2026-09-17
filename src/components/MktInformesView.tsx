@@ -56,6 +56,8 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [loadingPy, setLoadingPy] = useState(false);
   // Productos: prodMap[weekKey][branchId][categoriaNorm] = unidades
   const [prodMap, setProdMap] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  // itemMap[weekKey][categoriaNorm][productoNorm] = { name, qty } (consolidado, para el detalle por producto)
+  const [itemMap, setItemMap] = useState<Record<string, Record<string, Record<string, { name: string; qty: number }>>>>({});
   const [catDisplay, setCatDisplay] = useState<Record<string, string>>({});
   const [loadingP, setLoadingP] = useState(false);
   const [catAgreg, setCatAgreg] = useState<string[]>([]);
@@ -210,12 +212,13 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     try {
       const opIds = operative.map(b => b.id);
       const map: Record<string, Record<string, Record<string, number>>> = {};
+      const imap: Record<string, Record<string, Record<string, { name: string; qty: number }>>> = {};
       const disp: Record<string, string> = {};
       for (const m of [prevMonthOf(month), month]) {
         let from = 0; const size = 1000;
         while (from < 200000) {
           const { data } = await supabase.from('product_rankings')
-            .select('branch_id, week_number, category, quantity')
+            .select('branch_id, week_number, category, quantity, product_name')
             .eq('month', m).in('branch_id', opIds).range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(r => {
@@ -223,14 +226,23 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             const nc = normCat(r.category); if (!nc) return;
             disp[nc] = disp[nc] || String(r.category).trim();
             const key = `${m}#${w}`;
+            const qty = Number(r.quantity) || 0;
             const bm = (map[key] = map[key] || {});
             const cm = (bm[r.branch_id] = bm[r.branch_id] || {});
-            cm[nc] = (cm[nc] || 0) + (Number(r.quantity) || 0);
+            cm[nc] = (cm[nc] || 0) + qty;
+            const pn = String(r.product_name || '').trim();
+            const pk = normCat(pn);
+            if (pk) {
+              const im = (imap[key] = imap[key] || {});
+              const cim = (im[nc] = im[nc] || {});
+              const e = (cim[pk] = cim[pk] || { name: pn, qty: 0 });
+              e.qty += qty;
+            }
           });
           if (rows.length < size) break; from += size;
         }
       }
-      setProdMap(map); setCatDisplay(disp);
+      setProdMap(map); setItemMap(imap); setCatDisplay(disp);
     } finally { setLoadingP(false); }
   }, [operative, month]);
   useEffect(() => { if (tab === 'productos') loadProductos(); }, [tab, loadProductos]);
@@ -261,6 +273,28 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       Object.entries(byBranch).forEach(([bid, q]) => { const p = (perBranch[bid] = perBranch[bid] || { q: 0, n: 0 }); p.q += q; p.n++; });
     });
     return { n, prom: n ? tq / n : null, perBranch };
+  };
+  // Productos (consolidado) de un grupo de categorías en una semana → { prodKey: {name, qty} }
+  const prodItems = (weekKey: string, cats: Set<string>): Record<string, { name: string; qty: number }> => {
+    const acc: Record<string, { name: string; qty: number }> = {};
+    const im = itemMap[weekKey] || {};
+    Object.entries(im).forEach(([nc, prods]) => {
+      if (!cats.has(nc)) return;
+      Object.entries(prods as Record<string, { name: string; qty: number }>).forEach(([pk, v]) => {
+        const e = (acc[pk] = acc[pk] || { name: v.name, qty: 0 }); e.qty += v.qty;
+      });
+    });
+    return acc;
+  };
+  // Promedio por producto en las hasta 4 semanas previas (divide por la cant. de semanas con ranking)
+  const prodItemsBaseline = (cats: Set<string>) => {
+    const idx = allWeekKeys.indexOf(selWeek);
+    const prev4 = idx >= 0 ? allWeekKeys.slice(Math.max(0, idx - 4), idx) : [];
+    const conDatos = prev4.filter(k => itemMap[k] && Object.keys(itemMap[k]).length > 0);
+    const per: Record<string, number> = {};
+    conDatos.forEach(k => { const items = prodItems(k, cats); Object.entries(items).forEach(([pk, v]) => { per[pk] = (per[pk] || 0) + v.qty; }); });
+    const n = conDatos.length;
+    return { n, promOf: (pk: string) => n ? (per[pk] || 0) / n : null };
   };
 
   const monthAgg = (m: string): { byBranch: Record<string, Agg>; total: Agg } => {
@@ -730,6 +764,31 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                     </tbody>
                   </table>
                 </div>
+                {(() => {
+                  const items = prodItems(selWeek, g.cats);
+                  const bl = prodItemsBaseline(g.cats);
+                  const list = (Object.entries(items) as [string, { name: string; qty: number }][])
+                    .map(([pk, v]) => ({ pk, name: v.name, qty: v.qty, prom: bl.promOf(pk) }))
+                    .sort((a, b) => b.qty - a.qty);
+                  if (list.length === 0) return null;
+                  return (
+                    <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
+                      <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">Detalle por producto · {wkLabel(selWeek)} (consolidado)</div>
+                      <table className="w-full text-[12px] min-w-[420px]">
+                        <thead><tr className="text-text-dim"><th className="p-2.5 text-left text-[9px] uppercase font-black">Producto</th><th className="p-2.5 text-right text-[9px] uppercase font-black">Unidades</th><th className="p-2.5 text-center text-[9px] uppercase font-black">vs prom4</th></tr></thead>
+                        <tbody>
+                          {list.map(it => (
+                            <tr key={it.pk} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                              <td className="p-2.5 text-left text-text-main font-bold uppercase">{it.name}</td>
+                              <td className="p-2.5 text-right font-mono text-text-main">{fmtNum(it.qty)}</td>
+                              <td className="p-2.5 text-center"><Delta cur={it.qty} base={it.prom} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
