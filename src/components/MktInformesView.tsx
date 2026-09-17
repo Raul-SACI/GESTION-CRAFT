@@ -23,6 +23,7 @@ const wkLabel = (key: string) => { const [m, w] = key.split('#'); return `${mont
 type Agg = { venta: number; ordenes: number; py: number };
 const zero = (): Agg => ({ venta: 0, ordenes: 0, py: 0 });
 const isPY = (pm: string) => /pedidos\s*ya|peya|ped\s*ya|pedidosya/i.test(pm || '');
+const normCat = (s: any) => String(s ?? '').trim().toUpperCase();
 
 // Variación con color/ícono
 function Delta({ cur, base, invert = false }: { cur: number; base: number | null; invert?: boolean }) {
@@ -43,7 +44,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
   const [selWeek, setSelWeek] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'semanal' | 'mensual' | 'pedidosya'>('semanal');
+  const [tab, setTab] = useState<'semanal' | 'mensual' | 'pedidosya' | 'productos'>('semanal');
   // weekMap[weekKey][branchId] = Agg
   const [weekMap, setWeekMap] = useState<Record<string, Record<string, Agg>>>({});
   // monthMap[monthKey][branchId] = Agg
@@ -53,6 +54,14 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [py, setPy] = useState<PyData | null>(null);
   const [pyPrev, setPyPrev] = useState<{ venta: number; pedidos: number } | null>(null);
   const [loadingPy, setLoadingPy] = useState(false);
+  // Productos: prodMap[weekKey][branchId][categoriaNorm] = unidades
+  const [prodMap, setProdMap] = useState<Record<string, Record<string, Record<string, number>>>>({});
+  const [catDisplay, setCatDisplay] = useState<Record<string, string>>({});
+  const [loadingP, setLoadingP] = useState(false);
+  const [catAgreg, setCatAgreg] = useState<string[]>([]);
+  const [catPostre, setCatPostre] = useState<string[]>([]);
+  const [cfgOpen, setCfgOpen] = useState(false);
+  const [savingCfg, setSavingCfg] = useState(false);
 
   const operative = useMemo(() => branches.filter(b => b.id !== 'all' && b.id !== 'virtual' && !/almac/i.test(b.name)), [branches]);
   const branchName = (id: string) => branches.find(b => b.id === id)?.name || id;
@@ -175,6 +184,85 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
   useEffect(() => { if (tab === 'mensual') loadMonthly(); if (tab === 'pedidosya') loadPY(); }, [tab, loadMonthly, loadPY]);
 
+  // ── Config de categorías (Agregados / Postres) ──
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('mkt_config').select('value').eq('key', 'informes_categorias').maybeSingle();
+      const v = (data?.value as any) || {};
+      setCatAgreg(Array.isArray(v.agregados) ? v.agregados : []);
+      setCatPostre(Array.isArray(v.postres) ? v.postres : []);
+    })().catch(() => {});
+  }, []);
+  const saveConfig = async () => {
+    setSavingCfg(true);
+    try {
+      const { error } = await supabase.from('mkt_config').upsert({ key: 'informes_categorias', value: { agregados: catAgreg, postres: catPostre }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
+      setCfgOpen(false);
+    } catch (e: any) { alert('No se pudo guardar la configuración: ' + (e.message || e)); }
+    finally { setSavingCfg(false); }
+  };
+
+  // ── Carga PRODUCTOS (ranking POS) mes actual + anterior, por semana/sucursal/categoría ──
+  const loadProductos = useCallback(async () => {
+    if (operative.length === 0) return;
+    setLoadingP(true);
+    try {
+      const opIds = operative.map(b => b.id);
+      const map: Record<string, Record<string, Record<string, number>>> = {};
+      const disp: Record<string, string> = {};
+      for (const m of [prevMonthOf(month), month]) {
+        let from = 0; const size = 1000;
+        while (from < 200000) {
+          const { data } = await supabase.from('product_rankings')
+            .select('branch_id, week_number, category, quantity')
+            .eq('month', m).in('branch_id', opIds).range(from, from + size - 1);
+          const rows = (data as any[]) || [];
+          rows.forEach(r => {
+            const w = Number(r.week_number) || 0; if (w < 1 || w > 4) return;
+            const nc = normCat(r.category); if (!nc) return;
+            disp[nc] = disp[nc] || String(r.category).trim();
+            const key = `${m}#${w}`;
+            const bm = (map[key] = map[key] || {});
+            const cm = (bm[r.branch_id] = bm[r.branch_id] || {});
+            cm[nc] = (cm[nc] || 0) + (Number(r.quantity) || 0);
+          });
+          if (rows.length < size) break; from += size;
+        }
+      }
+      setProdMap(map); setCatDisplay(disp);
+    } finally { setLoadingP(false); }
+  }, [operative, month]);
+  useEffect(() => { if (tab === 'productos') loadProductos(); }, [tab, loadProductos]);
+
+  const setAgregNorm = useMemo(() => new Set(catAgreg.map(normCat)), [catAgreg]);
+  const setPostreNorm = useMemo(() => new Set(catPostre.map(normCat)), [catPostre]);
+  const availableCats = useMemo(() => (Object.entries(catDisplay) as [string, string][]).map(([nc, d]) => ({ nc, d })).sort((a, b) => a.d.localeCompare(b.d)), [catDisplay]);
+
+  // Unidades de un grupo de categorías en una semana (por sucursal + total)
+  const prodWeek = (weekKey: string, cats: Set<string>) => {
+    const byBranch: Record<string, number> = {};
+    const bm = prodMap[weekKey] || {};
+    Object.entries(bm).forEach(([bid, catMap]) => {
+      let q = 0; Object.entries(catMap as Record<string, number>).forEach(([c, v]) => { if (cats.has(c)) q += v; });
+      if (q > 0) byBranch[bid] = q;
+    });
+    const total = Object.values(byBranch).reduce((s, v) => s + v, 0);
+    return { byBranch, total };
+  };
+  // Promedio de las hasta 4 semanas previas (con datos de ranking) para un grupo de categorías
+  const prodBaseline = (cats: Set<string>) => {
+    const idx = allWeekKeys.indexOf(selWeek);
+    const prev4 = idx >= 0 ? allWeekKeys.slice(Math.max(0, idx - 4), idx) : [];
+    const conDatos = prev4.filter(k => prodMap[k] && Object.keys(prodMap[k]).length > 0);
+    const perBranch: Record<string, { q: number; n: number }> = {}; let tq = 0, n = 0;
+    conDatos.forEach(k => {
+      const { byBranch, total } = prodWeek(k, cats); tq += total; n++;
+      Object.entries(byBranch).forEach(([bid, q]) => { const p = (perBranch[bid] = perBranch[bid] || { q: 0, n: 0 }); p.q += q; p.n++; });
+    });
+    return { n, prom: n ? tq / n : null, perBranch };
+  };
+
   const monthAgg = (m: string): { byBranch: Record<string, Agg>; total: Agg } => {
     const byBranch: Record<string, Agg> = monthMap[m] || {};
     const total = Object.values(byBranch).reduce<Agg>((a, v) => ({ venta: a.venta + v.venta, ordenes: a.ordenes + v.ordenes, py: a.py + v.py }), zero());
@@ -239,7 +327,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             <input type="month" value={month} onChange={e => setMonth(e.target.value)} className="bg-transparent text-text-main text-[11px] font-black uppercase outline-none w-[120px] text-center cursor-pointer" />
             <button onClick={() => { const [y, m] = month.split('-').map(Number); const d = new Date(y, m, 1); setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronRight size={15} /></button>
           </div>
-          {tab === 'semanal' && (
+          {(tab === 'semanal' || tab === 'productos') && (
             <div className="flex items-center gap-1 flex-wrap bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
               {semanasDelMes.map(k => {
                 const w = k.split('#')[1];
@@ -264,7 +352,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
       {/* Pestañas */}
       <div className="flex flex-wrap gap-1 border-b border-border-dim/60">
-        {([['semanal', 'Semanal', CalendarDays], ['mensual', 'Mensual', TrendingUp], ['pedidosya', 'Desempeño Pedidos Ya', Store]] as const).map(([k, l, Icon]) => (
+        {([['semanal', 'Semanal', CalendarDays], ['mensual', 'Mensual', TrendingUp], ['pedidosya', 'Desempeño Pedidos Ya', Store], ['productos', 'Agregados y Postres', Tag]] as const).map(([k, l, Icon]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn('flex items-center gap-1.5 px-3.5 py-2.5 text-[11px] font-black uppercase tracking-wider rounded-t-lg transition-colors',
               tab === k ? 'text-brand-500 border-b-2 border-brand-500 bg-brand-500/5' : 'text-text-dim hover:text-text-main')}>
@@ -533,6 +621,120 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La venta/pedidos salen del resumen comercial; el operativo (prep, cancelaciones, reclamos, listos) del resumen de operaciones; los reclamos del estado de cuenta.</p>
           </>
         )
+      )}
+
+      {/* ─────────── AGREGADOS Y POSTRES ─────────── */}
+      {tab === 'productos' && (
+        <>
+          {/* Configuración de categorías */}
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm">
+            <button onClick={() => setCfgOpen(o => !o)} className="w-full flex items-center justify-between px-5 py-3">
+              <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-text-main"><Tag size={14} className="text-brand-500" /> Categorías: Agregados y Postres</span>
+              <span className="text-[10px] text-text-dim font-bold uppercase">{catAgreg.length} agregado(s) · {catPostre.length} postre(s) · {cfgOpen ? 'cerrar' : 'configurar'}</span>
+            </button>
+            {cfgOpen && (
+              <div className="px-5 pb-5 border-t border-border-dim pt-4 space-y-2">
+                {availableCats.length === 0 ? (
+                  <p className="text-[11px] text-text-dim">No hay categorías cargadas todavía. Importá el ranking de "Ventas por producto" (con el Rubro de la Carta) en el módulo Ventas.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center text-[9px] font-black uppercase text-text-dim tracking-widest px-1">
+                      <span>Categoría (Rubro de la Carta)</span><span>Agregado</span><span>Postre</span>
+                    </div>
+                    <div className="max-h-[280px] overflow-y-auto space-y-1 pr-1">
+                      {availableCats.map(({ nc, d }) => {
+                        const inA = setAgregNorm.has(nc); const inP = setPostreNorm.has(nc);
+                        return (
+                          <div key={nc} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center bg-bg-accent/30 rounded px-2 py-1.5">
+                            <span className="text-[11px] font-bold text-text-main uppercase truncate">{d}</span>
+                            <button onClick={() => setCatAgreg(prev => inA ? prev.filter(x => normCat(x) !== nc) : [...prev, d])}
+                              className={cn('px-2.5 py-1 rounded text-[9px] font-black uppercase', inA ? 'bg-brand-500 text-white' : 'bg-bg-card border border-border-dim text-text-dim hover:text-text-main')}>{inA ? '✓' : '+'}</button>
+                            <button onClick={() => setCatPostre(prev => inP ? prev.filter(x => normCat(x) !== nc) : [...prev, d])}
+                              className={cn('px-2.5 py-1 rounded text-[9px] font-black uppercase', inP ? 'bg-amber-500 text-white' : 'bg-bg-card border border-border-dim text-text-dim hover:text-text-main')}>{inP ? '✓' : '+'}</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-end pt-1">
+                      <button onClick={saveConfig} disabled={savingCfg} className="bg-brand-500 hover:bg-brand-600 text-white rounded px-4 py-1.5 text-[10px] font-black uppercase tracking-wider disabled:opacity-50">{savingCfg ? 'Guardando…' : 'Guardar categorías'}</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {loadingP ? (
+            <div className="py-10 text-center"><RefreshCw size={22} className="animate-spin text-brand-500 mx-auto" /></div>
+          ) : ([{ title: 'Agregados', cats: setAgregNorm, chosen: catAgreg, accent: 'text-brand-500' }, { title: 'Postres', cats: setPostreNorm, chosen: catPostre, accent: 'text-amber-500' }] as const).map(g => {
+            if (g.chosen.length === 0) return (
+              <div key={g.title} className="bg-bg-sidebar border border-border-dim rounded-xl p-6 text-center">
+                <p className="text-[11px] font-black uppercase text-text-dim">{g.title}: elegí las categorías arriba para ver el análisis.</p>
+              </div>
+            );
+            const curG = prodWeek(selWeek, g.cats);
+            const prevG = prevWeekKey ? prodWeek(prevWeekKey, g.cats) : null;
+            const blG = prodBaseline(g.cats);
+            const brsG = operative.filter(b => curG.byBranch[b.id] || (prevG && prevG.byBranch[b.id]) || blG.perBranch[b.id]);
+            return (
+              <div key={g.title} className="space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h3 className={cn('text-sm font-black uppercase tracking-wider', g.accent)}>{g.title}</h3>
+                  <span className="text-[9px] text-text-dim font-bold uppercase">{g.chosen.join(' · ')}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">Unidades en la semana</div>
+                    <div className="text-2xl font-black font-mono text-text-main mt-1">{fmtNum(curG.total)}</div>
+                  </div>
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">vs semana anterior</div>
+                    <div className="text-xl font-black mt-2"><Delta cur={curG.total} base={prevG ? prevG.total : null} /></div>
+                  </div>
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">vs promedio 4 semanas</div>
+                    <div className="text-xl font-black mt-2"><Delta cur={curG.total} base={blG.prom} /></div>
+                  </div>
+                </div>
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
+                  <table className="w-full text-[12px] border-collapse min-w-[520px]">
+                    <thead><tr className="bg-bg-accent/20 text-text-dim">
+                      <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
+                      <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Unidades</th>
+                      <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs sem ant</th>
+                      <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs prom4</th>
+                    </tr></thead>
+                    <tbody>
+                      {brsG.length === 0 ? (
+                        <tr><td colSpan={4} className="p-4 text-center text-text-dim text-[11px]">Sin unidades para {wkLabel(selWeek)}.</td></tr>
+                      ) : brsG.map(b => {
+                        const q = curG.byBranch[b.id] || 0;
+                        const pq = prevG?.byBranch[b.id] ?? null;
+                        const bl = blG.perBranch[b.id];
+                        const blProm = bl && bl.n ? bl.q / bl.n : null;
+                        return (
+                          <tr key={b.id} className="border-t border-border-dim/30 hover:bg-bg-accent/10">
+                            <td className="p-3 text-left font-bold text-text-main whitespace-nowrap">{b.name}</td>
+                            <td className="p-3 text-right font-mono text-text-main">{fmtNum(q)}</td>
+                            <td className="p-3 text-center"><Delta cur={q} base={pq} /></td>
+                            <td className="p-3 text-center"><Delta cur={q} base={blProm} /></td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t-2 border-border-dim bg-bg-accent/25 font-black">
+                        <td className="p-3 text-left text-text-main uppercase">Total</td>
+                        <td className="p-3 text-right font-mono text-text-main">{fmtNum(curG.total)}</td>
+                        <td className="p-3 text-center"><Delta cur={curG.total} base={prevG ? prevG.total : null} /></td>
+                        <td className="p-3 text-center"><Delta cur={curG.total} base={blG.prom} /></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-[10px] text-text-dim">Unidades del ranking de <b className="text-text-main">Ventas por producto</b> (módulo Ventas), semana <b className="text-text-main">{wkLabel(selWeek)}</b>. "vs prom4" usa el promedio de las hasta 4 semanas previas con ranking cargado.</p>
+        </>
       )}
     </div>
   );
