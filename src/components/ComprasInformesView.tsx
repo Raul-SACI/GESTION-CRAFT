@@ -181,40 +181,23 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     setMenuHist((mh as any[]) || []);
     setMenuItems((mi as any[]) || []);
 
-    // Tickets/órdenes por mes desde el módulo Tickets/Órdenes (consolidado, sucursales
-    // operativas = todas menos Almacén). Combina el histórico curado (monthly_orders) con
-    // el conteo automático de comprobantes únicos de las ventas (sales_tickets), igual que
-    // ese módulo: el dato automático pisa al manual cuando existe.
+    // Tickets/órdenes por mes: EXACTAMENTE como el Dashboard de Socios → suma del campo "orders"
+    // de sales_tickets, de TODAS las sucursales (sin filtrar por branch, así no se pierde ninguna).
     const tk: Record<string, number> = {};
-    const operative = (branches || []).filter(b => !/almac/i.test(b.name));
-    const opIds = operative.map(b => b.id);
-    if (opIds.length) {
-      // 1) Manual/histórico
-      const manual: Record<string, number> = {};
-      const { data: ord } = await supabase.from('monthly_orders').select('month, orders, scope').in('scope', opIds);
-      (ord as any[] || []).forEach(r => { manual[r.month] = (manual[r.month] || 0) + (Number(r.orders) || 0); });
-      // 2) Automático: suma del campo "orders" por mes (igual que la tabla Ventas por Sucursal /
-      //    módulo Tickets/Órdenes), no conteo de comprobantes únicos.
-      const auto: Record<string, number> = {};
-      const size = 1000; let pg = 0;
-      while (pg < 60) {
-        const { data: tkr } = await supabase.from('sales_tickets').select('date, orders')
-          .in('branch_id', opIds).range(pg * size, pg * size + size - 1);
-        const rows = (tkr as any[]) || [];
-        rows.forEach(t => {
-          if (!t.date) return;
-          const m = String(t.date).slice(0, 7);
-          auto[m] = (auto[m] || 0) + (Number(t.orders) || 0);
-        });
-        if (rows.length < size) break;
-        pg++;
-      }
-      // 3) Combinar: automático pisa al manual cuando existe y es > 0
-      Object.assign(tk, manual);
-      Object.entries(auto).forEach(([m, o]) => { if (o > 0) tk[m] = o; });
+    const size = 1000; let pg = 0;
+    while (pg < 120) {
+      const { data: tkr } = await supabase.from('sales_tickets').select('date, orders').range(pg * size, pg * size + size - 1);
+      const rows = (tkr as any[]) || [];
+      rows.forEach(t => {
+        if (!t.date) return;
+        const m = String(t.date).slice(0, 7);
+        tk[m] = (tk[m] || 0) + (Number(t.orders) || 0);
+      });
+      if (rows.length < size) break;
+      pg++;
     }
     setTicketsByMonth(tk);
-  }, [branches]);
+  }, []);
 
   useEffect(() => { if (tab === 'evolucion' || tab === 'anual') loadSerie(); }, [tab, loadSerie, periods]);
 
