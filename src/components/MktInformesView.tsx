@@ -56,8 +56,9 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [loadingPy, setLoadingPy] = useState(false);
   // Productos: prodMap[weekKey][branchId][categoriaNorm] = unidades
   const [prodMap, setProdMap] = useState<Record<string, Record<string, Record<string, number>>>>({});
-  // itemMap[weekKey][categoriaNorm][productoNorm] = { name, qty } (consolidado, para el detalle por producto)
-  const [itemMap, setItemMap] = useState<Record<string, Record<string, Record<string, { name: string; qty: number }>>>>({});
+  // itemMap[weekKey][branchId][categoriaNorm][productoNorm] = { name, qty } (para el detalle por producto)
+  const [itemMap, setItemMap] = useState<Record<string, Record<string, Record<string, Record<string, { name: string; qty: number }>>>>>({});
+  const [detailBranch, setDetailBranch] = useState<string>('__ALL__');
   const [catDisplay, setCatDisplay] = useState<Record<string, string>>({});
   const [loadingP, setLoadingP] = useState(false);
   const [catAgreg, setCatAgreg] = useState<string[]>([]);
@@ -212,7 +213,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     try {
       const opIds = operative.map(b => b.id);
       const map: Record<string, Record<string, Record<string, number>>> = {};
-      const imap: Record<string, Record<string, Record<string, { name: string; qty: number }>>> = {};
+      const imap: Record<string, Record<string, Record<string, Record<string, { name: string; qty: number }>>>> = {};
       const disp: Record<string, string> = {};
       for (const m of [prevMonthOf(month), month]) {
         let from = 0; const size = 1000;
@@ -234,7 +235,8 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             const pk = normCat(pn);
             if (pk) {
               const im = (imap[key] = imap[key] || {});
-              const cim = (im[nc] = im[nc] || {});
+              const bim = (im[r.branch_id] = im[r.branch_id] || {});
+              const cim = (bim[nc] = bim[nc] || {});
               const e = (cim[pk] = cim[pk] || { name: pn, qty: 0 });
               e.qty += qty;
             }
@@ -274,25 +276,30 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     });
     return { n, prom: n ? tq / n : null, perBranch };
   };
-  // Productos (consolidado) de un grupo de categorías en una semana → { prodKey: {name, qty} }
-  const prodItems = (weekKey: string, cats: Set<string>): Record<string, { name: string; qty: number }> => {
+  // Productos de un grupo de categorías en una semana → { prodKey: {name, qty} }.
+  // branchId opcional: si se pasa, sólo esa sucursal; si no, consolidado.
+  const prodItems = (weekKey: string, cats: Set<string>, branchId?: string): Record<string, { name: string; qty: number }> => {
     const acc: Record<string, { name: string; qty: number }> = {};
     const im = itemMap[weekKey] || {};
-    Object.entries(im).forEach(([nc, prods]) => {
-      if (!cats.has(nc)) return;
-      Object.entries(prods as Record<string, { name: string; qty: number }>).forEach(([pk, v]) => {
-        const e = (acc[pk] = acc[pk] || { name: v.name, qty: 0 }); e.qty += v.qty;
+    const bids = branchId ? [branchId] : Object.keys(im);
+    bids.forEach(bid => {
+      const bim = im[bid] || {};
+      Object.entries(bim).forEach(([nc, prods]) => {
+        if (!cats.has(nc)) return;
+        Object.entries(prods as Record<string, { name: string; qty: number }>).forEach(([pk, v]) => {
+          const e = (acc[pk] = acc[pk] || { name: v.name, qty: 0 }); e.qty += v.qty;
+        });
       });
     });
     return acc;
   };
   // Promedio por producto en las hasta 4 semanas previas (divide por la cant. de semanas con ranking)
-  const prodItemsBaseline = (cats: Set<string>) => {
+  const prodItemsBaseline = (cats: Set<string>, branchId?: string) => {
     const idx = allWeekKeys.indexOf(selWeek);
     const prev4 = idx >= 0 ? allWeekKeys.slice(Math.max(0, idx - 4), idx) : [];
     const conDatos = prev4.filter(k => itemMap[k] && Object.keys(itemMap[k]).length > 0);
     const per: Record<string, number> = {};
-    conDatos.forEach(k => { const items = prodItems(k, cats); Object.entries(items).forEach(([pk, v]) => { per[pk] = (per[pk] || 0) + v.qty; }); });
+    conDatos.forEach(k => { const items = prodItems(k, cats, branchId); Object.entries(items).forEach(([pk, v]) => { per[pk] = (per[pk] || 0) + v.qty; }); });
     const n = conDatos.length;
     return { n, promOf: (pk: string) => n ? (per[pk] || 0) / n : null };
   };
@@ -698,6 +705,15 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             )}
           </div>
 
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">Detalle por producto:</span>
+            <select value={detailBranch} onChange={e => setDetailBranch(e.target.value)}
+              className="bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-bold text-text-main outline-none">
+              <option value="__ALL__">Consolidado (todas)</option>
+              {operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+
           {loadingP ? (
             <div className="py-10 text-center"><RefreshCw size={22} className="animate-spin text-brand-500 mx-auto" /></div>
           ) : ([{ title: 'Agregados', cats: setAgregNorm, chosen: catAgreg, accent: 'text-brand-500' }, { title: 'Postres', cats: setPostreNorm, chosen: catPostre, accent: 'text-amber-500' }] as const).map(g => {
@@ -765,15 +781,18 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                   </table>
                 </div>
                 {(() => {
-                  const items = prodItems(selWeek, g.cats);
-                  const bl = prodItemsBaseline(g.cats);
+                  const bId = detailBranch === '__ALL__' ? undefined : detailBranch;
+                  const items = prodItems(selWeek, g.cats, bId);
+                  const bl = prodItemsBaseline(g.cats, bId);
                   const list = (Object.entries(items) as [string, { name: string; qty: number }][])
                     .map(([pk, v]) => ({ pk, name: v.name, qty: v.qty, prom: bl.promOf(pk) }))
                     .sort((a, b) => b.qty - a.qty);
-                  if (list.length === 0) return null;
+                  if (list.length === 0) return (
+                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 text-center text-[10px] text-text-dim">Sin productos de {g.title.toLowerCase()} para {detailBranch === '__ALL__' ? 'el consolidado' : branchName(detailBranch)} en esta semana.</div>
+                  );
                   return (
                     <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
-                      <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">Detalle por producto · {wkLabel(selWeek)} (consolidado)</div>
+                      <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">Detalle por producto · {wkLabel(selWeek)} · {detailBranch === '__ALL__' ? 'consolidado' : branchName(detailBranch)}</div>
                       <table className="w-full text-[12px] min-w-[420px]">
                         <thead><tr className="text-text-dim"><th className="p-2.5 text-left text-[9px] uppercase font-black">Producto</th><th className="p-2.5 text-right text-[9px] uppercase font-black">Unidades</th><th className="p-2.5 text-center text-[9px] uppercase font-black">vs prom4</th></tr></thead>
                         <tbody>
