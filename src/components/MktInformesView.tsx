@@ -58,7 +58,6 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [prodMap, setProdMap] = useState<Record<string, Record<string, Record<string, number>>>>({});
   // itemMap[weekKey][branchId][categoriaNorm][productoNorm] = { name, qty } (para el detalle por producto)
   const [itemMap, setItemMap] = useState<Record<string, Record<string, Record<string, Record<string, { name: string; qty: number }>>>>>({});
-  const [detailBranch, setDetailBranch] = useState<string>('__ALL__');
   const [catDisplay, setCatDisplay] = useState<Record<string, string>>({});
   const [loadingP, setLoadingP] = useState(false);
   const [catAgreg, setCatAgreg] = useState<string[]>([]);
@@ -705,15 +704,6 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">Detalle por producto:</span>
-            <select value={detailBranch} onChange={e => setDetailBranch(e.target.value)}
-              className="bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-bold text-text-main outline-none">
-              <option value="__ALL__">Consolidado (todas)</option>
-              {operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </div>
-
           {loadingP ? (
             <div className="py-10 text-center"><RefreshCw size={22} className="animate-spin text-brand-500 mx-auto" /></div>
           ) : ([{ title: 'Agregados', cats: setAgregNorm, chosen: catAgreg, accent: 'text-brand-500' }, { title: 'Postres', cats: setPostreNorm, chosen: catPostre, accent: 'text-amber-500' }] as const).map(g => {
@@ -781,28 +771,49 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                   </table>
                 </div>
                 {(() => {
-                  const bId = detailBranch === '__ALL__' ? undefined : detailBranch;
-                  const items = prodItems(selWeek, g.cats, bId);
-                  const bl = prodItemsBaseline(g.cats, bId);
-                  const list = (Object.entries(items) as [string, { name: string; qty: number }][])
-                    .map(([pk, v]) => ({ pk, name: v.name, qty: v.qty, prom: bl.promOf(pk) }))
-                    .sort((a, b) => b.qty - a.qty);
-                  if (list.length === 0) return (
-                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 text-center text-[10px] text-text-dim">Sin productos de {g.title.toLowerCase()} para {detailBranch === '__ALL__' ? 'el consolidado' : branchName(detailBranch)} en esta semana.</div>
+                  // Matriz: filas = productos, columnas = sucursales. Última col = Total (+ vs prom4).
+                  const bl = prodItemsBaseline(g.cats);
+                  const perBranch: Record<string, Record<string, { name: string; qty: number }>> = {};
+                  brsG.forEach(b => { perBranch[b.id] = prodItems(selWeek, g.cats, b.id); });
+                  const nombres: Record<string, string> = {};
+                  brsG.forEach(b => Object.entries(perBranch[b.id]).forEach(([pk, v]) => { nombres[pk] = v.name; }));
+                  const rows = Object.keys(nombres).map(pk => {
+                    const cells = brsG.map(b => perBranch[b.id][pk]?.qty || 0);
+                    const total = cells.reduce((s, x) => s + x, 0);
+                    return { pk, name: nombres[pk], cells, total, prom: bl.promOf(pk) };
+                  }).sort((a, b) => b.total - a.total);
+                  if (rows.length === 0) return (
+                    <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 text-center text-[10px] text-text-dim">Sin productos de {g.title.toLowerCase()} en esta semana.</div>
                   );
+                  const colTotals = brsG.map((_, i) => rows.reduce((s, r) => s + r.cells[i], 0));
+                  const totGeneral = colTotals.reduce((s, x) => s + x, 0);
                   return (
                     <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
-                      <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">Detalle por producto · {wkLabel(selWeek)} · {detailBranch === '__ALL__' ? 'consolidado' : branchName(detailBranch)}</div>
-                      <table className="w-full text-[12px] min-w-[420px]">
-                        <thead><tr className="text-text-dim"><th className="p-2.5 text-left text-[9px] uppercase font-black">Producto</th><th className="p-2.5 text-right text-[9px] uppercase font-black">Unidades</th><th className="p-2.5 text-center text-[9px] uppercase font-black">vs prom4</th></tr></thead>
+                      <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">Detalle por producto y sucursal · {wkLabel(selWeek)}</div>
+                      <table className="w-full text-[12px] border-collapse" style={{ minWidth: `${360 + brsG.length * 90}px` }}>
+                        <thead>
+                          <tr className="text-text-dim">
+                            <th className="p-2.5 text-left text-[9px] uppercase font-black sticky left-0 bg-bg-sidebar">Producto</th>
+                            {brsG.map(b => <th key={b.id} className="p-2.5 text-right text-[9px] uppercase font-black whitespace-nowrap">{b.name.replace(/^craft\s*/i, '')}</th>)}
+                            <th className="p-2.5 text-right text-[9px] uppercase font-black bg-bg-accent/30">Total</th>
+                            <th className="p-2.5 text-center text-[9px] uppercase font-black">vs prom4</th>
+                          </tr>
+                        </thead>
                         <tbody>
-                          {list.map(it => (
-                            <tr key={it.pk} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
-                              <td className="p-2.5 text-left text-text-main font-bold uppercase">{it.name}</td>
-                              <td className="p-2.5 text-right font-mono text-text-main">{fmtNum(it.qty)}</td>
-                              <td className="p-2.5 text-center"><Delta cur={it.qty} base={it.prom} /></td>
+                          {rows.map(r => (
+                            <tr key={r.pk} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                              <td className="p-2.5 text-left text-text-main font-bold uppercase whitespace-nowrap sticky left-0 bg-bg-sidebar">{r.name}</td>
+                              {r.cells.map((c, i) => <td key={i} className={cn('p-2.5 text-right font-mono', c > 0 ? 'text-text-main' : 'text-text-dim/40')}>{c > 0 ? fmtNum(c) : '·'}</td>)}
+                              <td className="p-2.5 text-right font-mono font-black text-text-main bg-bg-accent/20">{fmtNum(r.total)}</td>
+                              <td className="p-2.5 text-center"><Delta cur={r.total} base={r.prom} /></td>
                             </tr>
                           ))}
+                          <tr className="border-t-2 border-border-dim bg-bg-accent/25 font-black">
+                            <td className="p-2.5 text-left text-text-main uppercase sticky left-0 bg-bg-accent/25">Total</td>
+                            {colTotals.map((c, i) => <td key={i} className="p-2.5 text-right font-mono text-text-main">{fmtNum(c)}</td>)}
+                            <td className="p-2.5 text-right font-mono text-text-main bg-bg-accent/30">{fmtNum(totGeneral)}</td>
+                            <td className="p-2.5" />
+                          </tr>
                         </tbody>
                       </table>
                     </div>
