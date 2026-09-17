@@ -109,6 +109,7 @@ const HourBudgetView = lazy(() => import('./components/HourBudgetView'));
 const ChecklistView = lazy(() => import('./components/ChecklistView'));
 const RecetasLideresView = lazy(() => import('./components/RecetasLideresView'));
 const MktTasksView = lazy(() => import('./components/MktTasksView'));
+const MktInformesView = lazy(() => import('./components/MktInformesView'));
 const ActasDireccionView = lazy(() => import('./components/ActasDireccionView'));
 const InformesGestionView = lazy(() => import('./components/InformesGestionView'));
 const AprobacionPresupuestosView = lazy(() => import('./components/AprobacionPresupuestosView'));
@@ -568,7 +569,7 @@ function AppContent() {
     'ventas', 'caja_central', 'cheques_emitidos', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
-    'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion'
+    'mkt_informes', 'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -693,6 +694,7 @@ function AppContent() {
       { id: 'mant_config', label: 'Configuración', icon: Settings },
     ],
     'Marketing & Comercial': [
+      { id: 'mkt_informes', label: 'Informes', icon: BarChart3 },
       { id: 'mkt_tareas', label: 'Tareas y Reuniones', icon: ClipboardList },
       { id: 'mkt_giftcard', label: 'Gift Card', icon: Gift },
       { id: 'mkt_cuentas', label: 'Cuentas y Contraseñas', icon: Key },
@@ -756,6 +758,7 @@ function AppContent() {
           ordenes: Ticket,
           consumo: Calculator,
           informes_compras: ShoppingCart,
+          mkt_informes: BarChart3,
           control_desvios: ShieldCheck,
           supervision_banderas: Flag,
           pedidos_ya: Star,
@@ -1649,6 +1652,9 @@ function AppContent() {
               )}
               {activeTab === 'mkt_cuentas' && (
                 <PasswordManagementView key="mkt_cuentas" section="marketing" isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'mkt_informes' && (
+                <MktInformesView key="mkt_informes" branches={branches} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'mkt_drive' && (
                 <DocumentsView
