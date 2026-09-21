@@ -1000,21 +1000,27 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
       ? `$${Math.round(v || 0).toLocaleString('es-AR')}`
       : `$${pdfNum(v)}`;
     const labelW = 46;
+    const totCol = meses.length + 1; // índice de la columna Total
     const cols: any = { 0: { cellWidth: labelW, fontStyle: 'bold', halign: 'left' } };
     meses.forEach((_, i) => { cols[i + 1] = { halign: 'right' }; });
+    cols[totCol] = { halign: 'right', fontStyle: 'bold', fillColor: [238, 240, 244] };
+
+    // Totales del período (donde corresponde: Acumulado = último acumulado; Punto de Eq. = —)
+    const sumM = (f: (m: any) => number) => meses.reduce((a, m) => a + f(m), 0);
+    const ultAcum = meses.length ? meses[meses.length - 1].acumulado : 0;
 
     autoTable(doc, {
-      head: [['Indicador', ...meses.map(m => pdfTxt(m.mesLabel))]],
+      head: [['Indicador', ...meses.map(m => pdfTxt(m.mesLabel)), 'Total período']],
       body: [
-        ['Total Ingresos', ...meses.map(m => num(m.ingresos))],
-        ['Total Egresos', ...meses.map(m => num(m.egresos))],
-        ['Neto del Mes', ...meses.map(m => num(m.neto))],
-        ['Acumulado', ...meses.map(m => num(m.acumulado))],
-        ['Punto de Equilibrio', ...meses.map(m => m.pe?.alcanzado ? `Día ${m.pe.dia}` : 'No alcanzado')],
-        ['Tramo 1 a 10 (neto)', ...meses.map(m => num(m.tramos[0].neto))],
-        ['Tramo 11 a 20 (neto)', ...meses.map(m => num(m.tramos[1].neto))],
-        ['Tramo 21 a fin (neto)', ...meses.map(m => num(m.tramos[2].neto))],
-        ['Suma de Tramos (= Neto)', ...meses.map(m => num(m.tramos.reduce((a, t) => a + t.neto, 0)))],
+        ['Total Ingresos', ...meses.map(m => num(m.ingresos)), num(sumM(m => m.ingresos))],
+        ['Total Egresos', ...meses.map(m => num(m.egresos)), num(sumM(m => m.egresos))],
+        ['Neto del Mes', ...meses.map(m => num(m.neto)), num(sumM(m => m.neto))],
+        ['Acumulado', ...meses.map(m => num(m.acumulado)), num(ultAcum)],
+        ['Punto de Equilibrio', ...meses.map(m => m.pe?.alcanzado ? `Día ${m.pe.dia}` : 'No alcanzado'), '—'],
+        ['Tramo 1 a 10 (neto)', ...meses.map(m => num(m.tramos[0].neto)), num(sumM(m => m.tramos[0].neto))],
+        ['Tramo 11 a 20 (neto)', ...meses.map(m => num(m.tramos[1].neto)), num(sumM(m => m.tramos[1].neto))],
+        ['Tramo 21 a fin (neto)', ...meses.map(m => num(m.tramos[2].neto)), num(sumM(m => m.tramos[2].neto))],
+        ['Suma de Tramos (= Neto)', ...meses.map(m => num(m.tramos.reduce((a, t) => a + t.neto, 0))), num(sumM(m => m.tramos.reduce((a: number, t: any) => a + t.neto, 0)))],
       ],
       startY: y, margin: { left: M, right: M }, ...baseTable,
       styles: { ...baseTable.styles, fontSize: fs, cellPadding: 1.8 },
@@ -1022,6 +1028,7 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
       columnStyles: cols,
       didParseCell: (d: any) => {
         if (d.section !== 'body' || d.column.index === 0) return;
+        if (String(d.cell.raw) === '—') { d.cell.styles.textColor = PDF_GRAY; return; }
         const fila = d.row.index;
         if (fila === 0) d.cell.styles.textColor = PDF_GREEN;      // ingresos
         else if (fila === 1) d.cell.styles.textColor = PDF_RED;   // egresos
@@ -1049,42 +1056,39 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
       doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(11); doc.setTextColor(...PDF_DARK);
       doc.text('Inversiones por cuenta', M, y);
 
-      const filas = cuentasInvConsolidado.map(nombre => [
-        pdfTxt(nombre),
-        ...allData.map(md => {
-          const sec = inversionesDeMes(md);
-          const r = sec?.rubros.find(x => x.nombre === nombre);
-          const monto = r ? Math.abs(r.total) : 0;
-          return monto > 0 ? num(monto) : '-';
-        }),
-      ]);
+      const montoCuentaMes = (md: any, nombre: string) => { const sec = inversionesDeMes(md); const r = sec?.rubros.find((x: any) => x.nombre === nombre); return r ? Math.abs(r.total) : 0; };
+      const totalMes = (md: any) => { const sec = inversionesDeMes(md); return sec ? (Math.abs(sec.total) || sec.rubros.reduce((a: number, r: any) => a + Math.abs(r.total), 0)) : 0; };
+      const totInvPeriodo = allData.reduce((a, md) => a + totalMes(md), 0);
+      const totIngPeriodo = meses.reduce((a, m) => a + m.ingresos, 0);
+
+      const filas = cuentasInvConsolidado.map(nombre => {
+        const totCuenta = allData.reduce((a, md) => a + montoCuentaMes(md, nombre), 0);
+        return [
+          pdfTxt(nombre),
+          ...allData.map(md => { const monto = montoCuentaMes(md, nombre); return monto > 0 ? num(monto) : '-'; }),
+          totCuenta > 0 ? num(totCuenta) : '-',
+        ];
+      });
       filas.push([
         'TOTAL INVERSIONES',
-        ...allData.map(md => {
-          const sec = inversionesDeMes(md);
-          const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
-          return num(tot);
-        }),
+        ...allData.map(md => num(totalMes(md))),
+        num(totInvPeriodo),
       ]);
       filas.push([
         '% SOBRE INGRESOS',
-        ...meses.map(m => {
-          const md = allData.find(x => x.month === m.month);
-          const sec = md ? inversionesDeMes(md) : null;
-          const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
-          return `${(m.ingresos > 0 ? (tot / m.ingresos) * 100 : 0).toFixed(1)}%`;
-        }),
+        ...meses.map(m => { const md = allData.find(x => x.month === m.month); const tot = md ? totalMes(md) : 0; return `${(m.ingresos > 0 ? (tot / m.ingresos) * 100 : 0).toFixed(1)}%`; }),
+        `${(totIngPeriodo > 0 ? (totInvPeriodo / totIngPeriodo) * 100 : 0).toFixed(1)}%`,
       ]);
 
       autoTable(doc, {
-        head: [['Cuenta', ...meses.map(m => pdfTxt(m.mesLabel))]],
+        head: [['Cuenta', ...meses.map(m => pdfTxt(m.mesLabel)), 'Total período']],
         body: filas,
         startY: y + 5, margin: { left: M, right: M }, ...baseTable,
         styles: { ...baseTable.styles, fontSize: fs, cellPadding: 1.8 },
         headStyles: { ...baseTable.headStyles, fontSize: fs },
         columnStyles: cols,
         didParseCell: (d: any) => {
-          if (d.section === 'body' && d.row.index >= filas.length - 2) d.cell.styles.fontStyle = 'bold';
+          if (d.section === 'body' && (d.row.index >= filas.length - 2 || d.column.index === totCol)) d.cell.styles.fontStyle = 'bold';
         },
       });
     }
@@ -1171,24 +1175,36 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
                 {datosConsolidados.map(m => (
                   <th key={m.month} className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-text-main whitespace-nowrap">{m.mesLabel}</th>
                 ))}
+                <th className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-brand-500 whitespace-nowrap bg-bg-accent/30">Total período</th>
               </tr>
             </thead>
+            {(() => {
+              const sumC = (f: (m: any) => number) => datosConsolidados.reduce((a, m) => a + f(m), 0);
+              const totIng = sumC(m => m.ingresos), totEgr = sumC(m => m.egresos), totNet = sumC(m => m.neto);
+              const ultAcum = datosConsolidados.length ? datosConsolidados[datosConsolidados.length - 1].acumulado : 0;
+              const totT = [0, 1, 2].map(i => sumC(m => m.tramos[i].neto));
+              const totCell = "py-2 px-3 text-right font-mono font-black whitespace-nowrap bg-bg-accent/30";
+              return (
             <tbody className="divide-y divide-border-dim/50">
               <tr>
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-emerald-500 sticky left-0 bg-bg-sidebar">Total Ingresos</td>
                 {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-emerald-500 whitespace-nowrap">{fmt(m.ingresos)}</td>)}
+                <td className={cn(totCell, "text-emerald-500")}>{fmt(totIng)}</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-red-500 sticky left-0 bg-bg-sidebar">Total Egresos</td>
                 {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-red-500 whitespace-nowrap">{fmt(m.egresos)}</td>)}
+                <td className={cn(totCell, "text-red-500")}>{fmt(totEgr)}</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Neto del Mes</td>
                 {datosConsolidados.map(m => <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-black whitespace-nowrap", m.neto >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(m.neto)}</td>)}
+                <td className={cn(totCell, totNet >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(totNet)}</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-brand-500 sticky left-0 bg-bg-sidebar">Acumulado</td>
                 {datosConsolidados.map(m => <td key={m.month} className="py-2 px-3 text-right font-mono font-black text-brand-500 whitespace-nowrap">{fmt(m.acumulado)}</td>)}
+                <td className={cn(totCell, "text-brand-500")} title="Acumulado final del período">{fmt(ultAcum)}</td>
               </tr>
               <tr className="bg-bg-accent/20">
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Punto de Equilibrio</td>
@@ -1199,24 +1215,31 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
                       : <span className="text-red-500 text-[9px]">No alcanzado</span>}
                   </td>
                 ))}
+                <td className={cn(totCell, "text-text-dim")}>—</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 1 a 10 (neto)</td>
                 {datosConsolidados.map(m => { const t = m.tramos[0]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+                <td className={cn(totCell, "text-[10px]", totT[0] >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(totT[0])}</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 11 a 20 (neto)</td>
                 {datosConsolidados.map(m => { const t = m.tramos[1]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+                <td className={cn(totCell, "text-[10px]", totT[1] >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(totT[1])}</td>
               </tr>
               <tr>
                 <td className="py-2 px-2 font-bold uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar pl-4">Tramo 21 a fin (neto)</td>
                 {datosConsolidados.map(m => { const t = m.tramos[2]; return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-bold text-[10px] whitespace-nowrap", t.neto >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(t.neto)}</td>; })}
+                <td className={cn(totCell, "text-[10px]", totT[2] >= 0 ? "text-emerald-500/80" : "text-red-500/80")}>{fmt(totT[2])}</td>
               </tr>
               <tr className="border-t border-border-dim bg-bg-accent/10">
                 <td className="py-2 px-2 font-black uppercase text-[8px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Suma de Tramos (= Neto)</td>
                 {datosConsolidados.map(m => { const sumaTramos = m.tramos.reduce((a, t) => a + t.neto, 0); return <td key={m.month} className={cn("py-2 px-3 text-right font-mono font-black whitespace-nowrap", sumaTramos >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(sumaTramos)}</td>; })}
+                <td className={cn(totCell, totNet >= 0 ? "text-emerald-500" : "text-red-500")}>{fmt(totNet)}</td>
               </tr>
             </tbody>
+              );
+            })()}
           </table>
         </div>
 
@@ -1232,40 +1255,48 @@ function AnalysisTab({ allData, currentMonth, monthLabel, monthShort }: {
                   {datosConsolidados.map(m => (
                     <th key={m.month} className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-text-main whitespace-nowrap">{m.mesLabel}</th>
                   ))}
+                  <th className="text-right py-2 px-3 text-[9px] font-black uppercase tracking-widest text-brand-500 whitespace-nowrap bg-bg-accent/30">Total período</th>
                 </tr>
               </thead>
+              {(() => {
+                const totalMesInv = (md: any) => { const sec = inversionesDeMes(md); return sec ? (Math.abs(sec.total) || sec.rubros.reduce((a: number, r: any) => a + Math.abs(r.total), 0)) : 0; };
+                const montoCuentaMes = (md: any, nombre: string) => { const sec = inversionesDeMes(md); const r = sec?.rubros.find((x: any) => x.nombre === nombre); return r ? Math.abs(r.total) : 0; };
+                const totInvPeriodo = allData.reduce((a, md) => a + totalMesInv(md), 0);
+                const totIngPeriodo = datosConsolidados.reduce((a, m) => a + m.ingresos, 0);
+                return (<>
               <tbody className="divide-y divide-border-dim/50">
-                {cuentasInvConsolidado.map(nombreCuenta => (
+                {cuentasInvConsolidado.map(nombreCuenta => {
+                  const totCuenta = allData.reduce((a, md) => a + montoCuentaMes(md, nombreCuenta), 0);
+                  return (
                   <tr key={nombreCuenta} className="hover:bg-bg-accent/20">
                     <td className="py-2 px-2 font-bold text-text-main sticky left-0 bg-bg-sidebar whitespace-nowrap">{nombreCuenta}</td>
                     {allData.map(md => {
-                      const sec = inversionesDeMes(md);
-                      const r = sec?.rubros.find(x => x.nombre === nombreCuenta);
-                      const monto = r ? Math.abs(r.total) : 0;
+                      const monto = montoCuentaMes(md, nombreCuenta);
                       return <td key={md.month} className={cn("py-2 px-3 text-right font-mono font-bold whitespace-nowrap", monto > 0 ? "text-brand-500" : "text-text-dim/40")}>{monto > 0 ? fmt(monto) : '—'}</td>;
                     })}
+                    <td className={cn("py-2 px-3 text-right font-mono font-black whitespace-nowrap bg-bg-accent/30", totCuenta > 0 ? "text-brand-500" : "text-text-dim/40")}>{totCuenta > 0 ? fmt(totCuenta) : '—'}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-border-dim font-black">
                   <td className="py-2 px-2 uppercase text-[9px] tracking-widest text-text-main sticky left-0 bg-bg-sidebar">Total Inversiones</td>
-                  {allData.map(md => {
-                    const sec = inversionesDeMes(md);
-                    const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
-                    return <td key={md.month} className="py-2 px-3 text-right font-mono text-brand-500 whitespace-nowrap">{fmt(tot)}</td>;
-                  })}
+                  {allData.map(md => <td key={md.month} className="py-2 px-3 text-right font-mono text-brand-500 whitespace-nowrap">{fmt(totalMesInv(md))}</td>)}
+                  <td className="py-2 px-3 text-right font-mono text-brand-500 whitespace-nowrap bg-bg-accent/30">{fmt(totInvPeriodo)}</td>
                 </tr>
                 <tr className="font-bold">
                   <td className="py-2 px-2 uppercase text-[8px] tracking-widest text-text-dim sticky left-0 bg-bg-sidebar">% sobre Ingresos</td>
                   {datosConsolidados.map(m => {
-                    const sec = inversionesDeMes(allData.find(md => md.month === m.month)!);
-                    const tot = sec ? (Math.abs(sec.total) || sec.rubros.reduce((a, r) => a + Math.abs(r.total), 0)) : 0;
+                    const tot = totalMesInv(allData.find(md => md.month === m.month)!);
                     const pct = m.ingresos > 0 ? (tot / m.ingresos) * 100 : 0;
                     return <td key={m.month} className="py-2 px-3 text-right font-mono text-text-dim whitespace-nowrap">{pct.toFixed(1)}%</td>;
                   })}
+                  <td className="py-2 px-3 text-right font-mono text-text-dim whitespace-nowrap bg-bg-accent/30">{(totIngPeriodo > 0 ? (totInvPeriodo / totIngPeriodo) * 100 : 0).toFixed(1)}%</td>
                 </tr>
               </tfoot>
+                </>);
+              })()}
             </table>
           </div>
         )}
