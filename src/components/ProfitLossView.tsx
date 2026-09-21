@@ -250,10 +250,21 @@ export default function ProfitLossView({
       : [(def.indent ? '   ' : '') + def.label,
          ...cols.map(b => cellTxt(computedByBranch[b.id][def.key]?.realPesos || 0, ventasBranch[b.id])),
          cellTxt(totalMap[def.key]?.realPesos || 0, ventasTotal)]);
+    const lastCol = colHeads.length - 1;
     autoTable(doc, {
       head: [colHeads], body: body as any, startY: 25, styles: { fontSize: 6, cellPadding: 1 },
-      headStyles: { fillColor: [193, 18, 31], fontSize: 7 },
-      columnStyles: { 0: { cellWidth: 42 }, [colHeads.length - 1]: { fontStyle: 'bold' } },
+      headStyles: { fillColor: [193, 18, 31], fontSize: 7, halign: 'center' },
+      columnStyles: { 0: { cellWidth: 42, halign: 'left' }, [lastCol]: { fontStyle: 'bold' } },
+      didParseCell: (d: any) => {
+        if (d.section !== 'body') return;
+        const def = PL_STRUCTURE[d.row.index];
+        const isSub = def && def.type === 'subtotal';
+        const isFinal = def && def.key === 'ganancia_final';
+        if (isFinal) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [214, 219, 225]; d.cell.styles.textColor = [15, 15, 15]; }
+        else if (isSub) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = [238, 240, 244]; d.cell.styles.textColor = [20, 20, 20]; }
+        // Columna TOTAL destacada (salvo la fila final, que ya va en gris fuerte)
+        if (d.column.index === lastCol && !isFinal) { d.cell.styles.fontStyle = 'bold'; d.cell.styles.fillColor = isSub ? [231, 226, 232] : [247, 235, 235]; }
+      },
     });
     doc.save(`EERR_sucursales_${branchPeriodLabel().replace(/\s+/g, '_')}.pdf`);
   };
