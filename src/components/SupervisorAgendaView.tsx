@@ -79,6 +79,11 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  // Confirmación / cierre de la semana (portón de cobertura)
+  const [weekStatus, setWeekStatus] = useState<any>(null);
+  const [confirmModal, setConfirmModal] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+  const [confirming, setConfirming] = useState(false);
 
   // ─── MI AGENDA (tareas personales por fecha) ───
   const roleKey = String(currentUserRole || '').toLowerCase();
@@ -172,6 +177,10 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
         if (c.compliance_type === 'day' && c.date) compMap[`day|${c.date}`] = c.fulfilled;
       });
       setCompliance(compMap);
+
+      // Estado de confirmación de la semana
+      const { data: ws } = await supabase.from('agenda_week_status').select('*').eq('week_start', weekStart).maybeSingle();
+      setWeekStatus(ws || null);
     } catch (e) {
       console.error('Error cargando agenda:', e);
     } finally {
@@ -410,6 +419,38 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
     });
     return missing;
   }, [agendas, branches, weekDays, coverageRules]);
+
+  // ── Estado del portón de la semana ──
+  const isAdmin = roleKey === 'administrador';
+  // Confirmada si hay registro y (no hay huecos) o se confirmó con excepción.
+  const semanaConfirmada = !!weekStatus && (coverageAlerts.length === 0 || weekStatus.has_override);
+  // Estaba confirmada pero se reabrió un obligatorio (sin excepción) → se invalida.
+  const semanaReabierta = !!weekStatus && coverageAlerts.length > 0 && !weekStatus.has_override;
+
+  const guardarConfirmacion = async (override: boolean, reason: string | null) => {
+    setConfirming(true);
+    try {
+      const { error: e } = await supabase.from('agenda_week_status').upsert({
+        week_start: weekStart, confirmed_by: currentUserName || 'admin', confirmed_at: new Date().toISOString(),
+        has_override: override, override_reason: reason,
+      }, { onConflict: 'week_start' });
+      if (e) throw e;
+      setConfirmModal(false); setOverrideReason('');
+      await loadData();
+    } catch (err: any) { alert('No se pudo confirmar la semana: ' + (err?.message || err)); }
+    finally { setConfirming(false); }
+  };
+  const confirmarSemana = () => {
+    if (!isAdmin) return;
+    if (coverageAlerts.length > 0) { setOverrideReason(''); setConfirmModal(true); return; }
+    guardarConfirmacion(false, null);
+  };
+  const desconfirmarSemana = async () => {
+    if (!isAdmin) return;
+    if (!window.confirm('¿Volver la semana a BORRADOR (sin confirmar)?')) return;
+    await supabase.from('agenda_week_status').delete().eq('week_start', weekStart);
+    await loadData();
+  };
 
   const weekLabel = `${weekDays[0].toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
 
@@ -689,6 +730,48 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
         </div>
       ) : (
         <>
+          {/* Portón de la semana: estado de confirmación */}
+          <div className={cn('rounded-lg p-4 flex flex-wrap items-center justify-between gap-3 border',
+            semanaConfirmada && !weekStatus?.has_override ? 'bg-emerald-500/5 border-emerald-500/30' :
+            semanaConfirmada && weekStatus?.has_override ? 'bg-amber-500/5 border-amber-500/30' :
+            'bg-red-500/5 border-red-500/30')}>
+            <div className="min-w-0">
+              {semanaConfirmada ? (
+                <>
+                  <div className={cn('text-[11px] font-black uppercase tracking-widest flex items-center gap-2', weekStatus?.has_override ? 'text-amber-600' : 'text-emerald-600')}>
+                    <CheckCircle2 size={15} /> Semana confirmada{weekStatus?.has_override ? ' con excepción' : ''}
+                  </div>
+                  <div className="text-[9px] font-bold text-text-dim uppercase mt-0.5">
+                    Por {weekStatus?.confirmed_by || '—'}{weekStatus?.confirmed_at ? ` · ${new Date(weekStatus.confirmed_at).toLocaleString('es-AR')}` : ''}
+                    {weekStatus?.has_override && weekStatus?.override_reason ? ` · Motivo: ${weekStatus.override_reason}` : ''}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[11px] font-black uppercase tracking-widest text-red-500 flex items-center gap-2">
+                    <AlertCircle size={15} /> {semanaReabierta ? 'Semana SIN confirmar · se reabrió un obligatorio' : 'Semana SIN confirmar'}
+                  </div>
+                  <div className="text-[9px] font-bold text-text-dim uppercase mt-0.5">
+                    {coverageAlerts.length > 0 ? `${coverageAlerts.length} horario(s) obligatorio(s) sin cubrir` : 'Todo cubierto — lista para confirmar'}
+                  </div>
+                </>
+              )}
+            </div>
+            {isAdmin && (
+              <div className="flex items-center gap-2 shrink-0">
+                {semanaConfirmada ? (
+                  <button onClick={desconfirmarSemana} className="px-3 py-2 rounded border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main">Reabrir</button>
+                ) : (
+                  <button onClick={confirmarSemana} disabled={confirming}
+                    className={cn('px-4 py-2 rounded text-[10px] font-black uppercase tracking-wider text-white transition-all disabled:opacity-50',
+                      coverageAlerts.length > 0 ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-500 hover:bg-emerald-600')}>
+                    {coverageAlerts.length > 0 ? 'Confirmar con excepción…' : 'Confirmar semana'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Alerta de cobertura obligatoria viernes/sábado 20-22h */}
           {coverageAlerts.length > 0 && (
             <div className="bg-red-500/5 border border-red-500/30 rounded-lg p-5 space-y-3">
@@ -976,6 +1059,38 @@ export default function SupervisorAgendaView({ branches, mode = 'armado', isRead
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal: confirmar la semana con excepción (huecos a propósito) */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setConfirmModal(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border-dim">
+              <h3 className="text-xs font-black uppercase tracking-widest text-amber-600 flex items-center gap-2"><AlertCircle size={15} /> Confirmar con excepción</h3>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-text-dim font-bold">Quedan <b className="text-red-500">{coverageAlerts.length}</b> horario(s) obligatorio(s) sin cubrir. Si el hueco es a propósito (ej: sucursal cerrada), dejá el motivo por escrito y se confirma igual.</p>
+              <div className="max-h-28 overflow-y-auto space-y-1">
+                {coverageAlerts.map((m, i) => (
+                  <div key={i} className="text-[10px] font-bold uppercase text-text-main bg-bg-accent/40 rounded px-2 py-1">{m.branchName} · {m.dayLabel} {m.timeLabel}</div>
+                ))}
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest">Motivo de la excepción (obligatorio)</label>
+                <textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} rows={2}
+                  placeholder="Ej: Craft Perón cerrado el sábado por refacción"
+                  className="w-full mt-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main outline-none focus:border-amber-500" />
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-border-dim flex justify-end gap-2">
+              <button onClick={() => setConfirmModal(false)} className="px-4 py-2 rounded border border-border-dim text-[9px] font-black uppercase text-text-dim hover:text-text-main">Cancelar</button>
+              <button onClick={() => guardarConfirmacion(true, overrideReason.trim())} disabled={confirming || overrideReason.trim().length < 3}
+                className="px-4 py-2 rounded bg-amber-500 hover:bg-amber-600 text-white text-[9px] font-black uppercase disabled:opacity-50">
+                {confirming ? 'Confirmando…' : 'Confirmar con excepción'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
