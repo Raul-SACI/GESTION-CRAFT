@@ -890,9 +890,11 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
   const totalPedidos = comDia.reduce((s, r) => s + r.pedidos, 0);
   const recl = reclamos.filter(r => r.tipo === 'reclamo');
   const reint = reclamos.filter(r => r.tipo === 'reintegro');
+  const canc = reclamos.filter(r => r.tipo === 'cancelacion');
   const nRecl = recl.length;
   const montoRecl = recl.reduce((s, r) => s + Math.abs(r.monto), 0);
   const montoReint = reint.reduce((s, r) => s + Math.abs(r.monto), 0);
+  const montoCanc = canc.reduce((s, r) => s + Math.abs(r.monto), 0);
   const tasa = totalPedidos > 0 ? (nRecl / totalPedidos) * 100 : null;
   const sem = semColor(tasa, semaforos.reclamos);
   const byMotivo: Record<string, { n: number; monto: number }> = {};
@@ -906,15 +908,16 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
   comDia.forEach(r => { pedidosPorSuc[r.sucursal] = (pedidosPorSuc[r.sucursal] || 0) + r.pedidos; });
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className={cn('p-4 rounded-xl border', SEM_BG[sem])}>
           <div className="text-[9px] font-black uppercase tracking-widest opacity-80">Tasa de reclamos</div>
           <div className="text-2xl font-black font-mono mt-1">{fmtPct(tasa)}</div>
           <div className="text-[10px] font-bold mt-0.5">{nRecl} de {fmtNum(totalPedidos)} pedidos</div>
         </div>
         <HeroCard label="Costo por reclamos" value={fmt(montoRecl)} sub={`${nRecl} reclamos`} accent="red" />
+        <HeroCard label="Cargos por cancelaciones" value={fmt(montoCanc)} sub={`${canc.length} cancelaciones`} accent="red" />
         <HeroCard label="Reintegros a favor" value={fmt(montoReint)} sub={`${reint.length} reintegros`} accent="emerald" />
-        <HeroCard label="Impacto neto" value={fmt(montoReint - montoRecl)} sub="reintegros − reclamos" accent="rose" />
+        <HeroCard label="Impacto neto" value={fmt(montoReint - montoRecl - montoCanc)} sub="reintegros − reclamos − cancel." accent="rose" />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Panel title="Reclamos por motivo">
@@ -1502,26 +1505,40 @@ async function importEstadoCuentaXLSX(sheets: Record<string, any[][]>, names: st
   if (comRows.length === 0) throw new Error('sin filas de pedidos válidas.');
 
   const reclamoRows: Reclamo[] = [];
-  const parseReclamoSheet = (rows: any[][], tipo: 'reclamo' | 'reintegro') => {
+  // Identifica cada hoja por su NOMBRE (no por posición): reintegros, cancelaciones o reclamos.
+  const clasificarHoja = (nombre: string): 'reclamo' | 'reintegro' | 'cancelacion' | null => {
+    const n = (nombre || '').toLowerCase();
+    if (n.includes('reintegro')) return 'reintegro';
+    if (n.includes('cancelaci')) return 'cancelacion';   // "Cargos por cancelaciones"
+    if (n.includes('reclamo')) return 'reclamo';          // "Cargos por reclamos"
+    return null;
+  };
+  const parseReclamoSheet = (rows: any[][], tipo: 'reclamo' | 'reintegro' | 'cancelacion') => {
     if (!rows || rows.length === 0) return;
     const f = findCols(rows, {
       nro: ['número de pedido', 'numero de pedido'], sucursal: ['sucursal'],
       fecha: ['fecha del pedido', 'fecha de pedido', 'fecha'], motivo: ['motivo'],
-      monto: tipo === 'reclamo' ? ['cargos por reclamos de los usuarios', 'cargos por reclamos'] : ['monto neto a reintegrar'],
+      // "Monto final" en las hojas de cargos; "Monto neto a reintegrar" en reintegros.
+      // Se evita "monto" a secas para no tomar "Monto del pedido" (el valor de la orden, no el cargo).
+      monto: ['monto final', 'monto neto a reintegrar', 'cargos por reclamos de los usuarios', 'cargos por reclamos'],
     });
-    if (!f) return;
+    if (!f || f.idx.monto == null) return;
     for (let i = f.headerRow + 1; i < rows.length; i++) {
       const r = rows[i]; if (!r) continue;
       const sucursal = f.idx.sucursal != null ? norm(r[f.idx.sucursal]) : '';
       const fecha = parseFechaISO(f.idx.fecha != null ? r[f.idx.fecha] : '');
       if (!sucursal || !fecha) continue;
-      const monto = f.idx.monto != null ? toNum(r[f.idx.monto]) : 0;
+      const monto = toNum(r[f.idx.monto]);
       if (monto === 0) continue;
       reclamoRows.push({ fecha, sucursal, marca: deriveMarca(sucursal), tipo, nro_pedido: f.idx.nro != null ? norm(r[f.idx.nro]) : null, motivo: f.idx.motivo != null ? norm(r[f.idx.motivo]) : null, monto });
     }
   };
-  if (names[1]) parseReclamoSheet(sheets[names[1]], 'reclamo');
-  if (names[2]) parseReclamoSheet(sheets[names[2]], 'reintegro');
+  // Recorre todas las hojas menos la primera (detalle de pedidos) y las clasifica por su nombre.
+  names.forEach((nombre, i) => {
+    if (i === 0) return;
+    const tipo = clasificarHoja(nombre);
+    if (tipo) parseReclamoSheet(sheets[nombre], tipo);
+  });
 
   const dateArr = Array.from(dates);
   const CHUNK = 400;
@@ -1532,7 +1549,10 @@ async function importEstadoCuentaXLSX(sheets: Record<string, any[][]>, names: st
     for (let i = 0; i < reclamoRows.length; i += CHUNK) { const { error } = await supabase.from('py_reclamos').insert(reclamoRows.slice(i, i + CHUNK)); if (error) throw new Error('guardando reclamos: ' + error.message); }
   }
   const sorted = dateArr.sort();
-  return `estado de cuenta · ${comRows.length} filas (${dmy(sorted[0])}–${dmy(sorted[sorted.length - 1])}), ${reclamoRows.length} reclamos/reintegros.`;
+  const cRec = reclamoRows.filter(r => r.tipo === 'reclamo').length;
+  const cRei = reclamoRows.filter(r => r.tipo === 'reintegro').length;
+  const cCan = reclamoRows.filter(r => r.tipo === 'cancelacion').length;
+  return `estado de cuenta · ${comRows.length} filas (${dmy(sorted[0])}–${dmy(sorted[sorted.length - 1])}) · ${cRec} reclamos, ${cCan} cancelaciones, ${cRei} reintegros.`;
 }
 
 // ── Detalle de pedidos (orderDetails, una fila por pedido, con local y fecha) ──
