@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy, Search, X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -998,9 +998,10 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
   const totU = Array.from(map.values()).reduce((s, p) => s + p.unidades, 0);
   const totI = Array.from(map.values()).reduce((s, p) => s + p.importe, 0);
   const q = search.trim().toLowerCase();
-  let lista = Array.from(map.values());
-  if (q) lista = lista.filter(p => p.producto.toLowerCase().includes(q));
-  lista.sort((a, b) => orden === 'importe' ? b.importe - a.importe : b.unidades - a.unidades);
+  // Orden completo → cada producto conserva su posición real en el ranking aunque se filtre por búsqueda.
+  const full = Array.from(map.values()).sort((a, b) => orden === 'importe' ? b.importe - a.importe : b.unidades - a.unidades);
+  const rankOf = new Map(full.map((p, i) => [p.producto, i + 1]));
+  const lista = q ? full.filter(p => p.producto.toLowerCase().includes(q)) : full;
   const scopeLabel = semActiva === 'all' ? 'total del mes' : `Sem ${semActiva} (${SEM_RANGO[(semActiva as number) - 1]})`;
 
   return (
@@ -1037,8 +1038,16 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             </div>
           )}
         </div>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
-          className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[11px] text-text-main outline-none w-[220px]" />
+        <div className="relative w-full sm:w-[260px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
+            className="w-full bg-bg-card border border-border-dim focus:border-rose-500 rounded-lg pl-9 pr-8 py-2 text-[11px] text-text-main outline-none transition-colors" />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-dim hover:text-rose-500" aria-label="Limpiar búsqueda">
+              <X size={14} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
         <table className="w-full text-[12px] border-collapse min-w-[640px]">
@@ -1051,7 +1060,9 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Ticket prom.</th>
             {showVar && <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs Sem {prevSem}</th>}
           </tr></thead>
-          <tbody>{lista.map((p, i) => {
+          <tbody>{q && lista.length === 0 ? (
+            <tr><td colSpan={showVar ? 7 : 6} className="p-6 text-center text-text-dim text-[11px]">Ningún producto coincide con “{search.trim()}”.</td></tr>
+          ) : lista.map((p, i) => {
             const pct = orden === 'importe' ? (totI > 0 ? (p.importe / totI) * 100 : 0) : (totU > 0 ? (p.unidades / totU) * 100 : 0);
             const tk = p.unidades > 0 ? p.importe / p.unidades : 0;
             const prev = prevMap?.get((p.producto || '').trim().toUpperCase());
@@ -1060,7 +1071,7 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             const varPct = (prevM != null && prevM > 0) ? ((curM - prevM) / prevM) * 100 : null;
             return (
               <tr key={p.producto} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
-                <td className="p-3 text-center font-mono text-text-dim">{i + 1}</td>
+                <td className="p-3 text-center font-mono text-text-dim">{rankOf.get(p.producto) ?? i + 1}</td>
                 <td className="p-3 text-left text-text-main font-bold">{p.producto}</td>
                 <td className="p-3 text-center font-mono text-text-main">{fmtNum(p.unidades)}</td>
                 <td className="p-3 text-right font-mono text-text-main">{fmt(p.importe)}</td>
