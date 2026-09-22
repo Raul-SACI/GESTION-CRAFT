@@ -150,6 +150,8 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const [prep, setPrep] = useState<PrepDia[]>([]);
   const [opsPeriodo, setOpsPeriodo] = useState<OpsPeriodo[]>([]);
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
+  const [reclamosPrev, setReclamosPrev] = useState<Reclamo[]>([]);
+  const [comDiaPrev, setComDiaPrev] = useState<ComDia[]>([]);
   const [productos, setProductos] = useState<ProductoPeriodo[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
   const [campanias, setCampanias] = useState<Campania[]>([]);
@@ -166,7 +168,11 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
     try {
       const start = `${month}-01`;
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
-      const [per, dia, ads, con, prp, ops, rec, liq, cfg, prod, camp] = await Promise.all([
+      // Mes anterior (para el comparativo mes contra mes de Reclamos).
+      const pd = new Date(yy, mm - 2, 1);
+      const pStart = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}-01`;
+      const pEnd = `${pd.getFullYear()}-${String(pd.getMonth() + 1).padStart(2, '0')}-${String(new Date(pd.getFullYear(), pd.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+      const [per, dia, ads, con, prp, ops, rec, liq, cfg, prod, camp, recP, diaP] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
         supabase.from('py_ads_dia').select('*').gte('fecha', start).lte('fecha', end),
@@ -178,6 +184,8 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
         supabase.from('py_productos_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_campanias').select('*').lte('desde', end).gte('hasta', start),
+        supabase.from('py_reclamos').select('*').gte('fecha', pStart).lte('fecha', pEnd),
+        supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', pStart).lte('fecha', pEnd),
       ]);
       // PostgREST puede devolver los numeric como texto; forzamos a número.
       const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
@@ -188,6 +196,8 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       setPrep(((prp.data as any[]) || []).map(r => ({ ...r, prep_min: N(r.prep_min), demorados: N(r.demorados), total: N(r.total) })));
       setOpsPeriodo(((ops.data as any[]) || []).map(r => ({ ...r, no_disp_seg: N(r.no_disp_seg), rechazo: N(r.rechazo), espera: N(r.espera), prep_seg: N(r.prep_seg), reclamos: N(r.reclamos), listos: N(r.listos) })));
       setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
+      setReclamosPrev(((recP.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
+      setComDiaPrev(((diaP.data as any[]) || []).map(r => ({ ...r, pedidos: N(r.pedidos), venta_bruta: N(r.venta_bruta), venta_neta: N(r.venta_neta) })));
       setProductos(((prod.data as any[]) || []).map(r => ({ ...r, marca: r.marca || 'Craft', unidades: N(r.unidades), importe: N(r.importe) })));
       setCampanias(((camp.data as any[]) || []).map(r => ({ ...r, marca: r.marca || 'Craft', precio: N(r.precio), precio_desc: N(r.precio_desc) })));
       setLiquidaciones(((liq.data as any[]) || []).map(r => {
@@ -318,7 +328,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
             semaforos={semaforos} onGoImport={() => setTab('importar')} month={month} loading={loading} />
         )}
         {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
-        {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
+        {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} reclamosPrev={reclamosPrev} comDiaPrev={comDiaPrev} month={month} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
         {tab === 'ranking' && <RankingTab productos={productos} campanias={campanias} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
         {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
         {tab === 'campanias' && <CampaniasTab month={month} isReadOnly={isReadOnly} />}
@@ -890,7 +900,7 @@ function LiquidacionesTab({ liquidaciones, onGoImport }: { liquidaciones: Liquid
 // ════════════════════════════════════════════════════════════════════════════
 // RECLAMOS
 // ════════════════════════════════════════════════════════════════════════════
-function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Reclamo[]; comDia: ComDia[]; semaforos: Record<string, SemCfg>; onGoImport: () => void }) {
+function ReclamosTab({ reclamos, comDia, reclamosPrev, comDiaPrev, month, semaforos, onGoImport }: { reclamos: Reclamo[]; comDia: ComDia[]; reclamosPrev: Reclamo[]; comDiaPrev: ComDia[]; month: string; semaforos: Record<string, SemCfg>; onGoImport: () => void }) {
   if (reclamos.length === 0 && comDia.length === 0) return <Empty onGoImport={onGoImport} msg="No hay reclamos para este mes. Importá el estado de cuenta (Excel) de Pedidos Ya." />;
   const totalPedidos = comDia.reduce((s, r) => s + r.pedidos, 0);
   const recl = reclamos.filter(r => r.tipo === 'reclamo');
@@ -900,6 +910,39 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
   const montoRecl = recl.reduce((s, r) => s + Math.abs(r.monto), 0);
   const montoReint = reint.reduce((s, r) => s + Math.abs(r.monto), 0);
   const montoCanc = canc.reduce((s, r) => s + Math.abs(r.monto), 0);
+
+  // ── Reclamos por semana del negocio (1-7, 8-14, 15-21, 22-fin) ──────────────
+  const semData = [1, 2, 3, 4].map(w => {
+    const rs = recl.filter(r => weekOfMonth(r.fecha) === w);
+    const ped = comDia.filter(r => weekOfMonth(r.fecha) === w).reduce((s, r) => s + r.pedidos, 0);
+    const n = rs.length;
+    const costo = rs.reduce((s, r) => s + Math.abs(r.monto), 0);
+    return { w, n, ped, costo, tasa: ped > 0 ? (n / ped) * 100 : null };
+  });
+  const haySemana = semData.some(s => s.n > 0 || s.ped > 0);
+
+  // ── Mes contra mes ──────────────────────────────────────────────────────────
+  const reclP = reclamosPrev.filter(r => r.tipo === 'reclamo');
+  const nReclP = reclP.length;
+  const montoReclP = reclP.reduce((s, r) => s + Math.abs(r.monto), 0);
+  const montoReintP = reclamosPrev.filter(r => r.tipo === 'reintegro').reduce((s, r) => s + Math.abs(r.monto), 0);
+  const pedidosP = comDiaPrev.reduce((s, r) => s + r.pedidos, 0);
+  const tasaP = pedidosP > 0 ? (nReclP / pedidosP) * 100 : null;
+  const tasaCur = totalPedidos > 0 ? (nRecl / totalPedidos) * 100 : null;
+  const hayMesPrev = reclamosPrev.length > 0 || comDiaPrev.length > 0;
+  const prevMk = month.split('-'); const prevDate = new Date(Number(prevMk[0]), Number(prevMk[1]) - 2, 1);
+  const prevLabel = `${MESES[prevDate.getMonth()]} ${prevDate.getFullYear()}`;
+  const varPct = (cur: number, prev: number): number | null => prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const varPP = (cur: number | null, prev: number | null): number | null => (cur == null || prev == null) ? null : cur - prev; // puntos porcentuales (tasa)
+  // Para reclamos y costos, MENOS es mejor (verde si baja); para reintegros, más es mejor.
+  const Delta = ({ v, goodDown = true, unit = '%' }: { v: number | null; goodDown?: boolean; unit?: string }) => {
+    if (v == null) return <span className="text-text-dim">—</span>;
+    const flat = Math.abs(v) < 0.05;
+    const good = flat ? false : (goodDown ? v < 0 : v > 0);
+    const color = flat ? 'text-text-dim' : good ? 'text-emerald-500' : 'text-red-500';
+    const Icon = flat ? Minus : v > 0 ? TrendingUp : TrendingDown;
+    return <span className={cn('inline-flex items-center gap-0.5 font-mono font-bold text-[12px]', color)}><Icon size={12} />{v > 0 ? '+' : ''}{v.toFixed(1)}{unit}</span>;
+  };
   const tasa = totalPedidos > 0 ? (nRecl / totalPedidos) * 100 : null;
   const sem = semColor(tasa, semaforos.reclamos);
   const byMotivo: Record<string, { n: number; monto: number }> = {};
@@ -924,6 +967,61 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
         <HeroCard label="Reintegros a favor" value={fmt(montoReint)} sub={`${reint.length} reintegros`} accent="emerald" />
         <HeroCard label="Impacto neto" value={fmt(montoReint - montoRecl - montoCanc)} sub="reintegros − reclamos − cancel." accent="rose" />
       </div>
+
+      {hayMesPrev && (
+        <Panel title={`Mes contra mes · vs ${prevLabel}`}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {([
+              { l: 'Reclamos', cur: `${nRecl}`, prev: `${nReclP}`, v: varPct(nRecl, nReclP), down: true, unit: '%' },
+              { l: 'Costo reclamos', cur: fmt(montoRecl), prev: fmt(montoReclP), v: varPct(montoRecl, montoReclP), down: true, unit: '%' },
+              { l: 'Tasa de reclamos', cur: fmtPct(tasaCur), prev: fmtPct(tasaP), v: varPP(tasaCur, tasaP), down: true, unit: ' pp' },
+              { l: 'Reintegros', cur: fmt(montoReint), prev: fmt(montoReintP), v: varPct(montoReint, montoReintP), down: false, unit: '%' },
+            ] as { l: string; cur: string; prev: string; v: number | null; down: boolean; unit: string }[]).map(k => (
+              <div key={k.l} className="bg-bg-accent/20 border border-border-dim/50 rounded-lg p-3">
+                <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">{k.l}</div>
+                <div className="text-lg font-black font-mono text-text-main mt-0.5">{k.cur}</div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-[10px] text-text-dim font-bold">antes {k.prev}</span>
+                  <Delta v={k.v} goodDown={k.down} unit={k.unit} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {haySemana && (
+        <Panel title="Reclamos por semana">
+          <table className="w-full text-[12px]">
+            <thead><tr className="text-text-dim">
+              <th className="p-2 text-left text-[9px] uppercase font-black">Semana</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Reclamos</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Pedidos</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">Tasa</th>
+              <th className="p-2 text-right text-[9px] uppercase font-black">Costo</th>
+              <th className="p-2 text-center text-[9px] uppercase font-black">vs sem. ant.</th>
+            </tr></thead>
+            <tbody>
+              {semData.map((s, i) => {
+                const prevN = i > 0 ? semData[i - 1].n : null;
+                const v = prevN != null && prevN > 0 ? ((s.n - prevN) / prevN) * 100 : null;
+                const semL = semColor(s.tasa, semaforos.reclamos);
+                return (
+                  <tr key={s.w} className="border-t border-border-dim/25">
+                    <td className="p-2 text-left text-text-main font-bold whitespace-nowrap">Sem {s.w} <span className="text-[9px] text-text-dim font-normal">({SEM_RANGO[s.w - 1]})</span></td>
+                    <td className="p-2 text-center font-mono text-text-main">{s.n}</td>
+                    <td className="p-2 text-center font-mono text-text-dim">{s.ped > 0 ? fmtNum(s.ped) : '—'}</td>
+                    <td className="p-2 text-center">{s.tasa == null ? <span className="text-text-dim">—</span> : <span className={cn('inline-block font-mono font-bold text-[11px] px-1.5 py-0.5 rounded border', SEM_BG[semL])}>{fmtPct(s.tasa)}</span>}</td>
+                    <td className="p-2 text-right font-mono text-red-400">{fmt(s.costo)}</td>
+                    <td className="p-2 text-center">{i === 0 ? <span className="text-text-dim">—</span> : prevN === 0 && s.n > 0 ? <span className="text-[9px] font-black uppercase text-amber-500">nuevo</span> : <Delta v={v} goodDown={true} />}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Panel title="Reclamos por motivo">
           <table className="w-full text-[12px]">
