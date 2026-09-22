@@ -152,6 +152,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const [reclamos, setReclamos] = useState<Reclamo[]>([]);
   const [productos, setProductos] = useState<ProductoPeriodo[]>([]);
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>([]);
+  const [campanias, setCampanias] = useState<Campania[]>([]);
   const [semaforos, setSemaforos] = useState<Record<string, SemCfg>>(DEFAULT_SEMAFOROS);
   const [loading, setLoading] = useState(false);
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
@@ -165,7 +166,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
     try {
       const start = `${month}-01`;
       const end = `${month}-${String(new Date(yy, mm, 0).getDate()).padStart(2, '0')}`;
-      const [per, dia, ads, con, prp, ops, rec, liq, cfg, prod] = await Promise.all([
+      const [per, dia, ads, con, prp, ops, rec, liq, cfg, prod, camp] = await Promise.all([
         supabase.from('py_comercial_periodo').select('*').eq('anio', yy).eq('mes', mm),
         supabase.from('py_comercial_dia').select('fecha,sucursal,marca,pedidos,venta_bruta,venta_neta').gte('fecha', start).lte('fecha', end),
         supabase.from('py_ads_dia').select('*').gte('fecha', start).lte('fecha', end),
@@ -176,6 +177,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         supabase.from('py_liquidacion').select('*').order('period_start', { ascending: false }),
         supabase.from('py_config').select('*').eq('key', 'semaforos').maybeSingle(),
         supabase.from('py_productos_periodo').select('*').eq('anio', yy).eq('mes', mm),
+        supabase.from('py_campanias').select('*').lte('desde', end).gte('hasta', start),
       ]);
       // PostgREST puede devolver los numeric como texto; forzamos a número.
       const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
@@ -187,6 +189,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       setOpsPeriodo(((ops.data as any[]) || []).map(r => ({ ...r, no_disp_seg: N(r.no_disp_seg), rechazo: N(r.rechazo), espera: N(r.espera), prep_seg: N(r.prep_seg), reclamos: N(r.reclamos), listos: N(r.listos) })));
       setReclamos(((rec.data as any[]) || []).map(r => ({ ...r, monto: N(r.monto) })));
       setProductos(((prod.data as any[]) || []).map(r => ({ ...r, marca: r.marca || 'Craft', unidades: N(r.unidades), importe: N(r.importe) })));
+      setCampanias(((camp.data as any[]) || []).map(r => ({ ...r, marca: r.marca || 'Craft', precio: N(r.precio), precio_desc: N(r.precio_desc) })));
       setLiquidaciones(((liq.data as any[]) || []).map(r => {
         const o: any = { ...r };
         ['ventas_netas', 'ventas_netas_app', 'ventas_netas_fuera', 'servicios_pedidosya', 'cargos_operativos', 'publicidad', 'pub_gold_vip', 'pub_keywords', 'pub_display', 'reintegros', 'ajustes', 'impuestos', 'ventas_fuera_app_cobradas', 'total_liquidado'].forEach(k => { o[k] = N(r[k]); });
@@ -316,7 +319,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         )}
         {tab === 'liquidaciones' && <LiquidacionesTab liquidaciones={liquidaciones} onGoImport={() => setTab('importar')} />}
         {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
-        {tab === 'ranking' && <RankingTab productos={productos} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
+        {tab === 'ranking' && <RankingTab productos={productos} campanias={campanias} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
         {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
         {tab === 'campanias' && <CampaniasTab month={month} isReadOnly={isReadOnly} />}
         {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
@@ -969,11 +972,12 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
 // ════════════════════════════════════════════════════════════════════════════
 // RANKING DE PRODUCTOS (Ventas por producto, consolidado)
 // ════════════════════════════════════════════════════════════════════════════
-function RankingTab({ productos, month, loading, onGoImport }: { productos: ProductoPeriodo[]; month: string; loading: boolean; onGoImport: () => void }) {
+function RankingTab({ productos, campanias, month, loading, onGoImport }: { productos: ProductoPeriodo[]; campanias: Campania[]; month: string; loading: boolean; onGoImport: () => void }) {
   const [orden, setOrden] = useState<'importe' | 'unidades'>('importe');
   const [marca, setMarca] = useState<'Craft' | 'Craft Café'>('Craft');
   const [semSel, setSemSel] = useState<'all' | number>('all');
   const [search, setSearch] = useState('');
+  const [soloPromo, setSoloPromo] = useState(false);
   if (loading && productos.length === 0) return <Loader />;
   if (productos.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay ranking de productos para ${monthLabel(month)}. Importá el reporte "Ventas por producto" de Pedidos Ya (Reportes → Ventas → Ventas por producto → Descargar), uno para Resto y otro para Café.`} />;
 
@@ -1002,11 +1006,26 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
 
   const totU = Array.from(map.values()).reduce((s, p) => s + p.unidades, 0);
   const totI = Array.from(map.values()).reduce((s, p) => s + p.importe, 0);
+  // Cruce con Campañas del Mes (misma marca): marca qué productos estuvieron en promo.
+  const nrm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
+  const campMarca = campanias.filter(c => (c.marca || 'Craft') === marcaActiva);
+  const promoExact = new Map<string, Campania>();
+  campMarca.forEach(c => { const k = nrm(c.producto); if (k) promoExact.set(k, c); });
+  const promoOf = (producto: string): Campania | null => {
+    const k = nrm(producto); if (!k) return null;
+    const e = promoExact.get(k); if (e) return e;
+    for (const c of campMarca) { const ck = nrm(c.producto); if (ck.length >= 4 && (k.includes(ck) || ck.includes(k))) return c; }
+    return null;
+  };
+  const descPct = (c: Campania) => c.precio > 0 ? ((c.precio - c.precio_desc) / c.precio) * 100 : 0;
+
   const q = search.trim().toLowerCase();
   // Orden completo → cada producto conserva su posición real en el ranking aunque se filtre por búsqueda.
   const full = Array.from(map.values()).sort((a, b) => orden === 'importe' ? b.importe - a.importe : b.unidades - a.unidades);
   const rankOf = new Map(full.map((p, i) => [p.producto, i + 1]));
-  const lista = q ? full.filter(p => p.producto.toLowerCase().includes(q)) : full;
+  const nEnPromo = full.filter(p => promoOf(p.producto)).length;
+  let lista = q ? full.filter(p => p.producto.toLowerCase().includes(q)) : full;
+  if (soloPromo) lista = lista.filter(p => promoOf(p.producto));
   const scopeLabel = semActiva === 'all' ? 'total del mes' : `Sem ${semActiva} (${SEM_RANGO[(semActiva as number) - 1]})`;
 
   return (
@@ -1042,6 +1061,12 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
               ))}
             </div>
           )}
+          {campMarca.length > 0 && (
+            <button onClick={() => setSoloPromo(v => !v)}
+              className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded border', soloPromo ? 'bg-rose-600 text-white border-rose-600' : 'bg-bg-accent/30 border-border-dim/60 text-text-dim hover:text-text-main')}>
+              <Percent size={11} /> Solo promo ({nEnPromo})
+            </button>
+          )}
         </div>
         <div className="relative w-full sm:w-[260px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
@@ -1065,19 +1090,30 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Ticket prom.</th>
             {showVar && <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs Sem {prevSem}</th>}
           </tr></thead>
-          <tbody>{q && lista.length === 0 ? (
-            <tr><td colSpan={showVar ? 7 : 6} className="p-6 text-center text-text-dim text-[11px]">Ningún producto coincide con “{search.trim()}”.</td></tr>
+          <tbody>{lista.length === 0 ? (
+            <tr><td colSpan={showVar ? 7 : 6} className="p-6 text-center text-text-dim text-[11px]">{soloPromo ? 'Ningún producto del ranking coincide con una campaña cargada este mes.' : `Ningún producto coincide con “${search.trim()}”.`}</td></tr>
           ) : lista.map((p, i) => {
             const pct = orden === 'importe' ? (totI > 0 ? (p.importe / totI) * 100 : 0) : (totU > 0 ? (p.unidades / totU) * 100 : 0);
             const tk = p.unidades > 0 ? p.importe / p.unidades : 0;
             const prev = prevMap?.get((p.producto || '').trim().toUpperCase());
+            const promo = promoOf(p.producto);
             const curM = metricOf(p.unidades, p.importe);
             const prevM = prev ? metricOf(prev.unidades, prev.importe) : null;
             const varPct = (prevM != null && prevM > 0) ? ((curM - prevM) / prevM) * 100 : null;
             return (
               <tr key={p.producto} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
                 <td className="p-3 text-center font-mono text-text-dim">{rankOf.get(p.producto) ?? i + 1}</td>
-                <td className="p-3 text-left text-text-main font-bold">{p.producto}</td>
+                <td className="p-3 text-left text-text-main font-bold">
+                  <span className="inline-flex items-center gap-1.5">
+                    {p.producto}
+                    {promo && (
+                      <span title={`${promo.campania || 'Promo'}${promo.detalle ? ' · ' + promo.detalle : ''}\n${fmt(promo.precio)} → ${fmt(promo.precio_desc)} (${fmtPct(descPct(promo))} off)`}
+                        className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider text-white bg-rose-600 rounded px-1.5 py-0.5">
+                        <Percent size={9} />{fmtPct(descPct(promo), 0)}
+                      </span>
+                    )}
+                  </span>
+                </td>
                 <td className="p-3 text-center font-mono text-text-main">{fmtNum(p.unidades)}</td>
                 <td className="p-3 text-right font-mono text-text-main">{fmt(p.importe)}</td>
                 <td className="p-3 text-center font-mono text-text-dim">{fmtPct(pct)}</td>
@@ -1104,7 +1140,7 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
           </tr></tfoot>
         </table>
       </div>
-      <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Ranking consolidado (todos los locales). El % es sobre el total del mes según el orden elegido (importe o unidades). El ticket promedio es importe ÷ unidades.</p>
+      <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Ranking consolidado (todos los locales). El % es sobre el total del mes según el orden elegido (importe o unidades). El ticket promedio es importe ÷ unidades. El badge <span className="inline-flex items-center gap-0.5 text-white bg-rose-600 rounded px-1 py-0.5 text-[8px] font-black"><Percent size={8} />PROMO</span> marca los productos con una campaña cargada en <b className="text-text-main">Campañas del Mes</b> (misma marca, por nombre de producto).</p>
     </div>
   );
 }
