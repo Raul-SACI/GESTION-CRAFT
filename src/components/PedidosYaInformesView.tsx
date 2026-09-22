@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy, Search, X
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy, Search, X, Percent, Plus, Pencil
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -142,7 +142,7 @@ class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
 }
 
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
-  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'ranking' | 'importar' | 'config'>('comercial');
+  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'ranking' | 'importar' | 'campanias' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
   const [comDia, setComDia] = useState<ComDia[]>([]);
   const [adsDia, setAdsDia] = useState<AdsDia[]>([]);
@@ -264,13 +264,14 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       <div className="flex flex-wrap gap-1 border-b border-border-dim/60">
         {([
           ['comercial', 'Comercial', BarChart3],
-          ['dia', 'Por día', CalendarDays],
-          ['publicidad', 'Publicidad', Megaphone],
-          ['operativo', 'Operativo', Activity],
-          ['liquidaciones', 'Liquidaciones', Banknote],
-          ['reclamos', 'Reclamos', MessageSquareWarning],
           ['ranking', 'Ranking', Trophy],
+          ['operativo', 'Operativo', Activity],
+          ['dia', 'Por día', CalendarDays],
+          ['reclamos', 'Reclamos', MessageSquareWarning],
+          ['publicidad', 'Publicidad', Megaphone],
+          ['liquidaciones', 'Liquidaciones', Banknote],
           ['importar', 'Importar', Upload],
+          ['campanias', 'Campañas del Mes', Percent],
           ['config', 'Semáforos', Settings2],
         ] as const).map(([k, l, Icon]) => (
           <button key={k} onClick={() => setTab(k as any)}
@@ -281,7 +282,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         ))}
       </div>
 
-      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos' || tab === 'ranking') && (
+      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos' || tab === 'ranking' || tab === 'campanias') && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/80">
             <button onClick={prevMonth} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronLeft size={15} /></button>
@@ -317,6 +318,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         {tab === 'reclamos' && <ReclamosTab reclamos={reclamos} comDia={comDia} semaforos={semaforos} onGoImport={() => setTab('importar')} />}
         {tab === 'ranking' && <RankingTab productos={productos} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
         {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
+        {tab === 'campanias' && <CampaniasTab month={month} isReadOnly={isReadOnly} />}
         {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
       </TabErrorBoundary>
     </div>
@@ -1103,6 +1105,156 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
         </table>
       </div>
       <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Ranking consolidado (todos los locales). El % es sobre el total del mes según el orden elegido (importe o unidades). El ticket promedio es importe ÷ unidades.</p>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// CAMPAÑAS DEL MES (carga manual de promociones por marca)
+// ════════════════════════════════════════════════════════════════════════════
+type Campania = { id?: number; marca: string; campania: string; detalle: string; producto: string; precio: number; precio_desc: number; desde: string; hasta: string };
+
+function CampaniasTab({ month, isReadOnly }: { month: string; isReadOnly: boolean }) {
+  const [y, m] = month.split('-').map(Number);
+  const monthStart = `${month}-01`;
+  const monthEnd = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  const nuevaCampania = (mk: 'Craft' | 'Craft Café'): Campania => ({ marca: mk, campania: '', detalle: '', producto: '', precio: 0, precio_desc: 0, desde: monthStart, hasta: monthEnd });
+
+  const [rows, setRows] = useState<Campania[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filtro, setFiltro] = useState<'all' | 'Craft' | 'Craft Café'>('all');
+  const [form, setForm] = useState<Campania>(nuevaCampania('Craft'));
+  const [editId, setEditId] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      // Campañas cuyo rango de fechas se solapa con el mes seleccionado.
+      const { data, error } = await supabase.from('py_campanias').select('*')
+        .lte('desde', monthEnd).gte('hasta', monthStart).order('desde', { ascending: true });
+      if (error) throw error;
+      setRows(((data as any[]) || []).map(r => ({ ...r, precio: Number(r.precio) || 0, precio_desc: Number(r.precio_desc) || 0 })));
+    } catch (e: any) { setErr(e.message || String(e)); }
+    finally { setLoading(false); }
+  }, [monthStart, monthEnd]);
+  useEffect(() => { load(); }, [load]);
+
+  const resetForm = () => { setForm(nuevaCampania('Craft')); setEditId(null); };
+  const startEdit = (c: Campania) => { setEditId(c.id!); setForm({ ...c, desde: c.desde || monthStart, hasta: c.hasta || monthEnd }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+  const save = async () => {
+    if (isReadOnly) { alert(READONLY_MSG); return; }
+    if (!form.producto.trim()) { setErr('Falta el producto.'); return; }
+    if (!(form.precio > 0)) { setErr('El precio debe ser mayor a 0.'); return; }
+    if (form.hasta < form.desde) { setErr('La fecha "Hasta" no puede ser anterior a "Desde".'); return; }
+    setSaving(true); setErr(null);
+    try {
+      const payload = { marca: form.marca, campania: form.campania.trim(), detalle: form.detalle.trim(), producto: form.producto.trim(), precio: form.precio, precio_desc: form.precio_desc, desde: form.desde, hasta: form.hasta };
+      if (editId != null) { const { error } = await supabase.from('py_campanias').update(payload).eq('id', editId); if (error) throw error; }
+      else { const { error } = await supabase.from('py_campanias').insert(payload); if (error) throw error; }
+      resetForm(); await load();
+    } catch (e: any) { setErr(e.message || String(e)); }
+    finally { setSaving(false); }
+  };
+  const del = async (id: number) => {
+    if (isReadOnly) { alert(READONLY_MSG); return; }
+    if (!window.confirm('¿Eliminar esta campaña?')) return;
+    try { const { error } = await supabase.from('py_campanias').delete().eq('id', id); if (error) throw error; if (editId === id) resetForm(); await load(); }
+    catch (e: any) { setErr(e.message || String(e)); }
+  };
+
+  const lista = filtro === 'all' ? rows : rows.filter(r => (r.marca || 'Craft') === filtro);
+  const descPct = (p: number, pd: number) => p > 0 ? ((p - pd) / p) * 100 : 0;
+  const inp = 'bg-bg-accent border border-border-dim rounded-lg px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-rose-500';
+
+  return (
+    <div className="space-y-4">
+      {/* Formulario alta/edición */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] font-black uppercase tracking-widest text-text-dim flex items-center gap-1.5">
+            <Percent size={13} className="text-rose-500" /> {editId != null ? 'Editar campaña' : 'Agregar campaña'} · {monthLabel(month)}
+          </div>
+          {editId != null && <button onClick={resetForm} className="text-[10px] font-black uppercase text-text-dim hover:text-rose-500">Cancelar edición</button>}
+        </div>
+        <div className="flex gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/60 w-fit">
+          {([['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setForm(f => ({ ...f, marca: k }))}
+              className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded', form.marca === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
+              <span className={cn('inline-block w-1.5 h-1.5 rounded-full', k === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />{l}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Campaña</span><input className={inp} value={form.campania} onChange={e => setForm(f => ({ ...f, campania: e.target.value }))} placeholder="Ej. Semana del Cliente" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Producto</span><input className={inp} value={form.producto} onChange={e => setForm(f => ({ ...f, producto: e.target.value }))} placeholder="Ej. Ensalada Caesar" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Precio</span><input type="number" className={inp} value={form.precio || ''} onChange={e => setForm(f => ({ ...f, precio: Number(e.target.value) }))} /></label>
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Precio c/Descuento</span><input type="number" className={inp} value={form.precio_desc || ''} onChange={e => setForm(f => ({ ...f, precio_desc: Number(e.target.value) }))} /></label>
+          <label className="flex flex-col gap-1 lg:col-span-2"><span className="text-[9px] font-black uppercase text-text-dim">Detalle</span><input className={inp} value={form.detalle} onChange={e => setForm(f => ({ ...f, detalle: e.target.value }))} placeholder="Aclaraciones (opcional)" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Desde</span><input type="date" className={inp} value={form.desde} onChange={e => setForm(f => ({ ...f, desde: e.target.value }))} /></label>
+          <label className="flex flex-col gap-1"><span className="text-[9px] font-black uppercase text-text-dim">Hasta</span><input type="date" className={inp} value={form.hasta} onChange={e => setForm(f => ({ ...f, hasta: e.target.value }))} /></label>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={save} disabled={saving || isReadOnly}
+            className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-wider disabled:opacity-50">
+            {editId != null ? <><CheckCircle2 size={13} /> Guardar cambios</> : <><Plus size={13} /> Agregar</>}
+          </button>
+          <span className="text-[10px] text-text-dim font-bold">Descuento: <b className="text-rose-500">{fmtPct(descPct(form.precio, form.precio_desc))}</b></span>
+          {err && <span className="text-[10px] text-red-500 font-bold flex items-center gap-1"><AlertTriangle size={12} />{err}</span>}
+        </div>
+      </div>
+
+      {/* Filtro por marca */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {([['all', 'Todas'], ['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setFiltro(k)}
+              className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', filtro === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+          ))}
+        </div>
+        {loading && <RefreshCw size={13} className="animate-spin text-rose-500" />}
+        <span className="text-[10px] text-text-dim font-bold">{lista.length} campaña(s) en {monthLabel(month)}</span>
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
+        <table className="w-full text-[12px] border-collapse min-w-[880px]">
+          <thead><tr className="bg-bg-accent/20 text-text-dim">
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Marca</th>
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Campaña</th>
+            <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Producto</th>
+            <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Precio</th>
+            <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">C/Desc.</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">% Desc.</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Desde</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Hasta</th>
+            <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest w-20"></th>
+          </tr></thead>
+          <tbody>
+            {lista.length === 0 ? (
+              <tr><td colSpan={9} className="p-8 text-center text-text-dim text-[11px]">No hay campañas cargadas para {monthLabel(month)}. Agregá una arriba.</td></tr>
+            ) : lista.map(c => (
+              <tr key={c.id} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                <td className="p-3 text-left whitespace-nowrap"><span className={cn('inline-block w-1.5 h-1.5 rounded-full mr-1.5', (c.marca || 'Craft') === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />{(c.marca || 'Craft') === 'Craft Café' ? 'Café' : 'Resto'}</td>
+                <td className="p-3 text-left text-text-main font-bold">{c.campania || '—'}{c.detalle && <div className="text-[10px] text-text-dim font-normal">{c.detalle}</div>}</td>
+                <td className="p-3 text-left text-text-main">{c.producto}</td>
+                <td className="p-3 text-right font-mono text-text-dim line-through">{fmt(c.precio)}</td>
+                <td className="p-3 text-right font-mono text-text-main font-bold">{fmt(c.precio_desc)}</td>
+                <td className="p-3 text-center font-mono text-rose-500 font-bold">{fmtPct(descPct(c.precio, c.precio_desc))}</td>
+                <td className="p-3 text-center font-mono text-text-dim whitespace-nowrap">{c.desde ? dmy(c.desde) : '—'}</td>
+                <td className="p-3 text-center font-mono text-text-dim whitespace-nowrap">{c.hasta ? dmy(c.hasta) : '—'}</td>
+                <td className="p-3 text-center whitespace-nowrap">
+                  <button onClick={() => startEdit(c)} className="p-1.5 text-text-dim hover:text-rose-500" title="Editar"><Pencil size={13} /></button>
+                  <button onClick={() => del(c.id!)} className="p-1.5 text-text-dim hover:text-red-500" title="Eliminar"><Trash2 size={13} /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-text-dim flex items-center gap-1.5"><Info size={12} /> Carga manual de promociones por marca. Se listan las campañas cuyo rango de fechas cae dentro del mes seleccionado. El % de descuento se calcula solo (precio vs. precio con descuento).</p>
     </div>
   );
 }
