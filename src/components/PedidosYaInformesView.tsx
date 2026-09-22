@@ -1115,7 +1115,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
   const [anio, setAnio] = useState(dy);
   const [mes, setMes] = useState(dm);
   const [semana, setSemana] = useState(0); // 0 = mes completo
-  const [marcaProd, setMarcaProd] = useState<'Craft' | 'Craft Café'>('Craft'); // solo para "Ventas por producto"
+  const [marcaProd, setMarcaProd] = useState<'Craft' | 'Craft Café' | null>(null); // solo para "Ventas por producto"; null = no aplica
   useEffect(() => { setAnio(dy); setMes(dm); }, [dy, dm]);
 
   const handleFiles = async (files: FileList | null) => {
@@ -1123,7 +1123,10 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
     if (isReadOnly) { alert(READONLY_MSG); return; }
     const arr = Array.from(files);
     const per = semana === 0 ? `${MESES[mes - 1]} ${anio} (mes completo)` : `${MESES[mes - 1]} ${anio} · Semana ${semana} (${SEM_RANGO[semana - 1]})`;
-    if (!window.confirm(`¿Importar ${arr.length} archivo(s)?\n\n· ${arr.map(f => f.name).join('\n· ')}\n\nEl RESUMEN DE VENTAS (todos los locales) se cargará en: ${per}.\nEl RANKING de "Ventas por producto" se cargará como marca: ${marcaProd === 'Craft Café' ? 'CRAFT CAFÉ' : 'CRAFT RESTO'}.\nEl estado de cuenta / PDF usan sus propias fechas.\n\nReimportar reemplaza esos datos, no los duplica.`)) return;
+    const marcaLinea = marcaProd == null
+      ? 'La marca está en "NO APLICA": si alguno es el ranking "Ventas por producto", primero elegí la marca.'
+      : `El RANKING de "Ventas por producto" se cargará como marca: ${marcaProd === 'Craft Café' ? 'CRAFT CAFÉ' : 'CRAFT RESTO'}.`;
+    if (!window.confirm(`¿Importar ${arr.length} archivo(s)?\n\n· ${arr.map(f => f.name).join('\n· ')}\n\nEl RESUMEN DE VENTAS (todos los locales) se cargará en: ${per}.\n${marcaLinea}\nEl estado de cuenta / PDF usan sus propias fechas.\n\nReimportar reemplaza esos datos, no los duplica.`)) return;
     setBusy(true); setMsg(null);
     const results: string[] = []; let anyErr = false;
     for (const file of arr) {
@@ -1174,14 +1177,14 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
         <div className="mt-3 pt-3 border-t border-border-dim/60 flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-black uppercase tracking-widest text-text-dim">Marca del "Ventas por producto":</span>
           <div className="flex gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/60">
-            {([['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
-              <button key={k} onClick={() => setMarcaProd(k)}
+            {([[null, 'No aplica'], ['Craft', 'Craft Resto'], ['Craft Café', 'Craft Café']] as const).map(([k, l]) => (
+              <button key={l} onClick={() => setMarcaProd(k)}
                 className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded', marcaProd === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>
-                <span className={cn('inline-block w-1.5 h-1.5 rounded-full', k === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />{l}
+                {k && <span className={cn('inline-block w-1.5 h-1.5 rounded-full', k === 'Craft Café' ? 'bg-amber-500' : 'bg-rose-500')} />}{l}
               </button>
             ))}
           </div>
-          <span className="text-[10px] text-text-dim font-bold">bajá un archivo por cada marca (seleccionando esos locales en el portal) y elegí acá cuál es antes de subirlo</span>
+          <span className="text-[10px] text-text-dim font-bold">Solo importás "Ventas por producto"? Elegí la marca. Para el resto (Comercial, Operativo, etc.) dejá <b className="text-text-main">No aplica</b>: ya vienen discriminados.</span>
         </div>
       </div>
 
@@ -1212,7 +1215,7 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
 }
 
 // ── dispatch de importación ──────────────────────────────────────────────────
-type ImpCtx = { anio: number; mes: number; semana: number; marca?: string };
+type ImpCtx = { anio: number; mes: number; semana: number; marca?: string | null };
 async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop();
   if (ext === 'pdf') return importLiquidacionPDF(file);
@@ -1333,6 +1336,7 @@ async function importPopularDishes(sheets: Record<string, any[][]>, names: strin
     importe: ['ventas', 'sales', 'importe', 'monto', 'revenue'],
   });
   if (!f || f.idx.producto == null) throw new Error('no reconocí las columnas del ranking de productos (esperado: Producto, Total, Ventas).');
+  if (ctx.marca !== 'Craft' && ctx.marca !== 'Craft Café') throw new Error('es el ranking "Ventas por producto": elegí la marca (Craft Resto o Craft Café) arriba antes de subirlo — está en "No aplica".');
   const marca = ctx.marca === 'Craft Café' ? 'Craft Café' : 'Craft';
   const out: ProductoPeriodo[] = [];
   const seen = new Set<string>();
