@@ -1150,7 +1150,8 @@ function ImportarTab({ isReadOnly, onDone, defMonth }: { isReadOnly: boolean; on
             <li><b className="text-text-main">Reporte detallado de campañas</b> (Publicidad en la app → Descargar) → inversión, ROAS y % de ads (usa sus fechas).</li>
             <li><b className="text-text-main">Resumen de Operaciones – todos los locales</b> (Reportes → Operaciones → Descargar) → no disponible, cancelaciones, espera, preparación, reclamos y marcados listos por local. Sin fechas: elegí abajo la <b>semana</b>.</li>
             <li><b className="text-text-main">Ventas por producto</b> (Reportes → Ventas → "Ventas por producto" → Descargar) → ranking de productos por unidades e importe. El archivo es consolidado (no separa Resto de Café): bajá <b>uno con los locales Resto</b> y <b>otro con los Café</b>, y elegí abajo la <b>marca</b> antes de subir cada uno. Sin fechas: elegí también la <b>semana</b> o "mes completo".</li>
-            <li><b className="text-text-main">Estado de cuenta (Excel)</b> → reclamos y detalle por pedido (usa sus fechas).</li>
+            <li><b className="text-text-main">Estado de cuenta (Excel)</b> → alimenta <b>Comercial</b>, <b>Por día</b> y <b>Reclamos</b> (venta y pedidos por local/día + detalle de reclamos con monto). Usa sus fechas.</li>
+            <li><b className="text-text-main">Detalle de pedidos</b> (Pedidos → exportar) → una fila por pedido con local, fecha y hora. También alimenta <b>Comercial</b> y <b>Por día</b>. Bajalo con <b>todos los locales</b> (cada fila trae su local). No incluye el monto de los reclamos: para eso usá el estado de cuenta.</li>
             <li><b className="text-text-main">Estado de cuenta (PDF)</b> → liquidación / P&amp;L (período domingo a sábado).</li>
           </ul>
         </div>
@@ -1228,6 +1229,11 @@ async function importOne(file: File, ctx: ImpCtx): Promise<string> {
   const headerTxt = first.slice(0, 5).flat().map((c: any) => norm(c).toLowerCase()).join(' ');
   if (headerTxt.includes('monto bruto de la venta') || (headerTxt.includes('sucursal') && headerTxt.includes('venta neta'))) {
     return importEstadoCuentaXLSX(sheets, wb.SheetNames);
+  }
+  // "Detalle de pedidos" (Pedidos → exportar) → una fila por pedido con local, fecha y hora.
+  if (headerTxt.includes('nombre del local') && headerTxt.includes('estado del pedido') &&
+      (headerTxt.includes('total parcial') || headerTxt.includes('ingreso estimado'))) {
+    return importOrderDetails(sheets, wb.SheetNames);
   }
   if (headerTxt.includes('retorno de la inversi') || (headerTxt.includes('clicks') && headerTxt.includes('costo') && headerTxt.includes('ingresos'))) {
     return importAdsDetallado(sheets, wb.SheetNames);
@@ -1527,6 +1533,58 @@ async function importEstadoCuentaXLSX(sheets: Record<string, any[][]>, names: st
   }
   const sorted = dateArr.sort();
   return `estado de cuenta · ${comRows.length} filas (${dmy(sorted[0])}–${dmy(sorted[sorted.length - 1])}), ${reclamoRows.length} reclamos/reintegros.`;
+}
+
+// ── Detalle de pedidos (orderDetails, una fila por pedido, con local y fecha) ──
+// Alimenta la MISMA vista Por día / Comercial que el estado de cuenta (py_comercial_dia).
+async function importOrderDetails(sheets: Record<string, any[][]>, names: string[]): Promise<string> {
+  const s1 = sheets[names[0]] || [];
+  const found = findCols(s1, {
+    local: ['nombre del local'],
+    fecha: ['fecha del pedido', 'fecha de pedido', 'fecha'],
+    estado: ['estado del pedido'],
+    parcial: ['total parcial'],
+    ingreso: ['ingreso estimado'],
+    comision: ['comisión', 'comision'],
+    pago: ['forma de pago'],
+    entrega: ['método de entrega', 'metodo de entrega'],
+    descuento: ['descuento financiado por usted'],
+  });
+  if (!found) throw new Error('no reconocí las columnas del detalle de pedidos.');
+  const { headerRow, idx } = found;
+  type Acc = { fecha: string; sucursal: string; marca: string; pedidos: number; venta_bruta: number; venta_neta: number; comision: number; venta_app: number; venta_fuera_app: number; pedidos_app: number; pedidos_fuera_app: number; venta_envio: number; venta_retiro: number; pedidos_envio: number; pedidos_retiro: number; descuentos: number; rechazados: number };
+  const map: Record<string, Acc> = {};
+  const dates = new Set<string>();
+  for (let i = headerRow + 1; i < s1.length; i++) {
+    const r = s1[i]; if (!r) continue;
+    const sucursal = norm(r[idx.local]); if (!sucursal) continue;
+    const fecha = parseFechaISO(r[idx.fecha]); if (!fecha) continue;
+    dates.add(fecha);
+    const key = `${fecha}|${sucursal}`;
+    const a = (map[key] ||= { fecha, sucursal, marca: deriveMarca(sucursal), pedidos: 0, venta_bruta: 0, venta_neta: 0, comision: 0, venta_app: 0, venta_fuera_app: 0, pedidos_app: 0, pedidos_fuera_app: 0, venta_envio: 0, venta_retiro: 0, pedidos_envio: 0, pedidos_retiro: 0, descuentos: 0, rechazados: 0 });
+    const estado = idx.estado != null ? norm(r[idx.estado]).toLowerCase() : '';
+    // Cancelado / rechazado: no cuenta como venta ni pedido facturado; solo se registra como rechazado.
+    if (estado.includes('cancel') || estado.includes('rechaz') || estado.includes('anul')) { a.rechazados += 1; continue; }
+    const bruto = toNum(r[idx.parcial]);
+    const neta = idx.ingreso != null ? toNum(r[idx.ingreso]) : bruto;
+    a.pedidos += 1; a.venta_bruta += bruto; a.venta_neta += neta;
+    a.comision += idx.comision != null ? toNum(r[idx.comision]) : 0;
+    a.descuentos += idx.descuento != null ? toNum(r[idx.descuento]) : 0;
+    const pago = idx.pago != null ? norm(r[idx.pago]).toLowerCase() : '';
+    // Efectivo = pago fuera de la app; online = dentro de la app.
+    if (pago.includes('efectivo') || pago.includes('fuera')) { a.venta_fuera_app += neta; a.pedidos_fuera_app += 1; } else { a.venta_app += neta; a.pedidos_app += 1; }
+    const entrega = idx.entrega != null ? norm(r[idx.entrega]).toLowerCase() : '';
+    if (entrega.includes('retir') || entrega.includes('pickup')) { a.venta_retiro += neta; a.pedidos_retiro += 1; } else { a.venta_envio += neta; a.pedidos_envio += 1; }
+  }
+  const comRows = Object.values(map);
+  if (comRows.length === 0) throw new Error('sin filas de pedidos válidas en el detalle.');
+  const dateArr = Array.from(dates);
+  const CHUNK = 400;
+  for (let i = 0; i < dateArr.length; i += 200) await supabase.from('py_comercial_dia').delete().in('fecha', dateArr.slice(i, i + 200));
+  for (let i = 0; i < comRows.length; i += CHUNK) { const { error } = await supabase.from('py_comercial_dia').insert(comRows.slice(i, i + CHUNK)); if (error) throw new Error('guardando comercial: ' + error.message); }
+  const totPed = comRows.reduce((s, a) => s + a.pedidos, 0);
+  const sorted = dateArr.sort();
+  return `detalle de pedidos · ${totPed} pedidos, ${comRows.length} local-día (${dmy(sorted[0])}–${dmy(sorted[sorted.length - 1])}). No trae el monto de los reclamos: para el detalle de reclamos usá el estado de cuenta.`;
 }
 
 // ── Estado de cuenta PDF (liquidación) ────────────────────────────────────────
