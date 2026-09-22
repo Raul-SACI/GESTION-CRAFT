@@ -967,6 +967,7 @@ function ReclamosTab({ reclamos, comDia, semaforos, onGoImport }: { reclamos: Re
 function RankingTab({ productos, month, loading, onGoImport }: { productos: ProductoPeriodo[]; month: string; loading: boolean; onGoImport: () => void }) {
   const [orden, setOrden] = useState<'importe' | 'unidades'>('importe');
   const [marca, setMarca] = useState<'Craft' | 'Craft Café'>('Craft');
+  const [semSel, setSemSel] = useState<'all' | number>('all');
   const [search, setSearch] = useState('');
   if (loading && productos.length === 0) return <Loader />;
   if (productos.length === 0) return <Empty onGoImport={onGoImport} msg={`No hay ranking de productos para ${monthLabel(month)}. Importá el reporte "Ventas por producto" de Pedidos Ya (Reportes → Ventas → Ventas por producto → Descargar), uno para Resto y otro para Café.`} />;
@@ -975,26 +976,39 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
   const hayCafe = productos.some(p => (p.marca || 'Craft') === 'Craft Café');
   const marcaActiva: 'Craft' | 'Craft Café' = (marca === 'Craft Café' && hayCafe) ? 'Craft Café' : (marca === 'Craft' && hayResto) ? 'Craft' : (hayCafe ? 'Craft Café' : 'Craft');
 
-  // Si se importó por semana, un mismo producto viene en varias filas: se suman unidades e importe.
-  const map = new Map<string, { producto: string; unidades: number; importe: number }>();
-  productos.filter(p => (p.marca || 'Craft') === marcaActiva).forEach(p => {
-    const k = (p.producto || '').trim().toUpperCase();
-    const e = map.get(k) || { producto: p.producto, unidades: 0, importe: 0 };
-    e.unidades += p.unidades; e.importe += p.importe; map.set(k, e);
-  });
+  const rowsMarca = productos.filter(p => (p.marca || 'Craft') === marcaActiva);
+  // Semanas del negocio con datos cargados (1-4); si solo hay import "mes completo" (semana 0), no hay chips.
+  const semanasConDatos = Array.from(new Set(rowsMarca.map(p => p.semana).filter(s => s >= 1 && s <= 4))).sort((a, b) => a - b);
+  const semActiva: 'all' | number = (semSel !== 'all' && semanasConDatos.includes(semSel as number)) ? semSel : 'all';
+
+  // Suma un conjunto de filas por producto.
+  const buildMap = (rows: ProductoPeriodo[]) => {
+    const m = new Map<string, { producto: string; unidades: number; importe: number }>();
+    rows.forEach(p => { const k = (p.producto || '').trim().toUpperCase(); const e = m.get(k) || { producto: p.producto, unidades: 0, importe: 0 }; e.unidades += p.unidades; e.importe += p.importe; m.set(k, e); });
+    return m;
+  };
+  const curRows = semActiva === 'all' ? rowsMarca : rowsMarca.filter(p => p.semana === semActiva);
+  const map = buildMap(curRows);
+  // Semana anterior (para la variación), solo si hay una semana puntual elegida y la previa tiene datos.
+  const prevSem = typeof semActiva === 'number' ? semActiva - 1 : 0;
+  const prevMap = (typeof semActiva === 'number' && semanasConDatos.includes(prevSem)) ? buildMap(rowsMarca.filter(p => p.semana === prevSem)) : null;
+  const showVar = !!prevMap;
+  const metricOf = (u: number, i: number) => orden === 'importe' ? i : u;
+
   const totU = Array.from(map.values()).reduce((s, p) => s + p.unidades, 0);
   const totI = Array.from(map.values()).reduce((s, p) => s + p.importe, 0);
   const q = search.trim().toLowerCase();
   let lista = Array.from(map.values());
   if (q) lista = lista.filter(p => p.producto.toLowerCase().includes(q));
   lista.sort((a, b) => orden === 'importe' ? b.importe - a.importe : b.unidades - a.unidades);
+  const scopeLabel = semActiva === 'all' ? 'total del mes' : `Sem ${semActiva} (${SEM_RANGO[(semActiva as number) - 1]})`;
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <HeroCard label="Productos distintos" value={fmtNum(map.size)} sub="en el ranking" accent="rose" />
-        <HeroCard label="Unidades vendidas" value={fmtNum(totU)} sub="total del mes" accent="emerald" />
-        <HeroCard label="Importe total" value={fmt(totI)} sub="ventas por producto" accent="red" />
+        <HeroCard label="Productos distintos" value={fmtNum(map.size)} sub={`en el ranking · ${scopeLabel}`} accent="rose" />
+        <HeroCard label="Unidades vendidas" value={fmtNum(totU)} sub={scopeLabel} accent="emerald" />
+        <HeroCard label="Importe total" value={fmt(totI)} sub={`ventas por producto · ${scopeLabel}`} accent="red" />
       </div>
       <div className="flex flex-wrap items-center gap-2 justify-between">
         <div className="flex flex-wrap items-center gap-2">
@@ -1012,6 +1026,16 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
                 className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', orden === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
             ))}
           </div>
+          {semanasConDatos.length > 0 && (
+            <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+              <button onClick={() => setSemSel('all')}
+                className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', semActiva === 'all' ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>Mes</button>
+              {semanasConDatos.map(s => (
+                <button key={s} onClick={() => setSemSel(s)}
+                  className={cn('px-2.5 py-1.5 text-[10px] font-black uppercase rounded', semActiva === s ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>Sem {s}</button>
+              ))}
+            </div>
+          )}
         </div>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar producto…"
           className="bg-bg-card border border-border-dim rounded px-3 py-1.5 text-[11px] text-text-main outline-none w-[220px]" />
@@ -1025,10 +1049,15 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Importe</th>
             <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">% s/total</th>
             <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Ticket prom.</th>
+            {showVar && <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs Sem {prevSem}</th>}
           </tr></thead>
           <tbody>{lista.map((p, i) => {
             const pct = orden === 'importe' ? (totI > 0 ? (p.importe / totI) * 100 : 0) : (totU > 0 ? (p.unidades / totU) * 100 : 0);
             const tk = p.unidades > 0 ? p.importe / p.unidades : 0;
+            const prev = prevMap?.get((p.producto || '').trim().toUpperCase());
+            const curM = metricOf(p.unidades, p.importe);
+            const prevM = prev ? metricOf(prev.unidades, prev.importe) : null;
+            const varPct = (prevM != null && prevM > 0) ? ((curM - prevM) / prevM) * 100 : null;
             return (
               <tr key={p.producto} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
                 <td className="p-3 text-center font-mono text-text-dim">{i + 1}</td>
@@ -1037,6 +1066,15 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
                 <td className="p-3 text-right font-mono text-text-main">{fmt(p.importe)}</td>
                 <td className="p-3 text-center font-mono text-text-dim">{fmtPct(pct)}</td>
                 <td className="p-3 text-right font-mono text-text-dim">{fmt(tk)}</td>
+                {showVar && (
+                  <td className="p-3 text-center">
+                    {!prev ? <span className="text-[9px] font-black uppercase text-amber-500">nuevo</span>
+                      : varPct == null ? <span className="text-text-dim">—</span>
+                        : <span className={cn('inline-flex items-center gap-0.5 font-mono font-bold text-[11px]', Math.abs(varPct) < 0.05 ? 'text-text-dim' : varPct > 0 ? 'text-emerald-500' : 'text-red-500')}>
+                          {Math.abs(varPct) < 0.05 ? <Minus size={11} /> : varPct > 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}{varPct > 0 ? '+' : ''}{varPct.toFixed(1)}%
+                        </span>}
+                  </td>
+                )}
               </tr>
             );
           })}</tbody>
@@ -1046,6 +1084,7 @@ function RankingTab({ productos, month, loading, onGoImport }: { productos: Prod
             <td className="p-3 text-right font-mono text-text-main">{fmt(totI)}</td>
             <td className="p-3 text-center font-mono text-text-dim">100%</td>
             <td className="p-3 text-right font-mono text-text-dim">{fmt(totU > 0 ? totI / totU : 0)}</td>
+            {showVar && <td className="p-3 text-center font-mono text-text-dim">{(() => { const cM = orden === 'importe' ? totI : totU; let pM = 0; prevMap!.forEach(v => { pM += orden === 'importe' ? v.importe : v.unidades; }); const vp = pM > 0 ? ((cM - pM) / pM) * 100 : null; return vp == null ? '—' : <span className={cn(vp > 0 ? 'text-emerald-500' : 'text-red-500')}>{vp > 0 ? '+' : ''}{vp.toFixed(1)}%</span>; })()}</td>}
           </tr></tfoot>
         </table>
       </div>
