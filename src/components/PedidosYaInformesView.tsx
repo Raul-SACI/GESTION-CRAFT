@@ -1104,16 +1104,20 @@ function RankingTab({ productos, campanias, month, loading, onGoImport }: { prod
 
   const totU = Array.from(map.values()).reduce((s, p) => s + p.unidades, 0);
   const totI = Array.from(map.values()).reduce((s, p) => s + p.importe, 0);
-  // Cruce con Campañas del Mes (misma marca): marca qué productos estuvieron en promo.
+  // Cruce con Campañas del Mes: marca qué productos estuvieron en promo.
+  // Prioriza la MISMA marca; si no hay, usa la campaña de la otra marca (Resto/Café comparten productos).
   const nrm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toUpperCase();
   const campMarca = campanias.filter(c => (c.marca || 'Craft') === marcaActiva);
-  const promoExact = new Map<string, Campania>();
-  campMarca.forEach(c => { const k = nrm(c.producto); if (k) promoExact.set(k, c); });
+  const buildExact = (arr: Campania[]) => { const m = new Map<string, Campania>(); arr.forEach(c => { const k = nrm(c.producto); if (k && !m.has(k)) m.set(k, c); }); return m; };
+  const exactSame = buildExact(campMarca);
+  const exactAny = buildExact(campanias);
+  const findPartial = (arr: Campania[], k: string): Campania | null => {
+    for (const c of arr) { const ck = nrm(c.producto); if (ck.length >= 4 && (k.includes(ck) || ck.includes(k))) return c; }
+    return null;
+  };
   const promoOf = (producto: string): Campania | null => {
     const k = nrm(producto); if (!k) return null;
-    const e = promoExact.get(k); if (e) return e;
-    for (const c of campMarca) { const ck = nrm(c.producto); if (ck.length >= 4 && (k.includes(ck) || ck.includes(k))) return c; }
-    return null;
+    return exactSame.get(k) || findPartial(campMarca, k) || exactAny.get(k) || findPartial(campanias, k) || null;
   };
   const descPct = (c: Campania) => c.precio > 0 ? ((c.precio - c.precio_desc) / c.precio) * 100 : 0;
 
@@ -1159,7 +1163,7 @@ function RankingTab({ productos, campanias, month, loading, onGoImport }: { prod
               ))}
             </div>
           )}
-          {campMarca.length > 0 && (
+          {campanias.length > 0 && (
             <button onClick={() => setSoloPromo(v => !v)}
               className={cn('flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase rounded border', soloPromo ? 'bg-rose-600 text-white border-rose-600' : 'bg-bg-accent/30 border-border-dim/60 text-text-dim hover:text-text-main')}>
               <Percent size={11} /> Solo promo ({nEnPromo})
@@ -1205,7 +1209,7 @@ function RankingTab({ productos, campanias, month, loading, onGoImport }: { prod
                   <span className="inline-flex items-center gap-1.5">
                     {p.producto}
                     {promo && (
-                      <span title={`${promo.campania || 'Promo'}${promo.detalle ? ' · ' + promo.detalle : ''}\n${fmt(promo.precio)} → ${fmt(promo.precio_desc)} (${fmtPct(descPct(promo))} off)`}
+                      <span title={`${promo.campania || 'Promo'}${promo.detalle ? ' · ' + promo.detalle : ''}\n${fmt(promo.precio)} → ${fmt(promo.precio_desc)} (${fmtPct(descPct(promo))} off)\nMarca de la campaña: ${(promo.marca || 'Craft') === 'Craft Café' ? 'Craft Café' : 'Craft Resto'}`}
                         className="inline-flex items-center gap-0.5 text-[8px] font-black uppercase tracking-wider text-white bg-rose-600 rounded px-1.5 py-0.5">
                         <Percent size={9} />{fmtPct(descPct(promo), 0)}
                       </span>
