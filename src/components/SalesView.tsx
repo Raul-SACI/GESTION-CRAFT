@@ -162,7 +162,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
   const [rkFilterCode, setRkFilterCode] = useState('');
   const [rkFilterCategories, setRkFilterCategories] = useState<string[]>([]);
   const [rkFilterBranch, setRkFilterBranch] = useState('all');
-  const [rkFilterPeriod, setRkFilterPeriod] = useState('all');
+  const [rkFilterPeriods, setRkFilterPeriods] = useState<string[]>([]); // vacío = no se muestra nada hasta elegir mes/semana
   const [rkSelected, setRkSelected] = useState<Set<string>>(new Set());
   const [isImportingRanking, setIsImportingRanking] = useState(false);
   const [rankingToImport, setRankingToImport] = useState<{
@@ -535,18 +535,40 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
     [rankings]
   );
 
-  // Tabla de ranking con filtros por columna aplicados
+  // Tabla de ranking con filtros por columna aplicados.
+  // Sin período elegido no se muestra nada: evita el scroll infinito con TODO lo cargado.
   const filteredRankings = useMemo(() => {
+    if (rkFilterPeriods.length === 0) return [];
     return rankings.filter(r => {
       if (rkFilterProduct && !(r.product_name || '').toUpperCase().includes(rkFilterProduct.toUpperCase())) return false;
       if (rkFilterCode && !(String(r.product_code || '')).toUpperCase().includes(rkFilterCode.toUpperCase())) return false;
       if (rkFilterCategories.length > 0 && !rkFilterCategories.includes((r.category || '').trim())) return false;
       if (rkFilterBranch !== 'all' && r.branch_id !== rkFilterBranch) return false;
       const period = `${r.month || ''}${r.week_number ? ` · S${r.week_number}` : ''}`;
-      if (rkFilterPeriod !== 'all' && period !== rkFilterPeriod) return false;
+      if (!rkFilterPeriods.includes(period)) return false;
       return true;
     });
-  }, [rankings, rkFilterProduct, rkFilterCode, rkFilterCategories, rkFilterBranch, rkFilterPeriod]);
+  }, [rankings, rkFilterProduct, rkFilterCode, rkFilterCategories, rkFilterBranch, rkFilterPeriods]);
+
+  // Cobertura de carga: por mes → por semana, cuántas sucursales con datos (y cuáles faltan).
+  const rankingCoverage = useMemo(() => {
+    const byMonth: Record<string, Record<string, Set<string>>> = {};
+    rankings.forEach(r => {
+      const mo = r.month || '—';
+      const wk = r.week_number ? `S${r.week_number}` : 'Mes';
+      (byMonth[mo] ||= {});
+      (byMonth[mo][wk] ||= new Set());
+      byMonth[mo][wk].add(r.branch_id);
+    });
+    return Object.entries(byMonth).sort((a, b) => b[0].localeCompare(a[0])).map(([mo, weeks]) => ({
+      mo,
+      weeks: Object.entries(weeks).sort((a, b) => a[0].localeCompare(b[0])).map(([wk, set]) => ({
+        wk,
+        count: set.size,
+        missing: branches.filter(b => !set.has(b.id)).map(b => b.name),
+      })),
+    }));
+  }, [rankings, branches]);
 
   // --- Ranking: selección múltiple, eliminación y plantilla modelo ---
   const rkAllFilteredSelected = filteredRankings.length > 0 && filteredRankings.every(r => rkSelected.has(r.id));
@@ -2928,18 +2950,37 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="md:col-span-1 space-y-4">
                  <div className="bg-bg-sidebar border border-border-dim p-6 rounded space-y-4">
-                    <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 border-b border-border-dim pb-2">Resumen Ranking</h3>
-                    <div className="space-y-4">
-                       <div className="p-4 bg-bg-accent rounded border border-border-dim">
-                          <p className="text-[8px] font-bold text-text-dim uppercase mb-1">Registros Cargados</p>
-                          <p className="text-2xl font-mono font-black text-text-main">{rankings.length}</p>
-                       </div>
-                       <div className="p-4 bg-bg-accent rounded border border-border-dim">
-                          <p className="text-[8px] font-bold text-text-dim uppercase mb-1">Sucursales con Datos</p>
-                          <p className="text-2xl font-mono font-black text-text-main">
-                             {new Set(rankings.map(r => r.branch_id)).size}
-                          </p>
-                       </div>
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-brand-500 border-b border-border-dim pb-2">Sucursales cargadas por mes</h3>
+                    <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                       {rankingCoverage.length === 0 ? (
+                         <p className="text-[9px] text-text-dim italic uppercase opacity-60">Sin rankings cargados todavía.</p>
+                       ) : rankingCoverage.map(({ mo, weeks }) => (
+                         <div key={mo} className="p-3 bg-bg-accent rounded border border-border-dim">
+                            <p className="text-[10px] font-black text-text-main font-mono mb-1.5">{mo}</p>
+                            <div className="space-y-1.5">
+                               {weeks.map(w => {
+                                 const complete = w.missing.length === 0;
+                                 return (
+                                   <div key={w.wk}>
+                                      <div className="flex items-center justify-between">
+                                         <span className="text-[9px] font-bold text-text-dim uppercase">{w.wk}</span>
+                                         <span className={cn('text-[10px] font-mono font-black px-1.5 py-0.5 rounded',
+                                           complete ? 'text-emerald-500 bg-emerald-500/10' : 'text-amber-500 bg-amber-500/10')}>
+                                            {w.count}/{branches.length}
+                                         </span>
+                                      </div>
+                                      {!complete && (
+                                        <p className="text-[8px] text-red-400 font-bold mt-0.5 leading-tight">Faltan: {w.missing.join(', ')}</p>
+                                      )}
+                                   </div>
+                                 );
+                               })}
+                            </div>
+                         </div>
+                       ))}
+                    </div>
+                    <div className="pt-2 border-t border-border-dim">
+                       <p className="text-[8px] font-bold text-text-dim uppercase">Registros cargados (total): <span className="font-mono text-text-main">{rankings.length}</span></p>
                     </div>
                  </div>
 
@@ -2949,7 +2990,7 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                        <span className="text-[10px] font-black uppercase">Filtro Rápido</span>
                     </div>
                     <p className="text-[9px] text-text-dim leading-relaxed uppercase font-bold">
-                       Use el selector de sucursal arriba para ver el ranking específico de un punto de venta.
+                       En la tabla de abajo, elegí uno o varios meses/semanas en el filtro <span className="text-brand-500">Mes / Semana</span> para ver el detalle. Verde = todas las sucursales cargadas; ámbar = faltan.
                     </p>
                  </div>
               </div>
@@ -3037,17 +3078,18 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                    </select>
                                 </th>
                                 <th className="px-3 py-2">
-                                   <select value={rkFilterPeriod} onChange={(e) => setRkFilterPeriod(e.target.value)}
-                                     className="w-full bg-bg-card border border-border-dim rounded px-2 py-1 text-[9px] font-normal normal-case text-text-main">
-                                      <option value="all">Todos</option>
-                                      {rkPeriodOptions.map(p => <option key={p} value={p}>{p}</option>)}
-                                   </select>
+                                   <CategoryMultiSelect
+                                     options={rkPeriodOptions}
+                                     selected={rkFilterPeriods}
+                                     onChange={setRkFilterPeriods}
+                                     labelAll="Elegí…"
+                                   />
                                 </th>
                                 <th className="px-2 py-2"></th>
                                 <th className="px-2 py-2"></th>
                              </tr>
                           </thead>
-                          <tbody key={`rk-${rkFilterBranch}-${rkFilterPeriod}-${rkFilterProduct}-${rkFilterCode}-${rkFilterCategories.join(',')}`} className="divide-y divide-border-dim">
+                          <tbody key={`rk-${rkFilterBranch}-${rkFilterPeriods.join('|')}-${rkFilterProduct}-${rkFilterCode}-${rkFilterCategories.join(',')}`} className="divide-y divide-border-dim">
                              {loading && rankings.length === 0 ? (
                                <tr>
                                   <td colSpan={9} className="px-6 py-20 text-center text-brand-500 uppercase font-black tracking-widest">
@@ -3061,7 +3103,9 @@ export default function SalesView({ branches, selectedBranchId, products, isRead
                                   <td colSpan={9} className="px-6 py-20 text-center text-text-dim italic uppercase opacity-50">
                                      {rankings.length === 0
                                        ? 'No hay rankings cargados. Use el botón "Importar Ranking" para cargar un Excel.'
-                                       : 'Ningún producto coincide con los filtros aplicados.'}
+                                       : rkFilterPeriods.length === 0
+                                         ? 'Elegí uno o más meses/semanas en el filtro "Mes / Semana" para ver el detalle.'
+                                         : 'Ningún producto coincide con los filtros aplicados.'}
                                   </td>
                                </tr>
                              ) : (
