@@ -217,6 +217,23 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
   const prevMonth = () => { const d = new Date(yy, mm - 2, 1); setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
   const nextMonth = () => { const d = new Date(yy, mm, 1); setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); };
 
+  // "Datos cargados hasta …" según la pestaña: fecha exacta donde hay fecha; última semana donde el dato va por semana.
+  const dataUpTo = useMemo(() => {
+    const maxFecha = (arr: { fecha?: string }[]) => arr.reduce((mx, r) => (r.fecha && r.fecha > mx ? r.fecha : mx), '');
+    const lastWeek = (arr: { semana?: number }[]) => { const ws = arr.map(r => r.semana || 0).filter(w => w >= 1 && w <= 4); return ws.length ? Math.max(...ws) : 0; };
+    const byFecha = (arr: { fecha?: string }[]) => { const f = maxFecha(arr); return f ? dmy(f) : null; };
+    const bySemana = (w: number) => w ? `Sem ${w} (${SEM_RANGO[w - 1]})` : null;
+    switch (tab) {
+      case 'dia': return byFecha(comDia);
+      case 'publicidad': return byFecha(adsDia);
+      case 'reclamos': return byFecha(comDia); // el estado de cuenta trae el detalle por día
+      case 'comercial': return byFecha(comDia) || bySemana(lastWeek(periodo));
+      case 'operativo': return bySemana(lastWeek(opsPeriodo));
+      case 'ranking': return bySemana(lastWeek(productos)) || (productos.length ? 'mes completo' : null);
+      default: return null;
+    }
+  }, [tab, comDia, adsDia, periodo, opsPeriodo, productos]);
+
   // ── agregación comercial (por período) ───────────────────────────────────────
   const grupos = useMemo(() => {
     if (verPor === 'marca') return ['Craft', 'Craft Café'];
@@ -305,6 +322,11 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
           </div>
           <span className="text-[10px] text-text-dim font-bold uppercase tracking-wider">Semanas del negocio · 1: 1-7 · 2: 8-14 · 3: 15-21 · 4: 22-fin</span>
           {loading && <RefreshCw size={13} className="animate-spin text-rose-500" />}
+          {!loading && tab !== 'campanias' && (
+            dataUpTo
+              ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-2.5 py-1"><CalendarDays size={12} /> Datos cargados hasta: {dataUpTo}</span>
+              : <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-500/10 border border-amber-500/25 rounded-lg px-2.5 py-1"><AlertTriangle size={12} /> Sin datos cargados en este mes</span>
+          )}
         </div>
       )}
 
