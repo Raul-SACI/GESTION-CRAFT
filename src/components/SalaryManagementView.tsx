@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Users, 
@@ -584,6 +584,23 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
     setShowBatchUpdateModal(false);
     alert(`Actualización de sueldos aplicada exitosamente para el mes de ${batchMonth}.`);
   };
+
+  // Borrador: valores que quedarían al aplicar el lote (sin impactar todavía).
+  const batchPreview = useMemo(() => {
+    return positions
+      .filter(pos => {
+        const matchesType = batchScopeType === 'all' || pos.type === batchScopeType;
+        const matchesArea = batchScopeArea === 'all' || (pos.area || '').toUpperCase() === batchScopeArea.toUpperCase();
+        return matchesType && matchesArea;
+      })
+      .map(pos => {
+        const cur = pos.baseValue || 0;
+        const nv = batchMethod === 'percent'
+          ? Math.round(cur * (1 + (batchPercent || 0) / 100))
+          : Number(batchManualValues[pos.id] !== undefined ? batchManualValues[pos.id] : cur);
+        return { id: pos.id, title: pos.title, area: pos.area, sector: pos.sector, type: pos.type, cur, nv, delta: nv - cur, pct: cur > 0 ? ((nv - cur) / cur) * 100 : 0 };
+      });
+  }, [positions, batchScopeType, batchScopeArea, batchMethod, batchPercent, batchManualValues]);
 
   const handleExportTemplate = () => {
     const template = [
@@ -1673,6 +1690,44 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                         Se sumará un <span className="font-bold text-emerald-500">{batchPercent}%</span> a los valores vigentes de los puestos que coincidan con los filtros configurados arriba.<br />
                         Los valores actuales serán guardados en el historial como el <span className="font-bold">Valor anterior</span>.
                       </div>
+                    </div>
+
+                    {/* Borrador de nuevos valores (no impacta hasta aplicar) */}
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-text-main uppercase tracking-wider block">Borrador · nuevos valores (previsualización)</label>
+                        <span className="text-[9px] font-bold text-text-dim uppercase">{batchPreview.length} puesto(s) afectado(s)</span>
+                      </div>
+                      <div className="border border-border-dim rounded-lg overflow-hidden max-h-[260px] overflow-y-auto">
+                        <table className="w-full text-left border-collapse text-[11px]">
+                          <thead className="sticky top-0">
+                            <tr className="bg-bg-accent text-text-dim border-b border-border-dim font-black uppercase text-[10px]">
+                              <th className="px-4 py-2.5">Puesto</th>
+                              <th className="px-4 py-2.5 text-right">Valor actual</th>
+                              <th className="px-4 py-2.5 text-right">Nuevo valor</th>
+                              <th className="px-4 py-2.5 text-right">Δ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border-dim/40">
+                            {batchPreview.length === 0 ? (
+                              <tr><td colSpan={4} className="px-4 py-6 text-center text-text-dim italic uppercase text-[10px] opacity-60">Ningún puesto coincide con los filtros.</td></tr>
+                            ) : batchPreview.map(r => (
+                              <tr key={r.id} className="hover:bg-bg-accent/40">
+                                <td className="px-4 py-2.5">
+                                  <span className="font-bold text-text-main block">{r.title}</span>
+                                  <span className="text-[9px] text-text-dim uppercase font-semibold">{r.area} / {r.sector}</span>
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono text-text-dim">${(r.cur || 0).toLocaleString()}{r.type === 'hourly' ? '/h' : ''}</td>
+                                <td className="px-4 py-2.5 text-right font-mono font-black text-text-main">${(r.nv || 0).toLocaleString()}{r.type === 'hourly' ? '/h' : ''}</td>
+                                <td className={cn("px-4 py-2.5 text-right font-mono font-bold", r.delta > 0 ? 'text-emerald-500' : r.delta < 0 ? 'text-red-500' : 'text-text-dim')}>
+                                  {r.delta > 0 ? '+' : ''}${Math.abs(r.delta).toLocaleString()}<span className="text-[9px] opacity-70"> ({r.pct > 0 ? '+' : ''}{r.pct.toFixed(1)}%)</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[9px] text-text-dim italic">Es una previsualización: los valores recién se guardan al tocar <b className="text-text-main">Aplicar actualizaciones</b>.</p>
                     </div>
                   </motion.div>
                 )}
