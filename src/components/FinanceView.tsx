@@ -1118,7 +1118,7 @@ export default function FinanceView({
   // Total por rubro de la semana (cuánta plata necesito para cada gasto)
   const weeklyExpenseByItem = useMemo(() => {
     const result: Array<{ itemId: string; catName: string; itemName: string; total: number }> = [];
-    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
     categories.forEach(cat => {
       if (cat.type !== 'expense') return;
       cat.items.forEach(item => {
@@ -1140,7 +1140,7 @@ export default function FinanceView({
   // Ingresos previstos de la semana por rubro
   const weeklyIncomeByItem = useMemo(() => {
     const result: Array<{ itemId: string; catName: string; itemName: string; total: number }> = [];
-    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
     categories.forEach(cat => {
       if (cat.type !== 'income') return;
       cat.items.forEach(item => {
@@ -1159,7 +1159,7 @@ export default function FinanceView({
 
   // Ingresos previstos de la semana por medio de cobro (cuenta)
   const weeklyIncomeByAccount = useMemo(() => {
-    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
     const byAcc: Record<string, number> = {};
     ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
     allEntries.forEach(e => {
@@ -1177,7 +1177,7 @@ export default function FinanceView({
 
   // Pases de fondos de la semana (agrupando la salida y la entrada por su stamp)
   const weeklyTransfers = useMemo(() => {
-    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
     const outs = entries.filter(e => e.itemId === 'pase_out' && weekDates.has(e.date));
     return outs.map(out => {
       const stamp = String(out.id).replace('transfer_out_', '');
@@ -1222,7 +1222,7 @@ export default function FinanceView({
 
   // Gastos a cubrir de la semana por medio de cobro (cuenta)
   const weeklyExpenseByAccount = useMemo(() => {
-    const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+    const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
     const byAcc: Record<string, number> = {};
     ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
     allEntries.forEach(e => {
@@ -5463,7 +5463,7 @@ export default function FinanceView({
 
               <div className="p-5 overflow-y-auto space-y-2">
                 {(() => {
-                  const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+                  const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
                   const manualE = entries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date));
                   const autoE = allEntries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date) && String(e.id).startsWith('payment-'));
                   const todas = [...manualE, ...autoE];
@@ -5493,7 +5493,7 @@ export default function FinanceView({
                   );
                 })()}
                 {(() => {
-                  const weekDates = new Set(activeWeekRange.weekdays.map(d => d.dateStr));
+                  const weekDates = new Set(activeWeekRange.days.map(d => d.dateStr));
                   // Entries manuales de este rubro en la semana (los de pagos programados tienen id "payment-...")
                   const manualEntries = entries.filter(e => e.itemId === detailRubro.itemId && weekDates.has(e.date));
                   // Entries de pagos programados (solo lectura)
