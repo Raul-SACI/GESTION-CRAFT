@@ -1289,7 +1289,16 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
     }
   };
 
-  const validControlledIds = controlledIds.filter(id => catalogItems.some(item => item.id === id));
+  // Orden CONSISTENTE para todas las sucursales: alfabético por nombre de insumo (catálogo global),
+  // en vez del orden en que quedó guardada la selección de cada sucursal.
+  const itemNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    catalogItems.forEach(i => m.set(i.id, (i.name || '').toUpperCase()));
+    return m;
+  }, [catalogItems]);
+  const validControlledIds = controlledIds
+    .filter(id => catalogItems.some(item => item.id === id))
+    .sort((a, b) => (itemNameById.get(a) || '').localeCompare(itemNameById.get(b) || '', 'es'));
 
   // 3. Comparison State (Aggregated data from dailyLogs)
   const deviations = validControlledIds.map(id => {
