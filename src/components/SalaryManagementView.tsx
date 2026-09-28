@@ -601,7 +601,12 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
           ? Math.round(cur * (1 + (batchPercent || 0) / 100))
           : Number(batchManualValues[pos.id] !== undefined ? batchManualValues[pos.id] : cur);
         return { id: pos.id, title: pos.title, area: pos.area, sector: pos.sector, type: pos.type, cur, nv, delta: nv - cur, pct: cur > 0 ? ((nv - cur) / cur) * 100 : 0 };
-      });
+      })
+      // Ordenado por Área (luego Sector y Puesto) para agrupar la escala por área.
+      .sort((a, b) =>
+        (a.area || '').localeCompare(b.area || '', 'es') ||
+        (a.sector || '').localeCompare(b.sector || '', 'es') ||
+        (a.title || '').localeCompare(b.title || '', 'es'));
   }, [positions, batchScopeType, batchScopeArea, batchMethod, batchPercent, batchManualValues]);
 
   // Exporta el borrador (previsualización) a PDF.
@@ -619,7 +624,7 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
     doc.setTextColor(150); doc.text('PREVISUALIZACIÓN — los valores no se aplicaron todavía.', 14, 33);
     autoTable(doc, {
       startY: 38,
-      head: [['Puesto', 'Área / Sector', 'Valor actual', 'Nuevo valor', 'Δ ($)', 'Δ (%)']],
+      head: [['Puesto', 'Área / Sector', 'Valor actual', 'Nuevo valor', 'Var. ($)', 'Var. (%)']],
       body: batchPreview.map(r => [
         r.title,
         `${r.area || ''} / ${r.sector || ''}`,
@@ -633,6 +638,27 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
       columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
     });
     doc.save(`Borrador_Sueldos_${batchMonth || 'sin_mes'}.pdf`);
+  };
+
+  // Exporta el borrador a Excel (editable).
+  const exportBatchPreviewExcel = () => {
+    if (batchPreview.length === 0) { alert('No hay puestos que coincidan con los filtros.'); return; }
+    const rows = batchPreview.map(r => ({
+      AREA: r.area || '',
+      SECTOR: r.sector || '',
+      PUESTO: r.title,
+      MODALIDAD: r.type === 'hourly' ? 'Por hora' : 'Mensual',
+      VALOR_ACTUAL: r.cur,
+      NUEVO_VALOR: r.nv,
+      VARIACION_PESOS: r.delta,
+      VARIACION_PORCENTAJE: Number(r.pct.toFixed(2)),
+      MES_VIGENCIA: batchMonth || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Borrador Sueldos');
+    XLSX.writeFile(wb, `Borrador_Sueldos_${batchMonth || 'sin_mes'}.xlsx`);
   };
 
   const handleExportTemplate = () => {
@@ -1731,6 +1757,10 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
                         <label className="text-[10px] font-black text-text-main uppercase tracking-wider block">Borrador · nuevos valores (previsualización)</label>
                         <div className="flex items-center gap-3">
                           <span className="text-[9px] font-bold text-text-dim uppercase">{batchPreview.length} puesto(s) afectado(s)</span>
+                          <button type="button" onClick={exportBatchPreviewExcel}
+                            className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-600 border border-emerald-500/25 rounded px-3 py-1.5 text-[9px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">
+                            <FileSpreadsheet size={12} /> Excel
+                          </button>
                           <button type="button" onClick={exportBatchPreviewPDF}
                             className="flex items-center gap-1.5 bg-red-500/10 text-red-500 border border-red-500/25 rounded px-3 py-1.5 text-[9px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
                             <FileText size={12} /> PDF
