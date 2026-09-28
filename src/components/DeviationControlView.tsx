@@ -122,6 +122,8 @@ export default function DeviationControlView({
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   const [controlledIds, setControlledIds] = useState<string[]>([]);
+  // Diagnóstico del autocompletado de ventas teóricas (por qué puede quedar en 0).
+  const [vtDiag, setVtDiag] = useState<{ rankingRows: number; noMatch: number; noRecipe: number; itemsVT: number; ejemplos: string[] } | null>(null);
   // Artículos del "Maestro Recetas Producción" (recipe_masters, tipo=produccion).
   // Se suman al Maestro de Insumos para poder controlarlos también en los desvíos.
   const [produccionItems, setProduccionItems] = useState<StockItem[]>([]);
@@ -381,18 +383,32 @@ export default function DeviationControlView({
           .eq('month', selectedMonth);
         const weekFirstDay: Record<number, string> = { 1: `${selectedMonth}-01`, 2: `${selectedMonth}-08`, 3: `${selectedMonth}-15`, 4: `${selectedMonth}-22` };
         const vtByDateItem: Record<string, Record<string, number>> = {};
+        // Diagnóstico: cuántas filas del ranking no matchean con el maestro o no tienen receta.
+        let diagNoMatch = 0, diagNoRecipe = 0;
+        const diagEjemplos: string[] = [];
         (ranking || []).forEach((rk: any) => {
           // Resolver por CÓDIGO primero (dato confiable), luego por nombre/alias
           const prodId = (normCode(rk.product_code) !== '' && prodIdByCode[normCode(rk.product_code)]) || prodIdByName[norm(rk.product_name)];
-          if (!prodId) return;
+          if (!prodId) {
+            diagNoMatch++;
+            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_code ? rk.product_code + ' · ' : ''}${rk.product_name || '(sin nombre)'} (sin producto)`);
+            return;
+          }
           const recipe = recipeByProd[prodId];
-          if (!recipe) return;
+          if (!recipe || recipe.length === 0) {
+            diagNoRecipe++;
+            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_name || rk.product_code} (sin receta)`);
+            return;
+          }
           const wk = Number(rk.week_number) || 1;
           const day = weekFirstDay[wk] || weekFirstDay[1];
           if (!vtByDateItem[day]) vtByDateItem[day] = {};
           const sold = Number(rk.quantity || 0);
           recipe.forEach(ing => { vtByDateItem[day][ing.itemId] = (vtByDateItem[day][ing.itemId] || 0) + sold * ing.quantity; });
         });
+        const itemsVTset = new Set<string>();
+        Object.values(vtByDateItem).forEach(m => Object.keys(m).forEach(id => itemsVTset.add(id)));
+        setVtDiag({ rankingRows: (ranking || []).length, noMatch: diagNoMatch, noRecipe: diagNoRecipe, itemsVT: itemsVTset.size, ejemplos: diagEjemplos });
 
         // Aplicar a estado y preparar upserts solo si cambia el valor
         setDailyLogs(prev => {
@@ -1572,6 +1588,17 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                  );
                })()}
 
+               {!isAlmacen && vtDiag && (vtDiag.rankingRows === 0 || vtDiag.itemsVT === 0) && (
+                 <div className="mb-3 bg-red-500/10 border border-red-500/40 rounded-lg p-3 text-[10px]">
+                   <div className="flex items-center gap-2 font-black uppercase text-red-500 mb-1"><AlertTriangle size={14} /> Ventas teóricas en 0 · diagnóstico</div>
+                   {vtDiag.rankingRows === 0 ? (
+                     <p className="text-text-dim font-bold normal-case tracking-normal">No hay <b className="text-text-main">Ranking de artículos</b> cargado para <b className="text-text-main">{selectedMonth}</b> en esta sucursal. Cargalo en <b className="text-text-main">Ventas → Ranking Artículos</b> (por sucursal y mes) para que se calcule la venta teórica.</p>
+                   ) : (
+                     <p className="text-text-dim font-bold normal-case tracking-normal">Se leyeron <b className="text-text-main">{vtDiag.rankingRows}</b> filas del ranking, pero <b className="text-text-main">{vtDiag.noMatch}</b> no coinciden con un producto del maestro y <b className="text-text-main">{vtDiag.noRecipe}</b> no tienen receta. Revisá los <b className="text-text-main">códigos/alias</b> de los productos y sus <b className="text-text-main">recetas</b>.</p>
+                   )}
+                   {vtDiag.ejemplos.length > 0 && <p className="text-text-dim mt-1 normal-case tracking-normal opacity-80">Ejemplos: {vtDiag.ejemplos.join('  ·  ')}</p>}
+                 </div>
+               )}
                <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
                  <table className="w-full border-collapse">
                    <thead className="sticky top-0 z-20 bg-bg-sidebar">
