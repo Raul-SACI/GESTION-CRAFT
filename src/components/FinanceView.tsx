@@ -5541,9 +5541,17 @@ export default function FinanceView({
                                   className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-mono font-bold text-text-main outline-none focus:border-brand-500 cursor-pointer" />
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <span className="text-[8px] font-bold text-text-dim uppercase block">Total</span>
-                              <span className="text-[13px] font-mono font-black text-text-main">${entryTotal(e).toLocaleString('es-AR')}</span>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="text-right">
+                                <span className="text-[8px] font-bold text-text-dim uppercase block">Total</span>
+                                <span className="text-[13px] font-mono font-black text-text-main">${entryTotal(e).toLocaleString('es-AR')}</span>
+                              </div>
+                              {!isReadOnly && (
+                                <button onClick={() => deleteEntry(e.id)} title="Eliminar esta carga"
+                                  className="text-text-dim hover:text-red-500 p-1.5 rounded hover:bg-red-500/10 transition-colors">
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
                             </div>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 border-t border-border-dim/40 pt-2">
