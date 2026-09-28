@@ -382,6 +382,21 @@ export default function DeviationControlView({
           .eq('branch_id', selectedBranchId)
           .eq('month', selectedMonth);
         const weekFirstDay: Record<number, string> = { 1: `${selectedMonth}-01`, 2: `${selectedMonth}-08`, 3: `${selectedMonth}-15`, 4: `${selectedMonth}-22` };
+        // Un mismo insumo puede existir con DOS ids: en el Maestro de Insumos (que usan las recetas)
+        // y en el Maestro Recetas Producción (que se controla en Desvíos). Atribuimos la venta teórica
+        // a TODOS los ids con el mismo nombre normalizado, para que llegue también al insumo controlado.
+        const idsByName: Record<string, string[]> = {};
+        const nameByIdCat = new Map<string, string>();
+        [...items, ...produccionItems].forEach((it: any) => {
+          const k = norm(it.name);
+          nameByIdCat.set(it.id, k);
+          if (k) { (idsByName[k] ||= []); if (!idsByName[k].includes(it.id)) idsByName[k].push(it.id); }
+        });
+        const equivIds = (itemId: string): string[] => {
+          const k = nameByIdCat.get(itemId);
+          const l = k ? idsByName[k] : null;
+          return (l && l.length) ? l : [itemId];
+        };
         const vtByDateItem: Record<string, Record<string, number>> = {};
         // Diagnóstico: cuántas filas del ranking no matchean con el maestro o no tienen receta.
         let diagNoMatch = 0, diagNoRecipe = 0;
@@ -404,7 +419,10 @@ export default function DeviationControlView({
           const day = weekFirstDay[wk] || weekFirstDay[1];
           if (!vtByDateItem[day]) vtByDateItem[day] = {};
           const sold = Number(rk.quantity || 0);
-          recipe.forEach(ing => { vtByDateItem[day][ing.itemId] = (vtByDateItem[day][ing.itemId] || 0) + sold * ing.quantity; });
+          recipe.forEach(ing => {
+            const add = sold * ing.quantity;
+            equivIds(ing.itemId).forEach(tid => { vtByDateItem[day][tid] = (vtByDateItem[day][tid] || 0) + add; });
+          });
         });
         const itemsVTset = new Set<string>();
         Object.values(vtByDateItem).forEach(m => Object.keys(m).forEach(id => itemsVTset.add(id)));
@@ -440,7 +458,7 @@ export default function DeviationControlView({
       } catch (e) { console.warn('Error autocompletando planilla de desvíos:', e); }
     };
     autoFillDeviations();
-  }, [selectedBranchId, selectedMonth, isReadOnly]);
+  }, [selectedBranchId, selectedMonth, isReadOnly, items, produccionItems]);
 
   // Campo de la planilla -> columna de la tabla inventory_logs
   const DAILY_COLUMN_MAP: Record<string, string> = {
