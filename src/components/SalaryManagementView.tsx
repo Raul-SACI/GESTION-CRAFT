@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 import { 
@@ -601,6 +603,37 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
         return { id: pos.id, title: pos.title, area: pos.area, sector: pos.sector, type: pos.type, cur, nv, delta: nv - cur, pct: cur > 0 ? ((nv - cur) / cur) * 100 : 0 };
       });
   }, [positions, batchScopeType, batchScopeArea, batchMethod, batchPercent, batchManualValues]);
+
+  // Exporta el borrador (previsualización) a PDF.
+  const exportBatchPreviewPDF = () => {
+    if (batchPreview.length === 0) { alert('No hay puestos que coincidan con los filtros.'); return; }
+    const doc = new jsPDF({ orientation: 'portrait' });
+    const fmtMoney = (n: number, hourly: boolean) => `$${(n || 0).toLocaleString('es-AR')}${hourly ? '/h' : ''}`;
+    const mesLabel = (() => { if (!batchMonth) return ''; const [y, m] = batchMonth.split('-'); const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']; return `${meses[(parseInt(m, 10) || 1) - 1]} ${y}`; })();
+    const modalidad = batchScopeType === 'all' ? 'Todos los puestos' : batchScopeType === 'hourly' ? 'Sólo valores por hora' : 'Sólo sueldos mensuales';
+    doc.setFontSize(14); doc.setFont('helvetica', 'bold');
+    doc.text('Borrador · Actualización general de sueldos', 14, 16);
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(90);
+    doc.text(`Vigencia: ${mesLabel || '—'}   ·   Método: ${batchMethod === 'percent' ? `Aumento ${batchPercent}%` : 'Carga manual'}`, 14, 23);
+    doc.text(`Modalidad: ${modalidad}   ·   Área: ${batchScopeArea === 'all' ? 'Todas' : batchScopeArea}   ·   ${batchPreview.length} puesto(s)`, 14, 28);
+    doc.setTextColor(150); doc.text('PREVISUALIZACIÓN — los valores no se aplicaron todavía.', 14, 33);
+    autoTable(doc, {
+      startY: 38,
+      head: [['Puesto', 'Área / Sector', 'Valor actual', 'Nuevo valor', 'Δ ($)', 'Δ (%)']],
+      body: batchPreview.map(r => [
+        r.title,
+        `${r.area || ''} / ${r.sector || ''}`,
+        fmtMoney(r.cur, r.type === 'hourly'),
+        fmtMoney(r.nv, r.type === 'hourly'),
+        `${r.delta > 0 ? '+' : ''}${fmtMoney(r.delta, false)}`,
+        `${r.pct > 0 ? '+' : ''}${r.pct.toFixed(1)}%`,
+      ]),
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [220, 38, 38], halign: 'center', fontSize: 8 },
+      columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right', fontStyle: 'bold' }, 4: { halign: 'right' }, 5: { halign: 'right' } },
+    });
+    doc.save(`Borrador_Sueldos_${batchMonth || 'sin_mes'}.pdf`);
+  };
 
   const handleExportTemplate = () => {
     const template = [
@@ -1694,9 +1727,15 @@ export default function SalaryManagementView({ branches = [], isReadOnly = false
 
                     {/* Borrador de nuevos valores (no impacta hasta aplicar) */}
                     <div className="space-y-2 pt-1">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
                         <label className="text-[10px] font-black text-text-main uppercase tracking-wider block">Borrador · nuevos valores (previsualización)</label>
-                        <span className="text-[9px] font-bold text-text-dim uppercase">{batchPreview.length} puesto(s) afectado(s)</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[9px] font-bold text-text-dim uppercase">{batchPreview.length} puesto(s) afectado(s)</span>
+                          <button type="button" onClick={exportBatchPreviewPDF}
+                            className="flex items-center gap-1.5 bg-red-500/10 text-red-500 border border-red-500/25 rounded px-3 py-1.5 text-[9px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">
+                            <FileText size={12} /> PDF
+                          </button>
+                        </div>
                       </div>
                       <div className="border border-border-dim rounded-lg overflow-hidden max-h-[260px] overflow-y-auto">
                         <table className="w-full text-left border-collapse text-[11px]">
