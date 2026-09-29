@@ -13,8 +13,10 @@ import {
   Megaphone, Plus, Trash2, Pencil, X, Save, Loader2, Search, CalendarDays,
   ClipboardList, ChevronLeft, ChevronRight, Clock, CheckCircle2, Users
 } from 'lucide-react';
+import { PenTool } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import MktDesignTab from './MktDesignTab';
 
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const fmtDMY = (iso?: string | null) => { if (!iso) return '—'; const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; };
@@ -54,7 +56,7 @@ const DIAS_SEM = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 export default function MktTasksView({ currentUserName, isReadOnly }: { currentUserName?: string; isReadOnly?: boolean }) {
-  const [tab, setTab] = useState<'tareas' | 'reuniones'>('tareas');
+  const [tab, setTab] = useState<'tareas' | 'reuniones' | 'diseno'>('tareas');
   const [vistaTareas, setVistaTareas] = useState<'lista' | 'calendario'>('lista');
   const [tasks, setTasks] = useState<MktTask[]>([]);
   const [meetings, setMeetings] = useState<MktMeeting[]>([]);
@@ -241,9 +243,17 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                 tab === 'reuniones' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
               <CalendarDays size={12} /> Reuniones
             </button>
+            <button onClick={() => setTab('diseno')}
+              className={cn("px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+                tab === 'diseno' ? "bg-brand-500 text-white" : "text-text-dim hover:text-text-main")}>
+              <PenTool size={12} /> Diseño Gráfico
+            </button>
           </div>
         </div>
       </div>
+
+      {/* ───────── DISEÑO GRÁFICO ───────── */}
+      {tab === 'diseno' && <MktDesignTab isReadOnly={isReadOnly} />}
 
       {/* ───────── TAREAS ───────── */}
       {tab === 'tareas' && (
