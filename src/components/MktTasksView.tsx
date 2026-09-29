@@ -13,7 +13,7 @@ import {
   Megaphone, Plus, Trash2, Pencil, X, Save, Loader2, Search, CalendarDays,
   ClipboardList, ChevronLeft, ChevronRight, Clock, CheckCircle2, Users
 } from 'lucide-react';
-import { PenTool } from 'lucide-react';
+import { PenTool, Paperclip, Upload, Download, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import MktDesignTab from './MktDesignTab';
@@ -35,6 +35,9 @@ interface MktTask {
   created_by?: string | null;
 }
 interface HourEntry { id?: string; task_id?: string; date: string; hours: number | string; note?: string | null; }
+interface TaskFile { id: string; task_id: string; name: string; path: string; size: number | null; mime: string | null; created_at?: string; }
+const fmtFileSize = (b: number | null) => { if (!b) return ''; if (b < 1024) return `${b} B`; if (b < 1048576) return `${(b / 1024).toFixed(0)} KB`; return `${(b / 1048576).toFixed(1)} MB`; };
+const genFileId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 interface MktMeeting {
   id: string;
   title: string;
@@ -61,6 +64,9 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
   const [tasks, setTasks] = useState<MktTask[]>([]);
   const [meetings, setMeetings] = useState<MktMeeting[]>([]);
   const [hoursByTask, setHoursByTask] = useState<Record<string, number>>({}); // total de horas dedicadas por tarea
+  const [filesByTaskId, setFilesByTaskId] = useState<Record<string, TaskFile[]>>({}); // adjuntos por tarea
+  const [taskFiles, setTaskFiles] = useState<TaskFile[]>([]); // adjuntos de la tarea en edición
+  const [uploadingTask, setUploadingTask] = useState(false);
   const [responsables, setResponsables] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -81,7 +87,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
   const [dayTasksDetail, setDayTasksDetail] = useState<string | null>(null); // día abierto en el calendario de tareas
   const [calTareasMonth, setCalTareasMonth] = useState<string>(() => todayISO().slice(0, 7));
 
-  const emptyTask = (): Partial<MktTask> => ({ title: '', description: '', responsible: responsables[0] || '', date: todayISO(), due_date: '', hours: null, estimated_hours: null, progress: 0, status: 'pendiente' });
+  const emptyTask = (): Partial<MktTask> => ({ id: `mt_${Date.now()}${Math.random().toString(36).slice(2, 5)}`, title: '', description: '', responsible: responsables[0] || '', date: todayISO(), due_date: '', hours: null, estimated_hours: null, progress: 0, status: 'pendiente' });
   const emptyMeeting = (date?: string): Partial<MktMeeting> => ({ title: '', date: date || todayISO(), time: '', participants: '', location: '', notes: '' });
 
   const cargarResponsables = async () => {
@@ -99,16 +105,20 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
   const cargar = async () => {
     setLoading(true);
     try {
-      const [{ data: t }, { data: m }, { data: h }] = await Promise.all([
+      const [{ data: t }, { data: m }, { data: h }, filesRes] = await Promise.all([
         supabase.from('mkt_tasks').select('*').order('date', { ascending: false }),
         supabase.from('mkt_meetings').select('*').order('date'),
         supabase.from('mkt_task_hours').select('task_id, hours'),
+        supabase.from('mkt_task_files').select('*').order('created_at', { ascending: true }),
       ]);
       setTasks((t as MktTask[]) || []);
       setMeetings((m as MktMeeting[]) || []);
       const map: Record<string, number> = {};
       (h || []).forEach((r: any) => { map[r.task_id] = (map[r.task_id] || 0) + (Number(r.hours) || 0); });
       setHoursByTask(map);
+      const fmap: Record<string, TaskFile[]> = {};
+      ((filesRes?.data as TaskFile[]) || []).forEach(f => { (fmap[f.task_id] ||= []).push(f); });
+      setFilesByTaskId(fmap);
     } catch { setTasks([]); setMeetings([]); setHoursByTask({}); }
     setLoading(false);
   };
@@ -118,8 +128,9 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
 
   // Abrir editor cargando su registro de horas
   const abrirTarea = async (t?: MktTask) => {
-    if (!t) { setEditTask(emptyTask()); setDraftHours([]); return; }
+    if (!t) { setEditTask(emptyTask()); setDraftHours([]); setTaskFiles([]); return; }
     setEditTask({ ...t });
+    setTaskFiles(filesByTaskId[t.id] || []);
     try {
       const { data } = await supabase.from('mkt_task_hours').select('*').eq('task_id', t.id).order('date');
       setDraftHours((data as HourEntry[]) || []);
@@ -193,7 +204,52 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
 
   const borrarTarea = async (t: MktTask) => {
     if (!window.confirm(`¿Eliminar la tarea "${t.title}"?`)) return;
+    const files = filesByTaskId[t.id] || [];
+    if (files.length > 0) { try { await supabase.storage.from('documents').remove(files.map(f => f.path)); } catch { /* ignore */ } }
+    await supabase.from('mkt_task_files').delete().eq('task_id', t.id);
     await supabase.from('mkt_tasks').delete().eq('id', t.id); await cargar();
+  };
+
+  // ── Adjuntos de tareas ──────────────────────────────────────────────────────
+  const subirArchivosTarea = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0 || !editTask?.id || isReadOnly) return;
+    setUploadingTask(true);
+    try {
+      // La tarea debe existir para poder colgarle archivos (evita adjuntos huérfanos).
+      await supabase.from('mkt_tasks').upsert({
+        id: editTask.id, title: (editTask.title || 'Sin título').trim(), description: editTask.description || null,
+        responsible: editTask.responsible || null, date: editTask.date || todayISO(), due_date: editTask.due_date || null,
+        progress: Number(editTask.progress) || 0, status: editTask.status || 'pendiente', created_by: currentUserName || '—',
+      }, { onConflict: 'id' });
+      for (const file of Array.from(fileList)) {
+        if (file.size > 25 * 1024 * 1024) { alert(`"${file.name}" supera los 25 MB y se omitió.`); continue; }
+        const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `mkt-tareas/${editTask.id}/${Date.now()}_${safe}`;
+        const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
+        if (upErr) { alert(`No se pudo subir "${file.name}": ${upErr.message}`); continue; }
+        const row: TaskFile = { id: genFileId(), task_id: editTask.id, name: file.name, path, size: file.size, mime: file.type || null };
+        const { error: dbErr } = await supabase.from('mkt_task_files').insert(row);
+        if (dbErr) { await supabase.storage.from('documents').remove([path]); alert(`No se pudo registrar "${file.name}": ${dbErr.message}`); continue; }
+        setTaskFiles(prev => [...prev, row]);
+      }
+      await cargar();
+    } catch (e: any) { alert('Error al subir: ' + (e.message || e)); }
+    finally { setUploadingTask(false); }
+  };
+  const descargarArchivoTarea = async (f: TaskFile) => {
+    try {
+      const { data, error } = await supabase.storage.from('documents').createSignedUrl(f.path, 3600);
+      if (error || !data?.signedUrl) throw error || new Error('sin URL');
+      window.open(data.signedUrl, '_blank');
+    } catch (e: any) { alert('No se pudo abrir el archivo: ' + (e.message || e)); }
+  };
+  const quitarArchivoTarea = async (f: TaskFile) => {
+    if (isReadOnly) return;
+    if (!window.confirm(`¿Quitar el archivo "${f.name}"?`)) return;
+    try { await supabase.storage.from('documents').remove([f.path]); } catch { /* ignore */ }
+    await supabase.from('mkt_task_files').delete().eq('id', f.id);
+    setTaskFiles(prev => prev.filter(x => x.id !== f.id));
+    await cargar();
   };
 
   const guardarReunion = async () => {
@@ -390,6 +446,7 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className={cn("text-[8px] font-black uppercase px-2 py-0.5 rounded border", si.color)}>{si.label}</span>
                           {t.responsible && <span className="text-[9px] font-bold uppercase text-text-dim flex items-center gap-1"><Users size={10} /> {t.responsible}</span>}
+                          {(filesByTaskId[t.id]?.length || 0) > 0 && <span className="text-[9px] font-bold uppercase text-brand-500 flex items-center gap-1"><Paperclip size={10} /> {filesByTaskId[t.id].length}</span>}
                         </div>
                         <p className="text-[12px] font-black uppercase text-text-main">{t.title}</p>
                         {t.description && <p className="text-[10px] text-text-dim mt-0.5">{t.description}</p>}
@@ -658,6 +715,37 @@ export default function MktTasksView({ currentUserName, isReadOnly }: { currentU
                         <input value={h.note || ''} onChange={e => setHora(i, 'note', e.target.value)}
                           placeholder="Nota (opcional)" className="flex-1 bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] text-text-main outline-none focus:border-brand-500" />
                         <button type="button" onClick={() => delHora(i)} className="text-text-dim hover:text-red-500 shrink-0"><Trash2 size={13} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Archivos adjuntos */}
+              <div className="border border-border-dim rounded-lg p-3 bg-bg-accent/20 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2"><Paperclip size={13} /> Archivos adjuntos ({taskFiles.length})</p>
+                  {!isReadOnly && (
+                    <label className={cn('flex items-center gap-1.5 bg-brand-500/10 text-brand-500 border border-brand-500/25 rounded px-2.5 py-1 text-[8px] font-black uppercase tracking-widest cursor-pointer hover:bg-brand-500/20', uploadingTask && 'opacity-50 pointer-events-none')}>
+                      {uploadingTask ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Subir
+                      <input type="file" multiple className="hidden" disabled={uploadingTask} onChange={e => subirArchivosTarea(e.target.files)}
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.svg,.ai,.psd,.zip,.rar" />
+                    </label>
+                  )}
+                </div>
+                {taskFiles.length === 0 ? (
+                  <p className="text-[9px] font-bold uppercase text-text-dim py-1">Sin archivos. Subí PDF, Excel, Word, imágenes, etc. (máx. 25 MB c/u).</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {taskFiles.map(f => (
+                      <div key={f.id} className="flex items-center gap-2 bg-bg-card/60 border border-border-dim/50 rounded px-2.5 py-1.5">
+                        <FileText size={13} className="text-text-dim shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-bold text-text-main truncate">{f.name}</p>
+                          <p className="text-[8px] font-bold uppercase text-text-dim">{fmtFileSize(f.size)}</p>
+                        </div>
+                        <button type="button" onClick={() => descargarArchivoTarea(f)} title="Abrir / descargar" className="text-text-dim hover:text-brand-500 p-0.5"><Download size={13} /></button>
+                        {!isReadOnly && <button type="button" onClick={() => quitarArchivoTarea(f)} title="Quitar" className="text-text-dim hover:text-red-500 p-0.5"><Trash2 size={13} /></button>}
                       </div>
                     ))}
                   </div>
