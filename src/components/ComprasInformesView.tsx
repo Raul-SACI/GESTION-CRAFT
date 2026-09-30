@@ -64,6 +64,9 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
   const [arts, setArts] = useState<ArtRow[]>([]);
   const [provs, setProvs] = useState<ProvRow[]>([]);
   const [cotiz, setCotiz] = useState<CotizRow[]>([]);
+  // Mes en el que se CARGAN las cotizaciones (el mes en curso), independiente del período
+  // de datos de Tango que arma el TOP (que suele ser el mes anterior ya cerrado).
+  const [cotizPeriod, setCotizPeriod] = useState<string>(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
   const [detalle, setDetalle] = useState<DetalleRow[]>([]);
   const [stockCodes, setStockCodes] = useState<Set<string>>(new Set());
   const [stockNames, setStockNames] = useState<Map<string, string>>(new Map());
@@ -122,17 +125,15 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     if (!period) return;
     setLoading(true);
     try {
-      const [{ data: a }, { data: p }, { data: c }, { data: st }, detData] = await Promise.all([
+      const [{ data: a }, { data: p }, { data: st }, detData] = await Promise.all([
         supabase.from('compras_articulos_import').select('*').eq('period', period).order('total', { ascending: false }),
         supabase.from('compras_proveedores_import').select('*').eq('period', period).order('total', { ascending: false }),
-        supabase.from('compras_cotizaciones').select('*').eq('period', period),
         supabase.from('stock_items').select('code, name'),
         fetchAllDetalle(period),
       ]);
       setArts((a as ArtRow[]) || []);
       setProvs((p as ProvRow[]) || []);
       setDetalle(detData);
-      setCotiz(((c as any[]) || []).map(r => ({ code: r.code, description: r.description, precio_actual: r.precio_actual, quotes: r.quotes || [], revisado_por: r.revisado_por || '' })));
       const codes = new Set<string>();
       const names = new Map<string, string>();
       (st as any[] || []).forEach(s => { const k = norm(s.code); if (k) { codes.add(k); names.set(k, s.name); } });
@@ -144,6 +145,15 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
   }, [period]);
 
   useEffect(() => { loadPeriod(); }, [loadPeriod]);
+
+  // Cotizaciones del MES DE COTIZACIÓN (independiente del período de datos del TOP).
+  const loadCotiz = useCallback(async () => {
+    if (!cotizPeriod) return;
+    const { data: c } = await supabase.from('compras_cotizaciones').select('*').eq('period', cotizPeriod);
+    setCotiz(((c as any[]) || []).map(r => ({ code: r.code, description: r.description, precio_actual: r.precio_actual, quotes: r.quotes || [], revisado_por: r.revisado_por || '' })));
+    setDraft({});
+  }, [cotizPeriod]);
+  useEffect(() => { loadCotiz(); }, [loadCotiz]);
 
   // ── Serie histórica (evolución) ────────────────────────────────────────────
   const loadSerie = useCallback(async () => {
@@ -452,7 +462,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
     try {
       const clean = quotes.filter(q => norm(q.proveedor) || q.precio > 0 || norm(q.nota)).map(q => { const o: Quote = { proveedor: norm(q.proveedor), precio: toNum(q.precio) }; if (norm(q.nota)) o.nota = norm(q.nota); return o; });
       const { error } = await supabase.from('compras_cotizaciones').upsert({
-        period, code, description, precio_actual: precioActual, quotes: clean, revisado_por: norm(revisado_por), updated_at: new Date().toISOString(),
+        period: cotizPeriod, code, description, precio_actual: precioActual, quotes: clean, revisado_por: norm(revisado_por), updated_at: new Date().toISOString(),
       }, { onConflict: 'period,code' });
       if (error) throw error;
       // refresca en memoria
@@ -1073,13 +1083,21 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                       <div className="text-[9px] text-text-dim">si compramos cada insumo a la mejor cotización cargada</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-black uppercase text-text-dim">Top</span>
-                    <select value={topN} onChange={e => setTopN(parseInt(e.target.value))} className="bg-bg-sidebar border border-border-dim rounded-md px-2 py-1.5 text-[11px] font-bold">
-                      {[10, 15, 20, 30].map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase text-text-dim">Cotizaciones de</span>
+                      <input type="month" value={cotizPeriod} onChange={e => setCotizPeriod(e.target.value)}
+                        className="bg-bg-sidebar border border-border-dim rounded-md px-2 py-1.5 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase text-text-dim">Top</span>
+                      <select value={topN} onChange={e => setTopN(parseInt(e.target.value))} className="bg-bg-sidebar border border-border-dim rounded-md px-2 py-1.5 text-[11px] font-bold">
+                        {[10, 15, 20, 30].map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
+                <p className="text-[10px] text-text-dim -mt-2">El <b className="text-text-main">TOP de insumos</b> se arma con los datos de compra de <b className="text-text-main">{periodLabel(period)}</b> (el período elegido arriba). Las <b className="text-text-main">cotizaciones</b> se cargan y guardan en <b className="text-text-main">{periodLabel(cotizPeriod)}</b> (podés ir sumando precios nuevos del mes en curso).</p>
 
                 <div className="space-y-3">
                   {cotizRows.map(r => {
