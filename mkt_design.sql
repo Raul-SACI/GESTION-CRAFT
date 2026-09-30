@@ -12,8 +12,12 @@ create table if not exists public.mkt_design_tasks (
   due_date    date,
   progress    integer not null default 0,   -- % de avance (0-100)
   status      text not null default 'pendiente', -- pendiente | en_proceso | completada
+  trello_id   text,                 -- id de la tarjeta de Trello (para reimportar sin duplicar)
   created_at  timestamptz not null default now()
 );
+-- Para bases donde la tabla ya existía sin la columna:
+alter table public.mkt_design_tasks add column if not exists trello_id text;
+create index if not exists mkt_design_tasks_trello_idx on public.mkt_design_tasks(trello_id);
 
 create table if not exists public.mkt_design_files (
   id         uuid primary key,
