@@ -10,7 +10,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'motion/react';
 import {
   Plus, Search, Trash2, Pencil, X, CheckCircle2, Paperclip, Upload, Download,
-  FileText, PenTool, Loader2
+  FileText, PenTool, Loader2, CalendarDays, ClipboardList, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
@@ -34,6 +34,7 @@ const STATUS = [
   { id: 'completada', label: 'Completada', color: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/30', dot: '#10b981' },
 ];
 const statusInfo = (s: string) => STATUS.find(x => x.id === s) || STATUS[0];
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const todayISO = () => new Date().toLocaleDateString('en-CA');
 const newId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const fmtSize = (b: number | null) => { if (!b) return ''; if (b < 1024) return `${b} B`; if (b < 1048576) return `${(b / 1024).toFixed(0)} KB`; return `${(b / 1048576).toFixed(1)} MB`; };
@@ -45,6 +46,8 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [fStatus, setFStatus] = useState('');
+  const [vista, setVista] = useState<'lista' | 'calendario'>('lista');
+  const [calMonth, setCalMonth] = useState<string>(() => todayISO().slice(0, 7));
   const [editTask, setEditTask] = useState<Partial<DesignTask> | null>(null);
   const [editFiles, setEditFiles] = useState<DesignFile[]>([]);
   const [saving, setSaving] = useState(false);
@@ -177,6 +180,16 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
           <option value="">Todos los estados</option>
           {STATUS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
+        <div className="flex gap-1 bg-bg-accent rounded-lg p-1">
+          <button onClick={() => setVista('lista')}
+            className={cn('px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', vista === 'lista' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}>
+            <ClipboardList size={12} /> Lista
+          </button>
+          <button onClick={() => setVista('calendario')}
+            className={cn('px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5', vista === 'calendario' ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}>
+            <CalendarDays size={12} /> Calendario
+          </button>
+        </div>
         {!isReadOnly && (
           <button onClick={() => abrir()}
             className="ml-auto bg-brand-500 text-white px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2">
@@ -194,7 +207,59 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
         ))}
       </div>
 
-      {loading ? (
+      {vista === 'calendario' ? (() => {
+        const [cy, cm] = calMonth.split('-').map(Number);
+        const primerDia = new Date(cy, cm - 1, 1);
+        const diasEnMes = new Date(cy, cm, 0).getDate();
+        const offset = (primerDia.getDay() + 6) % 7; // lunes primero
+        const celdas: (number | null)[] = [];
+        for (let i = 0; i < offset; i++) celdas.push(null);
+        for (let d = 1; d <= diasEnMes; d++) celdas.push(d);
+        const tareasDia = (d: number) => { const ds = `${cy}-${String(cm).padStart(2, '0')}-${String(d).padStart(2, '0')}`; return filtradas.filter(t => t.date === ds); };
+        const cambiar = (delta: number) => { const nd = new Date(cy, cm - 1 + delta, 1); setCalMonth(`${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, '0')}`); };
+        const hoy = todayISO();
+        return (
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => cambiar(-1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronLeft size={18} /></button>
+              <h3 className="text-[12px] font-black uppercase text-text-main tracking-widest">{MESES[cm - 1]} {cy}</h3>
+              <button onClick={() => cambiar(1)} className="text-text-dim hover:text-brand-500 p-1"><ChevronRight size={18} /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => <div key={d} className="text-center text-[8px] font-black uppercase text-text-dim tracking-widest py-1">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {celdas.map((d, i) => {
+                if (d === null) return <div key={`e${i}`} className="min-h-[92px]" />;
+                const ds = `${cy}-${String(cm).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const td = tareasDia(d);
+                const esHoy = ds === hoy;
+                return (
+                  <div key={d} className={cn('min-h-[92px] border rounded-lg p-1.5 flex flex-col gap-1 overflow-hidden', esHoy ? 'border-brand-500 bg-brand-500/5' : 'border-border-dim/40 bg-bg-accent/10')}>
+                    <div className="flex items-center justify-between">
+                      <span className={cn('text-[10px] font-black', esHoy ? 'text-brand-500' : 'text-text-dim')}>{d}</span>
+                      {td.length > 0 && <span className="text-[8px] font-black text-text-dim bg-bg-accent rounded px-1">{td.length}</span>}
+                    </div>
+                    <div className="flex flex-col gap-0.5 overflow-y-auto">
+                      {td.map(t => {
+                        const si = statusInfo(t.status);
+                        return (
+                          <button key={t.id} onClick={() => abrir(t)} title={`${t.title} · ${t.responsible || ''}`}
+                            className="flex items-center gap-1 text-left text-[8px] font-bold uppercase px-1 py-0.5 rounded hover:opacity-80"
+                            style={{ backgroundColor: si.dot + '22', color: si.dot }}>
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: si.dot }} />
+                            <span className="truncate">{t.title}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })() : loading ? (
         <p className="text-center text-[10px] font-bold uppercase text-text-dim py-10">Cargando…</p>
       ) : filtradas.length === 0 ? (
         <p className="text-center text-[10px] font-bold uppercase text-text-dim py-12">No hay tareas de diseño.{!isReadOnly && ' Usá "Nueva tarea de diseño".'}</p>
