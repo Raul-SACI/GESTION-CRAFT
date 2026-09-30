@@ -52,6 +52,7 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
   const [editFiles, setEditFiles] = useState<DesignFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const emptyTask = (): Partial<DesignTask> => ({ id: newId(), title: '', description: '', responsible: 'Estudio de Diseño', date: todayISO(), due_date: '', progress: 0, status: 'pendiente' });
 
@@ -164,6 +165,49 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
     } catch (e: any) { alert('No se pudo quitar: ' + (e.message || e)); }
   };
 
+  // ── Importar tablero de Trello (JSON) · 1 tarjeta = 1 tarea ──────────────────
+  const importarTrello = async (fileList: FileList | null) => {
+    if (isReadOnly) return;
+    const file = fileList?.[0];
+    if (!file) return;
+    let board: any;
+    try { board = JSON.parse(await file.text()); } catch { alert('El archivo no parece un JSON válido de Trello.'); return; }
+    const cards = (board.cards || []).filter((c: any) => c && !c.closed && !c.isTemplate);
+    if (cards.length === 0) { alert('No se encontraron tarjetas para importar en el archivo.'); return; }
+    const memberName: Record<string, string> = {};
+    (board.members || []).forEach((m: any) => { memberName[m.id] = m.fullName || m.username || ''; });
+    const listName: Record<string, string> = {};
+    (board.lists || []).forEach((l: any) => { listName[l.id] = l.name; });
+    if (!window.confirm(`Se van a importar ${cards.length} tarjeta(s) de "${board.name || 'Trello'}" como tareas de diseño.\n\nLas tarjetas ya importadas antes se ACTUALIZAN (no se duplican).\n\n¿Continuar?`)) return;
+    setImporting(true);
+    try {
+      const { data: exist } = await supabase.from('mkt_design_tasks').select('id, trello_id');
+      const idByTrello: Record<string, string> = {};
+      ((exist as any[]) || []).forEach(r => { if (r.trello_id) idByTrello[r.trello_id] = r.id; });
+      const rows = cards.map((c: any) => {
+        const done = !!c.dueComplete || !!c.dateCompleted;
+        const due = c.due ? String(c.due).slice(0, 10) : null;
+        const day = due || (c.start ? String(c.start).slice(0, 10) : todayISO());
+        const resp = (c.idMembers || []).map((id: string) => memberName[id]).filter(Boolean).join(', ') || 'Estudio de Diseño';
+        const lista = listName[c.idList];
+        const desc = [c.desc && String(c.desc).trim(), lista ? `(Trello · lista: ${lista})` : ''].filter(Boolean).join('\n\n') || null;
+        return {
+          id: idByTrello[c.id] || newId(), trello_id: c.id,
+          title: (c.name || 'Sin título').trim(), description: desc, responsible: resp,
+          date: day, due_date: due, progress: done ? 100 : 0, status: done ? 'completada' : 'pendiente',
+        };
+      });
+      const { error } = await supabase.from('mkt_design_tasks').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+      await cargar();
+      alert(`Listo: ${rows.length} tarea(s) importada(s) / actualizada(s) desde Trello.`);
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      if (/trello_id/.test(msg)) alert('Falta la columna trello_id en la tabla. Corré el ALTER TABLE de mkt_design.sql en Supabase y volvé a intentar.\n\nDetalle: ' + msg);
+      else alert('Error al importar: ' + msg);
+    } finally { setImporting(false); }
+  };
+
   const inp = 'w-full bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500';
 
   return (
@@ -191,8 +235,15 @@ export default function MktDesignTab({ isReadOnly = false }: { isReadOnly?: bool
           </button>
         </div>
         {!isReadOnly && (
+          <label title="Importar tablero de Trello (JSON) · 1 tarjeta = 1 tarea"
+            className={cn('ml-auto flex items-center gap-2 bg-bg-accent border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500 px-3 py-2.5 rounded text-[10px] font-black uppercase tracking-widest cursor-pointer transition-all', importing && 'opacity-50 pointer-events-none')}>
+            {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importar Trello
+            <input type="file" accept=".json,application/json" className="hidden" disabled={importing} onChange={e => { importarTrello(e.target.files); e.currentTarget.value = ''; }} />
+          </label>
+        )}
+        {!isReadOnly && (
           <button onClick={() => abrir()}
-            className="ml-auto bg-brand-500 text-white px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2">
+            className="bg-brand-500 text-white px-4 py-2.5 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all flex items-center gap-2">
             <Plus size={14} /> Nueva tarea de diseño
           </button>
         )}
