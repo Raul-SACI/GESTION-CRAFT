@@ -27,6 +27,14 @@ create table if not exists public.mkt_inversion_plan (
   importe    numeric not null default 0,
   created_at timestamptz not null default now()
 );
+-- Tope de presupuesto por mes (funciona como límite del total del mes)
+create table if not exists public.mkt_inversion_mes (
+  anio       integer not null,
+  mes        integer not null,
+  tope       numeric not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (anio, mes)
+);
 create table if not exists public.mkt_gastos_reales (
   id           uuid primary key,
   anio         integer not null,
@@ -59,9 +67,11 @@ create table if not exists public.mkt_meta_ads (
 
 alter table public.mkt_atencion_cliente disable row level security;
 alter table public.mkt_inversion_plan   disable row level security;
+alter table public.mkt_inversion_mes     disable row level security;
 alter table public.mkt_gastos_reales    disable row level security;
 alter table public.mkt_meta_ads         disable row level security;
 grant all on public.mkt_atencion_cliente to anon, authenticated;
 grant all on public.mkt_inversion_plan   to anon, authenticated;
+grant all on public.mkt_inversion_mes     to anon, authenticated;
 grant all on public.mkt_gastos_reales    to anon, authenticated;
 grant all on public.mkt_meta_ads         to anon, authenticated;

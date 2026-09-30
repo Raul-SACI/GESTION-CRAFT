@@ -20,6 +20,7 @@ export default function MktPresupuestoTab({ month, isReadOnly = false }: { month
   const [anio, mes] = month.split('-').map(Number);
   const [plan, setPlan] = useState<PlanRow[]>([]);
   const [gastos, setGastos] = useState<GastoRow[]>([]);
+  const [tope, setTope] = useState(0);        // presupuesto total del mes (tope)
   const [loading, setLoading] = useState(false);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const inp = 'w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500';
@@ -27,20 +28,27 @@ export default function MktPresupuestoTab({ month, isReadOnly = false }: { month
   const cargar = async () => {
     setLoading(true);
     try {
-      const [p, g] = await Promise.all([
+      const [p, g, t] = await Promise.all([
         supabase.from('mkt_inversion_plan').select('*').eq('anio', anio).eq('mes', mes).order('created_at', { ascending: true }),
         supabase.from('mkt_gastos_reales').select('*').eq('anio', anio).eq('mes', mes).order('created_at', { ascending: true }),
+        supabase.from('mkt_inversion_mes').select('tope').eq('anio', anio).eq('mes', mes).maybeSingle(),
       ]);
       setPlan(((p.data as PlanRow[]) || []).map(r => ({ ...r, importe: Number(r.importe) || 0 })));
       setGastos(((g.data as GastoRow[]) || []).map(r => ({ ...r, pagado: !!r.pagado })));
+      setTope(Number((t.data as any)?.tope) || 0);
     } catch (e) { console.warn('Presupuesto load error', e); }
     finally { setLoading(false); }
   };
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [anio, mes]);
 
   const totalPlan = plan.reduce((s, r) => s + (Number(r.importe) || 0), 0);
-  const totalGastos = gastos.reduce((s, r) => s + 0, 0); // gastos no tienen importe propio en la planilla
-  void totalGastos;
+  const disponible = tope - totalPlan;
+  const excedido = tope > 0 && disponible < 0;
+  const saveTope = async (v: number) => {
+    if (isReadOnly) return;
+    try { await supabase.from('mkt_inversion_mes').upsert({ anio, mes, tope: Number(v) || 0 }, { onConflict: 'anio,mes' }); }
+    catch (e: any) { alert('No se pudo guardar el tope: ' + (e.message || e)); }
+  };
 
   // ── Inversión (plan) ──
   const addPlan = () => setPlan(prev => [...prev, { id: newId(), anio, mes, rubro: '', detalle: '', importe: 0 }]);
@@ -87,12 +95,33 @@ export default function MktPresupuestoTab({ month, isReadOnly = false }: { month
 
   return (
     <div className="space-y-6">
+      {/* TOPE + resumen */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+          <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Presupuesto total del mes (tope)</p>
+          <div className="flex items-center gap-1 mt-1">
+            <span className="text-lg font-black font-mono text-text-main">$</span>
+            <input type="number" disabled={isReadOnly} value={tope || ''} placeholder="0"
+              onChange={e => setTope(parseFloat(e.target.value) || 0)} onBlur={() => saveTope(tope)}
+              className="w-full bg-transparent text-lg font-black font-mono text-text-main outline-none border-b border-border-dim focus:border-brand-500" />
+          </div>
+        </div>
+        <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
+          <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">Asignado (suma de rubros)</p>
+          <p className="text-lg font-black font-mono text-text-main mt-1">{fmt(totalPlan)}</p>
+        </div>
+        <div className={cn('rounded-xl p-4 border', excedido ? 'bg-red-500/10 border-red-500/30' : 'bg-emerald-500/10 border-emerald-500/25')}>
+          <p className="text-[8px] font-black uppercase text-text-dim tracking-widest">{excedido ? 'Excedido' : 'Disponible'}</p>
+          <p className={cn('text-lg font-black font-mono mt-1', excedido ? 'text-red-500' : 'text-emerald-600')}>{fmt(Math.abs(disponible))}</p>
+        </div>
+      </div>
+      {excedido && <p className="text-[10px] font-bold text-red-500 flex items-center gap-1.5">⚠ La suma de rubros ({fmt(totalPlan)}) supera el tope del mes ({fmt(tope)}) por {fmt(-disponible)}.</p>}
+
       {/* INVERSIÓN DEL MES */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm">
         <div className="px-4 py-3 flex items-center justify-between flex-wrap gap-2 border-b border-border-dim/50">
-          <h3 className="text-[12px] font-black uppercase tracking-wider text-text-main flex items-center gap-2"><Wallet size={15} className="text-brand-500" /> Inversión del mes · presupuesto</h3>
+          <h3 className="text-[12px] font-black uppercase tracking-wider text-text-main flex items-center gap-2"><Wallet size={15} className="text-brand-500" /> Inversión del mes · rubros</h3>
           <div className="flex items-center gap-3">
-            <span className="text-[11px] font-black text-text-main">Total presupuesto: <span className="text-brand-500 font-mono">{fmt(totalPlan)}</span></span>
             {!isReadOnly && <button onClick={addPlan} className="flex items-center gap-1.5 bg-brand-500/10 text-brand-500 border border-brand-500/25 rounded px-3 py-1.5 text-[9px] font-black uppercase tracking-widest hover:bg-brand-500/20"><Plus size={12} /> Rubro</button>}
             {loading && <Loader2 size={14} className="animate-spin text-brand-500" />}
           </div>
