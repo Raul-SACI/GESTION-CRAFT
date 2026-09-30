@@ -6,10 +6,13 @@
  * últimas 4 semanas. Semanas del negocio (1-7 / 8-14 / 15-21 / 22-fin).
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { TrendingUp, TrendingDown, Minus, RefreshCw, Store, DollarSign, Receipt, ShoppingBag, ChevronLeft, ChevronRight, CalendarDays, Activity, Tag, MessageSquareWarning } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, RefreshCw, Store, DollarSign, Receipt, ShoppingBag, ChevronLeft, ChevronRight, CalendarDays, Activity, Tag, MessageSquareWarning, Star, Wallet, Megaphone } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
+import MktAtencionTab from './MktAtencionTab';
+import MktPresupuestoTab from './MktPresupuestoTab';
+import MktMetaAdsTab from './MktMetaAdsTab';
 
 const fmt = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
 const fmtNum = (n: number) => Math.round(n || 0).toLocaleString('es-AR');
@@ -44,7 +47,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [month, setMonth] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; });
   const [selWeek, setSelWeek] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<'semanal' | 'mensual' | 'pedidosya' | 'productos'>('semanal');
+  const [tab, setTab] = useState<'semanal' | 'mensual' | 'pedidosya' | 'productos' | 'atencion' | 'presupuesto' | 'metaads'>('semanal');
   // weekMap[weekKey][branchId] = Agg
   const [weekMap, setWeekMap] = useState<Record<string, Record<string, Agg>>>({});
   // monthMap[monthKey][branchId] = Agg
@@ -392,7 +395,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
       {/* Pestañas */}
       <div className="flex flex-wrap gap-1 border-b border-border-dim/60">
-        {([['semanal', 'Semanal', CalendarDays], ['mensual', 'Mensual', TrendingUp], ['pedidosya', 'Desempeño Pedidos Ya', Store], ['productos', 'Agregados y Postres', Tag]] as const).map(([k, l, Icon]) => (
+        {([['semanal', 'Semanal', CalendarDays], ['mensual', 'Mensual', TrendingUp], ['pedidosya', 'Desempeño Pedidos Ya', Store], ['productos', 'Agregados y Postres', Tag], ['atencion', 'Atención al Cliente', Star], ['presupuesto', 'Presupuesto e Inversión', Wallet], ['metaads', 'Campañas Meta Ads', Megaphone]] as const).map(([k, l, Icon]) => (
           <button key={k} onClick={() => setTab(k)}
             className={cn('flex items-center gap-1.5 px-3.5 py-2.5 text-[11px] font-black uppercase tracking-wider rounded-t-lg transition-colors',
               tab === k ? 'text-brand-500 border-b-2 border-brand-500 bg-brand-500/5' : 'text-text-dim hover:text-text-main')}>
@@ -400,6 +403,10 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
           </button>
         ))}
       </div>
+
+      {tab === 'atencion' && <MktAtencionTab branches={branches} month={month} isReadOnly={isReadOnly} />}
+      {tab === 'presupuesto' && <MktPresupuestoTab month={month} isReadOnly={isReadOnly} />}
+      {tab === 'metaads' && <MktMetaAdsTab month={month} isReadOnly={isReadOnly} />}
 
       {tab === 'semanal' && (branchesConDatos.length === 0 ? (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-10 text-center">
