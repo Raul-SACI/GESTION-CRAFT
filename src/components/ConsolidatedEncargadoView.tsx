@@ -31,6 +31,7 @@ interface Row {
   branchId: string;
   branchName: string;
   netSales: number;
+  prevNetSales: number;
   hasSales: boolean;
   achievedSales: boolean; // alcanzó al menos un objetivo de ventas (vs proyección)
   cmvPct: number | null;
@@ -98,6 +99,18 @@ export default function ConsolidatedEncargadoView({
           });
           if (data.length < 1000) break;
           page++; if (page > 60) break;
+        }
+
+        // ---- Ventas netas del MES ANTERIOR por sucursal (para la variación) ----
+        const prevMonth = (() => { const d = new Date(yy, mm - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+        const netByBranchPrev: Record<string, number> = {};
+        let pageP = 0;
+        while (true) {
+          const { data } = await supabase.from('sales_tickets').select('branch_id, net_sales').eq('month', prevMonth).range(pageP * 1000, pageP * 1000 + 999);
+          if (!data || data.length === 0) break;
+          data.forEach((r: any) => { netByBranchPrev[r.branch_id] = (netByBranchPrev[r.branch_id] || 0) + (Number(r.net_sales) || 0); });
+          if (data.length < 1000) break;
+          pageP++; if (pageP > 60) break;
         }
 
         // ---- Objetivos de ventas por sucursal (performance_role_configs) ----
@@ -237,6 +250,7 @@ export default function ConsolidatedEncargadoView({
             branchId: b.id,
             branchName: b.name,
             netSales: net,
+            prevNetSales: netByBranchPrev[b.id] || 0,
             hasSales: net > 0,
             achievedSales,
             cmvPct,
@@ -298,7 +312,8 @@ export default function ConsolidatedEncargadoView({
     const hoursDevPct = conHoras.length ? conHoras.reduce((s, r) => s + (r.hoursDevPct as number), 0) / conHoras.length : null;
     const redFlags = rows.reduce((s, r) => s + r.redFlags, 0);
     const blackFlags = rows.reduce((s, r) => s + r.blackFlags, 0);
-    return { netSales, projected, cmvPct, hoursDevPct, redFlags, blackFlags };
+    const prevNetSales = rows.reduce((s, r) => s + (r.prevNetSales || 0), 0);
+    return { netSales, projected, cmvPct, hoursDevPct, redFlags, blackFlags, prevNetSales };
   }, [rows]);
 
   const T = () => <Trophy size={12} className="inline text-amber-500 ml-1.5 -mt-0.5" />;
@@ -364,6 +379,9 @@ export default function ConsolidatedEncargadoView({
                       <div className="flex flex-col items-end leading-tight">
                         <span>{r.hasSales ? fmtMoney(r.netSales) : <span className="text-text-dim">—</span>}{winners.ventas.has(r.branchId) && <T />}</span>
                         {r.detail.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(r.detail.projected)}</span>}
+                        {r.prevNetSales > 0 && (() => { const v = ((r.netSales - r.prevNetSales) / r.prevNetSales) * 100; return (
+                          <span className="text-[9px] font-bold text-text-dim">ant. {fmtMoney(r.prevNetSales)} <span className={cn('font-black', Math.abs(v) < 0.05 ? 'text-text-dim' : v > 0 ? 'text-emerald-600' : 'text-red-500')}>{Math.abs(v) < 0.05 ? '=' : `${v > 0 ? '▲+' : '▼'}${v.toFixed(1)}%`}</span></span>
+                        ); })()}
                       </div>
                     </td>
                     <td className={cn("px-3 py-3 text-right font-mono", winners.cmv.has(r.branchId) ? "text-amber-600 font-black" : "text-text-main")}>
@@ -465,6 +483,9 @@ export default function ConsolidatedEncargadoView({
                     <div className="flex flex-col items-end leading-tight">
                       <span>{fmtMoney(totals.netSales)}</span>
                       {totals.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(totals.projected)}</span>}
+                      {totals.prevNetSales > 0 && (() => { const v = ((totals.netSales - totals.prevNetSales) / totals.prevNetSales) * 100; return (
+                        <span className="text-[9px] font-bold text-text-dim">ant. {fmtMoney(totals.prevNetSales)} <span className={cn('font-black', Math.abs(v) < 0.05 ? 'text-text-dim' : v > 0 ? 'text-emerald-600' : 'text-red-500')}>{Math.abs(v) < 0.05 ? '=' : `${v > 0 ? '▲+' : '▼'}${v.toFixed(1)}%`}</span></span>
+                      ); })()}
                     </div>
                   </td>
                   <td className="px-3 py-3 text-right font-mono text-text-main">{totals.cmvPct !== null ? `${totals.cmvPct.toFixed(1)}%` : <span className="text-text-dim">—</span>}</td>
