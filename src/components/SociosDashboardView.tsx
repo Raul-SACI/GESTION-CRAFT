@@ -54,6 +54,7 @@ interface BranchSales {
   ticketsPrev: number;       // mes anterior, SOLO los mismos días cargados (comparación justa)
   ticketsPrevFull: number;   // mes anterior COMPLETO (para comparar contra la proyección)
   netPrevFull: number;       // venta neta del mes anterior COMPLETO (para comparar contra la proyección)
+  grossPrevFull: number;     // venta bruta del mes anterior COMPLETO
   projection: number;
   ticketsProjection: number;
   // Cantidad de días distintos con ventas cargadas en el mes (para detectar días faltantes)
@@ -191,7 +192,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           branchId: b.id,
           branchName: b.name,
           netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0,
-          netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0,
+          netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0, grossPrevFull: 0,
           projection: 0,
           ticketsProjection: 0,
           diasCargados: 0,
@@ -233,6 +234,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         // proyección mensual. Se suma siempre, sin el filtro de "mismos días".
         a.ticketsPrevFull += Number(t.orders) || 0;
         a.netPrevFull += Number(t.net_sales) || 0;
+        a.grossPrevFull += Number(t.gross_sales) || 0;
         const dayNum = String(t.date).slice(8, 10);
         const loadedDays = dayNumsWithData[t.branch_id];
         // Si la sucursal tiene días cargados en el mes actual, solo contamos esos mismos días del mes anterior.
@@ -425,12 +427,13 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
       ticketsPrev: acc.ticketsPrev + d.ticketsPrev,
       ticketsPrevFull: acc.ticketsPrevFull + d.ticketsPrevFull,
       netPrevFull: acc.netPrevFull + d.netPrevFull,
+      grossPrevFull: acc.grossPrevFull + d.grossPrevFull,
       projection: acc.projection + d.projection,
       ticketsProjection: acc.ticketsProjection + d.ticketsProjection,
       cmv: acc.cmv + (d.cmv || 0),
       budgetHours: acc.budgetHours + d.budgetHours,
       workedHours: acc.workedHours + d.workedHours
-    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
+    }), { netCurrent: 0, grossCurrent: 0, ticketsCurrent: 0, netPrev: 0, grossPrev: 0, ticketsPrev: 0, ticketsPrevFull: 0, netPrevFull: 0, grossPrevFull: 0, projection: 0, ticketsProjection: 0, cmv: 0, budgetHours: 0, workedHours: 0 });
   }, [shown]);
 
   const prevMonthLabel = prevMonthOf(selectedMonth);
@@ -479,6 +482,10 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
   // Ya NO se prorratea: el mes anterior se compara con los MISMOS días del calendario
   // (ver carga de prevTickets), así que la comparación es exacta día a día.
   const isPartial = loadInfo.daysLoaded > 0 && loadInfo.daysLoaded < loadInfo.daysPrevMonth;
+  // El mes EN CURSO está realmente incompleto (menos días cargados que los que tiene el mes).
+  // Distinto de isPartial, que puede ser true solo porque el mes anterior tiene más días.
+  const daysInSelMonth = (() => { const [y, m] = selectedMonth.split('-').map(Number); return new Date(y, m, 0).getDate(); })();
+  const currIncomplete = loadInfo.daysLoaded > 0 && loadInfo.daysLoaded < daysInSelMonth;
 
   // Sucursales con menos días cargados que el consolidado: su proyección no coincide
   // con lo real porque el sistema la estira al mes completo.
@@ -497,14 +504,28 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
     return `${d}/${m}/${y}`;
   }, [loadInfo.lastDate]);
 
-  const DeltaBadge = ({ curr, prev }: { curr: number; prev: number }) => {
+  const DeltaBadge = ({ curr, prev, currFull, prevFull, money = true }: { curr: number; prev: number; currFull?: number; prevFull?: number; money?: boolean }) => {
     const p = pct(curr, prev);
-    if (p === null) return <span className="text-text-dim text-[10px] font-bold">— sin datos previos</span>;
-    const up = p >= 0;
+    // Comparación de MES COMPLETO: lo real del mes completo (o la proyección si el mes está
+    // parcial) contra el total del mes anterior COMPLETO. Da la otra mirada además de "mismos días".
+    const cf = currIncomplete ? (currFull ?? curr) : curr;
+    const pf = (prevFull != null && prevFull > 0) ? pct(cf, prevFull) : null;
     return (
-      <div className={cn('flex items-center gap-1 text-[10px] font-bold', up ? 'text-emerald-500' : 'text-red-500')}>
-        {up ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-        <span>{up ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}{isPartial ? ' (mismos días)' : ''}</span>
+      <div className="flex flex-col gap-0.5">
+        {p === null ? (
+          <span className="text-text-dim text-[10px] font-bold">— sin datos previos</span>
+        ) : (
+          <div className={cn('flex items-center gap-1 text-[10px] font-bold', p >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+            {p >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+            <span>{p >= 0 ? '+' : ''}{p.toFixed(1)}% vs {prevMonthLabel}{isPartial ? ' (mismos días)' : ''}</span>
+          </div>
+        )}
+        {pf !== null && (
+          <span className="text-[9px] font-bold text-text-dim">
+            mes compl.{currIncomplete ? ' (est.)' : ''}: <span className={cn(pf >= 0 ? 'text-emerald-500' : 'text-red-500')}>{pf >= 0 ? '+' : ''}{pf.toFixed(1)}%</span>
+            {' '}· {prevMonthShort} {money ? fmt(prevFull!) : Math.round(prevFull!).toLocaleString('es-AR')}
+          </span>
+        )}
       </div>
     );
   };
@@ -640,21 +661,21 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
               <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Netas del Mes</p>
               <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{fmt(totals.netCurrent)}</p>
-              <div className="mt-2"><DeltaBadge curr={totals.netCurrent} prev={totals.netPrev} /></div>
+              <div className="mt-2"><DeltaBadge curr={totals.netCurrent} prev={totals.netPrev} currFull={totals.projection} prevFull={totals.netPrevFull} /></div>
             </div>
 
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
               <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Brutas del Mes</p>
               <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{fmt(totals.grossCurrent)}</p>
-              <div className="mt-2"><DeltaBadge curr={totals.grossCurrent} prev={totals.grossPrev} /></div>
+              <div className="mt-2"><DeltaBadge curr={totals.grossCurrent} prev={totals.grossPrev} currFull={totals.netCurrent > 0 ? totals.grossCurrent * (totals.projection / totals.netCurrent) : totals.grossCurrent} prevFull={totals.grossPrevFull} /></div>
             </div>
 
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Receipt size={50} className="text-brand-500" /></div>
               <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Tickets del Mes</p>
               <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{totals.ticketsCurrent.toLocaleString('es-AR')}</p>
-              <div className="mt-2"><DeltaBadge curr={totals.ticketsCurrent} prev={totals.ticketsPrev} /></div>
+              <div className="mt-2"><DeltaBadge curr={totals.ticketsCurrent} prev={totals.ticketsPrev} currFull={totals.ticketsProjection} prevFull={totals.ticketsPrevFull} money={false} /></div>
             </div>
 
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
