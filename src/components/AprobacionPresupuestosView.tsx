@@ -405,6 +405,7 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
                     // Solo comparamos contra el mes anterior si estaba APROBADO y con monto.
                     const prevApproved = prev.status === 'approved' && prev.totalCost > 0;
                     const variacion = prevApproved ? ((calc.totalCost - prev.totalCost) / prev.totalCost) * 100 : null;
+                    const varHoras = (prevApproved && prev.totalHours > 0) ? ((calc.totalHours - prev.totalHours) / prev.totalHours) * 100 : null;
                     const isApproved = calc.status === 'approved';
                     const isSelected = selectedBranch?.id === b.id;
 
@@ -421,8 +422,20 @@ export default function AprobacionPresupuestosView({ branches, isReadOnly = fals
                           <span className="font-sans font-bold uppercase block">{b.name}</span>
                           <span className="text-[10px] text-text-dim font-bold block opacity-60">{b.location || 'Argentina'}</span>
                         </td>
-                        <td className="px-4 py-4 text-center font-mono font-bold text-text-dim text-xs">
-                          {calc.totalHours.toLocaleString()}h
+                        <td className="px-4 py-4 text-center font-mono text-xs">
+                          <div className="font-black text-text-main">{calc.totalHours.toLocaleString()}h</div>
+                          <div className="text-[9px] text-text-dim/70 font-bold mt-0.5 flex items-center justify-center gap-1">
+                            {prevApproved ? (
+                              <>
+                                <span>ant: {prev.totalHours.toLocaleString()}h</span>
+                                {varHoras != null && (
+                                  <span className={cn('px-1 rounded', Math.abs(varHoras) < 0.05 ? 'text-text-dim' : varHoras > 0 ? 'text-red-500 bg-red-500/10' : 'text-emerald-500 bg-emerald-500/10')}>
+                                    {Math.abs(varHoras) < 0.05 ? '=' : `${varHoras > 0 ? '▲+' : '▼'}${varHoras.toFixed(1)}%`}
+                                  </span>
+                                )}
+                              </>
+                            ) : <span className="text-text-dim/50">ant: — sin aprob.</span>}
+                          </div>
                         </td>
                         <td className="px-4 py-4 text-center font-mono font-bold text-brand-500 text-xs font-black">
                           ${calc.totalCost.toLocaleString('es-AR')}
