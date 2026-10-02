@@ -87,8 +87,10 @@ export default function EncargadoDashboardView({
   const [loading, setLoading] = useState(false);
   // Vista consolidada (una fila por sucursal con los 4 indicadores).
   const [consolidated, setConsolidated] = useState(false);
-  // Solo pueden ver el consolidado: admin/dueño o quien tenga el permiso asignado.
+  // Pueden ver el consolidado: admin/dueño, quien tenga el permiso asignado,
+  // o cualquier usuario con acceso a TODAS las sucursales (accessScope 'all_branches').
   const canConsolidado = currentUser?.role === 'administrador' || currentUser?.role === 'dueño'
+    || (currentUser as any)?.accessScope === 'all_branches'
     || (Array.isArray(currentUser?.permissions) && currentUser.permissions.includes('encargado_consolidado'));
 
   // Core metrics state parsed or loaded dynamically
