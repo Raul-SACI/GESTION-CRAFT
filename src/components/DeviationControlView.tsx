@@ -332,27 +332,107 @@ export default function DeviationControlView({
         const endDate = `${selectedMonth}-${String(lastDay).padStart(2, '0')}`;
         const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
 
-        // Recetas: product_id -> insumos
-        const { data: recipesData } = await supabase.from('recipes').select('product_id, item_id, quantity');
-        const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
-        (recipesData || []).forEach((r: any) => {
-          if (!r.product_id || !r.item_id) return;
-          if (!recipeByProd[r.product_id]) recipeByProd[r.product_id] = [];
-          recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
-        });
-        const { data: productsData } = await supabase.from('products').select('id, name, code');
         const normCode = (c: any) => String(c ?? '').trim();
-        const prodIdByName: Record<string, string> = {};
-        const prodIdByCode: Record<string, string> = {};
-        (productsData || []).forEach((p: any) => {
-          if (p.name) prodIdByName[norm(p.name)] = p.id;
-          if (normCode(p.code) !== '') prodIdByCode[normCode(p.code)] = p.id;
+
+        // ===== RECETAS desde la sección "Recetas" (Gestión Líderes Operativos) =====
+        // Fuente de verdad: op_recipes + op_recipe_items. Un plato de la carta (tipo='carta')
+        // puede contener insumos directos y/o recetas de producción/sucursal (por CÓDIGO),
+        // que a su vez se descomponen en más insumos. Explotamos recursivamente hasta llegar
+        // a cada código que exista como artículo controlado (insumo o receta producción).
+        const { data: opRecs } = await supabase.from('op_recipes').select('id, tipo, name, code');
+        const opRecList = (opRecs || []) as any[];
+        // Insumos de cada receta (paginado por si supera 1000 filas)
+        const itemsByRecipeId: Record<string, Array<{ code: string; name: string; quantity: number }>> = {};
+        {
+          let from = 0; const page = 1000;
+          while (true) {
+            const { data } = await supabase.from('op_recipe_items').select('recipe_id, code, item_name, quantity').range(from, from + page - 1);
+            const chunk = data || [];
+            chunk.forEach((it: any) => {
+              (itemsByRecipeId[it.recipe_id] ||= []).push({ code: normCode(it.code), name: String(it.item_name || ''), quantity: Number(it.quantity || 0) });
+            });
+            if (chunk.length < page) break;
+            from += page;
+          }
+        }
+        // Índices de recetas por código y por nombre (para resolver anidados y matchear el ranking)
+        const recipeIdByCode: Record<string, string> = {};
+        const cartaIdByCode: Record<string, string> = {};
+        const cartaIdByName: Record<string, string> = {};
+        opRecList.forEach(r => {
+          const c = normCode(r.code);
+          if (c && !recipeIdByCode[c]) recipeIdByCode[c] = r.id;
+          if (r.tipo === 'carta') {
+            if (c) cartaIdByCode[c] = r.id;
+            if (r.name) cartaIdByName[norm(r.name)] = r.id;
+          }
         });
-        // Alias de ventas: nombres del ranking (POS) que no coinciden con el maestro
+        // Explosión memoizada: para 1 unidad de la receta, mapa código -> {qty, name}.
+        // Se acredita el código en CADA nivel (el usuario controla insumos y también recetas
+        // intermedias como "MILANESA PARA SANDWICH"), y además se desciende a sus componentes.
+        const explodedCache: Record<string, Record<string, { qty: number; name: string }>> = {};
+        const explodeRecipe = (recipeId: string, stack: Set<string>): Record<string, { qty: number; name: string }> => {
+          if (explodedCache[recipeId]) return explodedCache[recipeId];
+          if (stack.has(recipeId)) return {}; // guarda anti-ciclo
+          const out: Record<string, { qty: number; name: string }> = {};
+          const nextStack = new Set(stack); nextStack.add(recipeId);
+          (itemsByRecipeId[recipeId] || []).forEach(ing => {
+            const key = ing.code || `@${norm(ing.name)}`;
+            if (!out[key]) out[key] = { qty: 0, name: ing.name };
+            out[key].qty += ing.quantity;
+            // Si el código corresponde a otra receta, descomponerla también.
+            const childId = ing.code ? recipeIdByCode[ing.code] : null;
+            if (childId && childId !== recipeId) {
+              const sub = explodeRecipe(childId, nextStack);
+              Object.entries(sub).forEach(([k, v]) => {
+                if (!out[k]) out[k] = { qty: 0, name: v.name };
+                out[k].qty += v.qty * ing.quantity;
+              });
+            }
+          });
+          if (!stack.size) explodedCache[recipeId] = out; // solo cacheamos la raíz
+          return out;
+        };
+
+        // Artículos controlados -> ids por código y por nombre (un código/nombre puede mapear
+        // a varios ids: Maestro de Insumos y Maestro Recetas Producción).
+        const idsByCode: Record<string, string[]> = {};
+        const idsByName: Record<string, string[]> = {};
+        [...items, ...produccionItems].forEach((it: any) => {
+          const c = normCode(it.code);
+          if (c) { (idsByCode[c] ||= []); if (!idsByCode[c].includes(it.id)) idsByCode[c].push(it.id); }
+          const n = norm(it.name);
+          if (n) { (idsByName[n] ||= []); if (!idsByName[n].includes(it.id)) idsByName[n].push(it.id); }
+        });
+        const targetIds = (code: string, name: string): string[] => {
+          const byC = code ? idsByCode[code] : null;
+          if (byC && byC.length) return byC;
+          const byN = idsByName[norm(name)];
+          return (byN && byN.length) ? byN : [];
+        };
+
+        // products: para mapear decomisos de tipo 'producto' (reference_id = products.id) y alias.
+        const { data: productsData } = await supabase.from('products').select('id, name, code');
+        const prodById: Record<string, { name: string; code: string }> = {};
+        (productsData || []).forEach((p: any) => { prodById[p.id] = { name: p.name || '', code: normCode(p.code) }; });
+        // Alias de ventas: nombres del ranking (POS) -> products.id
+        const aliasProdByName: Record<string, string> = {};
         try {
           const { data: aliasData } = await supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore');
-          (aliasData || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) prodIdByName[norm(a.alias_name)] = a.product_id; });
+          (aliasData || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) aliasProdByName[norm(a.alias_name)] = a.product_id; });
         } catch (e) { /* tabla de alias opcional */ }
+
+        // Resuelve un producto (código/nombre) a la receta de carta correspondiente.
+        const resolveCartaId = (code: string, name: string): string | null => {
+          if (code && cartaIdByCode[code]) return cartaIdByCode[code];
+          if (name && cartaIdByName[norm(name)]) return cartaIdByName[norm(name)];
+          const pid = aliasProdByName[norm(name)];
+          if (pid && prodById[pid]) {
+            const p = prodById[pid];
+            return (p.code && cartaIdByCode[p.code]) || cartaIdByName[norm(p.name)] || null;
+          }
+          return null;
+        };
 
         const upserts: any[] = [];
 
@@ -368,8 +448,15 @@ export default function DeviationControlView({
           if (!decByDateItem[w.date]) decByDateItem[w.date] = {};
           const qty = Number(w.quantity || 0);
           if (w.type === 'producto') {
-            const recipe = recipeByProd[w.reference_id];
-            if (recipe) recipe.forEach(ing => { decByDateItem[w.date][ing.itemId] = (decByDateItem[w.date][ing.itemId] || 0) + qty * ing.quantity; });
+            const p = prodById[w.reference_id];
+            const recipeId = p ? resolveCartaId(p.code, p.name) : null;
+            if (recipeId) {
+              const exploded = explodeRecipe(recipeId, new Set());
+              Object.entries(exploded).forEach(([key, v]) => {
+                const code = key.startsWith('@') ? '' : key;
+                targetIds(code, v.name).forEach(tid => { decByDateItem[w.date][tid] = (decByDateItem[w.date][tid] || 0) + qty * v.qty; });
+              });
+            }
           } else {
             decByDateItem[w.date][w.reference_id] = (decByDateItem[w.date][w.reference_id] || 0) + qty;
           }
@@ -382,46 +469,32 @@ export default function DeviationControlView({
           .eq('branch_id', selectedBranchId)
           .eq('month', selectedMonth);
         const weekFirstDay: Record<number, string> = { 1: `${selectedMonth}-01`, 2: `${selectedMonth}-08`, 3: `${selectedMonth}-15`, 4: `${selectedMonth}-22` };
-        // Un mismo insumo puede existir con DOS ids: en el Maestro de Insumos (que usan las recetas)
-        // y en el Maestro Recetas Producción (que se controla en Desvíos). Atribuimos la venta teórica
-        // a TODOS los ids con el mismo nombre normalizado, para que llegue también al insumo controlado.
-        const idsByName: Record<string, string[]> = {};
-        const nameByIdCat = new Map<string, string>();
-        [...items, ...produccionItems].forEach((it: any) => {
-          const k = norm(it.name);
-          nameByIdCat.set(it.id, k);
-          if (k) { (idsByName[k] ||= []); if (!idsByName[k].includes(it.id)) idsByName[k].push(it.id); }
-        });
-        const equivIds = (itemId: string): string[] => {
-          const k = nameByIdCat.get(itemId);
-          const l = k ? idsByName[k] : null;
-          return (l && l.length) ? l : [itemId];
-        };
         const vtByDateItem: Record<string, Record<string, number>> = {};
-        // Diagnóstico: cuántas filas del ranking no matchean con el maestro o no tienen receta.
+        // Diagnóstico: cuántas filas del ranking no matchean con una receta de la carta o la receta no tiene insumos.
         let diagNoMatch = 0, diagNoRecipe = 0;
         const diagEjemplos: string[] = [];
         (ranking || []).forEach((rk: any) => {
-          // Resolver por CÓDIGO primero (dato confiable), luego por nombre/alias
-          const prodId = (normCode(rk.product_code) !== '' && prodIdByCode[normCode(rk.product_code)]) || prodIdByName[norm(rk.product_name)];
-          if (!prodId) {
+          const recipeId = resolveCartaId(normCode(rk.product_code), rk.product_name);
+          if (!recipeId) {
             diagNoMatch++;
-            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_code ? rk.product_code + ' · ' : ''}${rk.product_name || '(sin nombre)'} (sin producto)`);
+            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_code ? rk.product_code + ' · ' : ''}${rk.product_name || '(sin nombre)'} (sin receta en la sección Recetas)`);
             return;
           }
-          const recipe = recipeByProd[prodId];
-          if (!recipe || recipe.length === 0) {
+          const exploded = explodeRecipe(recipeId, new Set());
+          const entries = Object.entries(exploded);
+          if (entries.length === 0) {
             diagNoRecipe++;
-            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_name || rk.product_code} (sin receta)`);
+            if (diagEjemplos.length < 6) diagEjemplos.push(`${rk.product_name || rk.product_code} (receta sin insumos)`);
             return;
           }
           const wk = Number(rk.week_number) || 1;
           const day = weekFirstDay[wk] || weekFirstDay[1];
           if (!vtByDateItem[day]) vtByDateItem[day] = {};
           const sold = Number(rk.quantity || 0);
-          recipe.forEach(ing => {
-            const add = sold * ing.quantity;
-            equivIds(ing.itemId).forEach(tid => { vtByDateItem[day][tid] = (vtByDateItem[day][tid] || 0) + add; });
+          entries.forEach(([key, v]) => {
+            const code = key.startsWith('@') ? '' : key;
+            const add = sold * v.qty;
+            targetIds(code, v.name).forEach(tid => { vtByDateItem[day][tid] = (vtByDateItem[day][tid] || 0) + add; });
           });
         });
         const itemsVTset = new Set<string>();
@@ -1616,9 +1689,9 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                      {vtDiag.rankingRows === 0 ? (
                        <p className="text-text-dim font-bold normal-case tracking-normal">No hay <b className="text-text-main">Ranking de artículos</b> cargado para <b className="text-text-main">{selectedMonth}</b> en esta sucursal. Cargalo en <b className="text-text-main">Ventas → Ranking Artículos</b> (por sucursal y mes) para que se calcule la venta teórica.</p>
                      ) : vtDiag.itemsVT === 0 ? (
-                       <p className="text-text-dim font-bold normal-case tracking-normal">Se leyeron <b className="text-text-main">{vtDiag.rankingRows}</b> filas del ranking, pero <b className="text-text-main">{vtDiag.noMatch}</b> no coinciden con un producto del maestro y <b className="text-text-main">{vtDiag.noRecipe}</b> no tienen receta. Revisá los <b className="text-text-main">códigos/alias</b> y las <b className="text-text-main">recetas</b> (pestaña Diagnóstico Ventas).</p>
+                       <p className="text-text-dim font-bold normal-case tracking-normal">Se leyeron <b className="text-text-main">{vtDiag.rankingRows}</b> filas del ranking, pero <b className="text-text-main">{vtDiag.noMatch}</b> no coinciden con un plato de la sección <b className="text-text-main">Recetas</b> y <b className="text-text-main">{vtDiag.noRecipe}</b> tienen el plato cargado pero sin insumos. Revisá los <b className="text-text-main">códigos/alias</b> y las <b className="text-text-main">recetas de la carta</b> (Gestión Líderes Operativos → Recetas).</p>
                      ) : (
-                       <p className="text-text-dim font-bold normal-case tracking-normal">Se calcularon ventas teóricas para <b className="text-text-main">{vtDiag.itemsVT}</b> insumo(s), pero <b className="text-text-main">ninguno de los insumos controlados acá</b>. Casi seguro las <b className="text-text-main">recetas de los platos vendidos no incluyen estos insumos de producción</b> (ej. la receta del sándwich no lista "MILANESA PARA SANDWICH"). Agregá esos insumos a las recetas de los platos para que se descuenten.</p>
+                       <p className="text-text-dim font-bold normal-case tracking-normal">Se calcularon ventas teóricas para <b className="text-text-main">{vtDiag.itemsVT}</b> insumo(s), pero <b className="text-text-main">ninguno de los insumos controlados acá</b>. Verificá que el <b className="text-text-main">código</b> del artículo controlado coincida con el que figura en las recetas de la sección <b className="text-text-main">Recetas</b> (ej. "MILANESA PARA SANDWICH" cód. 800007 dentro del SÁNDWICH DE MILANESA).</p>
                      )}
                      {vtDiag.ejemplos.length > 0 && <p className="text-text-dim mt-1 normal-case tracking-normal opacity-80">Ejemplos sin match/receta: {vtDiag.ejemplos.join('  ·  ')}</p>}
                    </div>
