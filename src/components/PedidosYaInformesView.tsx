@@ -227,7 +227,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
       case 'dia': return byFecha(comDia);
       case 'publicidad': return byFecha(adsDia);
       case 'reclamos': return byFecha(comDia); // el estado de cuenta trae el detalle por día
-      case 'comercial': return byFecha(comDia) || bySemana(lastWeek(periodo));
+      case 'comercial': return bySemana(lastWeek(periodo)) || (periodo.length ? 'mes completo' : null); // el Resumen de ventas se carga por semana
       case 'operativo': return bySemana(lastWeek(opsPeriodo));
       case 'ranking': return bySemana(lastWeek(productos)) || (productos.length ? 'mes completo' : null);
       default: return null;
