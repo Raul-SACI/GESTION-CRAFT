@@ -232,7 +232,12 @@ export default function ReadOnlyPlantaView({
               branchId: r.branch_id,
               roleId: r.position_id?.replace(/_(?:ma[nñ]ana|tarde|manana)$/, '') || r.position_id,
               roleLabel: r.position_name || r.position_id,
-              shift: (r.shift === 'Mañana' ? 'Mañana' : 'Tarde') as 'Mañana' | 'Tarde',
+              // El turno sale de la columna shift; si viene vacía o con otro formato, se deduce
+              // del sufijo del position_id (_maana / _tarde), igual que en el Presupuestador.
+              // Antes solo chequeaba r.shift === 'Mañana' exacto, por eso caía todo a Tarde.
+              shift: ((r.shift === 'Mañana' || r.shift === 'Tarde')
+                ? r.shift
+                : (/_ma[nñ]?ana$/i.test(String(r.position_id || '')) ? 'Mañana' : 'Tarde')) as 'Mañana' | 'Tarde',
               countGroupA: 1,
               countGroupB: 1,
               hoursPerDay: r.hours_per_day || 8,
