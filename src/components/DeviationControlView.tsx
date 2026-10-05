@@ -1769,56 +1769,56 @@ CREATE POLICY "Public Access" ON monthly_controlled_items FOR ALL USING (true) W
                              <div className="text-[8px] font-bold text-text-dim uppercase opacity-60">{item?.unit || ''}</div>
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={ei || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ei', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             <QuantityInput value={ei} disabled={weekClosed}
+                               onCommit={(v) => updateDailyLog(weekDates[0], id, 'ei', v)} className={inputCls} />
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-brand-500/5">
-                             <input type="number" step="0.001" value={purchases || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(dateStr, id, 'purchases', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                             <QuantityInput value={purchases} disabled={weekClosed}
+                               onCommit={(v) => updateDailyLog(dateStr, id, 'purchases', v)} className={inputBrand} />
                            </td>
                            {isAlmacen && (
                              <td className="p-0 border-r border-border-dim/30 bg-emerald-500/5">
-                               <input type="number" step="0.001" value={produccion || ''} placeholder="0" disabled={weekClosed}
-                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'produccion', parseFloat(e.target.value) || 0)} className={inputCls} />
+                               <QuantityInput value={produccion} disabled={weekClosed}
+                                 onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'produccion', v)} className={inputCls} />
                              </td>
                            )}
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={loansReceived || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansReceived', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             <QuantityInput value={loansReceived} disabled={weekClosed}
+                               onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'loansReceived', v)} className={inputCls} />
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={loansSent || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'loansSent', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             <QuantityInput value={loansSent} disabled={weekClosed}
+                               onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'loansSent', v)} className={inputCls} />
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={staff_consumption || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             <QuantityInput value={staff_consumption} disabled={weekClosed}
+                               onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'staff_consumption', v)} className={inputCls} />
                            </td>
                            {isAlmacen && (
                              <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
-                               <input type="number" step="0.001" value={recupero || ''} placeholder="0" disabled={weekClosed}
-                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'recupero', parseFloat(e.target.value) || 0)} className={inputCls} />
+                               <QuantityInput value={recupero} disabled={weekClosed}
+                                 onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'recupero', v)} className={inputCls} />
                              </td>
                            )}
                            {isAlmacen && (
                              <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
-                               <input type="number" step="0.001" value={ventasPersonal || ''} placeholder="0" disabled={weekClosed}
-                                 onChange={(e) => updateWeeklyAggregate(weekDates, id, 'ventasPersonal', parseFloat(e.target.value) || 0)} className={inputCls} />
+                               <QuantityInput value={ventasPersonal} disabled={weekClosed}
+                                 onCommit={(v) => updateWeeklyAggregate(weekDates, id, 'ventasPersonal', v)} className={inputCls} />
                              </td>
                            )}
                            {!isAlmacen && (
                              <td className="p-0 border-r border-border-dim/30 bg-purple-500/5">
-                               <input type="number" step="0.001" value={theoretical_sales || ''} placeholder="0" disabled={weekClosed}
-                                 onChange={(e) => updateDailyLog(dateStr, id, 'theoretical_sales', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                               <QuantityInput value={theoretical_sales} disabled={weekClosed}
+                                 onCommit={(v) => updateDailyLog(dateStr, id, 'theoretical_sales', v)} className={inputBrand} />
                              </td>
                            )}
                            <td className="p-0 border-r border-border-dim/30 bg-red-500/5">
-                             <input type="number" step="0.001" value={waste || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(dateStr, id, 'waste', parseFloat(e.target.value) || 0)} className={inputBrand} />
+                             <QuantityInput value={waste} disabled={weekClosed}
+                               onCommit={(v) => updateDailyLog(dateStr, id, 'waste', v)} className={inputBrand} />
                            </td>
                            <td className="p-0 border-r border-border-dim/30 bg-bg-accent/20">
-                             <input type="number" step="0.001" value={ef || ''} placeholder="0" disabled={weekClosed}
-                               onChange={(e) => updateDailyLog(weekDates[0], id, 'ef', parseFloat(e.target.value) || 0)} className={inputCls} />
+                             <QuantityInput value={ef} disabled={weekClosed}
+                               onCommit={(v) => updateDailyLog(weekDates[0], id, 'ef', v)} className={inputCls} />
                            </td>
                            <td className="px-3 py-3 text-center border-r border-border-dim/30 bg-teal-500/5" title="Existencia Final Teórica (calculada, no editable)">
                              <span className="font-mono text-[11px] font-bold text-teal-600">{efTeorica.toLocaleString('es-AR', { maximumFractionDigits: 3 })}</span>
