@@ -13,15 +13,26 @@ import { Branch } from '../types';
 
 const SEM_RANGO = ['1-7', '8-14', '15-21', '22-fin'];
 type Row = { cantidad: number; altas: number; bajas: number; comentarios: string };
-const FUENTES: { id: string; label: string; color: string; conEstrellas: boolean }[] = [
-  { id: 'google', label: 'Google', color: 'text-amber-500', conEstrellas: true },
-  { id: 'pedidosya', label: 'Pedidos Ya', color: 'text-red-500', conEstrellas: true },
-  { id: 'instagram', label: 'Instagram', color: 'text-purple-500', conEstrellas: false },
-];
+type Fuente = { id: string; label: string; color: string; conEstrellas: boolean };
+// Desde este mes (inclusive), Pedidos Ya se carga SEPARADO por marca: Resto y Café.
+// Los meses anteriores (ej. Septiembre) siguen unificados en la fuente 'pedidosya'.
+const SPLIT_PY_FROM = '2026-10';
 
 export default function MktAtencionTab({ branches, month, isReadOnly = false }: { branches: Branch[]; month: string; isReadOnly?: boolean }) {
   const [anio, mes] = month.split('-').map(Number);
   const operative = useMemo(() => branches.filter(b => b.id !== 'all' && b.id !== 'virtual' && !/almac/i.test(b.name)), [branches]);
+  // Fuentes a mostrar según el mes: Pedidos Ya unificado (meses viejos) o separado Resto/Café.
+  const fuentes = useMemo<Fuente[]>(() => {
+    const list: Fuente[] = [{ id: 'google', label: 'Google', color: 'text-amber-500', conEstrellas: true }];
+    if (month >= SPLIT_PY_FROM) {
+      list.push({ id: 'pedidosya_resto', label: 'Pedidos Ya · Resto', color: 'text-red-500', conEstrellas: true });
+      list.push({ id: 'pedidosya_cafe', label: 'Pedidos Ya · Café', color: 'text-orange-500', conEstrellas: true });
+    } else {
+      list.push({ id: 'pedidosya', label: 'Pedidos Ya', color: 'text-red-500', conEstrellas: true });
+    }
+    list.push({ id: 'instagram', label: 'Instagram', color: 'text-purple-500', conEstrellas: false });
+    return list;
+  }, [month]);
   const [semana, setSemana] = useState(1);
   const [data, setData] = useState<Record<string, Row>>({}); // `${fuente}|${branchId}` -> Row
   const [loading, setLoading] = useState(false);
@@ -50,7 +61,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
     setSaving(true);
     try {
       const payload: any[] = [];
-      FUENTES.forEach(f => operative.forEach(b => {
+      fuentes.forEach(f => operative.forEach(b => {
         const r = data[key(f.id, b.id)];
         if (!r) return;
         const vacia = !r.cantidad && !r.altas && !r.bajas && !(r.comentarios || '').trim();
@@ -81,7 +92,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
         {loading && <Loader2 size={14} className="animate-spin text-brand-500 ml-1" />}
       </div>
 
-      {FUENTES.map(f => (
+      {fuentes.map(f => (
         <div key={f.id} className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
           <div className="px-4 pt-3 pb-2 flex items-center gap-2 border-b border-border-dim/50">
             <Star size={14} className={f.color} />
