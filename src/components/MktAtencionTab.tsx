@@ -17,6 +17,12 @@ type Fuente = { id: string; label: string; color: string; conEstrellas: boolean;
 // Desde este mes (inclusive), Pedidos Ya se carga SEPARADO por marca: Resto y Café.
 // Los meses anteriores (ej. Septiembre) siguen unificados en la fuente 'pedidosya'.
 const SPLIT_PY_FROM = '2026-10';
+// Marca derivada del nombre de la sucursal del archivo de Pedidos Ya (igual criterio
+// que el módulo Pedidos Ya): si el nombre contiene "café/cafe" → Craft Café, si no → Craft.
+const deriveMarca = (sucursal: string): 'Craft' | 'Craft Café' => /caf[eé]/i.test(sucursal || '') ? 'Craft Café' : 'Craft';
+// Clave de LOCAL para cruzar el nombre que trae Pedidos Ya con la sucursal de la app,
+// ignorando "craft", "café/cafe", acentos, espacios y signos (ambas marcas comparten local).
+const normLoc = (s: string) => String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/CAFE/g, '').replace(/CRAFT/g, '').replace(/[^A-Z0-9]/g, '');
 
 export default function MktAtencionTab({ branches, month, isReadOnly = false }: { branches: Branch[]; month: string; isReadOnly?: boolean }) {
   const [anio, mes] = month.split('-').map(Number);
@@ -47,6 +53,38 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
         .eq('anio', anio).eq('mes', mes).eq('semana', semana);
       const map: Record<string, Row> = {};
       ((rows as any[]) || []).forEach(r => { map[key(r.fuente, r.branch_id)] = { pedidos: Number(r.pedidos) || 0, cantidad: Number(r.cantidad) || 0, altas: Number(r.estrellas_altas) || 0, bajas: Number(r.estrellas_bajas) || 0, comentarios: r.comentarios || '' }; });
+
+      // Autocompletar "Pedidos" desde el módulo Pedidos Ya (py_comercial_periodo), por la
+      // misma semana del negocio. Se cruza por local (normLoc) y marca. Solo pisa cuando
+      // Pedidos Ya tiene pedidos (>0), para no borrar lo cargado a mano.
+      try {
+        const { data: pyRows } = await supabase.from('py_comercial_periodo')
+          .select('sucursal, marca, pedidos, semana').eq('anio', anio).eq('mes', mes).eq('semana', semana);
+        const pyByLoc: Record<string, { Craft: number; 'Craft Café': number }> = {};
+        ((pyRows as any[]) || []).forEach(r => {
+          const loc = normLoc(r.sucursal);
+          const mk = deriveMarca(r.sucursal);
+          const e = (pyByLoc[loc] ||= { Craft: 0, 'Craft Café': 0 });
+          e[mk] += Number(r.pedidos) || 0;
+        });
+        const setPed = (fuenteId: string, b: string, ped: number) => {
+          if (!(ped > 0)) return;
+          const k = key(fuenteId, b);
+          const cur = map[k] || { pedidos: 0, cantidad: 0, altas: 0, bajas: 0, comentarios: '' };
+          map[k] = { ...cur, pedidos: ped };
+        };
+        operative.forEach(b => {
+          const e = pyByLoc[normLoc(b.name)];
+          if (!e) return;
+          if (month >= SPLIT_PY_FROM) {
+            setPed('pedidosya_resto', b.id, e.Craft);
+            setPed('pedidosya_cafe', b.id, e['Craft Café']);
+          } else {
+            setPed('pedidosya', b.id, e.Craft + e['Craft Café']);
+          }
+        });
+      } catch (e) { /* py opcional */ }
+
       setData(map);
     } catch (e) { console.warn('Atención load error', e); }
     finally { setLoading(false); }
@@ -101,7 +139,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
           <table className="w-full text-[12px] border-collapse min-w-[720px]">
             <thead><tr className="bg-bg-accent/20 text-text-dim">
               <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
-              {f.conPedidos && <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Pedidos</th>}
+              {f.conPedidos && <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest" title="Se autocompleta desde el módulo Pedidos Ya (por local, marca y semana). Podés ajustarlo a mano.">Pedidos</th>}
               {f.conEstrellas && <>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Reseñas</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">5-3 ★</th>
