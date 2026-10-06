@@ -335,10 +335,11 @@ export default function DeviationControlView({
         const normCode = (c: any) => String(c ?? '').trim();
 
         // ===== RECETAS desde la sección "Recetas" (Gestión Líderes Operativos) =====
-        // Fuente de verdad: op_recipes + op_recipe_items. Un plato de la carta (tipo='carta')
-        // puede contener insumos directos y/o recetas de producción/sucursal (por CÓDIGO),
-        // que a su vez se descomponen en más insumos. Explotamos recursivamente hasta llegar
-        // a cada código que exista como artículo controlado (insumo o receta producción).
+        // Fuente de verdad: SOLO los "Platos de la Carta" (op_recipes tipo='carta').
+        // Lo que figura en las pestañas "Producción" y "En Sucursal" NO se usa como receta:
+        // si un plato lista una receta de producción (ej. "MILANESA PARA SANDWICH" cód. 800007),
+        // se acredita ESE código directamente al artículo controlado, pero NO se descompone en
+        // sus insumos. Un plato que contiene otro PLATO de la carta sí se descompone.
         const { data: opRecs } = await supabase.from('op_recipes').select('id, tipo, name, code');
         const opRecList = (opRecs || []) as any[];
         // Insumos de cada receta (paginado por si supera 1000 filas)
@@ -355,21 +356,21 @@ export default function DeviationControlView({
             from += page;
           }
         }
-        // Índices de recetas por código y por nombre (para resolver anidados y matchear el ranking)
+        // Índices SOLO de platos de la carta, por código y por nombre. recipeIdByCode se usa
+        // para resolver anidados: al contener únicamente platos de la carta, la explosión nunca
+        // desciende a recetas de producción/sucursal (solo a otros platos de la carta).
         const recipeIdByCode: Record<string, string> = {};
         const cartaIdByCode: Record<string, string> = {};
         const cartaIdByName: Record<string, string> = {};
         opRecList.forEach(r => {
+          if (r.tipo !== 'carta') return;
           const c = normCode(r.code);
-          if (c && !recipeIdByCode[c]) recipeIdByCode[c] = r.id;
-          if (r.tipo === 'carta') {
-            if (c) cartaIdByCode[c] = r.id;
-            if (r.name) cartaIdByName[norm(r.name)] = r.id;
-          }
+          if (c) { cartaIdByCode[c] = r.id; if (!recipeIdByCode[c]) recipeIdByCode[c] = r.id; }
+          if (r.name) cartaIdByName[norm(r.name)] = r.id;
         });
-        // Explosión memoizada: para 1 unidad de la receta, mapa código -> {qty, name}.
-        // Se acredita el código en CADA nivel (el usuario controla insumos y también recetas
-        // intermedias como "MILANESA PARA SANDWICH"), y además se desciende a sus componentes.
+        // Explosión memoizada: para 1 unidad del plato, mapa código -> {qty, name}.
+        // Se acredita el código de cada insumo/receta listado directamente en el plato, y solo
+        // se desciende cuando ese código es OTRO plato de la carta.
         const explodedCache: Record<string, Record<string, { qty: number; name: string }>> = {};
         const explodeRecipe = (recipeId: string, stack: Set<string>): Record<string, { qty: number; name: string }> => {
           if (explodedCache[recipeId]) return explodedCache[recipeId];
