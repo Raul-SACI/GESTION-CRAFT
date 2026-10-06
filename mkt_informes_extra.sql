@@ -7,8 +7,9 @@ create table if not exists public.mkt_atencion_cliente (
   anio            integer not null,
   mes             integer not null,
   semana          integer not null,
-  fuente          text not null,          -- 'google' | 'pedidosya' | 'instagram'
+  fuente          text not null,          -- 'google' | 'pedidosya' / 'pedidosya_resto' / 'pedidosya_cafe' | 'instagram'
   branch_id       text not null,
+  pedidos         integer not null default 0,   -- total de pedidos (solo Pedidos Ya)
   cantidad        integer not null default 0,   -- cantidad de reseñas
   estrellas_altas integer not null default 0,   -- 5-3 estrellas
   estrellas_bajas integer not null default 0,   -- 2-1 estrellas

@@ -12,8 +12,8 @@ import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
 
 const SEM_RANGO = ['1-7', '8-14', '15-21', '22-fin'];
-type Row = { cantidad: number; altas: number; bajas: number; comentarios: string };
-type Fuente = { id: string; label: string; color: string; conEstrellas: boolean };
+type Row = { pedidos: number; cantidad: number; altas: number; bajas: number; comentarios: string };
+type Fuente = { id: string; label: string; color: string; conEstrellas: boolean; conPedidos?: boolean };
 // Desde este mes (inclusive), Pedidos Ya se carga SEPARADO por marca: Resto y Café.
 // Los meses anteriores (ej. Septiembre) siguen unificados en la fuente 'pedidosya'.
 const SPLIT_PY_FROM = '2026-10';
@@ -25,10 +25,10 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
   const fuentes = useMemo<Fuente[]>(() => {
     const list: Fuente[] = [{ id: 'google', label: 'Google', color: 'text-amber-500', conEstrellas: true }];
     if (month >= SPLIT_PY_FROM) {
-      list.push({ id: 'pedidosya_resto', label: 'Pedidos Ya · Resto', color: 'text-red-500', conEstrellas: true });
-      list.push({ id: 'pedidosya_cafe', label: 'Pedidos Ya · Café', color: 'text-orange-500', conEstrellas: true });
+      list.push({ id: 'pedidosya_resto', label: 'Pedidos Ya · Resto', color: 'text-red-500', conEstrellas: true, conPedidos: true });
+      list.push({ id: 'pedidosya_cafe', label: 'Pedidos Ya · Café', color: 'text-orange-500', conEstrellas: true, conPedidos: true });
     } else {
-      list.push({ id: 'pedidosya', label: 'Pedidos Ya', color: 'text-red-500', conEstrellas: true });
+      list.push({ id: 'pedidosya', label: 'Pedidos Ya', color: 'text-red-500', conEstrellas: true, conPedidos: true });
     }
     list.push({ id: 'instagram', label: 'Instagram', color: 'text-purple-500', conEstrellas: false });
     return list;
@@ -46,14 +46,14 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
       const { data: rows } = await supabase.from('mkt_atencion_cliente').select('*')
         .eq('anio', anio).eq('mes', mes).eq('semana', semana);
       const map: Record<string, Row> = {};
-      ((rows as any[]) || []).forEach(r => { map[key(r.fuente, r.branch_id)] = { cantidad: Number(r.cantidad) || 0, altas: Number(r.estrellas_altas) || 0, bajas: Number(r.estrellas_bajas) || 0, comentarios: r.comentarios || '' }; });
+      ((rows as any[]) || []).forEach(r => { map[key(r.fuente, r.branch_id)] = { pedidos: Number(r.pedidos) || 0, cantidad: Number(r.cantidad) || 0, altas: Number(r.estrellas_altas) || 0, bajas: Number(r.estrellas_bajas) || 0, comentarios: r.comentarios || '' }; });
       setData(map);
     } catch (e) { console.warn('Atención load error', e); }
     finally { setLoading(false); }
   };
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [anio, mes, semana]);
 
-  const get = (f: string, b: string): Row => data[key(f, b)] || { cantidad: 0, altas: 0, bajas: 0, comentarios: '' };
+  const get = (f: string, b: string): Row => data[key(f, b)] || { pedidos: 0, cantidad: 0, altas: 0, bajas: 0, comentarios: '' };
   const set = (f: string, b: string, patch: Partial<Row>) => setData(prev => ({ ...prev, [key(f, b)]: { ...get(f, b), ...patch } }));
 
   const guardar = async () => {
@@ -64,9 +64,9 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
       fuentes.forEach(f => operative.forEach(b => {
         const r = data[key(f.id, b.id)];
         if (!r) return;
-        const vacia = !r.cantidad && !r.altas && !r.bajas && !(r.comentarios || '').trim();
+        const vacia = !r.pedidos && !r.cantidad && !r.altas && !r.bajas && !(r.comentarios || '').trim();
         if (vacia) return;
-        payload.push({ anio, mes, semana, fuente: f.id, branch_id: b.id, cantidad: r.cantidad || 0, estrellas_altas: r.altas || 0, estrellas_bajas: r.bajas || 0, comentarios: (r.comentarios || '').trim() || null });
+        payload.push({ anio, mes, semana, fuente: f.id, branch_id: b.id, pedidos: r.pedidos || 0, cantidad: r.cantidad || 0, estrellas_altas: r.altas || 0, estrellas_bajas: r.bajas || 0, comentarios: (r.comentarios || '').trim() || null });
       }));
       if (payload.length === 0) { alert('No hay datos cargados para guardar.'); setSaving(false); return; }
       const { error } = await supabase.from('mkt_atencion_cliente').upsert(payload, { onConflict: 'anio,mes,semana,fuente,branch_id' });
@@ -101,6 +101,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
           <table className="w-full text-[12px] border-collapse min-w-[720px]">
             <thead><tr className="bg-bg-accent/20 text-text-dim">
               <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
+              {f.conPedidos && <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Pedidos</th>}
               {f.conEstrellas && <>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Reseñas</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">5-3 ★</th>
@@ -116,6 +117,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
                 return (
                   <tr key={b.id} className="border-t border-border-dim/25">
                     <td className="p-2.5 text-left font-bold text-text-main whitespace-nowrap">{b.name}</td>
+                    {f.conPedidos && <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.pedidos || ''} onChange={e => set(f.id, b.id, { pedidos: parseInt(e.target.value) || 0 })} /></td>}
                     {f.conEstrellas && <>
                       <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.cantidad || ''} onChange={e => set(f.id, b.id, { cantidad: parseInt(e.target.value) || 0 })} /></td>
                       <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.altas || ''} onChange={e => set(f.id, b.id, { altas: parseInt(e.target.value) || 0 })} /></td>
