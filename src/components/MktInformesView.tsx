@@ -21,6 +21,10 @@ const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'O
 const monthLabel = (m: string) => { const [y, mm] = m.split('-'); return `${MESES[(parseInt(mm, 10) || 1) - 1]} ${y}`; };
 const prevMonthOf = (m: string) => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
 const prevYearMonthOf = (m: string) => { const [y, mm] = m.split('-'); return `${parseInt(y, 10) - 1}-${mm}`; };
+// Fin de mes EXCLUSIVO = primer día del mes siguiente. Se usa con .lt() para evitar
+// fechas inválidas como "2026-09-31" (meses de 30 días / febrero), que hacían fallar
+// la consulta y devolvían 0 ventas para esos meses.
+const monthEndExcl = (m: string) => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`; };
 const wkLabel = (key: string) => { const [m, w] = key.split('#'); return `${monthLabel(m)} · Sem ${w} (${SEM_RANGO[(parseInt(w, 10) || 1) - 1]})`; };
 
 type Agg = { venta: number; ordenes: number; py: number };
@@ -87,12 +91,12 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const pm = prevMonthOf(month);
       const map: Record<string, Record<string, Agg>> = {};
       for (const m of [pm, month]) {
-        const start = `${m}-01`, end = `${m}-31`;
+        const start = `${m}-01`, end = monthEndExcl(m);
         let from = 0; const size = 1000;
         while (from < 200000) {
           const { data } = await supabase.from('sales_tickets')
             .select('branch_id, net_sales, orders, payment_method, week_number')
-            .gte('date', start).lte('date', end).in('branch_id', opIds)
+            .gte('date', start).lt('date', end).in('branch_id', opIds)
             .range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(t => {
@@ -129,12 +133,12 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const months = [prevYearMonthOf(month), prevMonthOf(month), month];
       const map: Record<string, Record<string, Agg>> = {};
       for (const m of months) {
-        const start = `${m}-01`, end = `${m}-31`;
+        const start = `${m}-01`, end = monthEndExcl(m);
         let from = 0; const size = 1000;
         while (from < 200000) {
           const { data } = await supabase.from('sales_tickets')
             .select('branch_id, net_sales, orders, payment_method')
-            .gte('date', start).lte('date', end).in('branch_id', opIds).range(from, from + size - 1);
+            .gte('date', start).lt('date', end).in('branch_id', opIds).range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(t => {
             const bm = (map[m] = map[m] || {});
@@ -156,11 +160,11 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     try {
       const [y, mm] = month.split('-').map(Number);
       const [py2, pmn] = prevMonthOf(month).split('-').map(Number);
-      const start = `${month}-01`, end = `${month}-31`;
+      const start = `${month}-01`, end = monthEndExcl(month);
       const [com, ops, rec, comPrev] = await Promise.all([
         supabase.from('py_comercial_periodo').select('marca, pedidos, venta').eq('anio', y).eq('mes', mm),
         supabase.from('py_operativo_periodo').select('prep_seg, rechazo, reclamos, listos').eq('anio', y).eq('mes', mm),
-        supabase.from('py_reclamos').select('tipo, monto').gte('fecha', start).lte('fecha', end),
+        supabase.from('py_reclamos').select('tipo, monto').gte('fecha', start).lt('fecha', end),
         supabase.from('py_comercial_periodo').select('pedidos, venta').eq('anio', py2).eq('mes', pmn),
       ]);
       const N = (v: any) => Number(v) || 0;
