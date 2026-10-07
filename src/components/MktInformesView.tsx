@@ -57,7 +57,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   // monthMap[monthKey][branchId] = Agg
   const [monthMap, setMonthMap] = useState<Record<string, Record<string, Agg>>>({});
   const [loadingM, setLoadingM] = useState(false);
-  type PyData = { venta: number; pedidos: number; ventaMarca: Record<string, { venta: number; pedidos: number }>; prep: number | null; rechazo: number | null; reclamosPct: number | null; listos: number | null; nReclamos: number; costoReclamos: number; reintegros: number };
+  type PyData = { venta: number; ventaNeta: number | null; comision: number | null; pedidos: number; ventaMarca: Record<string, { venta: number; pedidos: number }>; prep: number | null; rechazo: number | null; reclamosPct: number | null; listos: number | null; nReclamos: number; costoReclamos: number; reintegros: number };
   const [py, setPy] = useState<PyData | null>(null);
   const [pyPrev, setPyPrev] = useState<{ venta: number; pedidos: number } | null>(null);
   const [loadingPy, setLoadingPy] = useState(false);
@@ -163,11 +163,13 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const [y, mm] = month.split('-').map(Number);
       const [py2, pmn] = prevMonthOf(month).split('-').map(Number);
       const start = `${month}-01`, end = monthEndExcl(month);
-      const [com, ops, rec, comPrev] = await Promise.all([
+      const [com, ops, rec, comPrev, dia] = await Promise.all([
         supabase.from('py_comercial_periodo').select('marca, pedidos, venta').eq('anio', y).eq('mes', mm),
         supabase.from('py_operativo_periodo').select('prep_seg, rechazo, reclamos, listos').eq('anio', y).eq('mes', mm),
         supabase.from('py_reclamos').select('tipo, monto').gte('fecha', start).lt('fecha', end),
         supabase.from('py_comercial_periodo').select('pedidos, venta').eq('anio', py2).eq('mes', pmn),
+        // Venta NETA (lo que paga Pedidos Ya) y comisión: salen del Estado de cuenta diario.
+        supabase.from('py_comercial_dia').select('venta_neta, comision').gte('fecha', start).lt('fecha', end),
       ]);
       const N = (v: any) => Number(v) || 0;
       const comRows = (com.data as any[]) || [];
@@ -178,8 +180,11 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const recRows = (rec.data as any[]) || [];
       const reclamosArr = recRows.filter(r => r.tipo === 'reclamo');
       const reintArr = recRows.filter(r => r.tipo === 'reintegro');
+      const diaRows = (dia.data as any[]) || [];
+      const ventaNeta = diaRows.length ? diaRows.reduce((s, r) => s + N(r.venta_neta), 0) : null;
+      const comision = diaRows.length ? diaRows.reduce((s, r) => s + Math.abs(N(r.comision)), 0) : null;
       setPy({
-        venta, pedidos, ventaMarca,
+        venta, ventaNeta, comision, pedidos, ventaMarca,
         prep: opsRows.length ? avg(r => N(r.prep_seg) / 60) : null,
         rechazo: opsRows.length ? avg(r => N(r.rechazo)) : null,
         reclamosPct: opsRows.length ? avg(r => N(r.reclamos)) : null,
@@ -450,8 +455,8 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 <span className="text-[9px] text-text-dim uppercase">vs prom4</span> <Delta cur={ticket(cur.total)} base={baseTicket} />
               </div>
             </div>
-            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
-              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Store size={12} className="text-amber-500" /> Canal Pedidos Ya</div>
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title="Venta NETA de TUS tickets (módulo Ventas) con medio de pago Pedidos Ya. No es la venta que reporta la plataforma Pedidos Ya (esa está en la pestaña Desempeño Pedidos Ya).">
+              <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Store size={12} className="text-amber-500" /> Canal Pedidos Ya <span className="text-text-dim/50 normal-case tracking-normal">(neta en tickets)</span></div>
               <div className="text-2xl font-black font-mono text-text-main mt-1">{pyPct != null ? pyPct.toFixed(1) + '%' : '—'}</div>
               <div className="text-[9px] text-text-dim uppercase mt-1.5">{fmt(cur.total.py)} de {fmt(cur.total.venta)} · resto presencial</div>
             </div>
@@ -559,8 +564,8 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                   <span className="text-[9px] text-text-dim uppercase">vs año ant</span> <Delta cur={ticket(curM.total)} base={yoyM.total.ordenes > 0 ? ticket(yoyM.total) : null} />
                 </div>
               </div>
-              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
-                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Store size={12} className="text-amber-500" /> Canal Pedidos Ya</div>
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title="Venta NETA de TUS tickets (módulo Ventas) con medio de pago Pedidos Ya. No es la venta que reporta la plataforma Pedidos Ya (esa está en la pestaña Desempeño Pedidos Ya).">
+                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Store size={12} className="text-amber-500" /> Canal Pedidos Ya <span className="text-text-dim/50 normal-case tracking-normal">(neta en tickets)</span></div>
                 <div className="text-2xl font-black font-mono text-text-main mt-1">{pyPctM != null ? pyPctM.toFixed(1) + '%' : '—'}</div>
                 <div className="text-[9px] text-text-dim uppercase mt-1.5">{fmt(curM.total.py)} de {fmt(curM.total.venta)}</div>
               </div>
@@ -626,10 +631,15 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
-                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><DollarSign size={12} className="text-amber-500" /> Venta Pedidos Ya</div>
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title="Venta BRUTA reportada por la plataforma Pedidos Ya (antes de su comisión). Sale del resumen comercial importado en Administración → Pedidos Ya.">
+                <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><DollarSign size={12} className="text-amber-500" /> Venta Pedidos Ya (bruta)</div>
                 <div className="text-2xl font-black font-mono text-text-main mt-1">{fmt(py.venta)}</div>
                 <div className="mt-1.5"><span className="text-[9px] text-text-dim uppercase mr-1">vs mes ant</span><Delta cur={py.venta} base={pyPrev && pyPrev.venta ? pyPrev.venta : null} /></div>
+                <div className="text-[9px] text-text-dim uppercase mt-1.5">
+                  {py.ventaNeta != null
+                    ? <>Neta: <b className="text-text-main">{fmt(py.ventaNeta)}</b>{py.comision ? <> · comisión {fmt(py.comision)}</> : null}</>
+                    : <>Neta: importá el <b className="text-text-main">Estado de cuenta</b></>}
+                </div>
               </div>
               <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Receipt size={12} className="text-amber-500" /> Pedidos</div>
@@ -675,7 +685,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 </table>
               </div>
             </div>
-            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La venta/pedidos salen del resumen comercial; el operativo (prep, cancelaciones, reclamos, listos) del resumen de operaciones; los reclamos del estado de cuenta.</p>
+            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial (lo que reporta la plataforma, antes de comisión); la <b className="text-text-main">venta neta</b> y la comisión, del estado de cuenta diario (lo que efectivamente paga Pedidos Ya). El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Ojo: esto NO es lo mismo que el "Canal Pedidos Ya" de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> con medio de pago Pedidos Ya.</p>
           </>
         )
       )}
