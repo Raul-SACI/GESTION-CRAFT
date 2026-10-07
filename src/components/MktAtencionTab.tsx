@@ -6,7 +6,7 @@
  * Tabla: mkt_atencion_cliente (RLS desactivado). Único por (anio,mes,semana,fuente,branch_id).
  */
 import React, { useState, useEffect, useMemo } from 'react';
-import { Star, Save, Loader2 } from 'lucide-react';
+import { Star, Save, Loader2, X, Maximize2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -43,6 +43,8 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
   const [data, setData] = useState<Record<string, Row>>({}); // `${fuente}|${branchId}` -> Row
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Modal para leer/editar el comentario completo (se cortan en la tabla).
+  const [modal, setModal] = useState<{ f: string; b: string; bn: string; fl: string } | null>(null);
 
   const key = (f: string, b: string) => `${f}|${b}`;
 
@@ -164,8 +166,12 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
                       <td className="p-2.5 text-center font-mono text-red-500 font-bold">{pct(r.bajas, r.cantidad)}</td>
                     </>}
                     <td className="p-2.5">
-                      <input disabled={isReadOnly} className="w-full min-w-[240px] bg-bg-card border border-border-dim rounded px-2 py-1 text-[11px] text-text-main outline-none focus:border-brand-500"
-                        placeholder="—" value={r.comentarios} onChange={e => set(f.id, b.id, { comentarios: e.target.value })} />
+                      <button type="button" onClick={() => setModal({ f: f.id, b: b.id, bn: b.name, fl: f.label })}
+                        title="Ver / editar el comentario completo"
+                        className="group w-full min-w-[240px] flex items-center gap-2 bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-left outline-none hover:border-brand-500 transition-colors">
+                        <span className={cn('flex-1 truncate', r.comentarios ? 'text-text-main' : 'text-text-dim')}>{r.comentarios || '—'}</span>
+                        <Maximize2 size={12} className="shrink-0 text-text-dim group-hover:text-brand-500" />
+                      </button>
                     </td>
                   </tr>
                 );
@@ -183,6 +189,34 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
           </button>
         </div>
       )}
+
+      {modal && (() => {
+        const r = get(modal.f, modal.b);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setModal(null)}>
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border-dim">
+                <div>
+                  <div className="text-[12px] font-black uppercase text-text-main tracking-wide">{modal.bn}</div>
+                  <div className="text-[9px] font-bold uppercase text-text-dim tracking-widest">{modal.fl} · Comentarios · {monthLabelShort(month)} · Sem {semana}</div>
+                </div>
+                <button onClick={() => setModal(null)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+              </div>
+              <div className="p-4">
+                <textarea autoFocus disabled={isReadOnly} value={r.comentarios}
+                  onChange={e => set(modal.f, modal.b, { comentarios: e.target.value })}
+                  placeholder="Sin comentarios cargados."
+                  className="w-full h-64 bg-bg-card border border-border-dim rounded-lg p-3 text-[12px] text-text-main outline-none focus:border-brand-500 resize-none leading-relaxed" />
+                {!isReadOnly && <p className="text-[9px] text-text-dim mt-2">Los cambios se guardan con el botón <b className="text-text-main">Guardar</b> de la pantalla.</p>}
+              </div>
+              <div className="flex justify-end px-4 py-3 border-t border-border-dim">
+                <button onClick={() => setModal(null)}
+                  className="bg-brand-500 hover:bg-brand-600 text-white rounded-lg px-5 py-2 text-[10px] font-black uppercase tracking-widest">Listo</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
