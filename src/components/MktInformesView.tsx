@@ -113,10 +113,12 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
         }
       }
       setWeekMap(map);
-      // semana por defecto: la última del mes actual con datos, si no la última con datos
+      // Semana por defecto: la última del MES ACTUAL con datos. Si el mes aún no tiene
+      // ventas cargadas, quedamos en la Sem 1 de ese mes (no saltamos al mes anterior,
+      // para no mostrar datos de otro mes como si fueran del seleccionado).
       const conDatos = allWeekKeys.filter(k => map[k] && Object.keys(map[k]).length > 0);
       const delMes = conDatos.filter(k => k.startsWith(month + '#'));
-      setSelWeek((delMes.length ? delMes[delMes.length - 1] : conDatos[conDatos.length - 1]) || `${month}#1`);
+      setSelWeek(delMes.length ? delMes[delMes.length - 1] : `${month}#1`);
     } finally {
       setLoading(false);
     }
@@ -357,6 +359,10 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     return operative.filter(b => ids.has(b.id));
   }, [operative, selWeek, prevWeekKey, baseline.semanas, weekMap]);
 
+  // ¿La semana SELECCIONADA tiene ventas cargadas? (si no, mostramos el estado vacío
+  // en vez de la tabla, aunque haya datos en semanas previas usadas para comparar).
+  const selWeekHasData = useMemo(() => !!(weekMap[selWeek] && Object.keys(weekMap[selWeek]).length > 0), [weekMap, selWeek]);
+
   const semanasDelMes = allWeekKeys.filter(k => k.startsWith(month + '#'));
 
   return (
@@ -412,10 +418,10 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       {tab === 'presupuesto' && <MktPresupuestoTab month={month} isReadOnly={isReadOnly} />}
       {tab === 'metaads' && <MktMetaAdsTab month={month} isReadOnly={isReadOnly} />}
 
-      {tab === 'semanal' && (branchesConDatos.length === 0 ? (
+      {tab === 'semanal' && (!selWeekHasData || branchesConDatos.length === 0 ? (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-10 text-center">
           <p className="text-[12px] font-black uppercase text-text-dim">No hay ventas cargadas para {wkLabel(selWeek)}.</p>
-          <p className="text-[10px] text-text-dim mt-1">Cargá los tickets en el módulo Ventas para ver el análisis.</p>
+          <p className="text-[10px] text-text-dim mt-1">Cargá los tickets en el módulo Ventas para ver el análisis de esta semana.</p>
         </div>
       ) : (
         <>
