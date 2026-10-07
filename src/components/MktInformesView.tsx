@@ -635,9 +635,10 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><DollarSign size={12} className="text-amber-500" /> Venta Pedidos Ya (bruta)</div>
                 <div className="text-2xl font-black font-mono text-text-main mt-1">{fmt(py.venta)}</div>
                 <div className="mt-1.5"><span className="text-[9px] text-text-dim uppercase mr-1">vs mes ant</span><Delta cur={py.venta} base={pyPrev && pyPrev.venta ? pyPrev.venta : null} /></div>
-                <div className="text-[9px] text-text-dim uppercase mt-1.5">
+                <div className="text-[9px] text-text-dim uppercase mt-1.5"
+                  title="Venta neta del ESTADO DE CUENTA = venta bruta − descuentos/promos (antes de comisión). La comisión es un cargo aparte, NO se resta de este número. Esto no es la liquidación (lo que paga Pedidos Ya); eso está en la pestaña Liquidaciones del módulo Pedidos Ya.">
                   {py.ventaNeta != null
-                    ? <>Neta: <b className="text-text-main">{fmt(py.ventaNeta)}</b>{py.comision ? <> · comisión {fmt(py.comision)}</> : null}</>
+                    ? <>Neta (s/desc.): <b className="text-text-main">{fmt(py.ventaNeta)}</b>{py.comision ? <> · comisión {fmt(py.comision)}</> : null}</>
                     : <>Neta: importá el <b className="text-text-main">Estado de cuenta</b></>}
                 </div>
               </div>
@@ -685,7 +686,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 </table>
               </div>
             </div>
-            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial (lo que reporta la plataforma, antes de comisión); la <b className="text-text-main">venta neta</b> y la comisión, del estado de cuenta diario (lo que efectivamente paga Pedidos Ya). El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Ojo: esto NO es lo mismo que el "Canal Pedidos Ya" de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> con medio de pago Pedidos Ya.</p>
+            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial; la <b className="text-text-main">venta neta</b> (= bruta − descuentos/promos) y la comisión, del estado de cuenta diario. Ojo: la comisión es un cargo <b className="text-text-main">aparte</b> y no se resta de la venta neta. Esto <b className="text-text-main">no es la liquidación</b> (lo que efectivamente paga Pedidos Ya, ya neto de comisión, cargos operativos y publicidad): eso sale de la pestaña <b className="text-text-main">Liquidaciones</b> y puede no estar cargado este mes. El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Y tampoco es lo mismo que el <b className="text-text-main">Canal Pedidos Ya</b> de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> (otra fuente: tu POS).</p>
           </>
         )
       )}
