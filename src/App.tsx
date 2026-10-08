@@ -132,6 +132,7 @@ const PaymentScheduleView = lazy(() => import('./components/PaymentScheduleView'
 const ChequesEmitidosView = lazy(() => import('./components/ChequesEmitidosView'));
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const HonorariosView = lazy(() => import('./components/HonorariosView'));
+const InversionesPlanView = lazy(() => import('./components/InversionesPlanView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
 const InternalOrdersView = lazy(() => import('./components/InternalOrdersView'));
@@ -149,7 +150,7 @@ const PedidosYaView = lazy(() => import('./components/PedidosYaView'));
 const EncargadoDashboardView = lazy(() => import('./components/EncargadoDashboardView'));
 
 import { NewsView } from './components/ExtraViews';
-import { Key, ShieldCheck, FileText, Database, BookOpen, Briefcase } from 'lucide-react';
+import { Key, ShieldCheck, FileText, Database, BookOpen, Briefcase, Wallet } from 'lucide-react';
 
 // --- MOCK DATA ---
 const MOCK_SALES: SalesData[] = [
@@ -561,7 +562,7 @@ function AppContent() {
     'stock', 'vajilla', 'horas', 'decomisos', 'cuentas', 'inventario_mensual', 'inventario_mensual_prod', 'pedidos_internos',
     'gestion_sueldos', 'consumo', 'informes_compras', 'pedidos_ya',
     'finanzas_estimado', 'bank_liabilities', 'tax_liabilities', 'legal_liabilities',
-    'finanzas_mensual', 'honorarios', 'p&l', 'ordenes', 'cronograma_pagos',
+    'finanzas_mensual', 'plan_inversiones', 'honorarios', 'p&l', 'ordenes', 'cronograma_pagos',
     'control_horas', 'presupuesto_horas', 'aprobacion_presupuestos', 'precios', 'config_salones',
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
@@ -653,6 +654,7 @@ function AppContent() {
       { id: 'cronograma_pagos', label: 'Cronograma de Pagos', icon: Calendar },
       { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', icon: TrendingUp },
       { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', icon: BarChart3 },
+      { id: 'plan_inversiones', label: 'Plan de Inversiones', icon: Wallet },
       { id: 'honorarios', label: 'Honorarios Profesionales', icon: Briefcase },
     ],
     'Tesorería': [
@@ -751,6 +753,7 @@ function AppContent() {
           legal_liabilities: Scale,
           cronograma_pagos: Calendar,
           finanzas_mensual: BarChart3,
+          plan_inversiones: Wallet,
           honorarios: Briefcase,
           ventas: TrendingUp,
           'p&l': BarChart3,
@@ -1757,6 +1760,7 @@ function AppContent() {
               {activeTab === 'legal_liabilities' && <FinanceView key="legal_liabilities" branches={branches} selectedBranchId={selectedBranchId} mode="legal" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'cronograma_pagos' && <PaymentScheduleView key="cronograma_pagos" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'finanzas_mensual' && <MonthlyCashFlowView key="finanzas_mensual" isReadOnly={isCurrentTabReadOnly} />}
+              {activeTab === 'plan_inversiones' && <InversionesPlanView key="plan_inversiones" branches={branches} isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'honorarios' && <HonorariosView key="honorarios" isReadOnly={isCurrentTabReadOnly} />}
               {activeTab === 'control_desvios' && (
                 <DeviationControlView 
