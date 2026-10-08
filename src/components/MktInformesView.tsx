@@ -17,6 +17,12 @@ import MktMetaAdsTab from './MktMetaAdsTab';
 const fmt = (n: number) => '$' + Math.round(n || 0).toLocaleString('es-AR');
 const fmtNum = (n: number) => Math.round(n || 0).toLocaleString('es-AR');
 const SEM_RANGO = ['1-7', '8-14', '15-21', '22-fin'];
+// IVA de gastronomía (21%). Pedidos Ya reporta precios al público CON IVA, así que la
+// "venta neta" del estado de cuenta (bruta − descuentos) todavía incluye IVA. Para que
+// sea comparable con la venta neta de los tickets de Ventas (que ya está neta de IVA),
+// se divide por (1 + IVA). Ej.: $121 bruto → $100 neto de IVA.
+const IVA_RATE = 0.21;
+const sinIva = (n: number) => n / (1 + IVA_RATE);
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 const monthLabel = (m: string) => { const [y, mm] = m.split('-'); return `${MESES[(parseInt(mm, 10) || 1) - 1]} ${y}`; };
 const prevMonthOf = (m: string) => { const [y, mm] = m.split('-').map(Number); const d = new Date(y, mm - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
@@ -636,9 +642,9 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 <div className="text-2xl font-black font-mono text-text-main mt-1">{fmt(py.venta)}</div>
                 <div className="mt-1.5"><span className="text-[9px] text-text-dim uppercase mr-1">vs mes ant</span><Delta cur={py.venta} base={pyPrev && pyPrev.venta ? pyPrev.venta : null} /></div>
                 <div className="text-[9px] text-text-dim uppercase mt-1.5"
-                  title="Venta neta del ESTADO DE CUENTA = venta bruta − descuentos/promos (antes de comisión). La comisión es un cargo aparte, NO se resta de este número. Esto no es la liquidación (lo que paga Pedidos Ya); eso está en la pestaña Liquidaciones del módulo Pedidos Ya.">
+                  title="Venta neta de descuentos/promos Y de IVA (÷1,21), para que coincida con la venta neta de tus tickets en Ventas (medio de pago Pedidos Ya). La comisión es un cargo aparte, NO se resta de este número. Esto no es la liquidación (lo que paga Pedidos Ya); eso está en la pestaña Liquidaciones del módulo Pedidos Ya.">
                   {py.ventaNeta != null
-                    ? <>Neta (s/desc.): <b className="text-text-main">{fmt(py.ventaNeta)}</b>{py.comision ? <> · comisión {fmt(py.comision)}</> : null}</>
+                    ? <>Neta (s/desc. e IVA): <b className="text-text-main">{fmt(sinIva(py.ventaNeta))}</b>{py.comision ? <> · comisión {fmt(py.comision)}</> : null}</>
                     : <>Neta: importá el <b className="text-text-main">Estado de cuenta</b></>}
                 </div>
               </div>
@@ -686,7 +692,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 </table>
               </div>
             </div>
-            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial; la <b className="text-text-main">venta neta</b> (= bruta − descuentos/promos) y la comisión, del estado de cuenta diario. Ojo: la comisión es un cargo <b className="text-text-main">aparte</b> y no se resta de la venta neta. Esto <b className="text-text-main">no es la liquidación</b> (lo que efectivamente paga Pedidos Ya, ya neto de comisión, cargos operativos y publicidad): eso sale de la pestaña <b className="text-text-main">Liquidaciones</b> y puede no estar cargado este mes. El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Y tampoco es lo mismo que el <b className="text-text-main">Canal Pedidos Ya</b> de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> (otra fuente: tu POS).</p>
+            <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial; la <b className="text-text-main">venta neta</b> (= bruta − descuentos/promos y − IVA ÷1,21, para que coincida con la venta neta de tus tickets en Ventas) y la comisión, del estado de cuenta diario. Ojo: la comisión es un cargo <b className="text-text-main">aparte</b> y no se resta de la venta neta. Esto <b className="text-text-main">no es la liquidación</b> (lo que efectivamente paga Pedidos Ya, ya neto de comisión, cargos operativos y publicidad): eso sale de la pestaña <b className="text-text-main">Liquidaciones</b> y puede no estar cargado este mes. El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Y tampoco es lo mismo que el <b className="text-text-main">Canal Pedidos Ya</b> de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> (otra fuente: tu POS).</p>
           </>
         )
       )}
