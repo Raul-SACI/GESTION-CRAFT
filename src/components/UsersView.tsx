@@ -78,6 +78,7 @@ const SYSTEM_MODULES = [
   { id: 'pedidos_ya', label: 'Pedidos Ya', category: 'Administración' },
   { id: 'papeles_administracion', label: 'Papeles Importantes (Admin)', category: 'Administración' },
   { id: 'actas_direccion', label: 'Actas de Dirección', category: 'Gerencia General' },
+  { id: 'organigrama', label: 'Organigrama', category: 'Gerencia General' },
   { id: 'informes_gestion', label: 'Informes de Gestión', category: 'Gerencia General' },
   { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', category: 'Gerencia General' },
   { id: 'finanzas_estimado', label: 'Flujo de Caja Estimado', category: 'Gerencia General' },

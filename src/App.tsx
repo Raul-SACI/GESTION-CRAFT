@@ -133,6 +133,7 @@ const ChequesEmitidosView = lazy(() => import('./components/ChequesEmitidosView'
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const HonorariosView = lazy(() => import('./components/HonorariosView'));
 const InversionesPlanView = lazy(() => import('./components/InversionesPlanView'));
+const OrganigramaView = lazy(() => import('./components/OrganigramaView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
 const DecomisosView = lazy(() => import('./components/DecomisosView'));
 const InternalOrdersView = lazy(() => import('./components/InternalOrdersView'));
@@ -150,7 +151,7 @@ const PedidosYaView = lazy(() => import('./components/PedidosYaView'));
 const EncargadoDashboardView = lazy(() => import('./components/EncargadoDashboardView'));
 
 import { NewsView } from './components/ExtraViews';
-import { Key, ShieldCheck, FileText, Database, BookOpen, Briefcase, Wallet } from 'lucide-react';
+import { Key, ShieldCheck, FileText, Database, BookOpen, Briefcase, Wallet, Network } from 'lucide-react';
 
 // --- MOCK DATA ---
 const MOCK_SALES: SalesData[] = [
@@ -570,7 +571,7 @@ function AppContent() {
     'ventas', 'caja_central', 'cheques_emitidos', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres',
-    'mkt_informes', 'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion'
+    'mkt_informes', 'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion', 'organigrama'
   ];
   const showReadOnlyOverlay = isCurrentTabReadOnly && !VIEW_ONLY_TABS.includes(activeTab);
 
@@ -676,6 +677,7 @@ function AppContent() {
     ],
     'Gerencia General': [
       { id: 'actas_direccion', label: 'Actas de Dirección', icon: ClipboardList },
+      { id: 'organigrama', label: 'Organigrama', icon: Network },
       { id: 'informes_gestion', label: 'Informes de Gestión', icon: FileCheck2 },
       { id: 'evaluacion_duenos', label: 'Evaluación de Dueños', icon: Landmark },
       { id: 'aprobacion_presupuestos', label: 'Aprobación de Presupuestos', icon: Layers },
@@ -768,6 +770,7 @@ function AppContent() {
           precios: Tag,
           performance_admin: Trophy,
           informes_gestion: FileCheck2,
+          organigrama: Network,
           aprobacion_presupuestos: Layers,
           control_agendas: ClipboardList,
           sucursales: Building2,
@@ -1638,6 +1641,9 @@ function AppContent() {
               )}
               {activeTab === 'actas_direccion' && (
                 <ActasDireccionView key="actas_direccion" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'organigrama' && (
+                <OrganigramaView key="organigrama" branches={branches} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'informes_gestion' && (
                 <InformesGestionView
