@@ -2,13 +2,16 @@
  * SPDX-License-Identifier: Apache-2.0
  * Gerencia General · Organigrama y Manual de Funciones (Fase 1).
  * Puestos en árbol jerárquico ("reporta a"), dibujado como organigrama (cajas y líneas).
+ * Asesores externos (staff): se marcan con "es_asesor", se dibujan con LÍNEA PUNTEADA y se
+ * ubican manualmente (arrastrables) donde el usuario quiera; se conectan a un puesto a elección.
  * A cada puesto se le asignan empleados (0..n; un puesto puede quedar vacante, ej. mozos).
  * Manual de funciones por puesto con secciones fijas: Objetivo, Funciones, Requisitos;
  * "Reporta a" y "Supervisa a" se derivan del árbol.
  * Tablas: org_puestos y org_asignaciones (RLS desactivado).
  */
-import { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Network, Loader2, X, Pencil, BookOpen, Download, Search, UserPlus, Building2 } from 'lucide-react';
+import type React from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { Plus, Trash2, Network, Loader2, X, Pencil, BookOpen, Download, Search, UserPlus, Building2, Briefcase } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
@@ -17,12 +20,14 @@ import { Branch } from '../types';
 interface Puesto {
   id: string; nombre: string; area: string; parent_id: string | null; branch_id: string;
   objetivo: string; funciones: string; requisitos: string; sort_order: number;
+  es_asesor: boolean; pos_x: number | null; pos_y: number | null; asesor_de: string | null;
 }
 interface Empleado { id: string; name: string; legajo: string; position: string; branch_id: string; active: boolean; }
 const newId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-const emptyPuesto = (parent_id: string | null = null): Puesto => ({
-  id: newId(), nombre: '', area: '', parent_id, branch_id: '', objetivo: '', funciones: '', requisitos: '', sort_order: 0,
+const emptyPuesto = (parent_id: string | null = null, es_asesor = false): Puesto => ({
+  id: newId(), nombre: '', area: '', parent_id: es_asesor ? null : parent_id, branch_id: '', objetivo: '', funciones: '', requisitos: '', sort_order: 0,
+  es_asesor, pos_x: null, pos_y: null, asesor_de: null,
 });
 
 export default function OrganigramaView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
@@ -35,7 +40,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   const [loading, setLoading] = useState(false);
 
   const [editing, setEditing] = useState<Puesto | null>(null);
-  const [editAsign, setEditAsign] = useState<string[]>([]);   // empleado_ids
+  const [editAsign, setEditAsign] = useState<string[]>([]);
   const [origAsign, setOrigAsign] = useState<string[]>([]);
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -53,6 +58,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
       setPuestos(((pu.data as any[]) || []).map(r => ({
         id: r.id, nombre: r.nombre || '', area: r.area || '', parent_id: r.parent_id || null, branch_id: r.branch_id || '',
         objetivo: r.objetivo || '', funciones: r.funciones || '', requisitos: r.requisitos || '', sort_order: Number(r.sort_order) || 0,
+        es_asesor: !!r.es_asesor, pos_x: r.pos_x == null ? null : Number(r.pos_x), pos_y: r.pos_y == null ? null : Number(r.pos_y), asesor_de: r.asesor_de || null,
       })));
       setAsign(((asg.data as any[]) || []).map(r => ({ puesto_id: r.puesto_id, empleado_id: r.empleado_id })));
       setEmpleados(((emp.data as any[]) || []).map(r => ({ id: r.id, name: r.name || '', legajo: r.legajo || '', position: r.position || '', branch_id: r.branch_id || '', active: r.active !== false })));
@@ -63,20 +69,96 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
 
   const empById = useMemo(() => { const m: Record<string, Empleado> = {}; empleados.forEach(e => m[e.id] = e); return m; }, [empleados]);
   const asignByPuesto = useMemo(() => { const m: Record<string, string[]> = {}; asign.forEach(a => { (m[a.puesto_id] ||= []).push(a.empleado_id); }); return m; }, [asign]);
-  const childrenOf = useMemo(() => { const m: Record<string, Puesto[]> = {}; puestos.forEach(p => { const k = p.parent_id || '__root__'; (m[k] ||= []).push(p); }); return m; }, [puestos]);
-  const roots = useMemo(() => puestos.filter(p => !p.parent_id || !puestos.some(x => x.id === p.parent_id)), [puestos]);
+  const asesores = useMemo(() => puestos.filter(p => p.es_asesor), [puestos]);
+  const jerarquicos = useMemo(() => puestos.filter(p => !p.es_asesor), [puestos]);
+  const childrenOf = useMemo(() => { const m: Record<string, Puesto[]> = {}; jerarquicos.forEach(p => { const k = p.parent_id || '__root__'; (m[k] ||= []).push(p); }); return m; }, [jerarquicos]);
+  const roots = useMemo(() => jerarquicos.filter(p => !p.parent_id || !jerarquicos.some(x => x.id === p.parent_id)), [jerarquicos]);
   const areas = useMemo(() => Array.from(new Set(puestos.map(p => p.area).filter(Boolean))).sort(), [puestos]);
   const nombreById = (id: string | null) => id ? (puestos.find(p => p.id === id)?.nombre || '') : '';
 
-  // Descendientes de un puesto (para no permitir elegirlo como "reporta a" y evitar ciclos).
   const descendants = (id: string): Set<string> => {
     const out = new Set<string>(); const stack = [id];
     while (stack.length) { const cur = stack.pop()!; (childrenOf[cur] || []).forEach(c => { if (!out.has(c.id)) { out.add(c.id); stack.push(c.id); } }); }
     return out;
   };
 
+  // ── Refs y líneas punteadas de asesores ──
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const nodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const asesorRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [lines, setLines] = useState<{ id: string; x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const recomputeLines = () => {
+    const wrap = canvasRef.current; if (!wrap) return;
+    const wr = wrap.getBoundingClientRect();
+    const ls: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+    asesores.forEach(a => {
+      if (!a.asesor_de) return;
+      const aEl = asesorRefs.current[a.id]; const tEl = nodeRefs.current[a.asesor_de];
+      if (!aEl || !tEl) return;
+      const ar = aEl.getBoundingClientRect(); const tr = tEl.getBoundingClientRect();
+      ls.push({
+        id: a.id,
+        x1: ar.left - wr.left + ar.width / 2, y1: ar.top - wr.top + ar.height / 2,
+        x2: tr.left - wr.left + tr.width / 2, y2: tr.top - wr.top + tr.height / 2,
+      });
+    });
+    setLines(ls);
+  };
+  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados]);
+  useEffect(() => {
+    const h = () => recomputeLines();
+    window.addEventListener('resize', h);
+    const box = canvasRef.current?.parentElement;
+    box?.addEventListener('scroll', h);
+    return () => { window.removeEventListener('resize', h); box?.removeEventListener('scroll', h); };
+    // eslint-disable-next-line
+  }, [puestos]);
+
+  // Tamaño del lienzo (para que entren los asesores arrastrados lejos).
+  const canvasSize = useMemo(() => {
+    let w = 1200, h = 620;
+    asesores.forEach(a => { if (a.pos_x != null) w = Math.max(w, a.pos_x + 240); if (a.pos_y != null) h = Math.max(h, a.pos_y + 160); });
+    return { w, h };
+  }, [asesores]);
+
+  // ── Drag de asesores ──
+  const dragState = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const onAsesorPointerDown = (e: React.PointerEvent, a: Puesto) => {
+    if (isReadOnly) return;
+    if ((e.target as HTMLElement).closest('button')) return; // no arrastrar al tocar botones
+    const curX = a.pos_x ?? 40, curY = a.pos_y ?? 40;
+    dragState.current = { id: a.id, startX: e.clientX, startY: e.clientY, origX: curX, origY: curY };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragUp);
+  };
+  const onDragMove = (e: PointerEvent) => {
+    const d = dragState.current; if (!d) return;
+    const nx = Math.max(0, d.origX + (e.clientX - d.startX));
+    const ny = Math.max(0, d.origY + (e.clientY - d.startY));
+    setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, pos_x: nx, pos_y: ny } : p));
+  };
+  const onDragUp = async () => {
+    const d = dragState.current; dragState.current = null;
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragUp);
+    if (!d) return;
+    const a = puestos.find(p => p.id === d.id);
+    if (a && !isReadOnly) {
+      try { await supabase.from('org_puestos').upsert({ id: a.id, pos_x: a.pos_x, pos_y: a.pos_y, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
+      catch (e) { console.warn('No se pudo guardar la posición del asesor', e); }
+    }
+  };
+
   // ── Abrir editor ──
-  const abrirNuevo = (parent_id: string | null = null) => { if (isReadOnly) return; setEditing(emptyPuesto(parent_id)); setEditAsign([]); setOrigAsign([]); setIsNew(true); setEmpSearch(''); };
+  const abrirNuevo = (parent_id: string | null = null) => { if (isReadOnly) return; setEditing(emptyPuesto(parent_id, false)); setEditAsign([]); setOrigAsign([]); setIsNew(true); setEmpSearch(''); };
+  const abrirNuevoAsesor = () => {
+    if (isReadOnly) return;
+    const n = asesores.length;
+    const p = emptyPuesto(null, true);
+    p.pos_x = 40 + (n % 4) * 220; p.pos_y = 40 + Math.floor(n / 4) * 130;
+    setEditing(p); setEditAsign([]); setOrigAsign([]); setIsNew(true); setEmpSearch('');
+  };
   const abrirEditar = (p: Puesto) => { setEditing({ ...p }); const a = asignByPuesto[p.id] || []; setEditAsign([...a]); setOrigAsign([...a]); setIsNew(false); setEmpSearch(''); };
 
   const guardar = async () => {
@@ -86,9 +168,13 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     try {
       const p = editing;
       const { error } = await supabase.from('org_puestos').upsert({
-        id: p.id, nombre: p.nombre.trim(), area: p.area.trim() || null, parent_id: p.parent_id || null, branch_id: p.branch_id || null,
+        id: p.id, nombre: p.nombre.trim(), area: p.area.trim() || null,
+        parent_id: p.es_asesor ? null : (p.parent_id || null), branch_id: p.branch_id || null,
         objetivo: p.objetivo.trim() || null, funciones: p.funciones.trim() || null, requisitos: p.requisitos.trim() || null,
-        sort_order: p.sort_order || 0, updated_at: new Date().toISOString(),
+        sort_order: p.sort_order || 0, es_asesor: p.es_asesor,
+        pos_x: p.es_asesor ? (p.pos_x ?? 40) : null, pos_y: p.es_asesor ? (p.pos_y ?? 40) : null,
+        asesor_de: p.es_asesor ? (p.asesor_de || null) : null,
+        updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
       if (error) throw error;
       const quitar = origAsign.filter(id => !editAsign.includes(id));
@@ -104,12 +190,9 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   const borrar = async (p: Puesto) => {
     if (isReadOnly) return;
     const hijos = (childrenOf[p.id] || []).length;
-    if (!confirm(`¿Eliminar el puesto "${p.nombre}"?${hijos ? ` Sus ${hijos} subordinado(s) quedarán sin jefe (pasan a nivel superior).` : ''}`)) return;
-    try {
-      await supabase.from('org_puestos').delete().eq('id', p.id);
-      await cargar();
-      if (editing?.id === p.id) setEditing(null);
-    } catch (e: any) { alert('No se pudo eliminar: ' + (e.message || e)); }
+    if (!confirm(`¿Eliminar "${p.nombre}"?${hijos ? ` Sus ${hijos} subordinado(s) quedarán sin jefe.` : ''}`)) return;
+    try { await supabase.from('org_puestos').delete().eq('id', p.id); await cargar(); if (editing?.id === p.id) setEditing(null); }
+    catch (e: any) { alert('No se pudo eliminar: ' + (e.message || e)); }
   };
 
   const exportManualPDF = (p: Puesto) => {
@@ -118,22 +201,21 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     let y = 18;
     doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.text(p.nombre || 'Puesto', 14, y); y += 7;
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(120);
-    doc.text(`${p.area || 'Sin área'}${p.branch_id ? ' · ' + branchName(p.branch_id) : ''} · Manual de funciones`, 14, y); y += 8;
+    doc.text(`${p.area || 'Sin área'}${p.es_asesor ? ' · Asesor externo' : ''}${p.branch_id ? ' · ' + branchName(p.branch_id) : ''} · Manual de funciones`, 14, y); y += 8;
     doc.setTextColor(0);
     const sec = (titulo: string, texto: string, bullets = false) => {
       if (!texto || !texto.trim()) return;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(titulo, 14, y); y += 6;
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-      const lines = bullets ? texto.split('\n').filter(l => l.trim()) : [texto];
-      lines.forEach(l => {
+      const lines2 = bullets ? texto.split('\n').filter(l => l.trim()) : [texto];
+      lines2.forEach(l => {
         const wrapped = doc.splitTextToSize((bullets ? '•  ' : '') + l.trim(), W - 28);
         wrapped.forEach((wl: string) => { if (y > 280) { doc.addPage(); y = 18; } doc.text(wl, 14, y); y += 5.5; });
       });
       y += 3;
     };
-    sec('Reporta a', nombreById(p.parent_id) || '—');
-    const hijos = (childrenOf[p.id] || []).map(c => c.nombre).join(', ');
-    sec('Supervisa a', hijos || '—');
+    if (p.es_asesor) sec('Asesora / conecta con', nombreById(p.asesor_de) || '—');
+    else { sec('Reporta a', nombreById(p.parent_id) || '—'); sec('Supervisa a', (childrenOf[p.id] || []).map(c => c.nombre).join(', ') || '—'); }
     sec('Objetivo del puesto', p.objetivo);
     sec('Funciones / responsabilidades', p.funciones, true);
     sec('Requisitos', p.requisitos, true);
@@ -143,33 +225,46 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   const inp = 'w-full bg-bg-card border border-border-dim rounded px-2 py-1.5 text-[11px] text-text-main outline-none focus:border-brand-500';
   const lbl = 'text-[9px] font-black uppercase text-text-dim tracking-widest';
 
-  // ── Nodo del organigrama ──
   const asignadosNombres = (pid: string) => (asignByPuesto[pid] || []).map(eid => empById[eid]?.name).filter(Boolean) as string[];
-  const renderNode = (p: Puesto) => {
-    const hijos = (childrenOf[p.id] || []).slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre));
+
+  // Botones de acción de una caja (reutilizados en nodo y asesor)
+  const Acciones = ({ p, extra }: { p: Puesto; extra?: boolean }) => (
+    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border-dim/40">
+      <button onClick={() => setManual(p)} title="Manual de funciones" className="text-text-dim hover:text-brand-500"><BookOpen size={13} /></button>
+      {!isReadOnly && <button onClick={() => abrirEditar(p)} title="Editar" className="text-text-dim hover:text-brand-500"><Pencil size={13} /></button>}
+      {!isReadOnly && extra && <button onClick={() => abrirNuevo(p.id)} title="Agregar subordinado" className="text-text-dim hover:text-emerald-600"><UserPlus size={13} /></button>}
+      {!isReadOnly && <button onClick={() => borrar(p)} title="Eliminar" className="text-text-dim hover:text-red-500 ml-auto"><Trash2 size={13} /></button>}
+    </div>
+  );
+
+  const Caja = ({ p }: { p: Puesto }) => {
     const nombres = asignadosNombres(p.id);
     return (
+      <>
+        <div className="font-black text-[12px] text-text-main uppercase leading-tight">{p.nombre}</div>
+        {p.area && <div className="text-[8px] font-black uppercase tracking-widest text-brand-500 mt-0.5">{p.area}</div>}
+        {p.branch_id && <div className="text-[8px] font-bold uppercase text-text-dim flex items-center gap-1"><Building2 size={8} /> {branchName(p.branch_id)}</div>}
+        <div className="mt-1.5 min-h-[16px]">
+          {nombres.length === 0 ? (
+            <span className="text-[9px] font-bold uppercase text-amber-600 bg-amber-500/10 rounded px-1.5 py-0.5">Vacante</span>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {nombres.slice(0, 3).map((n, i) => <span key={i} className="text-[9px] font-bold text-text-main bg-bg-accent/60 rounded px-1.5 py-0.5">{n}</span>)}
+              {nombres.length > 3 && <span className="text-[9px] font-bold text-text-dim">+{nombres.length - 3}</span>}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
+  const renderNode = (p: Puesto) => {
+    const hijos = (childrenOf[p.id] || []).slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre));
+    return (
       <li key={p.id}>
-        <div className="org-node bg-bg-sidebar border border-border-dim rounded-xl shadow-sm px-3 py-2.5 inline-block align-top text-left w-[190px]">
-          <div className="font-black text-[12px] text-text-main uppercase leading-tight">{p.nombre}</div>
-          {p.area && <div className="text-[8px] font-black uppercase tracking-widest text-brand-500 mt-0.5">{p.area}</div>}
-          {p.branch_id && <div className="text-[8px] font-bold uppercase text-text-dim flex items-center gap-1"><Building2 size={8} /> {branchName(p.branch_id)}</div>}
-          <div className="mt-1.5 min-h-[16px]">
-            {nombres.length === 0 ? (
-              <span className="text-[9px] font-bold uppercase text-amber-600 bg-amber-500/10 rounded px-1.5 py-0.5">Vacante</span>
-            ) : (
-              <div className="flex flex-wrap gap-1">
-                {nombres.slice(0, 3).map((n, i) => <span key={i} className="text-[9px] font-bold text-text-main bg-bg-accent/60 rounded px-1.5 py-0.5">{n}</span>)}
-                {nombres.length > 3 && <span className="text-[9px] font-bold text-text-dim">+{nombres.length - 3}</span>}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border-dim/40">
-            <button onClick={() => setManual(p)} title="Manual de funciones" className="text-text-dim hover:text-brand-500"><BookOpen size={13} /></button>
-            {!isReadOnly && <button onClick={() => abrirEditar(p)} title="Editar puesto" className="text-text-dim hover:text-brand-500"><Pencil size={13} /></button>}
-            {!isReadOnly && <button onClick={() => abrirNuevo(p.id)} title="Agregar subordinado" className="text-text-dim hover:text-emerald-600"><UserPlus size={13} /></button>}
-            {!isReadOnly && <button onClick={() => borrar(p)} title="Eliminar" className="text-text-dim hover:text-red-500 ml-auto"><Trash2 size={13} /></button>}
-          </div>
+        <div ref={el => { nodeRefs.current[p.id] = el; }} className="org-node bg-bg-sidebar border border-border-dim rounded-xl shadow-sm px-3 py-2.5 inline-block align-top text-left w-[190px]">
+          <Caja p={p} />
+          <Acciones p={p} extra />
         </div>
         {hijos.length > 0 && <ul>{hijos.map(renderNode)}</ul>}
       </li>
@@ -205,32 +300,58 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
           <Network size={18} className="text-brand-500" />
           <h2 className="text-lg font-black uppercase text-text-main tracking-tight">Organigrama</h2>
         </div>
-        <p className="text-[11px] text-text-dim font-bold uppercase tracking-widest mb-4">Puestos, personas y manual de funciones</p>
+        <p className="text-[11px] text-text-dim font-bold uppercase tracking-widest mb-4">Puestos, asesores, personas y manual de funciones</p>
         <div className="flex flex-wrap items-center gap-3">
           {!isReadOnly && (
             <button onClick={() => abrirNuevo(null)} className="flex items-center gap-1.5 bg-brand-500 text-white rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-brand-600">
               <Plus size={14} /> Nuevo puesto
             </button>
           )}
+          {!isReadOnly && (
+            <button onClick={abrirNuevoAsesor} className="flex items-center gap-1.5 bg-indigo-500/10 text-indigo-600 border border-indigo-500/30 rounded-lg px-4 py-2 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-500/20">
+              <Briefcase size={14} /> Nuevo asesor
+            </button>
+          )}
           {loading && <Loader2 size={15} className="animate-spin text-brand-500" />}
-          <span className="text-[10px] text-text-dim font-bold uppercase ml-auto">{puestos.length} puesto(s) · {asign.length} asignación(es)</span>
+          <span className="text-[10px] text-text-dim font-bold uppercase ml-auto">{jerarquicos.length} puesto(s) · {asesores.length} asesor(es)</span>
         </div>
       </div>
 
-      {/* Organigrama */}
+      {/* Organigrama + asesores */}
       {puestos.length === 0 ? (
         <div className="bg-bg-sidebar border border-border-dim rounded-xl p-10 text-center">
           <Network size={40} className="mx-auto text-text-dim/30 mb-3" />
           <p className="text-[12px] font-black uppercase text-text-dim">Todavía no hay puestos cargados.</p>
-          {!isReadOnly && <p className="text-[10px] text-text-dim mt-1">Empezá con el puesto más alto (ej. "Gerente General") y después agregá subordinados.</p>}
+          {!isReadOnly && <p className="text-[10px] text-text-dim mt-1">Empezá por el puesto más alto (ej. "Gerente General") y después agregá subordinados y asesores.</p>}
         </div>
       ) : (
-        <div className="bg-bg-sidebar/40 border border-border-dim rounded-xl p-4 overflow-x-auto">
-          <div className="orgtree inline-block min-w-full" style={{ ['--org-line' as any]: 'rgba(130,130,130,0.45)' }}>
-            <ul>{roots.slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre)).map(renderNode)}</ul>
+        <div className="bg-bg-sidebar/40 border border-border-dim rounded-xl overflow-auto">
+          <div ref={canvasRef} className="relative" style={{ width: canvasSize.w, height: canvasSize.h, ['--org-line' as any]: 'rgba(130,130,130,0.45)' }}>
+            {/* Líneas punteadas asesor → puesto */}
+            <svg className="absolute inset-0 pointer-events-none" width={canvasSize.w} height={canvasSize.h} style={{ overflow: 'visible' }}>
+              {lines.map(l => (
+                <line key={l.id} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="rgb(99,102,241)" strokeWidth={1.6} strokeDasharray="5 4" />
+              ))}
+            </svg>
+            {/* Árbol jerárquico */}
+            <div className="orgtree pt-4 flex justify-center">
+              <ul>{roots.slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre)).map(renderNode)}</ul>
+            </div>
+            {/* Asesores (arrastrables, línea punteada) */}
+            {asesores.map(a => (
+              <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
+                onPointerDown={e => onAsesorPointerDown(e, a)}
+                className={cn('absolute w-[190px] bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-xl shadow-sm px-3 py-2.5 text-left select-none', isReadOnly ? '' : 'cursor-move')}
+                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40 }}>
+                <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
+                <Caja p={a} />
+                <Acciones p={a} />
+              </div>
+            ))}
           </div>
         </div>
       )}
+      {asesores.length > 0 && !isReadOnly && <p className="text-[10px] text-text-dim">Arrastrá las cajas de <b className="text-indigo-500">asesores</b> (borde punteado) para ubicarlas donde quieras; la posición se guarda sola. La línea punteada los conecta con el puesto que elijas.</p>}
 
       {/* ─────────── MANUAL (lectura) ─────────── */}
       {manual && (() => {
@@ -245,7 +366,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
               <div className="flex items-center justify-between px-5 py-3 border-b border-border-dim sticky top-0 bg-bg-sidebar z-10">
                 <div>
                   <h3 className="text-[14px] font-black uppercase text-text-main tracking-wide">{p.nombre}</h3>
-                  <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest">{p.area || 'Sin área'}{p.branch_id ? ' · ' + branchName(p.branch_id) : ''} · Manual de funciones</p>
+                  <p className="text-[9px] font-bold uppercase text-text-dim tracking-widest">{p.area || 'Sin área'}{p.es_asesor ? ' · Asesor externo' : ''}{p.branch_id ? ' · ' + branchName(p.branch_id) : ''} · Manual de funciones</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={() => exportManualPDF(p)} title="Exportar PDF" className="text-text-dim hover:text-red-500"><Download size={16} /></button>
@@ -255,8 +376,10 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
               </div>
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <Sec t="Reporta a">{nombreById(p.parent_id) || <span className="text-text-dim">—</span>}</Sec>
-                  <Sec t="Supervisa a">{hijos.length ? hijos.join(', ') : <span className="text-text-dim">—</span>}</Sec>
+                  {p.es_asesor
+                    ? <Sec t="Asesora / conecta con">{nombreById(p.asesor_de) || <span className="text-text-dim">—</span>}</Sec>
+                    : <><Sec t="Reporta a">{nombreById(p.parent_id) || <span className="text-text-dim">—</span>}</Sec>
+                      <Sec t="Supervisa a">{hijos.length ? hijos.join(', ') : <span className="text-text-dim">—</span>}</Sec></>}
                 </div>
                 <Sec t="Personas asignadas">{nombres.length ? <div className="flex flex-wrap gap-1.5 mt-1">{nombres.map((n, i) => <span key={i} className="text-[10px] font-bold bg-bg-accent/60 rounded px-2 py-0.5">{n}</span>)}</div> : <span className="text-amber-600 font-bold">Vacante</span>}</Sec>
                 <Sec t="Objetivo del puesto">{p.objetivo ? <p className="whitespace-pre-wrap leading-relaxed">{p.objetivo}</p> : <span className="text-text-dim">—</span>}</Sec>
@@ -271,24 +394,32 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
       {/* ─────────── EDITOR ─────────── */}
       {editing && (() => {
         const desc = isNew ? new Set<string>() : descendants(editing.id);
-        const opcionesParent = puestos.filter(p => p.id !== editing.id && !desc.has(p.id));
+        const opcionesParent = jerarquicos.filter(p => p.id !== editing.id && !desc.has(p.id));
+        const opcionesConecta = jerarquicos.filter(p => p.id !== editing.id);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !saving && setEditing(null)}>
             <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between px-5 py-3 border-b border-border-dim sticky top-0 bg-bg-sidebar z-10">
-                <h3 className="text-[13px] font-black uppercase text-text-main tracking-wide">{isNew ? 'Nuevo puesto' : 'Editar puesto'}</h3>
+                <h3 className="text-[13px] font-black uppercase text-text-main tracking-wide">{isNew ? (editing.es_asesor ? 'Nuevo asesor' : 'Nuevo puesto') : 'Editar'}</h3>
                 <button onClick={() => !saving && setEditing(null)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
               </div>
               <div className="p-5 space-y-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" disabled={isReadOnly} checked={editing.es_asesor} onChange={e => setEditing({ ...editing, es_asesor: e.target.checked })} className="accent-indigo-500" />
+                  <span className="text-[11px] font-black uppercase tracking-wider text-text-main flex items-center gap-1"><Briefcase size={13} className="text-indigo-500" /> Es asesor externo <span className="text-text-dim font-bold normal-case">(línea punteada, posición libre)</span></span>
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="sm:col-span-2"><label className={lbl}>Nombre del puesto *</label><input autoFocus disabled={isReadOnly} className={cn(inp, 'mt-1')} placeholder="Ej. Encargado de Sucursal / Mozo" value={editing.nombre} onChange={e => setEditing({ ...editing, nombre: e.target.value })} /></div>
-                  <div><label className={lbl}>Área</label><input disabled={isReadOnly} list="area-list" className={cn(inp, 'mt-1')} placeholder="Ej. Operaciones / Salón / Cocina" value={editing.area} onChange={e => setEditing({ ...editing, area: e.target.value })} /><datalist id="area-list">{areas.map(a => <option key={a} value={a} />)}</datalist></div>
-                  <div><label className={lbl}>Reporta a</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.parent_id || ''} onChange={e => setEditing({ ...editing, parent_id: e.target.value || null })}><option value="">— (puesto más alto)</option>{opcionesParent.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></div>
+                  <div className="sm:col-span-2"><label className={lbl}>Nombre del puesto *</label><input autoFocus disabled={isReadOnly} className={cn(inp, 'mt-1')} placeholder={editing.es_asesor ? 'Ej. Estudio Contable / Abogados / Diseño Gráfico' : 'Ej. Encargado de Sucursal / Mozo'} value={editing.nombre} onChange={e => setEditing({ ...editing, nombre: e.target.value })} /></div>
+                  <div><label className={lbl}>Área</label><input disabled={isReadOnly} list="area-list" className={cn(inp, 'mt-1')} placeholder="Ej. Operaciones / Legal / RRHH" value={editing.area} onChange={e => setEditing({ ...editing, area: e.target.value })} /><datalist id="area-list">{areas.map(a => <option key={a} value={a} />)}</datalist></div>
+                  {editing.es_asesor ? (
+                    <div><label className={lbl}>Conecta con (línea punteada)</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.asesor_de || ''} onChange={e => setEditing({ ...editing, asesor_de: e.target.value || null })}><option value="">— (sin conexión)</option>{opcionesConecta.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></div>
+                  ) : (
+                    <div><label className={lbl}>Reporta a</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.parent_id || ''} onChange={e => setEditing({ ...editing, parent_id: e.target.value || null })}><option value="">— (puesto más alto)</option>{opcionesParent.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}</select></div>
+                  )}
                   <div><label className={lbl}>Sucursal / Área física</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.branch_id} onChange={e => setEditing({ ...editing, branch_id: e.target.value })}><option value="">General</option>{operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-                  <div><label className={lbl}>Orden (entre pares)</label><input type="number" disabled={isReadOnly} className={cn(inp, 'mt-1 font-mono')} value={editing.sort_order || 0} onChange={e => setEditing({ ...editing, sort_order: parseInt(e.target.value) || 0 })} /></div>
+                  {!editing.es_asesor && <div><label className={lbl}>Orden (entre pares)</label><input type="number" disabled={isReadOnly} className={cn(inp, 'mt-1 font-mono')} value={editing.sort_order || 0} onChange={e => setEditing({ ...editing, sort_order: parseInt(e.target.value) || 0 })} /></div>}
                 </div>
 
-                {/* Manual */}
                 <div className="border-t border-border-dim pt-3 space-y-3">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-500">Manual de funciones</h4>
                   <div><label className={lbl}>Objetivo del puesto</label><textarea disabled={isReadOnly} className={cn(inp, 'mt-1 h-16 resize-none')} placeholder="Para qué existe el puesto…" value={editing.objetivo} onChange={e => setEditing({ ...editing, objetivo: e.target.value })} /></div>
@@ -296,7 +427,6 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
                   <div><label className={lbl}>Requisitos <span className="text-text-dim/70 normal-case">(una por línea)</span></label><textarea disabled={isReadOnly} className={cn(inp, 'mt-1 h-20 resize-none')} placeholder={'Experiencia previa\nDisponibilidad horaria…'} value={editing.requisitos} onChange={e => setEditing({ ...editing, requisitos: e.target.value })} /></div>
                 </div>
 
-                {/* Asignados */}
                 <div className="border-t border-border-dim pt-3">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-500">Personas asignadas <span className="text-text-dim">({editAsign.length})</span></h4>
