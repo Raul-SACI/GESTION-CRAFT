@@ -260,15 +260,91 @@ export default function StockView({
         .gte('date', startDate)
         .lte('date', endDate);
 
-      // Traer recetas (producto -> insumos con cantidad por unidad)
-      const { data: recipesData } = await supabase
-        .from('recipes')
-        .select('product_id, item_id, quantity');
-      const recipeByProduct: Record<string, Array<{ itemId: string; quantity: number }>> = {};
-      (recipesData || []).forEach((r: any) => {
-        if (!r.product_id || !r.item_id) return;
-        if (!recipeByProduct[r.product_id]) recipeByProduct[r.product_id] = [];
-        recipeByProduct[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
+      // ===== RECETAS desde la sección "Recetas" (Gestión Líderes Operativos) =====
+      // Fuente de verdad: SOLO los "Platos de la Carta" (op_recipes tipo='carta'). Si un plato
+      // lista una receta de Producción/Sucursal (ej. "MILANESA PARA SANDWICH" cód. 800007), se
+      // acredita ESE código directo al artículo controlado, pero NO se descompone más. Un plato
+      // que contiene otro PLATO de la carta sí se descompone.
+      const normN = (s: any) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
+      const normC = (c: any) => String(c ?? '').trim();
+      const { data: opRecs } = await supabase.from('op_recipes').select('id, tipo, name, code');
+      const opRecList = (opRecs as any[]) || [];
+      const itemsByRecipeId: Record<string, Array<{ code: string; name: string; quantity: number }>> = {};
+      {
+        let from = 0; const page = 1000;
+        while (true) {
+          const { data } = await supabase.from('op_recipe_items').select('recipe_id, code, item_name, quantity').range(from, from + page - 1);
+          const chunk = (data as any[]) || [];
+          chunk.forEach((it: any) => { (itemsByRecipeId[it.recipe_id] ||= []).push({ code: normC(it.code), name: String(it.item_name || ''), quantity: Number(it.quantity || 0) }); });
+          if (chunk.length < page) break;
+          from += page;
+        }
+      }
+      const recipeIdByCode: Record<string, string> = {};
+      const cartaIdByCode: Record<string, string> = {};
+      const cartaIdByName: Record<string, string> = {};
+      opRecList.forEach((r: any) => {
+        if (r.tipo !== 'carta') return;
+        const c = normC(r.code);
+        if (c) { cartaIdByCode[c] = r.id; if (!recipeIdByCode[c]) recipeIdByCode[c] = r.id; }
+        if (r.name) cartaIdByName[normN(r.name)] = r.id;
+      });
+      const explodedCache: Record<string, Record<string, { qty: number; name: string }>> = {};
+      const explodeRecipe = (recipeId: string, stack: Set<string>): Record<string, { qty: number; name: string }> => {
+        if (explodedCache[recipeId]) return explodedCache[recipeId];
+        if (stack.has(recipeId)) return {};
+        const out: Record<string, { qty: number; name: string }> = {};
+        const next = new Set(stack); next.add(recipeId);
+        (itemsByRecipeId[recipeId] || []).forEach(ing => {
+          const key = ing.code || `@${normN(ing.name)}`;
+          if (!out[key]) out[key] = { qty: 0, name: ing.name };
+          out[key].qty += ing.quantity;
+          const childId = ing.code ? recipeIdByCode[ing.code] : null;
+          if (childId && childId !== recipeId) {
+            const sub = explodeRecipe(childId, next);
+            Object.entries(sub).forEach(([k, v]) => { if (!out[k]) out[k] = { qty: 0, name: v.name }; out[k].qty += v.qty * ing.quantity; });
+          }
+        });
+        if (!stack.size) explodedCache[recipeId] = out;
+        return out;
+      };
+      // Artículos controlados -> ids por código y por nombre (Insumos + Recetas Producción).
+      const idsByCode: Record<string, string[]> = {};
+      const idsByName: Record<string, string[]> = {};
+      [...items, ...produccionItems].forEach((it: any) => {
+        const c = normC(it.code);
+        if (c) { (idsByCode[c] ||= []); if (!idsByCode[c].includes(it.id)) idsByCode[c].push(it.id); }
+        const n = normN(it.name);
+        if (n) { (idsByName[n] ||= []); if (!idsByName[n].includes(it.id)) idsByName[n].push(it.id); }
+      });
+      const targetIds = (code: string, name: string): string[] => {
+        const byC = code ? idsByCode[code] : null;
+        if (byC && byC.length) return byC;
+        const byN = idsByName[normN(name)];
+        return (byN && byN.length) ? byN : [];
+      };
+      // products (para mapear decomisos de 'producto', alias de ventas y el linker) + su receta de carta.
+      const { data: productsDataShared } = await supabase.from('products').select('id, name, code');
+      const productIdByNameS: Record<string, string> = {};
+      const productIdByCodeS: Record<string, string> = {};
+      (productsDataShared || []).forEach((p: any) => {
+        if (p.name) productIdByNameS[normN(p.name)] = p.id;
+        if (normC(p.code) !== '') productIdByCodeS[normC(p.code)] = p.id;
+      });
+      const ignoredSalesShared = new Set<string>();
+      try {
+        const { data: aliasData } = await supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore');
+        (aliasData || []).forEach((a: any) => {
+          if (!a.alias_name) return;
+          if (a.ignore) { ignoredSalesShared.add(normN(a.alias_name)); return; }
+          if (a.product_id) productIdByNameS[normN(a.alias_name)] = a.product_id;
+        });
+      } catch (e) { /* alias opcional */ }
+      const cartaIdByProductId: Record<string, string> = {};
+      (productsDataShared || []).forEach((p: any) => {
+        const c = normC(p.code);
+        const rid = (c && cartaIdByCode[c]) || cartaIdByName[normN(p.name)];
+        if (rid) cartaIdByProductId[p.id] = rid;
       });
 
       if (wastageData && wastageData.length > 0) {
@@ -281,15 +357,18 @@ export default function StockView({
           if (!wastageByDateItem[w.date]) wastageByDateItem[w.date] = {};
           const qty = Number(w.quantity || 0);
           if (w.type === 'producto') {
-            // Descomponer producto en sus insumos según la receta
-            const recipe = recipeByProduct[w.reference_id];
-            if (recipe && recipe.length > 0) {
-              recipe.forEach(ing => {
-                wastageByDateItem[w.date][ing.itemId] =
-                  (wastageByDateItem[w.date][ing.itemId] || 0) + (qty * ing.quantity);
+            // Descomponer el producto usando SOLO su receta de carta (sección Recetas).
+            const recipeId = cartaIdByProductId[w.reference_id];
+            if (recipeId) {
+              const exploded = explodeRecipe(recipeId, new Set());
+              Object.entries(exploded).forEach(([key, v]) => {
+                const code = key.startsWith('@') ? '' : key;
+                targetIds(code, v.name).forEach(tid => {
+                  wastageByDateItem[w.date][tid] = (wastageByDateItem[w.date][tid] || 0) + (qty * v.qty);
+                });
               });
             }
-            // Si el producto no tiene receta cargada, no se puede descomponer: se ignora
+            // Si el producto no tiene receta de carta cargada, no se puede descomponer: se ignora
           } else {
             // Insumo decomisado directamente
             wastageByDateItem[w.date][w.reference_id] =
@@ -348,42 +427,10 @@ export default function StockView({
           .eq('week_number', weekNum);
 
         if (rankingData && rankingData.length > 0) {
-          // Traer productos (para mapear código/nombre -> id) y recetas
-          const { data: productsData } = await supabase.from('products').select('id, name, code');
-          const { data: recipesData2 } = await supabase.from('recipes').select('product_id, item_id, quantity');
+          // Lista de productos para el linker de alias (usa los productos ya cargados arriba).
+          setProductsList(((productsDataShared || []) as any[]).map(p => ({ id: p.id, name: p.name })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
 
-          const norm = (s: string) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
-          const normCode = (c: any) => String(c ?? '').trim();
-          const productIdByName: Record<string, string> = {};
-          const productIdByCode: Record<string, string> = {};
-          (productsData || []).forEach((p: any) => {
-            if (p.name) productIdByName[norm(p.name)] = p.id;
-            if (normCode(p.code) !== '') productIdByCode[normCode(p.code)] = p.id;
-          });
-          setProductsList(((productsData || []) as any[]).map(p => ({ id: p.id, name: p.name })).sort((a, b) => String(a.name).localeCompare(String(b.name))));
-
-          // Alias de ventas: el nombre del producto en el ranking (POS) muchas veces NO coincide
-          // exacto con el maestro (ej. "CHICKEN & CHEESE BLT" vs "SANDWICH CHICKEN & CHEESE BLT").
-          // Estos alias resuelven ese caso; "ignore" marca ventas que no consumen ningún insumo.
-          const ignoredSales = new Set<string>();
-          try {
-            const { data: aliasData } = await supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore');
-            (aliasData || []).forEach((a: any) => {
-              if (!a.alias_name) return;
-              if (a.ignore) { ignoredSales.add(norm(a.alias_name)); return; }
-              if (a.product_id) productIdByName[norm(a.alias_name)] = a.product_id;
-            });
-          } catch (e) { /* la tabla de alias es opcional */ }
-
-          const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
-          (recipesData2 || []).forEach((r: any) => {
-            if (!r.product_id || !r.item_id) return;
-            if (!recipeByProd[r.product_id]) recipeByProd[r.product_id] = [];
-            recipeByProd[r.product_id].push({ itemId: r.item_id, quantity: Number(r.quantity || 0) });
-          });
-
-          // Acumular ventas teóricas por insumo + guardar el desglose (qué productos suman)
-          // + detectar ventas sin vincular a una receta
+          // Acumular ventas teóricas por insumo + desglose por producto + ventas sin vincular.
           const theoreticalByItem: Record<string, number> = {};
           // Desglose agrupado por producto (el ranking del POS puede traer el mismo plato en
           // varias líneas —distinto código/botón de caja—; se suman en una sola fila).
@@ -391,36 +438,34 @@ export default function StockView({
           const unmatchedMap: Record<string, { name: string; qty: number }> = {};
           rankingData.forEach((rk: any) => {
             const soldQty = Number(rk.quantity || 0);
-            // Resolver el producto: PRIMERO por código (dato confiable del POS), luego por
-            // nombre/alias. Esto evita confundir dos productos con el mismo nombre pero
-            // distinto código (ej. "...BLT" vs "...BLT ME").
-            const prodId = (normCode(rk.product_code) !== '' && productIdByCode[normCode(rk.product_code)]) || productIdByName[norm(rk.product_name)];
-            const recipe = prodId ? recipeByProd[prodId] : null;
+            // Resolver el producto: PRIMERO por código (dato confiable del POS), luego por nombre/alias.
+            const prodId = (normC(rk.product_code) !== '' && productIdByCodeS[normC(rk.product_code)]) || productIdByNameS[normN(rk.product_name)];
             if (!prodId) {
-              // No resuelve a NINGÚN producto (ni por código ni por nombre/alias): se avisa
-              // para poder vincularlo, salvo que esté marcado como "ignorar".
-              if (!ignoredSales.has(norm(rk.product_name))) {
-                const k = norm(rk.product_name);
+              // No resuelve a NINGÚN producto: se avisa para vincularlo, salvo que esté "ignorar".
+              if (!ignoredSalesShared.has(normN(rk.product_name))) {
+                const k = normN(rk.product_name);
                 if (!unmatchedMap[k]) unmatchedMap[k] = { name: rk.product_name, qty: 0 };
                 unmatchedMap[k].qty += soldQty;
               }
               return;
             }
-            if (!recipe || recipe.length === 0) {
-              // Resuelve a un producto SIN receta (no consume insumos controlados, ej. bebidas
-              // o el "...BLT ME"): no suma y no se avisa.
-              return;
-            }
-            recipe.forEach(ing => {
-              const aporte = soldQty * ing.quantity;
-              theoreticalByItem[ing.itemId] = (theoreticalByItem[ing.itemId] || 0) + aporte;
-              if (aporte !== 0) {
-                const bucket = (detailByItem[ing.itemId] = detailByItem[ing.itemId] || {});
-                const pk = norm(rk.product_name);
-                if (!bucket[pk]) bucket[pk] = { product: rk.product_name, sold: 0, perUnit: ing.quantity, aporte: 0 };
-                bucket[pk].sold += soldQty;
-                bucket[pk].aporte += aporte;
-              }
+            // Receta de carta del producto (sección Recetas). Sin receta = no consume insumos (ej. bebidas).
+            const recipeId = cartaIdByProductId[prodId];
+            if (!recipeId) return;
+            const exploded = explodeRecipe(recipeId, new Set());
+            Object.entries(exploded).forEach(([key, v]) => {
+              const code = key.startsWith('@') ? '' : key;
+              const aporte = soldQty * v.qty;
+              targetIds(code, v.name).forEach(tid => {
+                theoreticalByItem[tid] = (theoreticalByItem[tid] || 0) + aporte;
+                if (aporte !== 0) {
+                  const bucket = (detailByItem[tid] = detailByItem[tid] || {});
+                  const pk = normN(rk.product_name);
+                  if (!bucket[pk]) bucket[pk] = { product: rk.product_name, sold: 0, perUnit: v.qty, aporte: 0 };
+                  bucket[pk].sold += soldQty;
+                  bucket[pk].aporte += aporte;
+                }
+              });
             });
           });
           // Cada desglose: pasar a lista y ordenar de mayor a menor aporte
