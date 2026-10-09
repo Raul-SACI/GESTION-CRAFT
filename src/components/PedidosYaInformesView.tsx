@@ -1566,8 +1566,11 @@ async function importOne(file: File, ctx: ImpCtx): Promise<string> {
       (headerTxt.includes('producto') && headerTxt.includes('ventas') && !headerTxt.includes('ticket') && !headerTxt.includes('sucursal') && !headerTxt.includes('restaurant'))) {
     return importPopularDishes(sheets, wb.SheetNames, ctx);
   }
-  if ((headerTxt.includes('restaurant name') || headerTxt.includes('nombre del restaurante') || headerTxt.includes('local')) &&
-      (headerTxt.includes('sales') || headerTxt.includes('ventas')) && headerTxt.includes('ticket')) {
+  if ((headerTxt.includes('restaurant name') || headerTxt.includes('nombre del restaurante') || headerTxt.includes('id de restaurante') || headerTxt.includes('local')) &&
+      (headerTxt.includes('sales') || headerTxt.includes('ventas')) &&
+      // El "ticket" puede venir como "Ticket promedio" o como "Tamaño promedio de la cesta"
+      // (Resumen de ventas / ordersSummary). Aceptamos ambos (o directamente la col. Pedidos).
+      (headerTxt.includes('ticket') || headerTxt.includes('cesta') || headerTxt.includes('tamaño promedio') || headerTxt.includes('tamano promedio') || headerTxt.includes('basket') || headerTxt.includes('pedidos') || headerTxt.includes('orders'))) {
     return importResumenVentas(sheets, wb.SheetNames, ctx);
   }
   throw new Error('archivo no reconocido (esperado: resumen de ventas, reporte de campañas, estado de cuenta Excel o PDF).');
@@ -1627,7 +1630,8 @@ async function importResumenVentas(sheets: Record<string, any[][]>, names: strin
   const rows = sheets[names[0]] || [];
   const f = findCols(rows, {
     name: ['restaurant name', 'nombre del restaurante', 'local'],
-    pedidos: ['pedidos', 'orders'], venta: ['sales', 'ventas', 'venta'], ticket: ['ticket promedio', 'ticket'],
+    pedidos: ['pedidos', 'orders'], venta: ['sales', 'ventas', 'venta'],
+    ticket: ['ticket promedio', 'ticket', 'tamaño promedio de la cesta', 'tamano promedio de la cesta', 'tamaño promedio', 'cesta', 'average basket', 'basket'],
   });
   if (!f) throw new Error('no reconocí las columnas del resumen de ventas.');
   const out: ComPeriodo[] = [];
