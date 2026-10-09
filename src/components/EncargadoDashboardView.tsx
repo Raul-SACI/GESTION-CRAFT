@@ -354,28 +354,61 @@ export default function EncargadoDashboardView({
         // Control de Stock). No depende de que esté guardada en inventory_logs, así el premio
         // de desvío nunca se queda sin una semana por falta de sincronización.
         try {
-          const [{ data: ranking }, { data: prods }, { data: recs }, { data: aliases }] = await Promise.all([
-            supabase.from('product_rankings').select('product_code, product_name, quantity, week_number').eq('branch_id', branchId).eq('month', month),
-            supabase.from('products').select('id, name, code'),
-            supabase.from('recipes').select('product_id, item_id, quantity'),
-            supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore'),
-          ]);
           const norm = (s: any) => String(s || '').trim().toUpperCase().replace(/\s+/g, ' ');
           const normCode = (c: any) => String(c ?? '').trim();
-          const idByName: Record<string, string> = {}; const idByCode: Record<string, string> = {};
-          (prods || []).forEach((p: any) => { if (p.name) idByName[norm(p.name)] = p.id; if (normCode(p.code) !== '') idByCode[normCode(p.code)] = p.id; });
-          (aliases || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) idByName[norm(a.alias_name)] = a.product_id; });
-          const recipeByProd: Record<string, Array<{ itemId: string; quantity: number }>> = {};
-          (recs || []).forEach((r: any) => { if (!r.product_id || !r.item_id) return; (recipeByProd[r.product_id] = recipeByProd[r.product_id] || []).push({ itemId: r.item_id, quantity: Number(r.quantity) || 0 }); });
+          // Recetas desde la sección "Recetas" (op_recipes, SOLO Platos de la Carta), igual que
+          // Control de Stock. La vieja tabla 'recipes' quedó obsoleta y dejaba el premio en 0.
+          const [{ data: ranking }, { data: prods }, { data: aliases }, { data: opRecs }, { data: sitems2 }, { data: pitems2 }] = await Promise.all([
+            supabase.from('product_rankings').select('product_code, product_name, quantity, week_number').eq('branch_id', branchId).eq('month', month),
+            supabase.from('products').select('id, name, code'),
+            supabase.from('product_ranking_aliases').select('alias_name, product_id, ignore'),
+            supabase.from('op_recipes').select('id, tipo, name, code'),
+            supabase.from('stock_items').select('id, name, code'),
+            supabase.from('recipe_masters').select('id, name, code').eq('tipo', 'produccion'),
+          ]);
+          const itemsByRecipeId: Record<string, Array<{ code: string; name: string; quantity: number }>> = {};
+          { let from = 0; const page = 1000; while (true) { const { data } = await supabase.from('op_recipe_items').select('recipe_id, code, item_name, quantity').range(from, from + page - 1); const chunk = (data as any[]) || []; chunk.forEach((it: any) => { (itemsByRecipeId[it.recipe_id] ||= []).push({ code: normCode(it.code), name: String(it.item_name || ''), quantity: Number(it.quantity || 0) }); }); if (chunk.length < page) break; from += page; } }
+          const recipeIdByCode: Record<string, string> = {}; const cartaIdByCode: Record<string, string> = {}; const cartaIdByName: Record<string, string> = {};
+          (opRecs || []).forEach((r: any) => { if (r.tipo !== 'carta') return; const c = normCode(r.code); if (c) { cartaIdByCode[c] = r.id; if (!recipeIdByCode[c]) recipeIdByCode[c] = r.id; } if (r.name) cartaIdByName[norm(r.name)] = r.id; });
+          const explodedCache: Record<string, Record<string, { qty: number; name: string }>> = {};
+          const explodeRecipe = (recipeId: string, stack: Set<string>): Record<string, { qty: number; name: string }> => {
+            if (explodedCache[recipeId]) return explodedCache[recipeId];
+            if (stack.has(recipeId)) return {};
+            const out: Record<string, { qty: number; name: string }> = {};
+            const next = new Set(stack); next.add(recipeId);
+            (itemsByRecipeId[recipeId] || []).forEach(ing => {
+              const key = ing.code || `@${norm(ing.name)}`;
+              if (!out[key]) out[key] = { qty: 0, name: ing.name };
+              out[key].qty += ing.quantity;
+              const childId = ing.code ? recipeIdByCode[ing.code] : null;
+              if (childId && childId !== recipeId) { const sub = explodeRecipe(childId, next); Object.entries(sub).forEach(([k, v]) => { if (!out[k]) out[k] = { qty: 0, name: v.name }; out[k].qty += v.qty * ing.quantity; }); }
+            });
+            if (!stack.size) explodedCache[recipeId] = out;
+            return out;
+          };
+          // Artículos controlados -> ids por código y por nombre (Insumos + Recetas Producción).
+          const idsByCode: Record<string, string[]> = {}; const idsByName: Record<string, string[]> = {};
+          const addId = (id: string, code: any, name: any) => { const c = normCode(code); if (c) { (idsByCode[c] ||= []); if (!idsByCode[c].includes(id)) idsByCode[c].push(id); } const n = norm(name); if (n) { (idsByName[n] ||= []); if (!idsByName[n].includes(id)) idsByName[n].push(id); } };
+          (sitems2 || []).forEach((s: any) => addId(s.id, s.code, s.name));
+          (pitems2 || []).forEach((s: any) => addId(s.id, s.code, s.name));
+          const targetIds = (code: string, name: string): string[] => { const byC = code ? idsByCode[code] : null; if (byC && byC.length) return byC; const byN = idsByName[norm(name)]; return (byN && byN.length) ? byN : []; };
+          // products + alias -> producto, y su receta de carta.
+          const productIdByName: Record<string, string> = {}; const productIdByCode: Record<string, string> = {};
+          (prods || []).forEach((p: any) => { if (p.name) productIdByName[norm(p.name)] = p.id; if (normCode(p.code) !== '') productIdByCode[normCode(p.code)] = p.id; });
+          (aliases || []).forEach((a: any) => { if (a.alias_name && !a.ignore && a.product_id) productIdByName[norm(a.alias_name)] = a.product_id; });
+          const cartaIdByProductId: Record<string, string> = {};
+          (prods || []).forEach((p: any) => { const c = normCode(p.code); const rid = (c && cartaIdByCode[c]) || cartaIdByName[norm(p.name)]; if (rid) cartaIdByProductId[p.id] = rid; });
           const vtMap: Record<number, Record<string, number>> = {};
           (ranking || []).forEach((rk: any) => {
-            const prodId = (normCode(rk.product_code) !== '' && idByCode[normCode(rk.product_code)]) || idByName[norm(rk.product_name)];
-            const recipe = prodId ? recipeByProd[prodId] : null;
-            if (!recipe) return;
+            const prodId = (normCode(rk.product_code) !== '' && productIdByCode[normCode(rk.product_code)]) || productIdByName[norm(rk.product_name)];
+            if (!prodId) return;
+            const recipeId = cartaIdByProductId[prodId];
+            if (!recipeId) return;
+            const exploded = explodeRecipe(recipeId, new Set());
             const wk = Number(rk.week_number) || 1;
             const sold = Number(rk.quantity) || 0;
             const wmap = (vtMap[wk] = vtMap[wk] || {});
-            recipe.forEach(ing => { wmap[ing.itemId] = (wmap[ing.itemId] || 0) + sold * ing.quantity; });
+            Object.entries(exploded).forEach(([key, v]) => { const code = key.startsWith('@') ? '' : key; const add = sold * v.qty; targetIds(code, v.name).forEach(tid => { wmap[tid] = (wmap[tid] || 0) + add; }); });
           });
           setWeeklyVtByItem(vtMap);
         } catch (e) { console.warn('No se pudo calcular venta teórica por semana:', e); setWeeklyVtByItem({}); }
