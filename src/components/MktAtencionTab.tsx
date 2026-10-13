@@ -5,7 +5,7 @@
  * Reseñas (cantidad, 5-3★ y 2-1★ con % automático) y comentarios/quejas.
  * Tabla: mkt_atencion_cliente (RLS desactivado). Único por (anio,mes,semana,fuente,branch_id).
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Star, Save, Loader2, X, Maximize2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { supabase } from '../lib/supabase';
@@ -47,6 +47,9 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
   const [modal, setModal] = useState<{ f: string; b: string; bn: string; fl: string } | null>(null);
 
   const key = (f: string, b: string) => `${f}|${b}`;
+  // Filas que existen en la base para la semana actual. Al guardar, una fila que se
+  // vació hay que BORRARLA (si no, el upsert la omite y reaparece al recargar).
+  const loadedKeysRef = useRef<Set<string>>(new Set());
 
   const cargar = async () => {
     setLoading(true);
@@ -55,6 +58,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
         .eq('anio', anio).eq('mes', mes).eq('semana', semana);
       const map: Record<string, Row> = {};
       ((rows as any[]) || []).forEach(r => { map[key(r.fuente, r.branch_id)] = { pedidos: Number(r.pedidos) || 0, cantidad: Number(r.cantidad) || 0, altas: Number(r.estrellas_altas) || 0, bajas: Number(r.estrellas_bajas) || 0, comentarios: r.comentarios || '' }; });
+      loadedKeysRef.current = new Set(Object.keys(map)); // filas realmente guardadas en la base (antes del autocompletado)
 
       // Autocompletar "Pedidos" desde el módulo Pedidos Ya (py_comercial_periodo), por la
       // misma semana del negocio. Se cruza por local (normLoc) y marca. Solo pisa cuando
@@ -101,16 +105,26 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
     setSaving(true);
     try {
       const payload: any[] = [];
+      const borrar: Array<{ f: string; b: string }> = [];
       fuentes.forEach(f => operative.forEach(b => {
-        const r = data[key(f.id, b.id)];
-        if (!r) return;
-        const vacia = !r.pedidos && !r.cantidad && !r.altas && !r.bajas && !(r.comentarios || '').trim();
-        if (vacia) return;
-        payload.push({ anio, mes, semana, fuente: f.id, branch_id: b.id, pedidos: r.pedidos || 0, cantidad: r.cantidad || 0, estrellas_altas: r.altas || 0, estrellas_bajas: r.bajas || 0, comentarios: (r.comentarios || '').trim() || null });
+        const k = key(f.id, b.id);
+        const r = data[k];
+        const vacia = !r || (!r.pedidos && !r.cantidad && !r.altas && !r.bajas && !(r.comentarios || '').trim());
+        if (!vacia) {
+          payload.push({ anio, mes, semana, fuente: f.id, branch_id: b.id, pedidos: r.pedidos || 0, cantidad: r.cantidad || 0, estrellas_altas: r.altas || 0, estrellas_bajas: r.bajas || 0, comentarios: (r.comentarios || '').trim() || null });
+        } else if (loadedKeysRef.current.has(k)) {
+          // Estaba guardada y quedó vacía → borrarla para que no reaparezca.
+          borrar.push({ f: f.id, b: b.id });
+        }
       }));
-      if (payload.length === 0) { alert('No hay datos cargados para guardar.'); setSaving(false); return; }
-      const { error } = await supabase.from('mkt_atencion_cliente').upsert(payload, { onConflict: 'anio,mes,semana,fuente,branch_id' });
-      if (error) throw error;
+      if (payload.length === 0 && borrar.length === 0) { alert('No hay datos cargados para guardar.'); setSaving(false); return; }
+      for (const d of borrar) {
+        await supabase.from('mkt_atencion_cliente').delete().match({ anio, mes, semana, fuente: d.f, branch_id: d.b });
+      }
+      if (payload.length > 0) {
+        const { error } = await supabase.from('mkt_atencion_cliente').upsert(payload, { onConflict: 'anio,mes,semana,fuente,branch_id' });
+        if (error) throw error;
+      }
       await cargar();
       alert('Guardado.');
     } catch (e: any) { alert('No se pudo guardar: ' + (e.message || e)); }
