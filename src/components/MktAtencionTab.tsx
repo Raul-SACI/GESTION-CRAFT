@@ -155,7 +155,10 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
           <table className="w-full text-[12px] border-collapse min-w-[720px]">
             <thead><tr className="bg-bg-accent/20 text-text-dim">
               <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
-              {f.conPedidos && <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest" title="Se autocompleta desde el módulo Pedidos Ya (por local, marca y semana). Podés ajustarlo a mano.">Pedidos</th>}
+              {f.conPedidos && <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest" title="Se autocompleta desde el módulo Pedidos Ya (por local, marca y semana). Podés ajustarlo a mano.">
+                Pedidos
+                <span className="block text-[7px] font-bold text-indigo-500 normal-case tracking-normal">⟳ se autocompleta</span>
+              </th>}
               {f.conEstrellas && <>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Reseñas</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">5-3 ★</th>
