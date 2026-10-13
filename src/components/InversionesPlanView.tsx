@@ -9,7 +9,7 @@
  * Tablas: fin_inversiones_plan y fin_inversiones_pagos (RLS desactivado).
  */
 import { useState, useEffect, useMemo, Fragment } from 'react';
-import { Plus, Trash2, Wallet, Loader2, X, Pencil, ListChecks, Grid3x3, CalendarDays, PieChart, Download, FileText, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Wallet, Loader2, X, Pencil, ListChecks, Grid3x3, CalendarDays, PieChart, Download, FileText, Search, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -38,6 +38,47 @@ const IMP_LBL: Record<Importancia, string> = { deseable: 'Deseable', importante:
 const URG_LBL: Record<Urgencia, string> = { no_urgente: 'No urgente', urgente: 'Urgente' };
 const EST_LBL: Record<Estado, string> = { pendiente: 'Pendiente', aprobado: 'Aprobado', en_curso: 'En curso', hecho: 'Hecho', descartado: 'Descartado' };
 const IMP_ORDER: Importancia[] = ['muy_importante', 'importante', 'deseable'];
+
+// ── Helpers de import/export Excel ──
+const normTxt = (s: any) => String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9]/g, '');
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const toNumAr = (v: any): number => {
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  if (v == null || v === '') return 0;
+  let s = String(v).replace(/[^0-9.,-]/g, '');
+  if (/,\d{1,2}$/.test(s) || (s.includes('.') && s.includes(','))) s = s.replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+  const n = parseFloat(s); return isNaN(n) ? 0 : n;
+};
+const parseFechaISO = (v: any): string | null => {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v.getTime())) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) { let y = m[3]; if (y.length === 2) y = '20' + y; return `${y}-${pad2(+m[2])}-${pad2(+m[1])}`; }
+  m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (m) return `${m[1]}-${pad2(+m[2])}-${pad2(+m[3])}`;
+  return null;
+};
+const parseTipo = (v: any): Tipo => /gast/i.test(String(v || '')) ? 'gasto' : 'inversion';
+const parseImp = (v: any): Importancia => { const s = String(v || '').toLowerCase(); if (s.includes('muy')) return 'muy_importante'; if (s.includes('desea')) return 'deseable'; return 'importante'; };
+const parseUrg = (v: any): Urgencia => { const s = String(v || '').toLowerCase(); if (s.includes('no')) return 'no_urgente'; if (s.includes('urg')) return 'urgente'; return 'no_urgente'; };
+const parseEstado = (v: any): Estado => { const s = String(v || '').toLowerCase(); if (s.includes('aprob')) return 'aprobado'; if (s.includes('curso')) return 'en_curso'; if (s.includes('hecho') || s.includes('realiz')) return 'hecho'; if (s.includes('descart') || s.includes('anul')) return 'descartado'; return 'pendiente'; };
+// Localiza la fila de encabezado y mapea cada columna conocida por palabras clave.
+const findColsInv = (rows: any[][]): { headerRow: number; idx: Record<string, number> } | null => {
+  const want: Record<string, string[]> = {
+    tipo: ['tipo'], nombre: ['gasto', 'inversi', 'nombre', 'item', 'concepto', 'descrip'],
+    categoria: ['categor', 'rubro'], sucursal: ['sucursal', 'área', 'area', 'local'],
+    importancia: ['importan'], urgencia: ['urgenc'], presupuesto: ['presupuesto', 'importe', 'monto', 'estimad'],
+    fecha: ['fecha'], estado: ['estado'], costo_real: ['costo real', 'costo', 'real'], proveedor: ['proveedor'], notas: ['nota', 'detalle', 'observ'],
+  };
+  for (let i = 0; i < Math.min(rows.length, 6); i++) {
+    const row = (rows[i] || []).map((c: any) => String(c ?? '').trim().toLowerCase());
+    const idx: Record<string, number> = {}; let hits = 0;
+    for (const k in want) { const j = row.findIndex(c => want[k].some(w => c.includes(w))); if (j >= 0) { idx[k] = j; hits++; } }
+    if (idx.nombre != null && hits >= 3) return { headerRow: i, idx };
+  }
+  return null;
+};
 const EST_COLOR: Record<Estado, string> = {
   pendiente: 'bg-text-dim/15 text-text-dim',
   aprobado: 'bg-sky-500/15 text-sky-600',
@@ -89,6 +130,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
   const [origPagoIds, setOrigPagoIds] = useState<string[]>([]);
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const cargar = async () => {
     setLoading(true);
@@ -241,6 +283,78 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
     };
   }, [items, pagosByItem, year]);
 
+  // ── Planilla modelo (para importar) ──
+  const exportModelo = () => {
+    const headers = ['Gasto / Inversión', 'Tipo', 'Categoría', 'Sucursal/Área', 'Importancia', 'Urgencia', 'Presupuesto', 'Fecha probable (DD/MM/AAAA)', 'Estado', 'Costo real', 'Proveedor', 'Notas'];
+    const suc = operative[0]?.name || 'CRAFT Barrio Norte';
+    const ejemplos = [
+      ['Sillas Interior', 'Inversión', 'Remodelación', suc, 'Muy importante', 'Urgente', 250000, '15/03/2026', 'Pendiente', '', 'Mueblería X', 'Para el salón principal'],
+      ['Vajilla nueva', 'Gasto', 'Vajilla', 'General', 'Importante', 'No urgente', 80000, '10/05/2026', 'Pendiente', '', '', ''],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...ejemplos]);
+    ws['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 26 : i === 11 ? 30 : 16 }));
+    const ayuda = [
+      ['Columna', 'Qué poner / valores permitidos'],
+      ['Gasto / Inversión', 'Nombre de lo que se compra/hace (ej. Sillas Interior). Obligatorio.'],
+      ['Tipo', 'Gasto  /  Inversión'],
+      ['Categoría', 'Libre (ej. Remodelación, Vajilla, Equipamiento…)'],
+      ['Sucursal/Área', 'General, o el nombre EXACTO de la sucursal'],
+      ['Importancia', 'Deseable  /  Importante  /  Muy importante'],
+      ['Urgencia', 'No urgente  /  Urgente'],
+      ['Presupuesto', 'Número (ej. 250000)'],
+      ['Fecha probable', 'DD/MM/AAAA (ej. 15/03/2026)'],
+      ['Estado', 'Pendiente / Aprobado / En curso / Hecho / Descartado'],
+      ['Costo real', 'Número, solo si ya se ejecutó (opcional)'],
+      ['Proveedor / Notas', 'Libre (opcional)'],
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(ayuda);
+    ws2['!cols'] = [{ wch: 20 }, { wch: 60 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Plan');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Instrucciones');
+    XLSX.writeFile(wb, 'modelo_plan_inversiones.xlsx');
+  };
+
+  // ── Importar desde Excel ──
+  const importarExcel = async (file?: File) => {
+    if (isReadOnly || !file) return;
+    setImporting(true);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' }) as any[][];
+      const f = findColsInv(rows);
+      if (!f || f.idx.nombre == null) { alert('No reconocí las columnas. Descargá el botón "Modelo" y usá esa planilla (hoja "Plan").'); setImporting(false); return; }
+      const branchByNorm: Record<string, string> = {}; operative.forEach(b => { branchByNorm[normTxt(b.name)] = b.id; });
+      const g = (r: any[], k: string) => f.idx[k] != null ? r[f.idx[k]] : '';
+      const nuevos: any[] = [];
+      let omit = 0;
+      for (let i = f.headerRow + 1; i < rows.length; i++) {
+        const r = rows[i]; if (!r) continue;
+        const nombre = String(g(r, 'nombre') ?? '').trim();
+        if (!nombre) { continue; }
+        const brRaw = String(g(r, 'sucursal') ?? '').trim();
+        const brId = (!brRaw || /general/i.test(brRaw)) ? '' : (branchByNorm[normTxt(brRaw)] || '');
+        if (brRaw && !/general/i.test(brRaw) && !brId) omit++; // sucursal no reconocida → queda General
+        const costoRaw = g(r, 'costo_real');
+        nuevos.push({
+          id: newId(), tipo: parseTipo(g(r, 'tipo')), nombre, categoria: String(g(r, 'categoria') ?? '').trim() || null,
+          branch_id: brId || null, importancia: parseImp(g(r, 'importancia')), urgencia: parseUrg(g(r, 'urgencia')),
+          presupuesto: toNumAr(g(r, 'presupuesto')), fecha_estimada: parseFechaISO(g(r, 'fecha')), estado: parseEstado(g(r, 'estado')),
+          costo_real: (costoRaw === '' || costoRaw == null) ? null : toNumAr(costoRaw),
+          proveedor: String(g(r, 'proveedor') ?? '').trim() || null, notas: String(g(r, 'notas') ?? '').trim() || null,
+          updated_at: new Date().toISOString(),
+        });
+      }
+      if (nuevos.length === 0) { alert('No encontré filas para importar en la planilla.'); setImporting(false); return; }
+      const { error } = await supabase.from('fin_inversiones_plan').insert(nuevos);
+      if (error) throw error;
+      await cargar();
+      alert(`Importados ${nuevos.length} ítem(s).${omit ? ` (${omit} con sucursal no reconocida → quedaron como "General")` : ''}`);
+    } catch (e: any) { alert('No se pudo importar: ' + (e.message || e)); }
+    finally { setImporting(false); }
+  };
+
   // ── Exportar ──
   const exportExcel = () => {
     const rows = listaFiltrada.map(it => ({
@@ -319,6 +433,13 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
             <select value={fBranch} onChange={e => setFBranch(e.target.value)} className={cn(inp, 'w-40')}><option value="">Sucursal: todas</option><option value="">General</option>{operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
             <select value={fEstado} onChange={e => setFEstado(e.target.value as any)} className={cn(inp, 'w-36')}><option value="">Estado: todos</option>{(Object.keys(EST_LBL) as Estado[]).map(s => <option key={s} value={s}>{EST_LBL[s]}</option>)}</select>
             <div className="ml-auto flex items-center gap-2">
+              <button onClick={exportModelo} className="flex items-center gap-1 text-[9px] font-black uppercase text-text-dim border border-border-dim rounded px-2.5 py-1.5 hover:text-text-main hover:border-brand-500" title="Descargar planilla modelo para completar e importar"><Download size={12} /> Modelo</button>
+              {!isReadOnly && (
+                <label className={cn('flex items-center gap-1 text-[9px] font-black uppercase text-sky-600 border border-sky-500/30 rounded px-2.5 py-1.5 cursor-pointer hover:bg-sky-500/10', importing && 'opacity-50 pointer-events-none')} title="Importar lista desde Excel (usá el Modelo)">
+                  {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Importar
+                  <input type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { importarExcel(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+                </label>
+              )}
               <button onClick={exportExcel} className="flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 border border-emerald-500/30 rounded px-2.5 py-1.5 hover:bg-emerald-500/10"><Download size={12} /> Excel</button>
               <button onClick={exportPDF} className="flex items-center gap-1 text-[9px] font-black uppercase text-red-500 border border-red-500/30 rounded px-2.5 py-1.5 hover:bg-red-500/10"><FileText size={12} /> PDF</button>
             </div>
