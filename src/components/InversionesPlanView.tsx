@@ -326,7 +326,20 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' }) as any[][];
       const f = findColsInv(rows);
       if (!f || f.idx.nombre == null) { alert('No reconocí las columnas. Descargá el botón "Modelo" y usá esa planilla (hoja "Plan").'); setImporting(false); return; }
-      const branchByNorm: Record<string, string> = {}; operative.forEach(b => { branchByNorm[normTxt(b.name)] = b.id; });
+      // Emparejar la sucursal del Excel con las de la app ignorando "CRAFT", acentos y
+      // espacios; además "depósito/almacén/producción" → la sucursal de Almacén y Producción.
+      const normLocX = (s: any) => String(s || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/CRAFT/g, '').replace(/[^A-Z0-9]/g, '');
+      const byLoc: Record<string, string> = {}; operative.forEach(b => { byLoc[normLocX(b.name)] = b.id; });
+      const almacenId = operative.find(b => /ALMAC|PRODUC|DEPOSIT/.test(normLocX(b.name)))?.id || '';
+      const resolveBranch = (raw: string): string => {
+        const k = normLocX(raw);
+        if (!k || k === 'GENERAL') return '';
+        if (byLoc[k]) return byLoc[k];
+        const hit = operative.find(b => { const n = normLocX(b.name); return !!n && (n.includes(k) || k.includes(n)); });
+        if (hit) return hit.id;
+        if (/DEPOSIT|ALMAC|PRODUC|CENTRO/.test(k) && almacenId) return almacenId;
+        return '';
+      };
       const g = (r: any[], k: string) => f.idx[k] != null ? r[f.idx[k]] : '';
       const nuevos: any[] = [];
       let omit = 0;
@@ -335,8 +348,8 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         const nombre = String(g(r, 'nombre') ?? '').trim();
         if (!nombre) { continue; }
         const brRaw = String(g(r, 'sucursal') ?? '').trim();
-        const brId = (!brRaw || /general/i.test(brRaw)) ? '' : (branchByNorm[normTxt(brRaw)] || '');
-        if (brRaw && !/general/i.test(brRaw) && !brId) omit++; // sucursal no reconocida → queda General
+        const brId = resolveBranch(brRaw);
+        if (brRaw && normLocX(brRaw) !== 'GENERAL' && !brId) omit++; // sucursal no reconocida → queda General
         const costoRaw = g(r, 'costo_real');
         nuevos.push({
           id: newId(), tipo: parseTipo(g(r, 'tipo')), nombre, categoria: String(g(r, 'categoria') ?? '').trim() || null,
