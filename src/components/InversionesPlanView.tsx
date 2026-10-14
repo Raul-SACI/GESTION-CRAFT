@@ -26,7 +26,7 @@ interface Pago { id: string; plan_id: string; fecha: string; monto: number; desc
 interface Item {
   id: string; tipo: Tipo; nombre: string; categoria: string; branch_id: string;
   importancia: Importancia; urgencia: Urgencia; presupuesto: number; fecha_estimada: string | null;
-  estado: Estado; costo_real: number | null; proveedor: string; notas: string;
+  estado: Estado; costo_real: number | null; proveedor: string; responsable: string; notas: string;
 }
 
 const newId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -69,7 +69,7 @@ const findColsInv = (rows: any[][]): { headerRow: number; idx: Record<string, nu
     tipo: ['tipo'], nombre: ['gasto', 'inversi', 'nombre', 'item', 'concepto', 'descrip'],
     categoria: ['categor', 'rubro'], sucursal: ['sucursal', 'área', 'area', 'local'],
     importancia: ['importan'], urgencia: ['urgenc'], presupuesto: ['presupuesto', 'importe', 'monto', 'estimad'],
-    fecha: ['fecha'], estado: ['estado'], costo_real: ['costo real', 'costo', 'real'], proveedor: ['proveedor'], notas: ['nota', 'detalle', 'observ'],
+    fecha: ['fecha'], estado: ['estado'], costo_real: ['costo real', 'costo', 'real'], responsable: ['responsable', 'encargado', 'asignad'], proveedor: ['proveedor'], notas: ['nota', 'detalle', 'observ'],
   };
   for (let i = 0; i < Math.min(rows.length, 6); i++) {
     const row = (rows[i] || []).map((c: any) => String(c ?? '').trim().toLowerCase());
@@ -102,7 +102,7 @@ const cellMeta = (imp: Importancia, urg: Urgencia): { label: string; bg: string;
 const emptyItem = (): Item => ({
   id: newId(), tipo: 'inversion', nombre: '', categoria: '', branch_id: '',
   importancia: 'importante', urgencia: 'no_urgente', presupuesto: 0, fecha_estimada: null,
-  estado: 'pendiente', costo_real: null, proveedor: '', notas: '',
+  estado: 'pendiente', costo_real: null, proveedor: '', responsable: '', notas: '',
 });
 
 export default function InversionesPlanView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
@@ -144,7 +144,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         branch_id: r.branch_id || '', importancia: (r.importancia || 'importante') as Importancia,
         urgencia: (r.urgencia || 'no_urgente') as Urgencia, presupuesto: Number(r.presupuesto) || 0,
         fecha_estimada: r.fecha_estimada || null, estado: (r.estado || 'pendiente') as Estado,
-        costo_real: r.costo_real == null ? null : Number(r.costo_real), proveedor: r.proveedor || '', notas: r.notas || '',
+        costo_real: r.costo_real == null ? null : Number(r.costo_real), proveedor: r.proveedor || '', responsable: r.responsable || '', notas: r.notas || '',
       })));
       setPagos(((pg.data as any[]) || []).map(r => ({ id: r.id, plan_id: r.plan_id, fecha: r.fecha, monto: Number(r.monto) || 0, descripcion: r.descripcion || '', pagado: !!r.pagado })));
     } catch (e) { console.warn('Inversiones load error', e); }
@@ -204,7 +204,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         branch_id: it.branch_id || null, importancia: it.importancia, urgencia: it.urgencia,
         presupuesto: Number(it.presupuesto) || 0, fecha_estimada: it.fecha_estimada || null, estado: it.estado,
         costo_real: it.costo_real == null || (it.costo_real as any) === '' ? null : Number(it.costo_real),
-        proveedor: it.proveedor.trim() || null, notas: it.notas.trim() || null, updated_at: new Date().toISOString(),
+        proveedor: it.proveedor.trim() || null, responsable: it.responsable.trim() || null, notas: it.notas.trim() || null, updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
       if (error) throw error;
       // Sincronizar cuotas
@@ -285,20 +285,21 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
 
   // ── Planilla modelo (para importar) ──
   const exportModelo = () => {
-    const headers = ['Gasto / Inversión', 'Tipo', 'Categoría', 'Sucursal/Área', 'Importancia', 'Urgencia', 'Presupuesto', 'Fecha probable (DD/MM/AAAA)', 'Estado', 'Costo real', 'Proveedor', 'Notas'];
+    const headers = ['Gasto / Inversión', 'Tipo', 'Categoría', 'Sucursal/Área', 'Responsable', 'Importancia', 'Urgencia', 'Presupuesto', 'Fecha probable (DD/MM/AAAA)', 'Estado', 'Costo real', 'Proveedor', 'Notas'];
     const suc = operative[0]?.name || 'CRAFT Barrio Norte';
     const ejemplos = [
-      ['Sillas Interior', 'Inversión', 'Remodelación', suc, 'Muy importante', 'Urgente', 250000, '15/03/2026', 'Pendiente', '', 'Mueblería X', 'Para el salón principal'],
-      ['Vajilla nueva', 'Gasto', 'Vajilla', 'General', 'Importante', 'No urgente', 80000, '10/05/2026', 'Pendiente', '', '', ''],
+      ['Sillas Interior', 'Inversión', 'Remodelación', suc, 'Manuel', 'Muy importante', 'Urgente', 250000, '15/03/2026', 'Pendiente', '', 'Mueblería X', 'Para el salón principal'],
+      ['Vajilla nueva', 'Gasto', 'Vajilla', 'General', 'Lucía', 'Importante', 'No urgente', 80000, '10/05/2026', 'Pendiente', '', '', ''],
     ];
     const ws = XLSX.utils.aoa_to_sheet([headers, ...ejemplos]);
-    ws['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 26 : i === 11 ? 30 : 16 }));
+    ws['!cols'] = headers.map((h, i) => ({ wch: i === 0 ? 26 : i === headers.length - 1 ? 30 : 16 }));
     const ayuda = [
       ['Columna', 'Qué poner / valores permitidos'],
       ['Gasto / Inversión', 'Nombre de lo que se compra/hace (ej. Sillas Interior). Obligatorio.'],
       ['Tipo', 'Gasto  /  Inversión'],
       ['Categoría', 'Libre (ej. Remodelación, Vajilla, Equipamiento…)'],
       ['Sucursal/Área', 'General, o el nombre EXACTO de la sucursal'],
+      ['Responsable', 'Nombre de quién se encarga (ej. Manuel). Opcional.'],
       ['Importancia', 'Deseable  /  Importante  /  Muy importante'],
       ['Urgencia', 'No urgente  /  Urgente'],
       ['Presupuesto', 'Número (ej. 250000)'],
@@ -342,6 +343,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
           branch_id: brId || null, importancia: parseImp(g(r, 'importancia')), urgencia: parseUrg(g(r, 'urgencia')),
           presupuesto: toNumAr(g(r, 'presupuesto')), fecha_estimada: parseFechaISO(g(r, 'fecha')), estado: parseEstado(g(r, 'estado')),
           costo_real: (costoRaw === '' || costoRaw == null) ? null : toNumAr(costoRaw),
+          responsable: String(g(r, 'responsable') ?? '').trim() || null,
           proveedor: String(g(r, 'proveedor') ?? '').trim() || null, notas: String(g(r, 'notas') ?? '').trim() || null,
           updated_at: new Date().toISOString(),
         });
@@ -360,7 +362,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
     const rows = listaFiltrada.map(it => ({
       'Gasto / Inversión': it.nombre, Tipo: TIPO_LBL[it.tipo], Categoría: it.categoria, 'Sucursal/Área': branchName(it.branch_id),
       Importancia: IMP_LBL[it.importancia], Urgencia: URG_LBL[it.urgencia], Presupuesto: it.presupuesto,
-      'Fecha probable': it.fecha_estimada || '', Estado: EST_LBL[it.estado], 'Costo real': it.costo_real ?? '', Proveedor: it.proveedor, Notas: it.notas,
+      'Fecha probable': it.fecha_estimada || '', Estado: EST_LBL[it.estado], 'Costo real': it.costo_real ?? '', Responsable: it.responsable, Proveedor: it.proveedor, Notas: it.notas,
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Plan');
@@ -374,8 +376,8 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
     doc.setTextColor(0);
     autoTable(doc, {
       startY: 25, styles: { fontSize: 7 }, headStyles: { fillColor: [220, 38, 38] },
-      head: [['Gasto / Inversión', 'Tipo', 'Categoría', 'Sucursal', 'Imp.', 'Urg.', 'Presupuesto', 'Fecha', 'Estado']],
-      body: listaFiltrada.map(it => [it.nombre, TIPO_LBL[it.tipo], it.categoria, branchName(it.branch_id), IMP_LBL[it.importancia], URG_LBL[it.urgencia], fmt(it.presupuesto), it.fecha_estimada || '—', EST_LBL[it.estado]]),
+      head: [['Gasto / Inversión', 'Tipo', 'Categoría', 'Sucursal', 'Responsable', 'Imp.', 'Urg.', 'Presupuesto', 'Fecha', 'Estado']],
+      body: listaFiltrada.map(it => [it.nombre, TIPO_LBL[it.tipo], it.categoria, branchName(it.branch_id), it.responsable, IMP_LBL[it.importancia], URG_LBL[it.urgencia], fmt(it.presupuesto), it.fecha_estimada || '—', EST_LBL[it.estado]]),
     });
     doc.save(`plan_inversiones_${year}.pdf`);
   };
@@ -452,6 +454,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
                 <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Categoría</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Tipo</th>
                 <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Sucursal/Área</th>
+                <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Responsable</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Prioridad</th>
                 <th className="p-2.5 text-right text-[9px] font-black uppercase tracking-widest">Presupuesto</th>
                 <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Fecha</th>
@@ -460,7 +463,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
               </tr></thead>
               <tbody>
                 {listaFiltrada.length === 0 ? (
-                  <tr><td colSpan={9} className="p-8 text-center text-text-dim text-[11px] italic">Sin ítems. {!isReadOnly && 'Agregá uno con "Nuevo Gasto / Inversión".'}</td></tr>
+                  <tr><td colSpan={10} className="p-8 text-center text-text-dim text-[11px] italic">Sin ítems. {!isReadOnly && 'Agregá uno con "Nuevo Gasto / Inversión".'}</td></tr>
                 ) : listaFiltrada.map(it => {
                   const cm = cellMeta(it.importancia, it.urgencia);
                   const ncuotas = (pagosByItem[it.id] || []).length;
@@ -470,6 +473,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
                       <td className="p-2.5 text-text-dim">{it.categoria || '—'}</td>
                       <td className="p-2.5 text-center"><span className={cn('text-[9px] font-black uppercase px-2 py-0.5 rounded', it.tipo === 'inversion' ? 'bg-sky-500/15 text-sky-600' : 'bg-amber-500/15 text-amber-600')}>{TIPO_LBL[it.tipo]}</span></td>
                       <td className="p-2.5 text-text-dim">{branchName(it.branch_id)}</td>
+                      <td className="p-2.5 text-text-dim">{it.responsable || '—'}</td>
                       <td className="p-2.5 text-center"><span className={cn('text-[8px] font-black uppercase text-white px-2 py-0.5 rounded', cm.bg)} title={`${IMP_LBL[it.importancia]} · ${URG_LBL[it.urgencia]}`}>{cm.label}</span></td>
                       <td className="p-2.5 text-right font-mono font-bold text-text-main">{fmt(it.presupuesto)}</td>
                       <td className="p-2.5 text-center text-text-dim font-mono text-[10px]">{it.fecha_estimada ? new Date(it.fecha_estimada + 'T00:00:00').toLocaleDateString('es-AR') : '—'}</td>
@@ -486,7 +490,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
               </tbody>
               {listaFiltrada.length > 0 && (
                 <tfoot><tr className="border-t-2 border-border-dim bg-bg-accent/20 font-black">
-                  <td className="p-2.5 text-text-main uppercase text-[10px]" colSpan={5}>Total ({listaFiltrada.length})</td>
+                  <td className="p-2.5 text-text-main uppercase text-[10px]" colSpan={6}>Total ({listaFiltrada.length})</td>
                   <td className="p-2.5 text-right font-mono text-brand-500">{fmt(totalFiltrado)}</td>
                   <td colSpan={3} />
                 </tr></tfoot>
@@ -626,6 +630,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
                 <div><label className={lbl}>Fecha probable</label><input type="date" disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.fecha_estimada || ''} onChange={e => setEditing({ ...editing, fecha_estimada: e.target.value || null })} /></div>
                 <div><label className={lbl}>Estado</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.estado} onChange={e => setEditing({ ...editing, estado: e.target.value as Estado })}>{(Object.keys(EST_LBL) as Estado[]).map(s => <option key={s} value={s}>{EST_LBL[s]}</option>)}</select></div>
                 <div><label className={lbl}>Costo real (al ejecutar)</label><input type="number" disabled={isReadOnly} className={cn(inp, 'mt-1 font-mono')} placeholder="—" value={editing.costo_real ?? ''} onChange={e => setEditing({ ...editing, costo_real: e.target.value === '' ? null : parseFloat(e.target.value) })} /></div>
+                <div><label className={lbl}>Responsable</label><input disabled={isReadOnly} className={cn(inp, 'mt-1')} placeholder="Ej. Manuel (busca presupuesto)" value={editing.responsable} onChange={e => setEditing({ ...editing, responsable: e.target.value })} /></div>
                 <div><label className={lbl}>Proveedor</label><input disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.proveedor} onChange={e => setEditing({ ...editing, proveedor: e.target.value })} /></div>
                 <div className="sm:col-span-2"><label className={lbl}>Notas</label><textarea disabled={isReadOnly} className={cn(inp, 'mt-1 h-16 resize-none')} value={editing.notas} onChange={e => setEditing({ ...editing, notas: e.target.value })} /></div>
               </div>
