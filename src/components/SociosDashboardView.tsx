@@ -588,8 +588,8 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
           </div>
 
           {/* Skeleton de las 4 tarjetas de totales */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[0, 1, 2, 3].map(i => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            {[0, 1, 2, 3, 4].map(i => (
               <div key={i} className="bg-bg-sidebar border border-border-dim rounded-xl p-5 space-y-3">
                 <div className="h-2.5 w-24 rounded bg-text-dim/15" />
                 <div className="h-7 w-36 rounded bg-text-dim/20" />
@@ -656,7 +656,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
               <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><DollarSign size={50} className="text-brand-500" /></div>
               <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Ventas Netas del Mes</p>
@@ -683,6 +683,24 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
               <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">Proyección Neta del Mes</p>
               <p className="text-2xl font-mono font-black text-emerald-600 dark:text-emerald-500 tracking-tight mt-1.5">{fmt(totals.projection)}</p>
               <p className="text-[9px] text-text-dim font-bold uppercase mt-2">Estimado a fin de mes</p>
+            </div>
+
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 relative overflow-hidden shadow-sm">
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Calculator size={50} className="text-amber-500" /></div>
+              <p className="text-[9px] text-[#8B949E] uppercase font-black tracking-widest">CMV Total del Mes</p>
+              <p className="text-2xl font-mono font-black text-text-main tracking-tight mt-1.5">{fmt(totals.cmv)}</p>
+              {(() => {
+                const pctT = totals.netCurrent > 0 ? (totals.cmv / totals.netCurrent) * 100 : null;
+                const incompleto = shown.some(d => d.cmv === null || !d.existenciasCargadas);
+                return (
+                  <p className="text-[9px] font-bold uppercase mt-2">
+                    {pctT !== null
+                      ? <span className={pctT > 35 ? 'text-red-500' : pctT > 30 ? 'text-amber-500' : 'text-emerald-600'}>{pctT.toFixed(1)}% s/ventas netas</span>
+                      : <span className="text-text-dim">—</span>}
+                    {incompleto && <span className="text-text-dim normal-case"> · parcial (faltan existencias)</span>}
+                  </p>
+                );
+              })()}
             </div>
           </div>
 
