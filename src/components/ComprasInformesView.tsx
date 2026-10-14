@@ -619,10 +619,14 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
       const first = puntos.find(v => v != null) ?? null;
       const last = [...puntos].reverse().find(v => v != null) ?? null;
       const varPct = first != null && last != null && first > 0 ? ((last - first) / first) * 100 : null;
+      // Variación del mes actual (último con datos) vs el mes con datos inmediatamente anterior.
+      const idxConDato = puntos.map((v, i) => (v != null ? i : -1)).filter(i => i >= 0);
+      const prevV = idxConDato.length >= 2 ? puntos[idxConDato[idxConDato.length - 2]] : null;
+      const varMes = (last != null && prevV != null && prevV > 0) ? ((last - prevV) / prevV) * 100 : null;
       // Impacto $/mes = (precio último − precio primero) × cantidad del último mes
       const impacto = (A && L && A.cantidad > 0 && L.cantidad > 0)
         ? ((L.total / L.cantidad) - (A.total / A.cantidad)) * L.cantidad : null;
-      return { code, desc: descByCode[code] || code, puntos, last, varPct, impacto };
+      return { code, desc: descByCode[code] || code, puntos, last, varPct, varMes, impacto };
     });
     // Ordena por impacto absoluto descendente (los que más mueven el gasto, arriba)
     return rows.sort((a, b) => Math.abs(b.impacto ?? 0) - Math.abs(a.impacto ?? 0));
@@ -888,7 +892,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                       ))}
                     </div>
                   </div>
-                  <p className="text-[9px] text-text-dim font-bold uppercase mb-3">Precio = total ÷ cantidad de cada mes · {effSel.size} artículo(s) · ordenado por impacto en el gasto</p>
+                  <p className="text-[9px] text-text-dim font-bold uppercase mb-3">PPP (precio promedio ponderado) = total ÷ cantidad de cada mes · {effSel.size} artículo(s) · ordenado por impacto en el gasto</p>
 
                   {/* Selector de artículos */}
                   <details className="mb-4 group">
@@ -919,6 +923,7 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                         <tr className="text-[9px] font-black uppercase tracking-wider text-text-dim border-b border-border-dim">
                           <th className="px-3 py-2">Artículo</th>
                           {serie.map(s => <th key={s.period} className="px-3 py-2 text-right">{periodLabel(s.period)}</th>)}
+                          <th className="px-3 py-2 text-right">Var. mes</th>
                           <th className="px-3 py-2 text-right">Var. total</th>
                           <th className="px-3 py-2 text-right">Impacto $/mes</th>
                         </tr>
@@ -928,6 +933,11 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                           <tr key={row.code} className="text-[11px] font-medium hover:bg-bg-accent/30">
                             <td className="px-3 py-2 font-bold uppercase text-text-main">{row.desc}</td>
                             {row.puntos.map((v, i) => <td key={i} className="px-3 py-2 text-right font-mono tabular-nums">{v != null ? fmt(v) : <span className="text-text-dim">—</span>}</td>)}
+                            <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">
+                              {row.varMes != null ? (
+                                <span className={row.varMes > 0 ? 'text-red-500' : 'text-emerald-500'}>{row.varMes > 0 ? '+' : ''}{row.varMes.toFixed(1)}%</span>
+                              ) : <span className="text-text-dim">—</span>}
+                            </td>
                             <td className="px-3 py-2 text-right font-mono font-bold tabular-nums">
                               {row.varPct != null ? (
                                 <span className={row.varPct > 0 ? 'text-red-500' : 'text-emerald-500'}>{row.varPct > 0 ? '+' : ''}{row.varPct.toFixed(1)}%</span>
@@ -943,13 +953,13 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
                       </tbody>
                       <tfoot>
                         <tr className="text-[11px] font-black border-t-2 border-border-dim">
-                          <td className="px-3 py-2.5 uppercase text-brand-500" colSpan={serie.length + 2}>Impacto total sobre el gasto (seleccionados)</td>
+                          <td className="px-3 py-2.5 uppercase text-brand-500" colSpan={serie.length + 3}>Impacto total sobre el gasto (seleccionados)</td>
                           <td className="px-3 py-2.5 text-right font-mono tabular-nums"><span className={impactoTotal > 0 ? 'text-red-500' : 'text-emerald-500'}>{impactoTotal > 0 ? '+' : ''}{fmt(impactoTotal)}</span></td>
                         </tr>
                       </tfoot>
                     </table>
                   </div>
-                  <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">Var. = último vs primer mes con datos. Impacto $/mes = (precio último − precio primero) × cantidad del último mes: cuánto pesa ese cambio de precio en el gasto real. Rojo = encarece / cuesta más.</p>
+                  <p className="text-[8px] text-text-dim font-bold uppercase mt-3 opacity-70">El precio de cada mes es el <b className="text-text-main">PPP (precio promedio ponderado)</b> = total ÷ cantidad. Var. mes = último mes con datos vs el mes con datos anterior. Var. total = último vs primer mes con datos. Impacto $/mes = (precio último − precio primero) × cantidad del último mes: cuánto pesa ese cambio de precio en el gasto real. Rojo = encarece / cuesta más.</p>
                 </div>
               </div>
             )
