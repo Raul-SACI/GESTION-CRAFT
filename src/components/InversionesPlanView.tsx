@@ -9,7 +9,7 @@
  * Tablas: fin_inversiones_plan y fin_inversiones_pagos (RLS desactivado).
  */
 import { useState, useEffect, useMemo, Fragment } from 'react';
-import { Plus, Trash2, Wallet, Loader2, X, Pencil, ListChecks, Grid3x3, CalendarDays, PieChart, Download, FileText, Search, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { Plus, Trash2, Wallet, Loader2, X, Pencil, ListChecks, Grid3x3, CalendarDays, PieChart, Download, FileText, Search, ChevronLeft, ChevronRight, Upload, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -125,6 +125,11 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
   const [fUrg, setFUrg] = useState<'' | Urgencia>('');
   const [fBranch, setFBranch] = useState('');
   const [fEstado, setFEstado] = useState<'' | Estado>('');
+  const [fResp, setFResp] = useState('');
+  // Orden por columna (click en encabezado). null = orden sugerido por prioridad.
+  type SortCol = 'nombre' | 'categoria' | 'tipo' | 'branch' | 'responsable' | 'prioridad' | 'presupuesto' | 'fecha' | 'estado';
+  const [sort, setSort] = useState<{ col: SortCol; dir: 'asc' | 'desc' } | null>(null);
+  const toggleSort = (col: SortCol) => setSort(prev => !prev || prev.col !== col ? { col, dir: 'asc' } : prev.dir === 'asc' ? { col, dir: 'desc' } : null);
 
   // Modal de edición
   const [editing, setEditing] = useState<Item | null>(null);
@@ -172,23 +177,50 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
   // ── Filtro de la lista ──
   const listaFiltrada = useMemo(() => {
     const q = fTexto.trim().toLowerCase();
-    return items.filter(it => {
+    const resp = fResp.trim().toLowerCase();
+    const filtrada = items.filter(it => {
       if (fTipo && it.tipo !== fTipo) return false;
       if (fCat && it.categoria !== fCat) return false;
       if (fImp && it.importancia !== fImp) return false;
       if (fUrg && it.urgencia !== fUrg) return false;
       if (fBranch && it.branch_id !== fBranch) return false;
       if (fEstado && it.estado !== fEstado) return false;
+      if (resp && !(it.responsable || '').toLowerCase().includes(resp)) return false;
       if (q && !(`${it.nombre} ${it.categoria} ${it.proveedor} ${it.notas}`.toLowerCase().includes(q))) return false;
       return true;
-    }).sort((a, b) => {
+    });
+    if (sort) {
+      // "Prioridad" (Eisenhower): muy_importante+urgente primero → deseable+no_urgente último
+      const prioScore = (it: Item) => IMP_ORDER.indexOf(it.importancia) * 2 + (it.urgencia === 'urgente' ? 0 : 1);
+      const estOrder = Object.keys(EST_LBL) as Estado[];
+      const sortVal = (it: Item): string | number => {
+        switch (sort.col) {
+          case 'nombre': return it.nombre.toLowerCase();
+          case 'categoria': return (it.categoria || '').toLowerCase();
+          case 'tipo': return TIPO_LBL[it.tipo].toLowerCase();
+          case 'branch': return branchName(it.branch_id).toLowerCase();
+          case 'responsable': return (it.responsable || '').toLowerCase();
+          case 'prioridad': return prioScore(it);
+          case 'presupuesto': return it.presupuesto;
+          case 'fecha': return it.fecha_estimada || '9999-99-99';
+          case 'estado': return estOrder.indexOf(it.estado);
+        }
+      };
+      const mul = sort.dir === 'asc' ? 1 : -1;
+      return [...filtrada].sort((a, b) => {
+        const va = sortVal(a), vb = sortVal(b);
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * mul;
+        return String(va).localeCompare(String(vb), 'es') * mul;
+      });
+    }
+    return filtrada.sort((a, b) => {
       // Orden sugerido: por importancia (desc) y urgencia (urgente primero)
       const ia = IMP_ORDER.indexOf(a.importancia), ib = IMP_ORDER.indexOf(b.importancia);
       if (ia !== ib) return ia - ib;
       if (a.urgencia !== b.urgencia) return a.urgencia === 'urgente' ? -1 : 1;
       return (a.fecha_estimada || '9999').localeCompare(b.fecha_estimada || '9999');
     });
-  }, [items, fTexto, fTipo, fCat, fImp, fUrg, fBranch, fEstado]);
+  }, [items, fTexto, fTipo, fCat, fImp, fUrg, fBranch, fEstado, fResp, sort]);
 
   const totalFiltrado = listaFiltrada.reduce((s, it) => s + it.presupuesto, 0);
 
@@ -464,6 +496,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
             <select value={fUrg} onChange={e => setFUrg(e.target.value as any)} className={cn(inp, 'w-36')}><option value="">Urgencia: todas</option><option value="urgente">Urgente</option><option value="no_urgente">No urgente</option></select>
             <select value={fBranch} onChange={e => setFBranch(e.target.value)} className={cn(inp, 'w-40')}><option value="">Sucursal: todas</option><option value="">General</option>{operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
             <select value={fEstado} onChange={e => setFEstado(e.target.value as any)} className={cn(inp, 'w-36')}><option value="">Estado: todos</option>{(Object.keys(EST_LBL) as Estado[]).map(s => <option key={s} value={s}>{EST_LBL[s]}</option>)}</select>
+            <input value={fResp} onChange={e => setFResp(e.target.value)} placeholder="Responsable…" className={cn(inp, 'w-36')} />
             <div className="ml-auto flex items-center gap-2">
               <button onClick={exportModelo} className="flex items-center gap-1 text-[9px] font-black uppercase text-text-dim border border-border-dim rounded px-2.5 py-1.5 hover:text-text-main hover:border-brand-500" title="Descargar planilla modelo para completar e importar"><Download size={12} /> Modelo</button>
               {!isReadOnly && (
@@ -480,15 +513,31 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
           <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
             <table className="w-full text-[12px] border-collapse min-w-[1000px]">
               <thead><tr className="bg-bg-accent/20 text-text-dim">
-                <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Gasto / Inversión</th>
-                <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Categoría</th>
-                <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Tipo</th>
-                <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Sucursal/Área</th>
-                <th className="p-2.5 text-left text-[9px] font-black uppercase tracking-widest">Responsable</th>
-                <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Prioridad</th>
-                <th className="p-2.5 text-right text-[9px] font-black uppercase tracking-widest">Presupuesto</th>
-                <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Fecha</th>
-                <th className="p-2.5 text-center text-[9px] font-black uppercase tracking-widest">Estado</th>
+                {([
+                  ['nombre', 'Gasto / Inversión', 'left'],
+                  ['categoria', 'Categoría', 'left'],
+                  ['tipo', 'Tipo', 'center'],
+                  ['branch', 'Sucursal/Área', 'left'],
+                  ['responsable', 'Responsable', 'left'],
+                  ['prioridad', 'Prioridad', 'center'],
+                  ['presupuesto', 'Presupuesto', 'right'],
+                  ['fecha', 'Fecha', 'center'],
+                  ['estado', 'Estado', 'center'],
+                ] as [SortCol, string, 'left' | 'center' | 'right'][]).map(([col, label, align]) => {
+                  const active = sort?.col === col;
+                  return (
+                    <th key={col} className={cn('p-2.5 text-[9px] font-black uppercase tracking-widest', align === 'left' ? 'text-left' : align === 'right' ? 'text-right' : 'text-center')}>
+                      <button
+                        onClick={() => toggleSort(col)}
+                        className={cn('inline-flex items-center gap-1 select-none hover:text-text-main transition-colors', active && 'text-brand-500', align === 'right' ? 'flex-row-reverse' : '')}
+                        title="Ordenar por esta columna"
+                      >
+                        {label}
+                        {active ? (sort!.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ChevronsUpDown size={11} className="opacity-40" />}
+                      </button>
+                    </th>
+                  );
+                })}
                 <th className="w-16" />
               </tr></thead>
               <tbody>
