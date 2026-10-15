@@ -1075,8 +1075,10 @@ export default function EncargadoDashboardView({
         efTeorica = ei + compras + pRec - pEnv - vt - decomisos - consumo;
       }
       const desvio = ef - efTeorica; // EF Real − EF Teórica
-      if (efTeorica === 0) return;
-      const pct = (desvio / efTeorica) * 100;
+      // EF teórica 0 con desvío 0 = control perfecto (0%). Si el desvío no es 0, no hay base para el %.
+      let pct: number;
+      if (efTeorica === 0) { if (Math.abs(desvio) < 1e-9) pct = 0; else return; }
+      else pct = (desvio / efTeorica) * 100;
       absPorInsumo.push(Math.abs(pct));
       detail.push({ id: itemId, name: itemNamesById[itemId] || itemId, ei, ef, efTeorica, desvio, pct });
     });
@@ -1168,8 +1170,17 @@ export default function EncargadoDashboardView({
           efTeorica = eiw + comprasw + pRec - pEnv - vtw - decw - consw;
         }
         const desvio = efw - efTeorica; // EF Real − EF Teórica
-        if (efTeorica === 0) return null;
-        return { pct: (desvio / efTeorica) * 100, desvio, efTeorica, ef: efw };
+        // EF teórica 0: si el desvío también es 0, es control PERFECTO (0%) y debe ganar el premio
+        // (caso típico de Almacén: entró y salió todo, EF real 0). Si el desvío no es 0, no hay base
+        // para el % y la semana no suma.
+        let pct: number;
+        if (efTeorica === 0) {
+          if (Math.abs(desvio) < 1e-9) pct = 0;
+          else return null;
+        } else {
+          pct = (desvio / efTeorica) * 100;
+        }
+        return { pct, desvio, efTeorica, ef: efw };
       });
       return { id: itemId, name: itemNamesById[itemId] || itemId, weeks };
     });
