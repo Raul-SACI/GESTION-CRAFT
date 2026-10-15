@@ -38,6 +38,11 @@ const rolesForSource = (source: LeaderSourceRole): string[] =>
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('es-AR');
 
+// Bono automático: si una sucursal elegida NO tuvo banderas negras en el mes, el líder
+// gana un 10% extra de su variable respecto de esa sucursal. No aplica a Almacén Central.
+const BONO_SIN_NEGRAS = 0.10;
+const esAlmacenCentral = (name: string) => /almac|produc|central/i.test(name || '');
+
 // Suma de los premios OBTENIDOS de un reporte congelado: la suma de lo alcanzado
 // en cada variable, SIN los descuentos por banderas (las banderas las pone el líder).
 const sumObtainedPrizes = (report: any): number => {
@@ -183,25 +188,41 @@ export default function LeaderRewardsPanel({
       .filter((a: any) => a.branch_id === branchId && relevant.includes(a.role))
       .reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
     const obtained = closedRows.reduce((s, r) => s + sumObtainedPrizes(r), 0) + adj;
+    // ¿Tuvo banderas negras? Se deriva del largo del array black_flags de los reportes cerrados.
+    const negras = closedRows.reduce((s, r) => s + (Array.isArray(r.black_flags) ? r.black_flags.length : 0), 0);
     // Para un rol específico: pendiente si esa fila no está cerrada.
     // Para "todos": pendiente si ninguna fila del branch está cerrada.
     const pending =
       roleForBranch === 'all'
         ? closedRows.length === 0
         : !rows.find(r => r.role === roleForBranch)?.closed_at;
-    return { obtained, pending };
+    return { obtained, pending, hasNegras: negras > 0 };
   };
 
+  // ¿Corresponde el bono +10% por no tener banderas negras? (sucursal cerrada, con premio,
+  // sin banderas negras y que no sea Almacén Central).
+  const bonoAplica = (branchId: string, obtained: number, pending: boolean, hasNegras: boolean) =>
+    !pending && obtained > 0 && !hasNegras && !esAlmacenCentral(branchName(branchId));
+
   const ruleTotals = (rule: PerformanceLeaderConfig) => {
+    const pct = (Number(rule.percentage) || 0) / 100;
     let base = 0;
-    let pendingBranches: string[] = [];
+    let bonus = 0;
+    const pendingBranches: string[] = [];
+    const bonoBranches: string[] = [];
     rule.branchIds.forEach(branchId => {
-      const { obtained, pending } = branchBreakdown(rule, branchId);
+      const { obtained, pending, hasNegras } = branchBreakdown(rule, branchId);
       base += obtained;
       if (pending) pendingBranches.push(branchId);
+      if (bonoAplica(branchId, obtained, pending, hasNegras)) {
+        bonus += obtained * pct * BONO_SIN_NEGRAS; // 10% de la variable del líder por esa sucursal
+        bonoBranches.push(branchId);
+      }
     });
-    const prize = Math.round(base * (Number(rule.percentage) || 0) / 100);
-    return { base, prize, pendingBranches };
+    const prizeBase = Math.round(base * pct);
+    const bonusR = Math.round(bonus);
+    const prize = Math.round(base * pct + bonus);
+    return { base, prizeBase, bonus: bonusR, prize, pendingBranches, bonoBranches };
   };
 
   const handleSave = async () => {
@@ -271,7 +292,7 @@ export default function LeaderRewardsPanel({
 
     let y = 40;
     doc.setFont(F, 'normal'); doc.setFontSize(9); doc.setTextColor(...GRAY);
-    const intro = doc.splitTextToSize('El premio de cada líder es un porcentaje sobre la suma de los premios obtenidos (variables alcanzadas, sin descuentos por banderas) de las sucursales asignadas.', CW);
+    const intro = doc.splitTextToSize('El premio de cada líder es un porcentaje sobre la suma de los premios obtenidos (variables alcanzadas, sin descuentos por banderas) de las sucursales asignadas. Bono: por cada sucursal elegida sin banderas negras en el mes, el líder suma un 10% extra de su variable respecto de esa sucursal (no aplica a Almacén Central).', CW);
     doc.text(intro, M, y); y += intro.length * 4.6 + 4;
 
     if (rules.length === 0) {
@@ -280,7 +301,7 @@ export default function LeaderRewardsPanel({
     }
 
     rules.forEach((rule, i) => {
-      const { base, prize, pendingBranches } = ruleTotals(rule);
+      const { base, prizeBase, bonus, prize, pendingBranches } = ruleTotals(rule);
       if (y > 235) { doc.addPage(); y = 20; }
 
       doc.setFont(F, 'bold'); doc.setFontSize(12); doc.setTextColor(...DARK);
@@ -290,9 +311,16 @@ export default function LeaderRewardsPanel({
       y += 2;
 
       const rows = rule.branchIds.map(branchId => {
-        const { obtained, pending } = branchBreakdown(rule, branchId);
-        return [branchName(branchId), pending ? 'Pendiente de cierre' : `$${fmt(obtained)}`];
+        const { obtained, pending, hasNegras } = branchBreakdown(rule, branchId);
+        const bono = bonoAplica(branchId, obtained, pending, hasNegras);
+        return [branchName(branchId), pending ? 'Pendiente de cierre' : `$${fmt(obtained)}${bono ? '  (+10% s/negras)' : ''}`];
       });
+
+      const foot = bonus > 0
+        ? [[`Base $${fmt(base)}  ×  ${rule.percentage}%`, `$${fmt(prizeBase)}`],
+           ['Bono sin banderas negras (10%)', `+$${fmt(bonus)}`],
+           ['Premio del líder', `$${fmt(prize)}`]]
+        : [[`Base $${fmt(base)}  ×  ${rule.percentage}%`, `$${fmt(prize)}`]];
 
       autoTable(doc, {
         head: [['Sucursal', 'Premio obtenido']],
@@ -302,10 +330,7 @@ export default function LeaderRewardsPanel({
         headStyles: { fillColor: BRAND as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', fontSize: 8.5 },
         alternateRowStyles: { fillColor: [249, 250, 251] as any },
         columnStyles: { 0: { cellWidth: CW - 50 }, 1: { cellWidth: 50, halign: 'right', fontStyle: 'bold' } },
-        foot: [[
-          `Base $${fmt(base)}  ×  ${rule.percentage}%`,
-          `$${fmt(prize)}`
-        ]],
+        foot,
         footStyles: { fillColor: [33, 37, 41] as any, textColor: [255, 255, 255] as any, fontStyle: 'bold', halign: 'right', fontSize: 9 }
       });
       y = (doc as any).lastAutoTable.finalY + 4;
@@ -388,6 +413,7 @@ export default function LeaderRewardsPanel({
           Se toma la suma de las <span className="text-text-main">variables alcanzadas</span> de cada sucursal (lo congelado al cerrar el mes),
           <span className="text-text-main"> sin</span> los descuentos por banderas rojas/negras. Una sucursal que todavía no cerró el mes aparece como
           <span className="text-amber-500"> pendiente</span> y no suma hasta cerrarse.
+          <span className="block mt-1 text-emerald-600">Bono: por cada sucursal elegida que no tuvo banderas negras en el mes, el líder suma un +10% de su variable respecto de esa sucursal (no aplica a Almacén Central).</span>
         </p>
       </div>
 
@@ -421,7 +447,7 @@ export default function LeaderRewardsPanel({
           ) : (
             <>
               {rules.map((rule) => {
-                const { base, prize, pendingBranches } = ruleTotals(rule);
+                const { base, prizeBase, bonus, prize, pendingBranches } = ruleTotals(rule);
                 return (
                   <div key={rule.id} className="glass-card overflow-hidden">
                     {/* Encabezado de la regla */}
@@ -504,9 +530,10 @@ export default function LeaderRewardsPanel({
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                         {activeBranches.map(branch => {
                           const selected = rule.branchIds.includes(branch.id);
-                          const { obtained, pending } = selected
+                          const { obtained, pending, hasNegras } = selected
                             ? branchBreakdown(rule, branch.id)
-                            : { obtained: 0, pending: false };
+                            : { obtained: 0, pending: false, hasNegras: false };
+                          const bono = selected && bonoAplica(branch.id, obtained, pending, hasNegras);
                           const branchRole = (rule.branchRoles && rule.branchRoles[branch.id]) || rule.sourceRole;
                           return (
                             <div
@@ -529,7 +556,10 @@ export default function LeaderRewardsPanel({
                                         <Lock size={9} /> Pendiente de cierre
                                       </span>
                                     ) : (
-                                      <span className="text-[9px] font-mono font-black text-emerald-500">${fmt(obtained)}</span>
+                                      <span className="text-[9px] font-mono font-black text-emerald-500">
+                                        ${fmt(obtained)}
+                                        {bono && <span className="ml-1.5 text-emerald-600" title="Sin banderas negras este mes: +10% de la variable">+10% s/negras</span>}
+                                      </span>
                                     )
                                   )}
                                 </div>
@@ -571,9 +601,19 @@ export default function LeaderRewardsPanel({
                           </div>
                           <span className="text-[15px] font-mono font-black text-text-main">${fmt(base)}</span>
                         </div>
+                        <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-amber-500/15">
+                          <span className="text-[9px] font-black text-text-dim uppercase tracking-widest">Premio base ({rule.percentage || 0}%)</span>
+                          <span className="text-[13px] font-mono font-black text-text-main">${fmt(prizeBase)}</span>
+                        </div>
+                        {bonus > 0 && (
+                          <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-amber-500/15 bg-emerald-500/5">
+                            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">+ Bono sin banderas negras (10%)</span>
+                            <span className="text-[13px] font-mono font-black text-emerald-600">+${fmt(bonus)}</span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-brand-500/5">
                           <span className="text-[10px] font-black text-text-dim uppercase tracking-widest">
-                            Premio del líder ({rule.percentage || 0}%)
+                            Premio del líder{bonus > 0 ? ' (total)' : ''}
                           </span>
                           <span className="text-xl font-mono font-black text-brand-500">${fmt(prize)}</span>
                         </div>
