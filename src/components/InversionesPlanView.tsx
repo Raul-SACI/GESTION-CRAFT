@@ -348,8 +348,12 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         return '';
       };
       const g = (r: any[], k: string) => f.idx[k] != null ? r[f.idx[k]] : '';
+      // Clave de identidad para NO duplicar: nombre + sucursal + categoría + tipo (normalizados).
+      const dupKey = (nombre: string, branchId: string, categoria: string, tipo: string) =>
+        `${nombre.trim().toLowerCase()}|${branchId || ''}|${(categoria || '').trim().toLowerCase()}|${tipo}`;
+      const existentes = new Set(items.map(it => dupKey(it.nombre, it.branch_id, it.categoria, it.tipo)));
       const nuevos: any[] = [];
-      let omit = 0;
+      let omit = 0, dupes = 0;
       for (let i = f.headerRow + 1; i < rows.length; i++) {
         const r = rows[i]; if (!r) continue;
         const nombre = String(g(r, 'nombre') ?? '').trim();
@@ -357,9 +361,14 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         const brRaw = String(g(r, 'sucursal') ?? '').trim();
         const brId = resolveBranch(brRaw);
         if (brRaw && normLocX(brRaw) !== 'GENERAL' && !brId) omit++; // sucursal no reconocida → queda General
+        const tipo = parseTipo(g(r, 'tipo'));
+        const categoria = String(g(r, 'categoria') ?? '').trim();
+        const k = dupKey(nombre, brId, categoria, tipo);
+        if (existentes.has(k)) { dupes++; continue; } // ya existe (o repetido en el Excel) → no se duplica
+        existentes.add(k);
         const costoRaw = g(r, 'costo_real');
         nuevos.push({
-          id: newId(), tipo: parseTipo(g(r, 'tipo')), nombre, categoria: String(g(r, 'categoria') ?? '').trim() || null,
+          id: newId(), tipo, nombre, categoria: categoria || null,
           branch_id: brId || null, importancia: parseImp(g(r, 'importancia')), urgencia: parseUrg(g(r, 'urgencia')),
           presupuesto: toNumAr(g(r, 'presupuesto')), fecha_estimada: parseFechaISO(g(r, 'fecha')), estado: parseEstado(g(r, 'estado')),
           costo_real: (costoRaw === '' || costoRaw == null) ? null : toNumAr(costoRaw),
@@ -368,11 +377,11 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
           updated_at: new Date().toISOString(),
         });
       }
-      if (nuevos.length === 0) { alert('No encontré filas para importar en la planilla.'); setImporting(false); return; }
+      if (nuevos.length === 0) { alert(dupes > 0 ? `No se importó nada: los ${dupes} ítem(s) del Excel ya existen (no se duplican).` : 'No encontré filas para importar en la planilla.'); setImporting(false); return; }
       const { error } = await supabase.from('fin_inversiones_plan').insert(nuevos);
       if (error) throw error;
       await cargar();
-      alert(`Importados ${nuevos.length} ítem(s).${omit ? ` (${omit} con sucursal no reconocida → quedaron como "General")` : ''}`);
+      alert(`Importados ${nuevos.length} ítem(s).${dupes ? ` ${dupes} ya existían y no se duplicaron.` : ''}${omit ? ` (${omit} con sucursal no reconocida → quedaron como "General")` : ''}`);
     } catch (e: any) { alert('No se pudo importar: ' + (e.message || e)); }
     finally { setImporting(false); }
   };
