@@ -447,7 +447,7 @@ export default function LeaderRewardsPanel({
           ) : (
             <>
               {rules.map((rule) => {
-                const { base, prizeBase, bonus, prize, pendingBranches } = ruleTotals(rule);
+                const { base, prizeBase, bonus, prize, pendingBranches, bonoBranches } = ruleTotals(rule);
                 return (
                   <div key={rule.id} className="glass-card overflow-hidden">
                     {/* Encabezado de la regla */}
@@ -607,8 +607,13 @@ export default function LeaderRewardsPanel({
                         </div>
                         {bonus > 0 && (
                           <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-amber-500/15 bg-emerald-500/5">
-                            <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">+ Bono sin banderas negras (10%)</span>
-                            <span className="text-[13px] font-mono font-black text-emerald-600">+${fmt(bonus)}</span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[9px] font-black text-emerald-600 uppercase tracking-widest">+ Bono sin banderas negras (10%)</span>
+                              <span className="text-[8px] font-bold text-text-dim uppercase tracking-wider truncate" title={bonoBranches.map(branchName).join(', ')}>
+                                {bonoBranches.length} sucursal{bonoBranches.length === 1 ? '' : 'es'}: {bonoBranches.map(branchName).join(' · ')}
+                              </span>
+                            </div>
+                            <span className="text-[13px] font-mono font-black text-emerald-600 shrink-0">+${fmt(bonus)}</span>
                           </div>
                         )}
                         <div className="flex items-center justify-between gap-3 px-4 py-3 bg-brand-500/5">
