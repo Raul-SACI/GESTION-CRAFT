@@ -379,7 +379,7 @@ export default function ConsolidatedEncargadoView({
                       <div className="flex flex-col items-end leading-tight">
                         <span>{r.hasSales ? fmtMoney(r.netSales) : <span className="text-text-dim">—</span>}{winners.ventas.has(r.branchId) && <T />}</span>
                         {r.detail.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(r.detail.projected)}</span>}
-                        {r.prevNetSales > 0 && (() => { const v = ((r.netSales - r.prevNetSales) / r.prevNetSales) * 100; return (
+                        {r.prevNetSales > 0 && (() => { const base = r.detail.projected > 0 ? r.detail.projected : r.netSales; const v = ((base - r.prevNetSales) / r.prevNetSales) * 100; return (
                           <span className="text-[9px] font-bold text-text-dim">ant. {fmtMoney(r.prevNetSales)} <span className={cn('font-black', Math.abs(v) < 0.05 ? 'text-text-dim' : v > 0 ? 'text-emerald-600' : 'text-red-500')}>{Math.abs(v) < 0.05 ? '=' : `${v > 0 ? '▲+' : '▼'}${v.toFixed(1)}%`}</span></span>
                         ); })()}
                       </div>
@@ -483,7 +483,7 @@ export default function ConsolidatedEncargadoView({
                     <div className="flex flex-col items-end leading-tight">
                       <span>{fmtMoney(totals.netSales)}</span>
                       {totals.projected > 0 && <span className="text-[9px] text-text-dim font-bold">Proy. {fmtMoney(totals.projected)}</span>}
-                      {totals.prevNetSales > 0 && (() => { const v = ((totals.netSales - totals.prevNetSales) / totals.prevNetSales) * 100; return (
+                      {totals.prevNetSales > 0 && (() => { const base = totals.projected > 0 ? totals.projected : totals.netSales; const v = ((base - totals.prevNetSales) / totals.prevNetSales) * 100; return (
                         <span className="text-[9px] font-bold text-text-dim">ant. {fmtMoney(totals.prevNetSales)} <span className={cn('font-black', Math.abs(v) < 0.05 ? 'text-text-dim' : v > 0 ? 'text-emerald-600' : 'text-red-500')}>{Math.abs(v) < 0.05 ? '=' : `${v > 0 ? '▲+' : '▼'}${v.toFixed(1)}%`}</span></span>
                       ); })()}
                     </div>
