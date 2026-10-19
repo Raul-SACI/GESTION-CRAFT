@@ -756,7 +756,13 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                   <h3 className={cn('text-sm font-black uppercase tracking-wider', g.accent)}>{g.title}</h3>
                   <span className="text-[9px] text-text-dim font-bold uppercase">{g.chosen.join(' · ')}</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {(() => {
+                  const tkCur = cur.total.ordenes;
+                  const tkPrev = prevW ? prevW.total.ordenes : null;
+                  const ratioCur = tkCur > 0 ? curG.total / tkCur : null;
+                  const ratioPrev = (prevG && tkPrev && tkPrev > 0) ? prevG.total / tkPrev : null;
+                  return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                   <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
                     <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">Unidades en la semana</div>
                     <div className="text-2xl font-black font-mono text-text-main mt-1">{fmtNum(curG.total)}</div>
@@ -769,7 +775,24 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                     <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">vs promedio 4 semanas</div>
                     <div className="text-xl font-black mt-2"><Delta cur={curG.total} base={blG.prom} /></div>
                   </div>
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title="Órdenes / tickets totales de la semana (módulo Ventas). Denominador para medir la penetración de los agregados.">
+                    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Receipt size={12} className="text-brand-500" /> Tickets de la semana</div>
+                    <div className="text-2xl font-black font-mono text-text-main mt-1">{fmtNum(tkCur)}</div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="text-[9px] text-text-dim uppercase">vs sem ant</span> <Delta cur={tkCur} base={tkPrev} />
+                      <span className="text-[9px] text-text-dim uppercase">vs prom4</span> <Delta cur={tkCur} base={baseline.ordProm} />
+                    </div>
+                  </div>
+                  <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title={`${g.title} por ticket = unidades de ${g.title.toLowerCase()} ÷ tickets de la semana. Indica cuántos lleva, en promedio, cada orden.`}>
+                    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Tag size={12} className={g.accent} /> {g.title} por ticket</div>
+                    <div className="text-2xl font-black font-mono text-text-main mt-1">{ratioCur == null ? '—' : ratioCur.toFixed(2)}</div>
+                    <div className="flex items-center gap-3 mt-1.5">
+                      <span className="text-[9px] text-text-dim uppercase">vs sem ant</span> <Delta cur={ratioCur ?? 0} base={ratioPrev} />
+                    </div>
+                  </div>
                 </div>
+                  );
+                })()}
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
                   <table className="w-full text-[12px] border-collapse min-w-[520px]">
                     <thead><tr className="bg-bg-accent/20 text-text-dim">
