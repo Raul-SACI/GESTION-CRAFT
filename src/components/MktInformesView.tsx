@@ -103,6 +103,12 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
           const { data } = await supabase.from('sales_tickets')
             .select('branch_id, date, net_sales, orders, payment_method, week_number')
             .gte('date', start).lt('date', end).in('branch_id', opIds)
+            // Orden estable por la clave natural del ticket: sin esto, la paginación
+            // con .range() puede pisar o saltear filas cuando el mes supera las 1000
+            // (quedaban sucursales sin tickets en algunas semanas).
+            .order('date', { ascending: true }).order('branch_id', { ascending: true })
+            .order('shift', { ascending: true }).order('hour', { ascending: true })
+            .order('payment_method', { ascending: true }).order('comprobante', { ascending: true })
             .range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(t => {
@@ -149,8 +155,13 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
         let from = 0; const size = 1000;
         while (from < 200000) {
           const { data } = await supabase.from('sales_tickets')
-            .select('branch_id, net_sales, orders, payment_method')
-            .gte('date', start).lt('date', end).in('branch_id', opIds).range(from, from + size - 1);
+            .select('branch_id, date, net_sales, orders, payment_method')
+            .gte('date', start).lt('date', end).in('branch_id', opIds)
+            // Orden estable para que la paginación con .range() no saltee filas (>1000/mes).
+            .order('date', { ascending: true }).order('branch_id', { ascending: true })
+            .order('shift', { ascending: true }).order('hour', { ascending: true })
+            .order('payment_method', { ascending: true }).order('comprobante', { ascending: true })
+            .range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(t => {
             const bm = (map[m] = map[m] || {});
@@ -243,7 +254,11 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
         while (from < 200000) {
           const { data } = await supabase.from('product_rankings')
             .select('branch_id, week_number, category, quantity, product_name')
-            .eq('month', m).in('branch_id', opIds).range(from, from + size - 1);
+            .eq('month', m).in('branch_id', opIds)
+            // Orden estable para que la paginación con .range() no saltee filas.
+            .order('branch_id', { ascending: true }).order('week_number', { ascending: true })
+            .order('category', { ascending: true }).order('product_name', { ascending: true })
+            .range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(r => {
             const w = Number(r.week_number) || 0; if (w < 1 || w > 4) return;
