@@ -794,36 +794,55 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                   );
                 })()}
                 <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-lg overflow-x-auto">
-                  <table className="w-full text-[12px] border-collapse min-w-[520px]">
+                  <table className="w-full text-[12px] border-collapse min-w-[760px]">
                     <thead><tr className="bg-bg-accent/20 text-text-dim">
                       <th className="p-3 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
                       <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Unidades</th>
                       <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs sem ant</th>
                       <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">vs prom4</th>
+                      <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest">Tickets</th>
+                      <th className="p-3 text-center text-[9px] font-black uppercase tracking-widest">Tickets vs ant</th>
+                      <th className="p-3 text-right text-[9px] font-black uppercase tracking-widest" title={`${g.title} por ticket = unidades ÷ tickets de la sucursal`}>x ticket</th>
                     </tr></thead>
                     <tbody>
                       {brsG.length === 0 ? (
-                        <tr><td colSpan={4} className="p-4 text-center text-text-dim text-[11px]">Sin unidades para {wkLabel(selWeek)}.</td></tr>
+                        <tr><td colSpan={7} className="p-4 text-center text-text-dim text-[11px]">Sin unidades para {wkLabel(selWeek)}.</td></tr>
                       ) : brsG.map(b => {
                         const q = curG.byBranch[b.id] || 0;
                         const pq = prevG?.byBranch[b.id] ?? null;
                         const bl = blG.perBranch[b.id];
                         const blProm = bl && bl.n ? bl.q / bl.n : null;
+                        const tk = cur.byBranch[b.id]?.ordenes || 0;
+                        const tkPrev = prevW?.byBranch[b.id]?.ordenes ?? null;
+                        const ratio = tk > 0 ? q / tk : null;
                         return (
                           <tr key={b.id} className="border-t border-border-dim/30 hover:bg-bg-accent/10">
                             <td className="p-3 text-left font-bold text-text-main whitespace-nowrap">{b.name}</td>
                             <td className="p-3 text-right font-mono text-text-main">{fmtNum(q)}</td>
                             <td className="p-3 text-center"><Delta cur={q} base={pq} /></td>
                             <td className="p-3 text-center"><Delta cur={q} base={blProm} /></td>
+                            <td className="p-3 text-right font-mono text-text-main">{tk > 0 ? fmtNum(tk) : '—'}</td>
+                            <td className="p-3 text-center"><Delta cur={tk} base={tkPrev} /></td>
+                            <td className="p-3 text-right font-mono text-text-main">{ratio == null ? '—' : ratio.toFixed(2)}</td>
                           </tr>
                         );
                       })}
+                      {(() => {
+                        const tkTot = cur.total.ordenes;
+                        const tkTotPrev = prevW ? prevW.total.ordenes : null;
+                        const ratioTot = tkTot > 0 ? curG.total / tkTot : null;
+                        return (
                       <tr className="border-t-2 border-border-dim bg-bg-accent/25 font-black">
                         <td className="p-3 text-left text-text-main uppercase">Total</td>
                         <td className="p-3 text-right font-mono text-text-main">{fmtNum(curG.total)}</td>
                         <td className="p-3 text-center"><Delta cur={curG.total} base={prevG ? prevG.total : null} /></td>
                         <td className="p-3 text-center"><Delta cur={curG.total} base={blG.prom} /></td>
+                        <td className="p-3 text-right font-mono text-text-main">{tkTot > 0 ? fmtNum(tkTot) : '—'}</td>
+                        <td className="p-3 text-center"><Delta cur={tkTot} base={tkTotPrev} /></td>
+                        <td className="p-3 text-right font-mono text-text-main">{ratioTot == null ? '—' : ratioTot.toFixed(2)}</td>
                       </tr>
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
