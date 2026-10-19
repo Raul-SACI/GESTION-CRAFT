@@ -101,12 +101,16 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
         let from = 0; const size = 1000;
         while (from < 200000) {
           const { data } = await supabase.from('sales_tickets')
-            .select('branch_id, net_sales, orders, payment_method, week_number')
+            .select('branch_id, date, net_sales, orders, payment_method, week_number')
             .gte('date', start).lt('date', end).in('branch_id', opIds)
             .range(from, from + size - 1);
           const rows = (data as any[]) || [];
           rows.forEach(t => {
-            const w = Number(t.week_number) || 0; if (w < 1 || w > 4) return;
+            // Semana del negocio derivada de la fecha (1-7, 8-14, 15-21, 22-fin).
+            // Es la fuente autoritativa; si por algún motivo falta la fecha, se usa week_number.
+            const day = Number(String(t.date || '').slice(8, 10)) || 0;
+            const w = day >= 1 ? (day <= 7 ? 1 : day <= 14 ? 2 : day <= 21 ? 3 : 4) : (Number(t.week_number) || 0);
+            if (w < 1 || w > 4) return;
             const key = `${m}#${w}`;
             const bm = (map[key] = map[key] || {});
             const a = (bm[t.branch_id] = bm[t.branch_id] || zero());
