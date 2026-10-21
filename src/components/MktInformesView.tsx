@@ -6,7 +6,7 @@
  * últimas 4 semanas. Semanas del negocio (1-7 / 8-14 / 15-21 / 22-fin).
  */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { TrendingUp, TrendingDown, Minus, RefreshCw, Store, DollarSign, Receipt, ShoppingBag, ChevronLeft, ChevronRight, CalendarDays, Activity, Tag, MessageSquareWarning, Star, Wallet, Megaphone } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, RefreshCw, Store, DollarSign, Receipt, ShoppingBag, ChevronLeft, ChevronRight, CalendarDays, Activity, Tag, MessageSquareWarning, Star, Wallet, Megaphone, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { Branch } from '../types';
@@ -75,7 +75,11 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [loadingP, setLoadingP] = useState(false);
   const [catAgreg, setCatAgreg] = useState<string[]>([]);
   const [catPostre, setCatPostre] = useState<string[]>([]);
+  // Productos individuales que se cuentan en cada grupo aunque su categoría no esté seleccionada.
+  const [prodAgreg, setProdAgreg] = useState<string[]>([]);
+  const [prodPostre, setProdPostre] = useState<string[]>([]);
   const [cfgOpen, setCfgOpen] = useState(false);
+  const [cfgProdQ, setCfgProdQ] = useState('');
   const [savingCfg, setSavingCfg] = useState(false);
 
   const operative = useMemo(() => branches.filter(b => b.id !== 'all' && b.id !== 'virtual' && !/almac/i.test(b.name)), [branches]);
@@ -228,12 +232,14 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const v = (data?.value as any) || {};
       setCatAgreg(Array.isArray(v.agregados) ? v.agregados : []);
       setCatPostre(Array.isArray(v.postres) ? v.postres : []);
+      setProdAgreg(Array.isArray(v.agregadosProd) ? v.agregadosProd : []);
+      setProdPostre(Array.isArray(v.postresProd) ? v.postresProd : []);
     })().catch(() => {});
   }, []);
   const saveConfig = async () => {
     setSavingCfg(true);
     try {
-      const { error } = await supabase.from('mkt_config').upsert({ key: 'informes_categorias', value: { agregados: catAgreg, postres: catPostre }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      const { error } = await supabase.from('mkt_config').upsert({ key: 'informes_categorias', value: { agregados: catAgreg, postres: catPostre, agregadosProd: prodAgreg, postresProd: prodPostre }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       if (error) throw error;
       setCfgOpen(false);
     } catch (e: any) { alert('No se pudo guardar la configuración: ' + (e.message || e)); }
@@ -289,42 +295,66 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
   const setAgregNorm = useMemo(() => new Set(catAgreg.map(normCat)), [catAgreg]);
   const setPostreNorm = useMemo(() => new Set(catPostre.map(normCat)), [catPostre]);
+  const setAgregProdNorm = useMemo(() => new Set(prodAgreg.map(normCat)), [prodAgreg]);
+  const setPostreProdNorm = useMemo(() => new Set(prodPostre.map(normCat)), [prodPostre]);
   const availableCats = useMemo(() => (Object.entries(catDisplay) as [string, string][]).map(([nc, d]) => ({ nc, d })).sort((a, b) => a.d.localeCompare(b.d)), [catDisplay]);
+  // Todos los productos vistos en el ranking (para elegirlos individualmente en la config).
+  const availableProds = useMemo(() => {
+    const m: Record<string, { pk: string; name: string; cat: string }> = {};
+    Object.values(itemMap).forEach(bm => Object.values(bm).forEach(cim => Object.entries(cim).forEach(([nc, prods]) => {
+      Object.entries(prods as Record<string, { name: string; qty: number }>).forEach(([pk, v]) => {
+        if (!m[pk]) m[pk] = { pk, name: v.name, cat: catDisplay[nc] || nc };
+      });
+    })));
+    return Object.values(m).sort((a, b) => a.name.localeCompare(b.name));
+  }, [itemMap, catDisplay]);
 
-  // Unidades de un grupo de categorías en una semana (por sucursal + total)
-  const prodWeek = (weekKey: string, cats: Set<string>) => {
+  // Unidades de un grupo de categorías en una semana (por sucursal + total).
+  // prodSet: productos individuales a incluir aunque su categoría no esté en el grupo.
+  const prodWeek = (weekKey: string, cats: Set<string>, prodSet?: Set<string>) => {
     const byBranch: Record<string, number> = {};
     const bm = prodMap[weekKey] || {};
     Object.entries(bm).forEach(([bid, catMap]) => {
       let q = 0; Object.entries(catMap as Record<string, number>).forEach(([c, v]) => { if (cats.has(c)) q += v; });
       if (q > 0) byBranch[bid] = q;
     });
+    // Sumar productos individuales que estén en categorías NO seleccionadas (evita doble conteo).
+    if (prodSet && prodSet.size) {
+      const im = itemMap[weekKey] || {};
+      Object.entries(im).forEach(([bid, cim]) => {
+        Object.entries(cim as Record<string, Record<string, { name: string; qty: number }>>).forEach(([nc, prods]) => {
+          if (cats.has(nc)) return;
+          Object.entries(prods).forEach(([pk, v]) => { if (prodSet.has(pk)) byBranch[bid] = (byBranch[bid] || 0) + v.qty; });
+        });
+      });
+    }
     const total = Object.values(byBranch).reduce((s, v) => s + v, 0);
     return { byBranch, total };
   };
   // Promedio de las hasta 4 semanas previas (con datos de ranking) para un grupo de categorías
-  const prodBaseline = (cats: Set<string>) => {
+  const prodBaseline = (cats: Set<string>, prodSet?: Set<string>) => {
     const idx = allWeekKeys.indexOf(selWeek);
     const prev4 = idx >= 0 ? allWeekKeys.slice(Math.max(0, idx - 4), idx) : [];
     const conDatos = prev4.filter(k => prodMap[k] && Object.keys(prodMap[k]).length > 0);
     const perBranch: Record<string, { q: number; n: number }> = {}; let tq = 0, n = 0;
     conDatos.forEach(k => {
-      const { byBranch, total } = prodWeek(k, cats); tq += total; n++;
+      const { byBranch, total } = prodWeek(k, cats, prodSet); tq += total; n++;
       Object.entries(byBranch).forEach(([bid, q]) => { const p = (perBranch[bid] = perBranch[bid] || { q: 0, n: 0 }); p.q += q; p.n++; });
     });
     return { n, prom: n ? tq / n : null, perBranch };
   };
   // Productos de un grupo de categorías en una semana → { prodKey: {name, qty} }.
   // branchId opcional: si se pasa, sólo esa sucursal; si no, consolidado.
-  const prodItems = (weekKey: string, cats: Set<string>, branchId?: string): Record<string, { name: string; qty: number }> => {
+  const prodItems = (weekKey: string, cats: Set<string>, branchId?: string, prodSet?: Set<string>): Record<string, { name: string; qty: number }> => {
     const acc: Record<string, { name: string; qty: number }> = {};
     const im = itemMap[weekKey] || {};
     const bids = branchId ? [branchId] : Object.keys(im);
     bids.forEach(bid => {
       const bim = im[bid] || {};
       Object.entries(bim).forEach(([nc, prods]) => {
-        if (!cats.has(nc)) return;
+        const catIn = cats.has(nc);
         Object.entries(prods as Record<string, { name: string; qty: number }>).forEach(([pk, v]) => {
+          if (!catIn && !(prodSet && prodSet.has(pk))) return;
           const e = (acc[pk] = acc[pk] || { name: v.name, qty: 0 }); e.qty += v.qty;
         });
       });
@@ -332,12 +362,12 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
     return acc;
   };
   // Promedio por producto en las hasta 4 semanas previas (divide por la cant. de semanas con ranking)
-  const prodItemsBaseline = (cats: Set<string>, branchId?: string) => {
+  const prodItemsBaseline = (cats: Set<string>, branchId?: string, prodSet?: Set<string>) => {
     const idx = allWeekKeys.indexOf(selWeek);
     const prev4 = idx >= 0 ? allWeekKeys.slice(Math.max(0, idx - 4), idx) : [];
     const conDatos = prev4.filter(k => itemMap[k] && Object.keys(itemMap[k]).length > 0);
     const per: Record<string, number> = {};
-    conDatos.forEach(k => { const items = prodItems(k, cats, branchId); Object.entries(items).forEach(([pk, v]) => { per[pk] = (per[pk] || 0) + v.qty; }); });
+    conDatos.forEach(k => { const items = prodItems(k, cats, branchId, prodSet); Object.entries(items).forEach(([pk, v]) => { per[pk] = (per[pk] || 0) + v.qty; }); });
     const n = conDatos.length;
     return { n, promOf: (pk: string) => n ? (per[pk] || 0) / n : null };
   };
@@ -723,7 +753,7 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
           <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm">
             <button onClick={() => setCfgOpen(o => !o)} className="w-full flex items-center justify-between px-5 py-3">
               <span className="flex items-center gap-2 text-[11px] font-black uppercase tracking-wider text-text-main"><Tag size={14} className="text-brand-500" /> Categorías: Agregados y Postres</span>
-              <span className="text-[10px] text-text-dim font-bold uppercase">{catAgreg.length} agregado(s) · {catPostre.length} postre(s) · {cfgOpen ? 'cerrar' : 'configurar'}</span>
+              <span className="text-[10px] text-text-dim font-bold uppercase">{catAgreg.length + prodAgreg.length} agregado(s) · {catPostre.length + prodPostre.length} postre(s) · {cfgOpen ? 'cerrar' : 'configurar'}</span>
             </button>
             {cfgOpen && (
               <div className="px-5 pb-5 border-t border-border-dim pt-4 space-y-2">
@@ -748,8 +778,43 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                         );
                       })}
                     </div>
+
+                    {/* Productos individuales (se cuentan aunque su categoría no esté marcada) */}
+                    <div className="pt-3 mt-2 border-t border-border-dim/60 space-y-2">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Productos individuales <span className="normal-case tracking-normal text-text-dim/60">(sumalos a un grupo aunque su rubro no esté marcado)</span></span>
+                        <div className="relative">
+                          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-dim" />
+                          <input value={cfgProdQ} onChange={e => setCfgProdQ(e.target.value)} placeholder="Buscar producto…" className="pl-7 pr-2 py-1 text-[11px] bg-bg-card border border-border-dim rounded w-52 text-text-main" />
+                        </div>
+                      </div>
+                      {availableProds.length === 0 ? (
+                        <p className="text-[10px] text-text-dim">No hay productos en el ranking cargado todavía.</p>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-center text-[9px] font-black uppercase text-text-dim tracking-widest px-1">
+                            <span>Producto</span><span>Agregado</span><span>Postre</span>
+                          </div>
+                          <div className="max-h-[240px] overflow-y-auto space-y-1 pr-1">
+                            {availableProds.filter(p => { const q = cfgProdQ.trim().toLowerCase(); return !q || p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q); }).slice(0, 200).map(p => {
+                              const inA = setAgregProdNorm.has(p.pk); const inP = setPostreProdNorm.has(p.pk);
+                              return (
+                                <div key={p.pk} className="grid grid-cols-[1fr_auto_auto] gap-2 items-center bg-bg-accent/30 rounded px-2 py-1.5">
+                                  <span className="min-w-0"><span className="text-[11px] font-bold text-text-main uppercase truncate block">{p.name}</span><span className="text-[8px] text-text-dim uppercase truncate block">{p.cat}</span></span>
+                                  <button onClick={() => setProdAgreg(prev => inA ? prev.filter(x => normCat(x) !== p.pk) : [...prev, p.name])}
+                                    className={cn('px-2.5 py-1 rounded text-[9px] font-black uppercase', inA ? 'bg-brand-500 text-white' : 'bg-bg-card border border-border-dim text-text-dim hover:text-text-main')}>{inA ? '✓' : '+'}</button>
+                                  <button onClick={() => setProdPostre(prev => inP ? prev.filter(x => normCat(x) !== p.pk) : [...prev, p.name])}
+                                    className={cn('px-2.5 py-1 rounded text-[9px] font-black uppercase', inP ? 'bg-amber-500 text-white' : 'bg-bg-card border border-border-dim text-text-dim hover:text-text-main')}>{inP ? '✓' : '+'}</button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
                     <div className="flex justify-end pt-1">
-                      <button onClick={saveConfig} disabled={savingCfg} className="bg-brand-500 hover:bg-brand-600 text-white rounded px-4 py-1.5 text-[10px] font-black uppercase tracking-wider disabled:opacity-50">{savingCfg ? 'Guardando…' : 'Guardar categorías'}</button>
+                      <button onClick={saveConfig} disabled={savingCfg} className="bg-brand-500 hover:bg-brand-600 text-white rounded px-4 py-1.5 text-[10px] font-black uppercase tracking-wider disabled:opacity-50">{savingCfg ? 'Guardando…' : 'Guardar configuración'}</button>
                     </div>
                   </>
                 )}
@@ -759,21 +824,21 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
           {loadingP ? (
             <div className="py-10 text-center"><RefreshCw size={22} className="animate-spin text-brand-500 mx-auto" /></div>
-          ) : ([{ title: 'Agregados', cats: setAgregNorm, chosen: catAgreg, accent: 'text-brand-500' }, { title: 'Postres', cats: setPostreNorm, chosen: catPostre, accent: 'text-amber-500' }] as const).map(g => {
-            if (g.chosen.length === 0) return (
+          ) : ([{ title: 'Agregados', cats: setAgregNorm, prods: setAgregProdNorm, chosen: catAgreg, chosenProd: prodAgreg, accent: 'text-brand-500' }, { title: 'Postres', cats: setPostreNorm, prods: setPostreProdNorm, chosen: catPostre, chosenProd: prodPostre, accent: 'text-amber-500' }] as const).map(g => {
+            if (g.chosen.length === 0 && g.chosenProd.length === 0) return (
               <div key={g.title} className="bg-bg-sidebar border border-border-dim rounded-xl p-6 text-center">
-                <p className="text-[11px] font-black uppercase text-text-dim">{g.title}: elegí las categorías arriba para ver el análisis.</p>
+                <p className="text-[11px] font-black uppercase text-text-dim">{g.title}: elegí las categorías o productos arriba para ver el análisis.</p>
               </div>
             );
-            const curG = prodWeek(selWeek, g.cats);
-            const prevG = prevWeekKey ? prodWeek(prevWeekKey, g.cats) : null;
-            const blG = prodBaseline(g.cats);
+            const curG = prodWeek(selWeek, g.cats, g.prods);
+            const prevG = prevWeekKey ? prodWeek(prevWeekKey, g.cats, g.prods) : null;
+            const blG = prodBaseline(g.cats, g.prods);
             const brsG = operative.filter(b => curG.byBranch[b.id] || (prevG && prevG.byBranch[b.id]) || blG.perBranch[b.id]);
             return (
               <div key={g.title} className="space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h3 className={cn('text-sm font-black uppercase tracking-wider', g.accent)}>{g.title}</h3>
-                  <span className="text-[9px] text-text-dim font-bold uppercase">{g.chosen.join(' · ')}</span>
+                  <span className="text-[9px] text-text-dim font-bold uppercase">{[...g.chosen, ...g.chosenProd.map(p => `★ ${p}`)].join(' · ')}</span>
                 </div>
                 {(() => {
                   const tkCur = cur.total.ordenes;
@@ -867,9 +932,9 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
                 </div>
                 {(() => {
                   // Matriz: filas = productos, columnas = sucursales. Última col = Total (+ vs prom4).
-                  const bl = prodItemsBaseline(g.cats);
+                  const bl = prodItemsBaseline(g.cats, undefined, g.prods);
                   const perBranch: Record<string, Record<string, { name: string; qty: number }>> = {};
-                  brsG.forEach(b => { perBranch[b.id] = prodItems(selWeek, g.cats, b.id); });
+                  brsG.forEach(b => { perBranch[b.id] = prodItems(selWeek, g.cats, b.id, g.prods); });
                   const nombres: Record<string, string> = {};
                   brsG.forEach(b => Object.entries(perBranch[b.id]).forEach(([pk, v]) => { nombres[pk] = v.name; }));
                   const rows = Object.keys(nombres).map(pk => {
