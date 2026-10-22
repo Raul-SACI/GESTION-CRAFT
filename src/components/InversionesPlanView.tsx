@@ -23,7 +23,9 @@ type Urgencia = 'no_urgente' | 'urgente';
 type Estado = 'pendiente' | 'aprobado' | 'en_curso' | 'hecho' | 'descartado';
 
 interface Pago { id: string; plan_id: string; fecha: string; monto: number; descripcion: string; pagado: boolean; }
-interface SubGasto { id: string; nombre: string; presupuesto: number; }
+interface SubGasto { id: string; nombre: string; manoObra: number; materiales: number; }
+// Total de un rubro = mano de obra + materiales
+const subTotal = (s: SubGasto) => (Number(s.manoObra) || 0) + (Number(s.materiales) || 0);
 interface Item {
   id: string; tipo: Tipo; nombre: string; categoria: string; branch_id: string;
   importancia: Importancia; urgencia: Urgencia; presupuesto: number; fecha_estimada: string | null;
@@ -152,7 +154,11 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
         urgencia: (r.urgencia || 'no_urgente') as Urgencia, presupuesto: Number(r.presupuesto) || 0,
         fecha_estimada: r.fecha_estimada || null, estado: (r.estado || 'pendiente') as Estado,
         costo_real: r.costo_real == null ? null : Number(r.costo_real), proveedor: r.proveedor || '', responsable: r.responsable || '', notas: r.notas || '',
-        subGastos: Array.isArray(r.sub_gastos) ? r.sub_gastos.map((s: any) => ({ id: s.id || newId(), nombre: String(s.nombre || ''), presupuesto: Number(s.presupuesto) || 0 })) : [],
+        subGastos: Array.isArray(r.sub_gastos) ? r.sub_gastos.map((s: any) => {
+          const hasDesglose = s.manoObra != null || s.materiales != null;
+          // Compat: rubros viejos (solo 'presupuesto') se cargan como mano de obra.
+          return { id: s.id || newId(), nombre: String(s.nombre || ''), manoObra: hasDesglose ? (Number(s.manoObra) || 0) : (Number(s.presupuesto) || 0), materiales: Number(s.materiales) || 0 };
+        }) : [],
       })));
       setPagos(((pg.data as any[]) || []).map(r => ({ id: r.id, plan_id: r.plan_id, fecha: r.fecha, monto: Number(r.monto) || 0, descripcion: r.descripcion || '', pagado: !!r.pagado })));
     } catch (e) { console.warn('Inversiones load error', e); }
@@ -234,14 +240,14 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
     setSaving(true);
     try {
       const it = editing;
-      const subs = (it.tipo === 'obra' ? it.subGastos : []).filter(s => s.nombre.trim() || s.presupuesto);
-      const presObra = subs.reduce((s, x) => s + (Number(x.presupuesto) || 0), 0);
+      const subs = (it.tipo === 'obra' ? it.subGastos : []).filter(s => s.nombre.trim() || subTotal(s));
+      const presObra = subs.reduce((s, x) => s + subTotal(x), 0);
       const presupuestoFinal = (it.tipo === 'obra' && subs.length) ? presObra : (Number(it.presupuesto) || 0);
       const { error } = await supabase.from('fin_inversiones_plan').upsert({
         id: it.id, tipo: it.tipo, nombre: it.nombre.trim(), categoria: it.categoria.trim() || null,
         branch_id: it.branch_id || null, importancia: it.importancia, urgencia: it.urgencia,
         presupuesto: presupuestoFinal, fecha_estimada: it.fecha_estimada || null, estado: it.estado,
-        sub_gastos: subs.length ? subs.map(s => ({ id: s.id, nombre: s.nombre.trim(), presupuesto: Number(s.presupuesto) || 0 })) : null,
+        sub_gastos: subs.length ? subs.map(s => ({ id: s.id, nombre: s.nombre.trim(), manoObra: Number(s.manoObra) || 0, materiales: Number(s.materiales) || 0, presupuesto: subTotal(s) })) : null,
         costo_real: it.costo_real == null || (it.costo_real as any) === '' ? null : Number(it.costo_real),
         proveedor: it.proveedor.trim() || null, responsable: it.responsable.trim() || null, notas: it.notas.trim() || null, updated_at: new Date().toISOString(),
       }, { onConflict: 'id' });
@@ -424,7 +430,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
       'Gasto / Inversión': it.nombre, Tipo: TIPO_LBL[it.tipo], Categoría: it.categoria, 'Sucursal/Área': branchName(it.branch_id),
       Importancia: IMP_LBL[it.importancia], Urgencia: URG_LBL[it.urgencia], Presupuesto: it.presupuesto,
       'Fecha probable': it.fecha_estimada || '', Estado: EST_LBL[it.estado], 'Costo real': it.costo_real ?? '', Responsable: it.responsable, Proveedor: it.proveedor,
-      'Sub-gastos (obra)': it.subGastos.map(s => `${s.nombre}: ${Math.round(s.presupuesto)}`).join(' · '), Notas: it.notas,
+      'Sub-gastos (obra)': it.subGastos.map(s => `${s.nombre}: ${Math.round(subTotal(s))} (MO ${Math.round(Number(s.manoObra) || 0)} + Mat ${Math.round(Number(s.materiales) || 0)})`).join(' · '), Notas: it.notas,
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Plan');
@@ -703,7 +709,7 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
                 <div><label className={lbl}>Tipo</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.tipo} onChange={e => setEditing({ ...editing, tipo: e.target.value as Tipo })}><option value="inversion">Inversión</option><option value="gasto">Gasto</option><option value="obra">Obra (con sub-gastos)</option></select></div>
                 <div><label className={lbl}>Categoría</label><input disabled={isReadOnly} list="cat-list" className={cn(inp, 'mt-1')} placeholder="Ej. Remodelación" value={editing.categoria} onChange={e => setEditing({ ...editing, categoria: e.target.value })} /><datalist id="cat-list">{categorias.map(c => <option key={c} value={c} />)}</datalist></div>
                 <div><label className={lbl}>Sucursal / Área</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.branch_id} onChange={e => setEditing({ ...editing, branch_id: e.target.value })}><option value="">General</option>{operative.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div>
-                {(() => { const esObra = editing.tipo === 'obra' && editing.subGastos.length > 0; const sumObra = Math.round(editing.subGastos.reduce((s, x) => s + (Number(x.presupuesto) || 0), 0));
+                {(() => { const esObra = editing.tipo === 'obra' && editing.subGastos.length > 0; const sumObra = Math.round(editing.subGastos.reduce((s, x) => s + subTotal(x), 0));
                   return (<div><label className={lbl}>Presupuesto estimado{esObra ? ' (= suma de sub-gastos)' : ''}</label><input type="number" disabled={isReadOnly || esObra} className={cn(inp, 'mt-1 font-mono', esObra && 'opacity-70')} value={esObra ? sumObra : (editing.presupuesto || '')} onChange={e => setEditing({ ...editing, presupuesto: parseFloat(e.target.value) || 0 })} /></div>); })()}
                 <div><label className={lbl}>Importancia</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.importancia} onChange={e => setEditing({ ...editing, importancia: e.target.value as Importancia })}>{IMP_ORDER.map(i => <option key={i} value={i}>{IMP_LBL[i]}</option>)}</select></div>
                 <div><label className={lbl}>Urgencia</label><select disabled={isReadOnly} className={cn(inp, 'mt-1')} value={editing.urgencia} onChange={e => setEditing({ ...editing, urgencia: e.target.value as Urgencia })}><option value="no_urgente">No urgente</option><option value="urgente">Urgente</option></select></div>
@@ -719,21 +725,34 @@ export default function InversionesPlanView({ branches = [], isReadOnly = false 
               {editing.tipo === 'obra' && (
                 <div className="border-t border-border-dim pt-3">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-500">Sub-gastos de la obra <span className="text-text-dim">(rubros)</span></h4>
-                    {!isReadOnly && <button onClick={() => setEditing({ ...editing, subGastos: [...editing.subGastos, { id: newId(), nombre: '', presupuesto: 0 }] })} className="flex items-center gap-1 text-[9px] font-black uppercase text-brand-500 border border-brand-500/25 rounded px-2 py-1 hover:bg-brand-500/10"><Plus size={11} /> Rubro</button>}
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-brand-500">Sub-gastos de la obra <span className="text-text-dim">(rubros · mano de obra + materiales)</span></h4>
+                    {!isReadOnly && <button onClick={() => setEditing({ ...editing, subGastos: [...editing.subGastos, { id: newId(), nombre: '', manoObra: 0, materiales: 0 }] })} className="flex items-center gap-1 text-[9px] font-black uppercase text-brand-500 border border-brand-500/25 rounded px-2 py-1 hover:bg-brand-500/10"><Plus size={11} /> Rubro</button>}
                   </div>
                   {editing.subGastos.length === 0 ? (
-                    <p className="text-[10px] text-text-dim italic">Sin sub-gastos. Agregá los rubros de la obra (mobiliario, albañilería, cartelería, plomería…). El presupuesto de la obra es la suma de estos.</p>
+                    <p className="text-[10px] text-text-dim italic">Sin sub-gastos. Agregá los rubros de la obra (herrero, pintor, albañil, plomero…), cada uno con su mano de obra y materiales por separado. El presupuesto de la obra es la suma de todos.</p>
                   ) : (
                     <div className="space-y-2">
+                      <div className="hidden sm:flex items-center gap-2 px-1 text-[8px] font-black uppercase tracking-widest text-text-dim">
+                        <span className="flex-1 min-w-[140px]">Rubro</span>
+                        <span className="w-32 text-right">Mano de obra</span>
+                        <span className="w-32 text-right">Materiales</span>
+                        <span className="w-28 text-right">Subtotal</span>
+                        <span className="w-4" />
+                      </div>
                       {editing.subGastos.map(s => (
                         <div key={s.id} className="flex flex-wrap items-center gap-2">
-                          <input disabled={isReadOnly} className={cn(inp, 'flex-1 min-w-[140px]')} placeholder="Rubro (ej. Albañilería, Mobiliario, Cartelería…)" value={s.nombre} onChange={e => setEditing({ ...editing, subGastos: editing.subGastos.map(x => x.id === s.id ? { ...x, nombre: e.target.value } : x) })} />
-                          <input type="number" disabled={isReadOnly} className={cn(inp, 'w-36 font-mono')} placeholder="Presupuesto" value={s.presupuesto || ''} onChange={e => setEditing({ ...editing, subGastos: editing.subGastos.map(x => x.id === s.id ? { ...x, presupuesto: parseFloat(e.target.value) || 0 } : x) })} />
+                          <input disabled={isReadOnly} className={cn(inp, 'flex-1 min-w-[140px]')} placeholder="Rubro (ej. Herrero, Pintor, Albañil…)" value={s.nombre} onChange={e => setEditing({ ...editing, subGastos: editing.subGastos.map(x => x.id === s.id ? { ...x, nombre: e.target.value } : x) })} />
+                          <input type="number" disabled={isReadOnly} className={cn(inp, 'w-32 font-mono')} placeholder="Mano de obra" value={s.manoObra || ''} onChange={e => setEditing({ ...editing, subGastos: editing.subGastos.map(x => x.id === s.id ? { ...x, manoObra: parseFloat(e.target.value) || 0 } : x) })} />
+                          <input type="number" disabled={isReadOnly} className={cn(inp, 'w-32 font-mono')} placeholder="Materiales" value={s.materiales || ''} onChange={e => setEditing({ ...editing, subGastos: editing.subGastos.map(x => x.id === s.id ? { ...x, materiales: parseFloat(e.target.value) || 0 } : x) })} />
+                          <span className="w-28 text-right font-mono text-[11px] font-bold text-text-main">{fmt(subTotal(s))}</span>
                           {!isReadOnly && <button onClick={() => setEditing({ ...editing, subGastos: editing.subGastos.filter(x => x.id !== s.id) })} className="text-text-dim hover:text-red-500"><Trash2 size={13} /></button>}
                         </div>
                       ))}
-                      <p className="text-[10px] font-bold text-emerald-600">Total obra: {fmt(editing.subGastos.reduce((s, x) => s + (Number(x.presupuesto) || 0), 0))}</p>
+                      <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[10px] font-bold pt-1">
+                        <span className="text-text-dim">Mano de obra: <span className="text-text-main font-mono">{fmt(editing.subGastos.reduce((s, x) => s + (Number(x.manoObra) || 0), 0))}</span></span>
+                        <span className="text-text-dim">Materiales: <span className="text-text-main font-mono">{fmt(editing.subGastos.reduce((s, x) => s + (Number(x.materiales) || 0), 0))}</span></span>
+                        <span className="text-emerald-600">Total obra: {fmt(editing.subGastos.reduce((s, x) => s + subTotal(x), 0))}</span>
+                      </div>
                     </div>
                   )}
                 </div>
