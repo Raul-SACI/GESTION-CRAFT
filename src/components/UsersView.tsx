@@ -67,6 +67,7 @@ const SYSTEM_MODULES = [
   { id: 'finanzas_mensual', label: 'Flujo de Caja Mensual', category: 'Finanzas' },
   { id: 'plan_inversiones', label: 'Plan de Inversiones', category: 'Finanzas' },
   { id: 'caja_central', label: 'Caja Central', category: 'Tesorería' },
+  { id: 'auditorias_caja', label: 'Auditorías de Caja', category: 'Tesorería' },
   { id: 'cheques_emitidos', label: 'Cheques Emitidos', category: 'Tesorería' },
   { id: 'recordatorios_pago', label: 'Recordatorios de Pago', category: 'Tesorería' },
   { id: 'tareas', label: 'Tareas Pendientes', category: 'Agenda Personal' },

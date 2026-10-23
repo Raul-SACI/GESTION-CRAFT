@@ -133,6 +133,7 @@ const ChequesEmitidosView = lazy(() => import('./components/ChequesEmitidosView'
 const MonthlyCashFlowView = lazy(() => import('./components/MonthlyCashFlowView'));
 const HonorariosView = lazy(() => import('./components/HonorariosView'));
 const InversionesPlanView = lazy(() => import('./components/InversionesPlanView'));
+const AuditoriasCajaView = lazy(() => import('./components/AuditoriasCajaView'));
 const OrganigramaView = lazy(() => import('./components/OrganigramaView'));
 const AtencionClienteView = lazy(() => import('./components/AtencionClienteView'));
 const DeviationControlView = lazy(() => import('./components/DeviationControlView'));
@@ -569,7 +570,7 @@ function AppContent() {
     'control_desvios', 'produccion_mes', 'produccion_stock_control', 'pedidos_recepcion', 'decomisos_deposito',
     'papeles_administracion', 'supervision_banderas', 'registro_supervision',
     'supervisiones_operativas', 'agenda', 'control_agendas', 'sucursales', 'usuarios', 'empleados',
-    'ventas', 'caja_central', 'cheques_emitidos', 'recordatorios_pago', 'tareas', 'notas_personales',
+    'ventas', 'caja_central', 'auditorias_caja', 'cheques_emitidos', 'recordatorios_pago', 'tareas', 'notas_personales',
     'mant_panel', 'mant_inventario', 'mant_tareas', 'mant_preventivo', 'mant_valorizacion', 'mant_costos', 'mant_config',
     'checklist_sucursal', 'checklist_lideres', 'recetas_lideres', 'atencion_lideres',
     'mkt_informes', 'mkt_tareas', 'mkt_giftcard', 'mkt_cuentas', 'mkt_drive', 'giftcards_sucursal', 'actas_direccion', 'organigrama'
@@ -662,6 +663,7 @@ function AppContent() {
     ],
     'Tesorería': [
       { id: 'caja_central', label: 'Caja Central', icon: Landmark },
+      { id: 'auditorias_caja', label: 'Auditorías de Caja', icon: ClipboardCheck },
       { id: 'cheques_emitidos', label: 'Cheques Emitidos', icon: FileCheck2 },
       { id: 'recordatorios_pago', label: 'Recordatorios de Pago', icon: Bell },
     ],
@@ -726,6 +728,7 @@ function AppContent() {
         const iconMap: Record<string, any> = {
           socios_dashboard: Landmark,
           caja_central: Landmark,
+          auditorias_caja: ClipboardCheck,
           cheques_emitidos: FileCheck2,
           recordatorios_pago: Bell,
           dashboard: LayoutDashboard,
@@ -1696,6 +1699,9 @@ function AppContent() {
               )}
               {activeTab === 'caja_central' && (
                 <CajaCentralView branches={branches} isReadOnly={isCurrentTabReadOnly} />
+              )}
+              {activeTab === 'auditorias_caja' && (
+                <AuditoriasCajaView key="auditorias_caja" branches={branches} isReadOnly={isCurrentTabReadOnly} />
               )}
               {activeTab === 'cheques_emitidos' && (
                 <ChequesEmitidosView key="cheques_emitidos" currentUserName={currentUser.name} isReadOnly={isCurrentTabReadOnly} />
