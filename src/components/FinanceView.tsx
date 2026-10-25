@@ -1096,24 +1096,34 @@ export default function FinanceView({
   // Alertas de saldo negativo: detecta qué día y medio de pago queda en rojo (solo Lun-Vie)
   const negativeAlerts = useMemo(() => {
     const alerts: Array<{ dayName: string; dateLabel: string; accountName: string; amount: number }> = [];
-    activeWeekRange.weekdays.forEach((day) => {
-      const dayIdx = activeWeekRange.days.findIndex(d => d.dateStr === day.dateStr);
-      const dayData = dailyAccountBalancesProjected[dayIdx];
-      if (!dayData) return;
+    // Balance de planificación: desde el saldo de inicio, sumando ingresos y restando
+    // SOLO los gastos PENDIENTES. Lo ya pagado (isExecuted) no se vuelve a descontar,
+    // así un pasivo pagado por adelantado no dispara una alerta de saldo negativo falsa.
+    const running: Record<string, number> = { ...weekStartBalances };
+    const weekdaySet = new Set(activeWeekRange.weekdays.map(w => w.dateStr));
+    activeWeekRange.days.forEach((day) => {
+      const dayEntries = allEntries.filter(e => e.date === day.dateStr && e.itemId !== 'balance_start');
       ACCOUNTS.forEach(acc => {
-        const end = dayData.accounts[acc.id]?.end ?? 0;
+        let inc = 0, exp = 0;
+        dayEntries.forEach(entry => {
+          const amt = (entry.amounts[acc.id] as number) || 0;
+          const cat = categories.find(c => c.items.some(i => i.id === entry.itemId));
+          if (!cat) return;
+          if (cat.type === 'income') inc += amt;
+          else if (!entry.isExecuted) exp += amt; // solo gastos pendientes
+        });
+        running[acc.id] = (running[acc.id] || 0) + inc - exp;
+      });
+      if (!weekdaySet.has(day.dateStr)) return; // alertas solo Lun-Vie
+      ACCOUNTS.forEach(acc => {
+        const end = running[acc.id] || 0;
         if (end < 0) {
-          alerts.push({
-            dayName: day.name,
-            dateLabel: day.shortLabel.split(' ')[1],
-            accountName: acc.name,
-            amount: end
-          });
+          alerts.push({ dayName: day.name, dateLabel: day.shortLabel.split(' ')[1], accountName: acc.name, amount: end });
         }
       });
     });
     return alerts;
-  }, [activeWeekRange.weekdays, activeWeekRange.days, dailyAccountBalancesProjected]);
+  }, [activeWeekRange.weekdays, activeWeekRange.days, allEntries, weekStartBalances, categories]);
 
   // Total por rubro de la semana (cuánta plata necesito para cada gasto)
   const weeklyExpenseByItem = useMemo(() => {
@@ -1125,7 +1135,8 @@ export default function FinanceView({
         if (item.id === 'pase_out' || item.id === 'pase_in') return; // pases no son gastos
         let total = 0;
         allEntries.forEach(e => {
-          if (e.itemId === item.id && weekDates.has(e.date)) {
+          // "A cubrir" = solo lo PENDIENTE. Lo ya pagado (isExecuted) no se cuenta.
+          if (e.itemId === item.id && weekDates.has(e.date) && !e.isExecuted) {
             total += Object.values(e.amounts).reduce((a: number, b: any) => a + (b as number), 0) as number;
           }
         });
@@ -1227,6 +1238,7 @@ export default function FinanceView({
     ACCOUNTS.forEach(a => { byAcc[a.id] = 0; });
     allEntries.forEach(e => {
       if (!weekDates.has(e.date)) return;
+      if (e.isExecuted) return; // ya pagado: no es un gasto "a cubrir"
       if (e.itemId === 'pase_in' || e.itemId === 'pase_out') return; // pases no son egresos
       const cat = categories.find(c => c.items.some(i => i.id === e.itemId));
       if (cat?.type !== 'expense') return;
