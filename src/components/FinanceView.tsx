@@ -1377,6 +1377,19 @@ export default function FinanceView({
 
   const togglePaymentPaid = (id: string) => {
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
+    // Los cheques emitidos (Santander) se muestran como pasivos virtuales pero viven en la
+    // tabla cheques_emitidos. Su id acá es 'chq_<id>'. Actualizamos esa tabla, no scheduled_payments.
+    if (id.startsWith('chq_')) {
+      const chequeId = id.slice(4);
+      const current = chequesLoan.find(c => c.id === id);
+      if (!current) return;
+      const nuevoEstado = current.status === 'paid' ? 'pendiente' : 'pagado';
+      supabase.from('cheques_emitidos').update({ estado: nuevoEstado }).eq('id', chequeId).then(({ error }) => {
+        if (error) { alert('No se pudo actualizar el cheque: ' + (error.message || error)); return; }
+        setChequesLoan(prev => prev.map(c => c.id === id ? { ...c, status: nuevoEstado === 'pagado' ? 'paid' : 'pending' } : c));
+      });
+      return;
+    }
     const updated = payments.map(p => {
       if (p.id === id) {
         return { ...p, status: (p.status === 'paid' ? 'pending' : 'paid') as 'pending' | 'paid' };
