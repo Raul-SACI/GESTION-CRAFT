@@ -254,6 +254,35 @@ export default function RecetasLideresView({
     finally { setPyCfgSaving(false); }
   };
 
+  // Precios de venta de Pedidos Ya: se traen del módulo Lista de Precios (menu_items · pedidosya).
+  const [pyMenu, setPyMenu] = useState<{ name: string; price: number; external_code: string | null; product_id: string | null }[]>([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('menu_items').select('name, price, external_code, product_id').eq('menu_type', 'pedidosya');
+        setPyMenu(((data as any[]) || []).map(m => ({ name: m.name || '', price: Number(m.price) || 0, external_code: m.external_code || null, product_id: m.product_id || null })));
+      } catch { /* módulo opcional */ }
+    })();
+  }, []);
+  const normU = (s: any) => String(s ?? '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ');
+  const pyPriceMaps = useMemo(() => {
+    const byPid = new Map<string, number>(), byName = new Map<string, number>(), byCode = new Map<string, number>();
+    pyMenu.forEach(m => {
+      if (m.product_id) byPid.set(m.product_id, m.price);
+      if (m.name) byName.set(normU(m.name), m.price);
+      if (m.external_code) byCode.set(normU(m.external_code), m.price);
+    });
+    return { byPid, byName, byCode };
+  }, [pyMenu]);
+  // Precio de venta (bruto) de un plato, tomado de Lista de Precios · Pedidos Ya.
+  const precioVentaPY = (r: { code?: string | null; name: string }): number | null => {
+    const prod = productos.find((p: any) => (r.code && p.code && String(p.code).trim() === String(r.code).trim()) || normU(p.name) === normU(r.name));
+    if (prod && pyPriceMaps.byPid.has(prod.id)) return pyPriceMaps.byPid.get(prod.id)!;
+    const n = pyPriceMaps.byName.get(normU(r.name)); if (n != null) return n;
+    if (r.code) { const c = pyPriceMaps.byCode.get(normU(r.code)); if (c != null) return c; }
+    return null;
+  };
+
   // Rentabilidad de un producto Pedidos Ya según precio bruto, costo y config global.
   const pyRentabilidad = (precioBruto: number, costoProducto: number) => {
     const bruto = Number(precioBruto) || 0;
@@ -492,11 +521,6 @@ export default function RecetasLideresView({
         created_by: currentUserName || '—',
         updated_at: new Date().toISOString(),
       } as any;
-      // Solo las recetas Pedidos Ya escriben precio_venta; el resto no toca esa columna
-      // (así los demás tipos funcionan aunque todavía no se haya corrido la migración).
-      if (tipo === 'pedidos_ya') {
-        payload.precio_venta = (editing.precio_venta == null || (editing.precio_venta as any) === '') ? null : Number(editing.precio_venta);
-      }
       const { error: e1 } = await supabase.from('op_recipes').upsert(payload, { onConflict: 'id' });
       if (e1) throw e1;
       // Reemplazar insumos
@@ -957,7 +981,9 @@ export default function RecetasLideresView({
 
               {/* Rentabilidad Pedidos Ya (solo ese tipo) */}
               {tipo === 'pedidos_ya' && (() => {
-                const r = pyRentabilidad(Number(editing.precio_venta) || 0, draftCosto);
+                const precioBruto = precioVentaPY(editing) ?? 0;
+                const encontrado = precioVentaPY(editing) != null;
+                const r = pyRentabilidad(precioBruto, draftCosto);
                 const fmt$ = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
                 return (
                   <div className="bg-sky-500/5 border border-sky-500/30 rounded-lg p-4 space-y-3">
@@ -967,9 +993,13 @@ export default function RecetasLideresView({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                       <div>
-                        <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio de venta en plataforma (bruto)</label>
-                        <input type="number" disabled={isReadOnly} value={editing.precio_venta ?? ''} onChange={e => setEditing({ ...editing, precio_venta: e.target.value === '' ? null : parseFloat(e.target.value) })}
-                          placeholder="0" className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[12px] font-mono font-bold text-text-main outline-none focus:border-sky-500" />
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio de venta en plataforma (bruto)</span>
+                        {encontrado ? (
+                          <span className="text-[16px] font-mono font-black text-text-main">{fmt$(precioBruto)}</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-amber-500">Sin precio en Lista de Precios · Pedidos Ya. Cargá/vinculá el plato en ese módulo.</span>
+                        )}
+                        <span className="text-[8px] font-bold uppercase text-text-dim opacity-70 block">Traído de Lista de Precios · Pedidos Ya</span>
                       </div>
                       <div className="text-right">
                         <span className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio neto (sin IVA)</span>
