@@ -13,7 +13,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, Search, X, Save, Loader2, Upload, ImagePlus,
-  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator, FileText
+  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator, FileText, Package
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -23,7 +23,7 @@ import { supabase } from '../lib/supabase';
 import { recalcularCostosRecetas } from '../lib/recalcRecipeCosts';
 import { StockItem } from '../types';
 
-type Tipo = 'produccion' | 'sucursal' | 'carta';
+type Tipo = 'produccion' | 'sucursal' | 'carta' | 'pedidos_ya';
 
 interface Recipe {
   id: string;
@@ -61,6 +61,7 @@ const TIPOS: { id: Tipo; label: string; icon: any; color: string }[] = [
   { id: 'produccion', label: 'Producción', icon: ChefHat, color: 'text-teal-500' },
   { id: 'sucursal', label: 'En Sucursal', icon: Store, color: 'text-brand-500' },
   { id: 'carta', label: 'Platos de la Carta', icon: UtensilsCrossed, color: 'text-amber-500' },
+  { id: 'pedidos_ya', label: 'Productos Pedidos Ya', icon: Package, color: 'text-sky-500' },
 ];
 
 // Comprime una imagen a JPEG (máx 1000px) y devuelve un data URL para guardar en la base.
@@ -221,9 +222,10 @@ export default function RecetasLideresView({
   }, []);
 
   // Maestro que corresponde al tipo actual (nombre + unidad + código)
-  const masterLabel = tipo === 'carta' ? 'Maestro de Platos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
+  const masterLabel = (tipo === 'carta' || tipo === 'pedidos_ya') ? 'Maestro de Platos' : tipo === 'produccion' ? 'Maestro Recetas Producción' : 'Maestro Recetas Sucursales';
   const masterOptions = useMemo(() => {
-    if (tipo === 'carta') return productos.map(p => ({ name: p.name, unit: '', code: p.code || '', category: p.category || '' }));
+    // Pedidos Ya usa los mismos platos (Maestro de Platos): cada receta = el plato enviado + sus descartables.
+    if (tipo === 'carta' || tipo === 'pedidos_ya') return productos.map(p => ({ name: p.name, unit: '', code: p.code || '', category: p.category || '' }));
     return recipeMasters.filter(m => m.tipo === tipo).map(m => ({ name: m.name, unit: m.unit || '', code: m.code || '', category: '' }));
   }, [tipo, productos, recipeMasters]);
 
@@ -429,6 +431,7 @@ export default function RecetasLideresView({
   const SHEET_MAP: { name: RegExp; tipo: Tipo; seccion: boolean }[] = [
     { name: /produccion/i, tipo: 'produccion', seccion: false },
     { name: /sucursal/i, tipo: 'sucursal', seccion: false },
+    { name: /pedidos|ped.?ya|delivery/i, tipo: 'pedidos_ya', seccion: false },
     { name: /carta/i, tipo: 'carta', seccion: true },
   ];
   const cleanCell = (v: any) => {
@@ -555,7 +558,7 @@ export default function RecetasLideresView({
             <div className="bg-brand-500/10 p-2.5 rounded-lg"><BookOpen className="text-brand-500" size={20} /></div>
             <div>
               <h2 className="text-base font-black uppercase text-text-main tracking-wider">Recetas</h2>
-              <p className="text-[9px] text-text-dim uppercase font-bold">Producción · En Sucursal · Platos de la Carta</p>
+              <p className="text-[9px] text-text-dim uppercase font-bold">Producción · En Sucursal · Platos de la Carta · Productos Pedidos Ya</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -877,7 +880,7 @@ export default function RecetasLideresView({
                   <div className="flex items-center gap-2 bg-bg-accent border border-border-dim rounded px-3 py-2">
                     <Search size={14} className="text-text-dim shrink-0" />
                     <input value={ingSearch} onChange={e => setIngSearch(e.target.value)}
-                      placeholder={tipo === 'carta' ? 'Buscar insumo, receta o plato de la carta para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo o receta de producción para agregar…'}
+                      placeholder={tipo === 'pedidos_ya' ? 'Buscar descartable, insumo o plato para agregar…' : tipo === 'carta' ? 'Buscar insumo, receta o plato de la carta para agregar…' : tipo === 'sucursal' ? 'Buscar insumo o receta (suc./prod.) para agregar…' : 'Buscar insumo o receta de producción para agregar…'}
                       className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
                   </div>
                   {sugerencias.length > 0 && (
