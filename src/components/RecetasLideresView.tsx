@@ -13,7 +13,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import {
   BookOpen, Plus, Trash2, Search, X, Save, Loader2, Upload, ImagePlus,
-  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator, FileText, Package
+  ChefHat, Store, UtensilsCrossed, Pencil, ListChecks, ToggleRight, ToggleLeft, Calculator, FileText, Package, Percent
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -35,7 +35,12 @@ interface Recipe {
   photo: string | null;
   notes: string | null;
   active?: boolean;
+  precio_venta?: number | null; // Precio de venta bruto en la plataforma (solo Pedidos Ya)
 }
+
+// Configuración global de costos de Pedidos Ya (editable por el usuario).
+interface PyCosto { comisionPct: number; publicidadPct: number; envioPlus: number; ivaPct: number; }
+const PY_DEF: PyCosto = { comisionPct: 30, publicidadPct: 0, envioPlus: 0, ivaPct: 21 };
 interface RecipeItem {
   id?: string;
   recipe_id?: string;
@@ -134,6 +139,11 @@ export default function RecetasLideresView({
   const [traerSearch, setTraerSearch] = useState('');
   const [traerList, setTraerList] = useState<{ id: string; tipo: Tipo; name: string; code: string | null }[]>([]);
   const [traerBusy, setTraerBusy] = useState(false);
+  // Config de costos Pedidos Ya (comisión, publicidad, envío plus, IVA)
+  const [pyCfg, setPyCfg] = useState<PyCosto>(PY_DEF);
+  const [pyCfgOpen, setPyCfgOpen] = useState(false);
+  const [pyCfgDraft, setPyCfgDraft] = useState<PyCosto>(PY_DEF);
+  const [pyCfgSaving, setPyCfgSaving] = useState(false);
   // Selección para exportar a PDF
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSel, setExportSel] = useState<Set<string>>(new Set());
@@ -211,6 +221,51 @@ export default function RecetasLideresView({
   };
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [tipo]);
+
+  // Config de costos Pedidos Ya (guardada en mkt_config, key 'pedidosya_costos')
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('mkt_config').select('value').eq('key', 'pedidosya_costos').maybeSingle();
+        const v = (data?.value as any) || {};
+        setPyCfg({
+          comisionPct: Number(v.comisionPct) || 0,
+          publicidadPct: Number(v.publicidadPct) || 0,
+          envioPlus: Number(v.envioPlus) || 0,
+          ivaPct: v.ivaPct != null ? Number(v.ivaPct) : PY_DEF.ivaPct,
+        });
+      } catch { /* usa defaults */ }
+    })();
+  }, []);
+  const abrirPyCfg = () => { setPyCfgDraft(pyCfg); setPyCfgOpen(true); };
+  const guardarPyCfg = async () => {
+    setPyCfgSaving(true);
+    try {
+      const val: PyCosto = {
+        comisionPct: Number(pyCfgDraft.comisionPct) || 0,
+        publicidadPct: Number(pyCfgDraft.publicidadPct) || 0,
+        envioPlus: Number(pyCfgDraft.envioPlus) || 0,
+        ivaPct: Number(pyCfgDraft.ivaPct) || 0,
+      };
+      const { error } = await supabase.from('mkt_config').upsert({ key: 'pedidosya_costos', value: val, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      if (error) throw error;
+      setPyCfg(val); setPyCfgOpen(false);
+    } catch (e: any) { alert('No se pudo guardar la configuración: ' + (e.message || e)); }
+    finally { setPyCfgSaving(false); }
+  };
+
+  // Rentabilidad de un producto Pedidos Ya según precio bruto, costo y config global.
+  const pyRentabilidad = (precioBruto: number, costoProducto: number) => {
+    const bruto = Number(precioBruto) || 0;
+    const neto = pyCfg.ivaPct ? bruto / (1 + pyCfg.ivaPct / 100) : bruto;
+    const comision = bruto * (pyCfg.comisionPct / 100);
+    const publicidad = bruto * (pyCfg.publicidadPct / 100);
+    const envio = Number(pyCfg.envioPlus) || 0;
+    const costo = Number(costoProducto) || 0;
+    const resultado = neto - comision - publicidad - envio - costo;
+    const margenPct = neto > 0 ? (resultado / neto) * 100 : 0;
+    return { bruto, neto, comision, publicidad, envio, costo, resultado, margenPct };
+  };
 
   // Carga los maestros una vez: Productos (para Carta) y Recetas Producción/Sucursal
   useEffect(() => {
@@ -330,7 +385,7 @@ export default function RecetasLideresView({
 
   // ── Editor ──
   const abrirNueva = () => {
-    setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true });
+    setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true, precio_venta: null });
     setDraftItems([]);
     setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
@@ -436,7 +491,12 @@ export default function RecetasLideresView({
         active: editing.active !== false,
         created_by: currentUserName || '—',
         updated_at: new Date().toISOString(),
-      };
+      } as any;
+      // Solo las recetas Pedidos Ya escriben precio_venta; el resto no toca esa columna
+      // (así los demás tipos funcionan aunque todavía no se haya corrido la migración).
+      if (tipo === 'pedidos_ya') {
+        payload.precio_venta = (editing.precio_venta == null || (editing.precio_venta as any) === '') ? null : Number(editing.precio_venta);
+      }
       const { error: e1 } = await supabase.from('op_recipes').upsert(payload, { onConflict: 'id' });
       if (e1) throw e1;
       // Reemplazar insumos
@@ -616,6 +676,13 @@ export default function RecetasLideresView({
               className="flex items-center gap-2 bg-bg-accent border border-border-dim text-text-dim hover:text-brand-500 hover:border-brand-500/40 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all">
               <FileText size={13} /> Exportar PDF
             </button>
+            {tipo === 'pedidos_ya' && (
+              <button onClick={abrirPyCfg}
+                title="Configurar comisión, publicidad, envío plus e IVA de Pedidos Ya"
+                className="flex items-center gap-2 bg-sky-500/10 border border-sky-500/30 text-sky-500 hover:bg-sky-500/20 px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest transition-all">
+                <Percent size={13} /> Costos Pedidos Ya
+              </button>
+            )}
             {!isReadOnly && (
             <>
               <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden"
@@ -888,6 +955,43 @@ export default function RecetasLideresView({
                 )}
               </div>
 
+              {/* Rentabilidad Pedidos Ya (solo ese tipo) */}
+              {tipo === 'pedidos_ya' && (() => {
+                const r = pyRentabilidad(Number(editing.precio_venta) || 0, draftCosto);
+                const fmt$ = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
+                return (
+                  <div className="bg-sky-500/5 border border-sky-500/30 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-sky-500 flex items-center gap-2"><Percent size={13} /> Rentabilidad en Pedidos Ya</p>
+                      <span className="text-[8px] font-bold uppercase text-text-dim">Comisión {pyCfg.comisionPct}% · Publicidad {pyCfg.publicidadPct}% · Envío ${pyCfg.envioPlus.toLocaleString('es-AR')} · IVA {pyCfg.ivaPct}%</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                      <div>
+                        <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio de venta en plataforma (bruto)</label>
+                        <input type="number" disabled={isReadOnly} value={editing.precio_venta ?? ''} onChange={e => setEditing({ ...editing, precio_venta: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                          placeholder="0" className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[12px] font-mono font-bold text-text-main outline-none focus:border-sky-500" />
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio neto (sin IVA)</span>
+                        <span className="text-[14px] font-mono font-black text-text-main">{fmt$(r.neto)}</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-[11px] border-t border-sky-500/20 pt-2">
+                      <div className="flex justify-between"><span className="text-text-dim">Precio neto (sin IVA)</span><span className="font-mono text-text-main">{fmt$(r.neto)}</span></div>
+                      <div className="flex justify-between"><span className="text-text-dim">− Comisión Pedidos Ya ({pyCfg.comisionPct}% s/bruto)</span><span className="font-mono text-red-500">−{fmt$(r.comision)}</span></div>
+                      <div className="flex justify-between"><span className="text-text-dim">− Publicidad ({pyCfg.publicidadPct}% s/bruto)</span><span className="font-mono text-red-500">−{fmt$(r.publicidad)}</span></div>
+                      <div className="flex justify-between"><span className="text-text-dim">− Envío plus (fijo)</span><span className="font-mono text-red-500">−{fmt$(r.envio)}</span></div>
+                      <div className="flex justify-between"><span className="text-text-dim">− Costo del producto (insumos/descartables)</span><span className="font-mono text-red-500">−{fmt$(r.costo)}</span></div>
+                      <div className="flex justify-between border-t border-sky-500/30 pt-1.5 mt-1">
+                        <span className="font-black uppercase text-text-main">Resultado neto estimado</span>
+                        <span className={cn('font-mono font-black', r.resultado >= 0 ? 'text-emerald-500' : 'text-red-500')}>{fmt$(r.resultado)} <span className="text-[9px]">({r.margenPct.toFixed(1)}%)</span></span>
+                      </div>
+                    </div>
+                    <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Los % y el envío plus se configuran con el botón "Costos Pedidos Ya".</p>
+                  </div>
+                );
+              })()}
+
               {/* Foto (solo carta) */}
               {tipo === 'carta' && (
                 <div className="flex items-center gap-3">
@@ -1056,6 +1160,40 @@ export default function RecetasLideresView({
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal config costos Pedidos Ya */}
+      {pyCfgOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => !pyCfgSaving && setPyCfgOpen(false)}>
+          <div className="bg-bg-card border border-border-dim rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border-dim">
+              <h3 className="text-sm font-black uppercase tracking-wider text-text-main flex items-center gap-2"><Percent size={15} className="text-sky-500" /> Costos Pedidos Ya</h3>
+              <button onClick={() => !pyCfgSaving && setPyCfgOpen(false)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[10px] text-text-dim">Estos valores se aplican al cálculo de rentabilidad de todos los productos Pedidos Ya. Se pueden cambiar cuando varíen.</p>
+              {([
+                { k: 'comisionPct' as const, label: 'Comisión Pedidos Ya (% sobre precio bruto)', suf: '%' },
+                { k: 'publicidadPct' as const, label: 'Publicidad en la app (% sobre precio bruto)', suf: '%' },
+                { k: 'envioPlus' as const, label: 'Cargo por envío plus (valor fijo $)', suf: '$' },
+                { k: 'ivaPct' as const, label: 'IVA (%) para calcular el precio neto', suf: '%' },
+              ]).map(f => (
+                <div key={f.k}>
+                  <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">{f.label}</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black text-text-dim w-4">{f.suf}</span>
+                    <input type="number" value={pyCfgDraft[f.k]} onChange={e => setPyCfgDraft({ ...pyCfgDraft, [f.k]: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                      className="flex-1 bg-bg-accent border border-border-dim rounded px-3 py-2 text-[12px] font-mono font-bold text-text-main outline-none focus:border-sky-500" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-dim">
+              <button onClick={() => !pyCfgSaving && setPyCfgOpen(false)} className="text-[11px] font-black uppercase text-text-dim px-4 py-2 hover:text-text-main">Cancelar</button>
+              <button onClick={guardarPyCfg} disabled={pyCfgSaving} className="flex items-center gap-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg px-5 py-2 text-[11px] font-black uppercase tracking-wider disabled:opacity-50">{pyCfgSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
             </div>
           </div>
         </div>
