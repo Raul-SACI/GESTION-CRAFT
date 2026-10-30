@@ -145,7 +145,8 @@ export default function RecetasLideresView({
   const [pyCfgDraft, setPyCfgDraft] = useState<PyCosto>(PY_DEF);
   const [pyCfgSaving, setPyCfgSaving] = useState(false);
   // Precio simulado (solo para ver la rentabilidad; NO se guarda). null = usa el de Lista de Precios.
-  const [precioSim, setPrecioSim] = useState<number | null>(null);
+  // Se guarda como texto para poder borrar/escribir libremente (incluso dejarlo vacío).
+  const [precioSim, setPrecioSim] = useState<string | null>(null);
   // Selección para exportar a PDF
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSel, setExportSel] = useState<Set<string>>(new Set());
@@ -986,8 +987,8 @@ export default function RecetasLideresView({
               {tipo === 'pedidos_ya' && (() => {
                 const moduloPrice = precioVentaPY(editing);
                 const encontrado = moduloPrice != null;
-                const precioBruto = precioSim != null ? precioSim : (moduloPrice ?? 0);
-                const simulando = precioSim != null && precioSim !== (moduloPrice ?? 0);
+                const precioBruto = precioSim != null ? (parseFloat(precioSim) || 0) : (moduloPrice ?? 0);
+                const simulando = precioSim != null && (parseFloat(precioSim) || 0) !== (moduloPrice ?? 0);
                 const r = pyRentabilidad(precioBruto, draftCosto);
                 const fmt$ = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
                 return (
@@ -1003,8 +1004,8 @@ export default function RecetasLideresView({
                           {simulando && <span className="text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/30">Simulado · no se guarda</span>}
                         </div>
                         <div className="flex items-center gap-2">
-                          <input type="number" value={precioSim != null ? precioSim : (moduloPrice ?? '')}
-                            onChange={e => setPrecioSim(e.target.value === '' ? null : parseFloat(e.target.value))}
+                          <input type="number" value={precioSim != null ? precioSim : (moduloPrice != null ? String(moduloPrice) : '')}
+                            onChange={e => setPrecioSim(e.target.value)}
                             placeholder={encontrado ? undefined : 'Escribí un precio para simular'}
                             className="w-40 bg-bg-card border border-border-dim rounded px-3 py-2 text-[15px] font-mono font-black text-text-main outline-none focus:border-sky-500" />
                           {simulando && (
