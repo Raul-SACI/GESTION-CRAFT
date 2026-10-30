@@ -144,6 +144,8 @@ export default function RecetasLideresView({
   const [pyCfgOpen, setPyCfgOpen] = useState(false);
   const [pyCfgDraft, setPyCfgDraft] = useState<PyCosto>(PY_DEF);
   const [pyCfgSaving, setPyCfgSaving] = useState(false);
+  // Precio simulado (solo para ver la rentabilidad; NO se guarda). null = usa el de Lista de Precios.
+  const [precioSim, setPrecioSim] = useState<number | null>(null);
   // Selección para exportar a PDF
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSel, setExportSel] = useState<Set<string>>(new Set());
@@ -415,15 +417,16 @@ export default function RecetasLideresView({
   // ── Editor ──
   const abrirNueva = () => {
     setEditing({ id: '', tipo, code: null, name: '', seccion: null, unit: null, photo: null, notes: null, active: true, precio_venta: null });
-    setDraftItems([]);
+    setDraftItems([]); setPrecioSim(null);
     setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
   const abrirEditar = (r: Recipe) => {
     setEditing({ ...r });
     setDraftItems((itemsByRecipe[r.id] || []).map(it => ({ ...it })));
+    setPrecioSim(null);
     setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
-  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); setTraerOpen(false); setTraerSearch(''); };
+  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); setTraerOpen(false); setTraerSearch(''); setPrecioSim(null); };
 
   const agregarInsumoMaestro = (it: { id?: string | null; code?: string | null; name: string; unit?: string | null }) => {
     setDraftItems(prev => [...prev, {
@@ -981,8 +984,10 @@ export default function RecetasLideresView({
 
               {/* Rentabilidad Pedidos Ya (solo ese tipo) */}
               {tipo === 'pedidos_ya' && (() => {
-                const precioBruto = precioVentaPY(editing) ?? 0;
-                const encontrado = precioVentaPY(editing) != null;
+                const moduloPrice = precioVentaPY(editing);
+                const encontrado = moduloPrice != null;
+                const precioBruto = precioSim != null ? precioSim : (moduloPrice ?? 0);
+                const simulando = precioSim != null && precioSim !== (moduloPrice ?? 0);
                 const r = pyRentabilidad(precioBruto, draftCosto);
                 const fmt$ = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
                 return (
@@ -993,13 +998,23 @@ export default function RecetasLideresView({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                       <div>
-                        <span className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio de venta en plataforma (bruto)</span>
-                        {encontrado ? (
-                          <span className="text-[16px] font-mono font-black text-text-main">{fmt$(precioBruto)}</span>
-                        ) : (
-                          <span className="text-[10px] font-bold text-amber-500">Sin precio en Lista de Precios · Pedidos Ya. Cargá/vinculá el plato en ese módulo.</span>
-                        )}
-                        <span className="text-[8px] font-bold uppercase text-text-dim opacity-70 block">Traído de Lista de Precios · Pedidos Ya</span>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Precio de venta en plataforma (bruto)</span>
+                          {simulando && <span className="text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/30">Simulado · no se guarda</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="number" value={precioSim != null ? precioSim : (moduloPrice ?? '')}
+                            onChange={e => setPrecioSim(e.target.value === '' ? null : parseFloat(e.target.value))}
+                            placeholder={encontrado ? undefined : 'Escribí un precio para simular'}
+                            className="w-40 bg-bg-card border border-border-dim rounded px-3 py-2 text-[15px] font-mono font-black text-text-main outline-none focus:border-sky-500" />
+                          {simulando && (
+                            <button type="button" onClick={() => setPrecioSim(null)} title="Volver al precio de Lista de Precios"
+                              className="text-[8px] font-black uppercase text-sky-500 border border-sky-500/30 rounded px-2 py-1 hover:bg-sky-500/10">↺ Precio de lista</button>
+                          )}
+                        </div>
+                        <span className="text-[8px] font-bold uppercase text-text-dim opacity-70 block mt-1">
+                          {encontrado ? <>Traído de Lista de Precios · Pedidos Ya ({fmt$(moduloPrice!)}). Editá solo para simular.</> : 'Sin precio en Lista de Precios · Pedidos Ya. Podés escribir uno para simular.'}
+                        </span>
                       </div>
                       <div className="text-right">
                         <span className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Precio neto (sin IVA)</span>
