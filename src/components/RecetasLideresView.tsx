@@ -129,6 +129,11 @@ export default function RecetasLideresView({
   const [saving, setSaving] = useState(false);
   const [ingSearch, setIngSearch] = useState('');
   const [recalc, setRecalc] = useState(false);
+  // "Traer receta" de otro módulo: copia los insumos de una receta ya creada (cualquier tipo).
+  const [traerOpen, setTraerOpen] = useState(false);
+  const [traerSearch, setTraerSearch] = useState('');
+  const [traerList, setTraerList] = useState<{ id: string; tipo: Tipo; name: string; code: string | null }[]>([]);
+  const [traerBusy, setTraerBusy] = useState(false);
   // Selección para exportar a PDF
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSel, setExportSel] = useState<Set<string>>(new Set());
@@ -334,7 +339,7 @@ export default function RecetasLideresView({
     setDraftItems((itemsByRecipe[r.id] || []).map(it => ({ ...it })));
     setIngSearch(''); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false);
   };
-  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); };
+  const cerrarEditor = () => { setEditing(null); setDraftItems([]); setProdSearch(''); setProdOpen(false); setSecSearch(''); setSecOpen(false); setTraerOpen(false); setTraerSearch(''); };
 
   const agregarInsumoMaestro = (it: { id?: string | null; code?: string | null; name: string; unit?: string | null }) => {
     setDraftItems(prev => [...prev, {
@@ -345,6 +350,50 @@ export default function RecetasLideresView({
   const setItem = (i: number, field: keyof RecipeItem, value: any) =>
     setDraftItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: value } : it));
   const quitarItem = (i: number) => setDraftItems(prev => prev.filter((_, idx) => idx !== i));
+
+  // Abre el buscador de "Traer receta" y carga la lista de todas las recetas (todos los tipos).
+  const abrirTraer = async () => {
+    setTraerOpen(true); setTraerSearch('');
+    if (traerList.length === 0) {
+      try {
+        const { data } = await supabase.from('op_recipes').select('id, tipo, name, code').order('tipo').order('name');
+        setTraerList((data as any[]) || []);
+      } catch { setTraerList([]); }
+    }
+  };
+  // Copia los insumos de una receta existente al borrador actual (sin duplicar por código).
+  const traerReceta = async (rid: string) => {
+    setTraerBusy(true);
+    try {
+      let from = 0; const page = 1000; let all: any[] = [];
+      while (true) {
+        const { data } = await supabase.from('op_recipe_items').select('*').eq('recipe_id', rid).order('sort_order').range(from, from + page - 1);
+        const chunk = data || [];
+        all = all.concat(chunk);
+        if (chunk.length < page) break;
+        from += page;
+      }
+      setDraftItems(prev => {
+        const existentes = new Set(prev.map(it => String(it.code || '').trim()).filter(Boolean));
+        const nuevos = all
+          .filter(it => { const c = String(it.code || '').trim(); return !c || !existentes.has(c); })
+          .map((it, k) => ({
+            item_id: it.item_id || null, code: it.code || null, item_name: it.item_name || '',
+            unit: it.unit || null, quantity: it.quantity ?? null, sort_order: prev.length + k + 1,
+          } as RecipeItem));
+        return [...prev, ...nuevos];
+      });
+      setTraerOpen(false);
+    } catch (e: any) { alert('No se pudo traer la receta: ' + (e.message || e)); }
+    finally { setTraerBusy(false); }
+  };
+  const traerSugerencias = useMemo(() => {
+    const q = traerSearch.trim().toLowerCase();
+    return traerList
+      .filter(r => !(editing && r.id === editing.id))
+      .filter(r => !q || r.name.toLowerCase().includes(q) || String(r.code || '').toLowerCase().includes(q))
+      .slice(0, 80);
+  }, [traerList, traerSearch, editing]);
 
   const onFoto = async (file?: File | null) => {
     if (!file) return;
@@ -869,10 +918,50 @@ export default function RecetasLideresView({
 
               {/* Insumos */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <p className="text-[10px] font-black uppercase tracking-widest text-brand-500 flex items-center gap-2"><ListChecks size={14} /> Insumos ({draftItems.length})</p>
-                  {draftCosto > 0 && <span className="text-[10px] font-mono font-black text-emerald-500">Costo estimado: ${draftCosto.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</span>}
+                  <div className="flex items-center gap-2">
+                    {!isReadOnly && (
+                      <button type="button" onClick={abrirTraer}
+                        title="Copiar los insumos de una receta ya creada (cualquier módulo) a esta receta"
+                        className="flex items-center gap-1.5 bg-sky-500/10 border border-sky-500/30 text-sky-500 hover:bg-sky-500/20 px-2.5 py-1 rounded text-[9px] font-black uppercase tracking-widest transition-all">
+                        <Upload size={12} /> Traer receta
+                      </button>
+                    )}
+                    {draftCosto > 0 && <span className="text-[10px] font-mono font-black text-emerald-500">Costo estimado: ${draftCosto.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</span>}
+                  </div>
                 </div>
+
+                {/* Selector de receta a traer */}
+                {traerOpen && !isReadOnly && (
+                  <div className="bg-bg-accent/40 border border-sky-500/30 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-sky-500">Traer insumos de otra receta</p>
+                      <button type="button" onClick={() => setTraerOpen(false)} className="text-text-dim hover:text-text-main"><X size={14} /></button>
+                    </div>
+                    <div className="flex items-center gap-2 bg-bg-card border border-border-dim rounded px-3 py-2">
+                      <Search size={14} className="text-text-dim shrink-0" />
+                      <input autoFocus value={traerSearch} onChange={e => setTraerSearch(e.target.value)} placeholder="Buscar receta por nombre o código…"
+                        className="flex-1 bg-transparent text-[11px] font-bold text-text-main outline-none placeholder:text-text-dim/60" />
+                    </div>
+                    <div className="max-h-56 overflow-y-auto border border-border-dim rounded-lg divide-y divide-border-dim/40">
+                      {traerSugerencias.length === 0 ? (
+                        <p className="px-3 py-3 text-[9px] font-bold uppercase text-text-dim text-center">{traerList.length === 0 ? 'Cargando recetas…' : 'Sin resultados.'}</p>
+                      ) : traerSugerencias.map(r => {
+                        const tInfo = TIPOS.find(t => t.id === r.tipo);
+                        return (
+                          <button key={r.id} type="button" disabled={traerBusy} onClick={() => traerReceta(r.id)}
+                            className="w-full text-left px-3 py-2 hover:bg-bg-accent flex items-center gap-2 disabled:opacity-50">
+                            <span className="text-[10px] font-bold uppercase text-text-main flex-1 truncate">{r.name}</span>
+                            {r.code && <span className="text-[8px] font-mono text-text-dim">{r.code}</span>}
+                            <span className={cn('text-[7px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border border-border-dim bg-bg-card shrink-0', tInfo?.color || 'text-text-dim')}>{tInfo?.label || r.tipo}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[8px] font-bold uppercase text-text-dim opacity-70">Se copian los insumos (no se duplican los que ya están). Después podés sumar los descartables.</p>
+                  </div>
+                )}
 
                 {/* Buscador de insumos del maestro */}
                 {!isReadOnly && (
