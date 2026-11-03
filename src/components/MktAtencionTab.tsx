@@ -54,9 +54,67 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
   const cargar = async () => {
     setLoading(true);
     try {
-      const { data: rows } = await supabase.from('mkt_atencion_cliente').select('*')
-        .eq('anio', anio).eq('mes', mes).eq('semana', semana);
+      const mensual = semana === 0; // pestaña "Mensual" = suma de todas las semanas
+      let q = supabase.from('mkt_atencion_cliente').select('*').eq('anio', anio).eq('mes', mes);
+      if (!mensual) q = q.eq('semana', semana);
+      const { data: rows } = await q;
       const map: Record<string, Row> = {};
+
+      if (mensual) {
+        // Acumula cantidad/estrellas/comentarios por (fuente,sucursal) y guarda los
+        // pedidos cargados a mano por semana para luego sumar el pedido efectivo.
+        const storedPedBySem: Record<string, Record<number, number>> = {};
+        ((rows as any[]) || []).forEach(r => {
+          const k = key(r.fuente, r.branch_id);
+          const cur = map[k] || { pedidos: 0, cantidad: 0, altas: 0, bajas: 0, comentarios: '' };
+          cur.cantidad += Number(r.cantidad) || 0;
+          cur.altas += Number(r.estrellas_altas) || 0;
+          cur.bajas += Number(r.estrellas_bajas) || 0;
+          const c = (r.comentarios || '').trim();
+          if (c) cur.comentarios = cur.comentarios ? `${cur.comentarios} · ${c}` : c;
+          map[k] = cur;
+          (storedPedBySem[k] ||= {})[Number(r.semana)] = Number(r.pedidos) || 0;
+        });
+        // Pedidos efectivos del mes = suma por semana de (Pedidos Ya si >0, si no lo cargado a mano)
+        try {
+          const { data: pyRows } = await supabase.from('py_comercial_periodo')
+            .select('sucursal, marca, pedidos, semana').eq('anio', anio).eq('mes', mes);
+          const pyByLocSem: Record<string, Record<number, { Craft: number; 'Craft Café': number }>> = {};
+          ((pyRows as any[]) || []).forEach(r => {
+            const loc = normLoc(r.sucursal); const mk = deriveMarca(r.sucursal); const sem = Number(r.semana);
+            const e = ((pyByLocSem[loc] ||= {})[sem] ||= { Craft: 0, 'Craft Café': 0 });
+            e[mk] += Number(r.pedidos) || 0;
+          });
+          const sumPed = (fuenteId: string, b: Branch, marca: 'Craft' | 'Cafe' | 'both') => {
+            let s = 0;
+            for (let w = 1; w <= 4; w++) {
+              const ps = pyByLocSem[normLoc(b.name)]?.[w];
+              const py = ps ? (marca === 'Craft' ? ps.Craft : marca === 'Cafe' ? ps['Craft Café'] : ps.Craft + ps['Craft Café']) : 0;
+              const stored = storedPedBySem[key(fuenteId, b.id)]?.[w] || 0;
+              s += py > 0 ? py : stored;
+            }
+            return s;
+          };
+          const setPed = (fuenteId: string, b: string, ped: number) => {
+            if (!(ped > 0)) return;
+            const k = key(fuenteId, b);
+            map[k] = { ...(map[k] || { pedidos: 0, cantidad: 0, altas: 0, bajas: 0, comentarios: '' }), pedidos: ped };
+          };
+          operative.forEach(b => {
+            if (month >= SPLIT_PY_FROM) {
+              setPed('pedidosya_resto', b.id, sumPed('pedidosya_resto', b, 'Craft'));
+              setPed('pedidosya_cafe', b.id, sumPed('pedidosya_cafe', b, 'Cafe'));
+            } else {
+              setPed('pedidosya', b.id, sumPed('pedidosya', b, 'both'));
+            }
+          });
+        } catch (e) { /* py opcional */ }
+
+        loadedKeysRef.current = new Set();
+        setData(map);
+        return;
+      }
+
       ((rows as any[]) || []).forEach(r => { map[key(r.fuente, r.branch_id)] = { pedidos: Number(r.pedidos) || 0, cantidad: Number(r.cantidad) || 0, altas: Number(r.estrellas_altas) || 0, bajas: Number(r.estrellas_bajas) || 0, comentarios: r.comentarios || '' }; });
       loadedKeysRef.current = new Set(Object.keys(map)); // filas realmente guardadas en la base (antes del autocompletado)
 
@@ -134,6 +192,8 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
   const pct = (n: number, tot: number) => tot > 0 ? `${((n / tot) * 100).toFixed(0)}%` : '—';
   const numInp = 'w-16 bg-bg-card border border-border-dim rounded px-1.5 py-1 text-[11px] font-mono font-bold text-text-main outline-none focus:border-brand-500 text-center';
 
+  const mensual = semana === 0;
+  const editable = !isReadOnly && !mensual;
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-1 flex-wrap bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60 w-fit">
@@ -143,8 +203,13 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
             Sem {w} <span className="opacity-60">({SEM_RANGO[w - 1]})</span>
           </button>
         ))}
+        <button onClick={() => setSemana(0)}
+          className={cn('px-2.5 py-1.5 text-[10px] font-black uppercase rounded', mensual ? 'bg-brand-500 text-white' : 'text-text-dim hover:text-text-main')}>
+          Mensual <span className="opacity-60">(todas)</span>
+        </button>
         {loading && <Loader2 size={14} className="animate-spin text-brand-500 ml-1" />}
       </div>
+      {mensual && <p className="text-[10px] text-text-dim font-bold uppercase -mt-1">Suma de las 4 semanas del mes · solo lectura. Los comentarios se concatenan.</p>}
 
       {fuentes.map(f => (
         <div key={f.id} className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
@@ -174,12 +239,12 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
                 return (
                   <tr key={b.id} className="border-t border-border-dim/25">
                     <td className="p-2.5 text-left font-bold text-text-main whitespace-nowrap">{b.name}</td>
-                    {f.conPedidos && <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.pedidos || ''} onChange={e => set(f.id, b.id, { pedidos: parseInt(e.target.value) || 0 })} /></td>}
+                    {f.conPedidos && <td className="p-2.5 text-center"><input type="number" disabled={!editable} className={numInp} value={r.pedidos || ''} onChange={e => set(f.id, b.id, { pedidos: parseInt(e.target.value) || 0 })} /></td>}
                     {f.conEstrellas && <>
-                      <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.cantidad || ''} onChange={e => set(f.id, b.id, { cantidad: parseInt(e.target.value) || 0 })} /></td>
-                      <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.altas || ''} onChange={e => set(f.id, b.id, { altas: parseInt(e.target.value) || 0 })} /></td>
+                      <td className="p-2.5 text-center"><input type="number" disabled={!editable} className={numInp} value={r.cantidad || ''} onChange={e => set(f.id, b.id, { cantidad: parseInt(e.target.value) || 0 })} /></td>
+                      <td className="p-2.5 text-center"><input type="number" disabled={!editable} className={numInp} value={r.altas || ''} onChange={e => set(f.id, b.id, { altas: parseInt(e.target.value) || 0 })} /></td>
                       <td className="p-2.5 text-center font-mono text-emerald-500 font-bold">{pct(r.altas, r.cantidad)}</td>
-                      <td className="p-2.5 text-center"><input type="number" disabled={isReadOnly} className={numInp} value={r.bajas || ''} onChange={e => set(f.id, b.id, { bajas: parseInt(e.target.value) || 0 })} /></td>
+                      <td className="p-2.5 text-center"><input type="number" disabled={!editable} className={numInp} value={r.bajas || ''} onChange={e => set(f.id, b.id, { bajas: parseInt(e.target.value) || 0 })} /></td>
                       <td className="p-2.5 text-center font-mono text-red-500 font-bold">{pct(r.bajas, r.cantidad)}</td>
                     </>}
                     <td className="p-2.5">
@@ -198,7 +263,7 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
         </div>
       ))}
 
-      {!isReadOnly && (
+      {editable && (
         <div className="flex justify-end">
           <button onClick={guardar} disabled={saving}
             className="flex items-center gap-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg px-5 py-2.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">
@@ -215,16 +280,17 @@ export default function MktAtencionTab({ branches, month, isReadOnly = false }: 
               <div className="flex items-center justify-between px-4 py-3 border-b border-border-dim">
                 <div>
                   <div className="text-[12px] font-black uppercase text-text-main tracking-wide">{modal.bn}</div>
-                  <div className="text-[9px] font-bold uppercase text-text-dim tracking-widest">{modal.fl} · Comentarios · {monthLabelShort(month)} · Sem {semana}</div>
+                  <div className="text-[9px] font-bold uppercase text-text-dim tracking-widest">{modal.fl} · Comentarios · {monthLabelShort(month)} · {mensual ? 'Mensual' : `Sem ${semana}`}</div>
                 </div>
                 <button onClick={() => setModal(null)} className="text-text-dim hover:text-text-main"><X size={18} /></button>
               </div>
               <div className="p-4">
-                <textarea autoFocus disabled={isReadOnly} value={r.comentarios}
+                <textarea autoFocus disabled={!editable} value={r.comentarios}
                   onChange={e => set(modal.f, modal.b, { comentarios: e.target.value })}
                   placeholder="Sin comentarios cargados."
                   className="w-full h-64 bg-bg-card border border-border-dim rounded-lg p-3 text-[12px] text-text-main outline-none focus:border-brand-500 resize-none leading-relaxed" />
-                {!isReadOnly && <p className="text-[9px] text-text-dim mt-2">Los cambios se guardan con el botón <b className="text-text-main">Guardar</b> de la pantalla.</p>}
+                {editable && <p className="text-[9px] text-text-dim mt-2">Los cambios se guardan con el botón <b className="text-text-main">Guardar</b> de la pantalla.</p>}
+                {mensual && <p className="text-[9px] text-text-dim mt-2">Vista mensual (suma de las 4 semanas) · solo lectura.</p>}
               </div>
               <div className="flex justify-end px-4 py-3 border-t border-border-dim">
                 <button onClick={() => setModal(null)}
