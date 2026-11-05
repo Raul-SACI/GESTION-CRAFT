@@ -133,6 +133,22 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
 
   const totMesSuc = dataPorSucursal.reduce((s, r) => ({ p: s.p + r.Planificadas, r: s.r + r.Reales }), { p: 0, r: 0 });
 
+  // Cuadro: sucursal × mes con horas reales y presupuestadas.
+  const filasTabla = useMemo(() => {
+    const out: Array<{ kind: 'row' | 'subtotal'; branch: string; mes?: string; planned: number; real: number }> = [];
+    let gp = 0, gr = 0;
+    operative.forEach(b => {
+      const perMonth = byBM[b.id] || {};
+      const mw = months.filter(m => perMonth[m] && (perMonth[m].planned || perMonth[m].real));
+      if (mw.length === 0) return;
+      let tp = 0, tr = 0;
+      mw.forEach(m => { const a = perMonth[m]; out.push({ kind: 'row', branch: branchName(b.id), mes: mesLabel(m), planned: a.planned, real: a.real }); tp += a.planned; tr += a.real; });
+      out.push({ kind: 'subtotal', branch: branchName(b.id), planned: tp, real: tr });
+      gp += tp; gr += tr;
+    });
+    return { out, gp, gr };
+  }, [operative, byBM, months]);
+
   if (loading) return <div className="py-16 text-center"><Loader2 size={24} className="animate-spin text-brand-500 mx-auto" /><p className="text-[10px] font-black uppercase text-text-dim mt-2">Cargando análisis…</p></div>;
 
   const sel = 'bg-bg-accent border border-border-dim rounded px-3 py-2 text-[11px] text-text-main font-bold uppercase outline-none focus:border-brand-500';
@@ -250,6 +266,54 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
               </table>
             </div>
           </>
+        )}
+      </div>
+
+      {/* Cuadro: sucursales × meses · reales y presupuestadas */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Building2 size={16} className="text-brand-500" />
+          <h3 className="text-[12px] font-black uppercase tracking-wider text-text-main">Cuadro de horas por sucursal y mes</h3>
+        </div>
+        {filasTabla.out.length === 0 ? (
+          <p className="text-center text-[11px] text-text-dim italic py-8">Sin datos cargados.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] border-collapse min-w-[560px]">
+              <thead><tr className="bg-bg-accent/20 text-text-dim">
+                <th className="p-2 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
+                <th className="p-2 text-left text-[9px] font-black uppercase tracking-widest">Mes</th>
+                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Presupuestadas</th>
+                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Reales</th>
+                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Desvío</th>
+              </tr></thead>
+              <tbody>
+                {filasTabla.out.map((f, i) => f.kind === 'subtotal' ? (
+                  <tr key={i} className="border-t border-border-dim bg-bg-accent/15 font-black">
+                    <td className="p-2 text-text-main uppercase text-[10px]">{f.branch}</td>
+                    <td className="p-2 text-text-dim uppercase text-[9px]">Total</td>
+                    <td className="p-2 text-right font-mono" style={{ color: C_PLAN }}>{fmtH(f.planned)}</td>
+                    <td className="p-2 text-right font-mono" style={{ color: C_REAL }}>{fmtH(f.real)}</td>
+                    <td className={cn2(f.real - f.planned) + ' p-2 text-right font-mono'}>{f.real - f.planned >= 0 ? '+' : ''}{fmtH(f.real - f.planned)}</td>
+                  </tr>
+                ) : (
+                  <tr key={i} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                    <td className="p-2 font-bold text-text-main">{f.branch}</td>
+                    <td className="p-2 text-text-dim">{f.mes}</td>
+                    <td className="p-2 text-right font-mono text-text-dim">{fmtH(f.planned)}</td>
+                    <td className="p-2 text-right font-mono text-text-main">{fmtH(f.real)}</td>
+                    <td className={cn2(f.real - f.planned) + ' p-2 text-right font-mono'}>{f.real - f.planned >= 0 ? '+' : ''}{fmtH(f.real - f.planned)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-border-dim bg-bg-accent/30 font-black">
+                  <td className="p-2 text-text-main uppercase" colSpan={2}>Total general</td>
+                  <td className="p-2 text-right font-mono" style={{ color: C_PLAN }}>{fmtH(filasTabla.gp)}</td>
+                  <td className="p-2 text-right font-mono" style={{ color: C_REAL }}>{fmtH(filasTabla.gr)}</td>
+                  <td className={cn2(filasTabla.gr - filasTabla.gp) + ' p-2 text-right font-mono'}>{filasTabla.gr - filasTabla.gp >= 0 ? '+' : ''}{fmtH(filasTabla.gr - filasTabla.gp)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
