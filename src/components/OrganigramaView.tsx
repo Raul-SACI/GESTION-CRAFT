@@ -92,6 +92,8 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   // Tamaño (ancho) de las tarjetas, ajustable por el usuario y persistido.
   const [cardW, setCardW] = useState(() => { const v = Number(localStorage.getItem('org_card_w')); return v >= 110 && v <= 260 ? v : 150; });
   useEffect(() => { try { localStorage.setItem('org_card_w', String(cardW)); } catch { /* ignore */ } }, [cardW]);
+  const [asesorW, setAsesorW] = useState(() => { const v = Number(localStorage.getItem('org_asesor_w')); return v >= 110 && v <= 260 ? v : 150; });
+  useEffect(() => { try { localStorage.setItem('org_asesor_w', String(asesorW)); } catch { /* ignore */ } }, [asesorW]);
   const recomputeLines = () => {
     const t = treeRef.current; if (t) setTreeW(t.scrollWidth);
     const wrap = canvasRef.current; if (!wrap) return;
@@ -115,7 +117,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     });
     setLines(ls);
   };
-  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados, treeW, cardW]);
+  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados, treeW, cardW, asesorW]);
   useEffect(() => {
     const h = () => recomputeLines();
     window.addEventListener('resize', h);
@@ -133,12 +135,12 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   }, [asesores, treeW]);
 
   // ── Drag de asesores ──
-  const dragState = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
+  const dragState = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number; lastX: number; lastY: number } | null>(null);
   const onAsesorPointerDown = (e: React.PointerEvent, a: Puesto) => {
     if (isReadOnly) return;
     if ((e.target as HTMLElement).closest('button')) return; // no arrastrar al tocar botones
     const curX = a.pos_x ?? 40, curY = a.pos_y ?? 40;
-    dragState.current = { id: a.id, startX: e.clientX, startY: e.clientY, origX: curX, origY: curY };
+    dragState.current = { id: a.id, startX: e.clientX, startY: e.clientY, origX: curX, origY: curY, lastX: curX, lastY: curY };
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     window.addEventListener('pointermove', onDragMove);
     window.addEventListener('pointerup', onDragUp);
@@ -147,18 +149,18 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const d = dragState.current; if (!d) return;
     const nx = Math.max(0, d.origX + (e.clientX - d.startX));
     const ny = Math.max(0, d.origY + (e.clientY - d.startY));
+    d.lastX = nx; d.lastY = ny; // guardamos la posición final en el propio drag (no en el closure de puestos)
     setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, pos_x: nx, pos_y: ny } : p));
   };
   const onDragUp = async () => {
     const d = dragState.current; dragState.current = null;
     window.removeEventListener('pointermove', onDragMove);
     window.removeEventListener('pointerup', onDragUp);
-    if (!d) return;
-    const a = puestos.find(p => p.id === d.id);
-    if (a && !isReadOnly) {
-      try { await supabase.from('org_puestos').upsert({ id: a.id, pos_x: a.pos_x, pos_y: a.pos_y, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
-      catch (e) { console.warn('No se pudo guardar la posición del asesor', e); }
-    }
+    if (!d || isReadOnly) return;
+    // Solo guardar si de verdad se movió (evita escribir al hacer un simple clic).
+    if (d.lastX === d.origX && d.lastY === d.origY) return;
+    try { await supabase.from('org_puestos').upsert({ id: d.id, pos_x: d.lastX, pos_y: d.lastY, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
+    catch (e) { console.warn('No se pudo guardar la posición del asesor', e); }
   };
 
   // ── Abrir editor ──
@@ -324,11 +326,15 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             </button>
           )}
           {loading && <Loader2 size={15} className="animate-spin text-brand-500" />}
-          <div className="flex items-center gap-2 ml-auto bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-1.5">
-            <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Tamaño</span>
-            <button onClick={() => setCardW(w => Math.max(110, w - 10))} className="text-text-dim hover:text-text-main w-5 h-5 flex items-center justify-center rounded border border-border-dim text-[12px] font-black">−</button>
-            <input type="range" min={110} max={260} step={2} value={cardW} onChange={e => setCardW(Number(e.target.value))} className="w-28 accent-brand-500" />
-            <button onClick={() => setCardW(w => Math.min(260, w + 10))} className="text-text-dim hover:text-text-main w-5 h-5 flex items-center justify-center rounded border border-border-dim text-[12px] font-black">+</button>
+          <div className="flex items-center gap-3 ml-auto bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Puestos</span>
+              <input type="range" min={110} max={260} step={2} value={cardW} onChange={e => setCardW(Number(e.target.value))} className="w-24 accent-brand-500" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">Asesores</span>
+              <input type="range" min={110} max={260} step={2} value={asesorW} onChange={e => setAsesorW(Number(e.target.value))} className="w-24 accent-indigo-500" />
+            </div>
           </div>
           <span className="text-[10px] text-text-dim font-bold uppercase">{jerarquicos.length} puesto(s) · {asesores.length} asesor(es)</span>
         </div>
@@ -359,7 +365,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
               <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
                 onPointerDown={e => onAsesorPointerDown(e, a)}
                 className={cn('absolute bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 text-left select-none', isReadOnly ? '' : 'cursor-move')}
-                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: cardW }}>
+                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: asesorW }}>
                 <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
                 <Caja p={a} />
                 <Acciones p={a} />
