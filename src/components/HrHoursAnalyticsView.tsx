@@ -5,8 +5,9 @@
  *  2) Análisis de una sucursal: horas por mes (totales) y desglose por puesto.
  * Reales: hr_hour_logs.hours_rrhh. Planificadas: hour_budgets (aprobados), suma week1..week5.
  */
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Loader2, Building2, Briefcase } from 'lucide-react';
+import { cn } from '@/src/lib/utils';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   LineChart, Line,
@@ -133,21 +134,24 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
 
   const totMesSuc = dataPorSucursal.reduce((s, r) => ({ p: s.p + r.Planificadas, r: s.r + r.Reales }), { p: 0, r: 0 });
 
-  // Cuadro: sucursal × mes con horas reales y presupuestadas.
-  const filasTabla = useMemo(() => {
-    const out: Array<{ kind: 'row' | 'subtotal'; branch: string; mes?: string; planned: number; real: number }> = [];
-    let gp = 0, gr = 0;
-    operative.forEach(b => {
-      const perMonth = byBM[b.id] || {};
-      const mw = months.filter(m => perMonth[m] && (perMonth[m].planned || perMonth[m].real));
-      if (mw.length === 0) return;
-      let tp = 0, tr = 0;
-      mw.forEach(m => { const a = perMonth[m]; out.push({ kind: 'row', branch: branchName(b.id), mes: mesLabel(m), planned: a.planned, real: a.real }); tp += a.planned; tr += a.real; });
-      out.push({ kind: 'subtotal', branch: branchName(b.id), planned: tp, real: tr });
-      gp += tp; gr += tr;
-    });
-    return { out, gp, gr };
-  }, [operative, byBM, months]);
+  // Cuadro pivot: meses en filas, sucursales en columnas (Real, Presup., %, Variación vs mes ant.)
+  const branchesTabla = useMemo(() => operative.filter(b => months.some(m => { const a = byBM[b.id]?.[m]; return a && (a.real || a.planned); })), [operative, byBM, months]);
+  const matriz = useMemo(() => {
+    return months.map((m, idx) => {
+      const cells = branchesTabla.map(b => {
+        const a = byBM[b.id]?.[m];
+        const real = a?.real || 0; const plan = a?.planned || 0;
+        const hasData = !!(a && (a.real || a.planned));
+        const pct = plan > 0 ? (real / plan) * 100 : null;
+        // Variación en horas reales vs el mes anterior con datos de ESA sucursal.
+        let prevReal: number | null = null;
+        for (let j = idx - 1; j >= 0; j--) { const pa = byBM[b.id]?.[months[j]]; if (pa && pa.real) { prevReal = pa.real; break; } }
+        const varPct = (hasData && prevReal != null && prevReal > 0) ? ((real - prevReal) / prevReal) * 100 : null;
+        return { real, plan, pct, varPct, hasData };
+      });
+      return { m, cells };
+    }).filter(r => r.cells.some(c => c.hasData));
+  }, [months, branchesTabla, byBM]);
 
   if (loading) return <div className="py-16 text-center"><Loader2 size={24} className="animate-spin text-brand-500 mx-auto" /><p className="text-[10px] font-black uppercase text-text-dim mt-2">Cargando análisis…</p></div>;
 
@@ -269,48 +273,57 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
         )}
       </div>
 
-      {/* Cuadro: sucursales × meses · reales y presupuestadas */}
+      {/* Cuadro pivot: meses en filas · sucursales en columnas */}
       <div className="bg-bg-sidebar border border-border-dim rounded-xl p-5 shadow-sm">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-1">
           <Building2 size={16} className="text-brand-500" />
-          <h3 className="text-[12px] font-black uppercase tracking-wider text-text-main">Cuadro de horas por sucursal y mes</h3>
+          <h3 className="text-[12px] font-black uppercase tracking-wider text-text-main">Cuadro mensual por sucursal</h3>
         </div>
-        {filasTabla.out.length === 0 ? (
+        <p className="text-[9px] font-bold uppercase text-text-dim opacity-70 mb-3">Real · Presup. · % (real/presup.) · Var. = variación de horas reales vs el mes anterior</p>
+        {matriz.length === 0 || branchesTabla.length === 0 ? (
           <p className="text-center text-[11px] text-text-dim italic py-8">Sin datos cargados.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[11px] border-collapse min-w-[560px]">
-              <thead><tr className="bg-bg-accent/20 text-text-dim">
-                <th className="p-2 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
-                <th className="p-2 text-left text-[9px] font-black uppercase tracking-widest">Mes</th>
-                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Presupuestadas</th>
-                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Reales</th>
-                <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest">Desvío</th>
-              </tr></thead>
+            <table className="text-[11px] border-collapse" style={{ minWidth: `${110 + branchesTabla.length * 220}px` }}>
+              <thead>
+                <tr className="bg-bg-accent/25 text-text-dim">
+                  <th rowSpan={2} className="p-2 text-left text-[9px] font-black uppercase tracking-widest sticky left-0 bg-bg-sidebar border-r border-border-dim">Mes</th>
+                  {branchesTabla.map(b => (
+                    <th key={b.id} colSpan={4} className="p-2 text-center text-[9px] font-black uppercase tracking-widest border-l border-border-dim">{branchName(b.id).replace(/^craft\s*/i, '')}</th>
+                  ))}
+                </tr>
+                <tr className="bg-bg-accent/15 text-text-dim">
+                  {branchesTabla.map(b => (
+                    <React.Fragment key={b.id}>
+                      <th className="p-1.5 text-right text-[8px] font-black uppercase border-l border-border-dim">Real</th>
+                      <th className="p-1.5 text-right text-[8px] font-black uppercase">Presup.</th>
+                      <th className="p-1.5 text-right text-[8px] font-black uppercase">%</th>
+                      <th className="p-1.5 text-right text-[8px] font-black uppercase">Var.</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
-                {filasTabla.out.map((f, i) => f.kind === 'subtotal' ? (
-                  <tr key={i} className="border-t border-border-dim bg-bg-accent/15 font-black">
-                    <td className="p-2 text-text-main uppercase text-[10px]">{f.branch}</td>
-                    <td className="p-2 text-text-dim uppercase text-[9px]">Total</td>
-                    <td className="p-2 text-right font-mono" style={{ color: C_PLAN }}>{fmtH(f.planned)}</td>
-                    <td className="p-2 text-right font-mono" style={{ color: C_REAL }}>{fmtH(f.real)}</td>
-                    <td className={cn2(f.real - f.planned) + ' p-2 text-right font-mono'}>{f.real - f.planned >= 0 ? '+' : ''}{fmtH(f.real - f.planned)}</td>
-                  </tr>
-                ) : (
-                  <tr key={i} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
-                    <td className="p-2 font-bold text-text-main">{f.branch}</td>
-                    <td className="p-2 text-text-dim">{f.mes}</td>
-                    <td className="p-2 text-right font-mono text-text-dim">{fmtH(f.planned)}</td>
-                    <td className="p-2 text-right font-mono text-text-main">{fmtH(f.real)}</td>
-                    <td className={cn2(f.real - f.planned) + ' p-2 text-right font-mono'}>{f.real - f.planned >= 0 ? '+' : ''}{fmtH(f.real - f.planned)}</td>
+                {matriz.map(row => (
+                  <tr key={row.m} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                    <td className="p-2 font-black text-text-main uppercase text-[10px] whitespace-nowrap sticky left-0 bg-bg-sidebar border-r border-border-dim">{mesLabel(row.m)}</td>
+                    {row.cells.map((c, j) => c.hasData ? (
+                      <React.Fragment key={j}>
+                        <td className="p-1.5 text-right font-mono text-text-main border-l border-border-dim">{Math.round(c.real).toLocaleString('es-AR')}</td>
+                        <td className="p-1.5 text-right font-mono text-text-dim">{Math.round(c.plan).toLocaleString('es-AR')}</td>
+                        <td className={cn('p-1.5 text-right font-mono font-bold', c.pct == null ? 'text-text-dim' : c.pct > 100 ? 'text-red-500' : 'text-emerald-500')}>{c.pct == null ? '—' : `${c.pct.toFixed(0)}%`}</td>
+                        <td className={cn('p-1.5 text-right font-mono', c.varPct == null ? 'text-text-dim' : c.varPct > 0.05 ? 'text-red-500' : c.varPct < -0.05 ? 'text-emerald-500' : 'text-text-dim')}>{c.varPct == null ? '—' : `${c.varPct > 0 ? '▲+' : c.varPct < 0 ? '▼' : ''}${c.varPct.toFixed(1)}%`}</td>
+                      </React.Fragment>
+                    ) : (
+                      <React.Fragment key={j}>
+                        <td className="p-1.5 text-right text-text-dim border-l border-border-dim">—</td>
+                        <td className="p-1.5 text-right text-text-dim">—</td>
+                        <td className="p-1.5 text-right text-text-dim">—</td>
+                        <td className="p-1.5 text-right text-text-dim">—</td>
+                      </React.Fragment>
+                    ))}
                   </tr>
                 ))}
-                <tr className="border-t-2 border-border-dim bg-bg-accent/30 font-black">
-                  <td className="p-2 text-text-main uppercase" colSpan={2}>Total general</td>
-                  <td className="p-2 text-right font-mono" style={{ color: C_PLAN }}>{fmtH(filasTabla.gp)}</td>
-                  <td className="p-2 text-right font-mono" style={{ color: C_REAL }}>{fmtH(filasTabla.gr)}</td>
-                  <td className={cn2(filasTabla.gr - filasTabla.gp) + ' p-2 text-right font-mono'}>{filasTabla.gr - filasTabla.gp >= 0 ? '+' : ''}{fmtH(filasTabla.gr - filasTabla.gp)}</td>
-                </tr>
               </tbody>
             </table>
           </div>
