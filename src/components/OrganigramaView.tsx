@@ -94,16 +94,26 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const wrap = canvasRef.current; if (!wrap) return;
     const wr = wrap.getBoundingClientRect();
     const ls: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
+    // Punto donde la recta centro→centro corta el borde del rectángulo (para no atravesar la caja).
+    const bordePunto = (r: DOMRect, haciaX: number, haciaY: number) => {
+      const cx = r.left - wr.left + r.width / 2, cy = r.top - wr.top + r.height / 2;
+      const dx = haciaX - cx, dy = haciaY - cy;
+      if (dx === 0 && dy === 0) return { x: cx, y: cy };
+      const sx = dx !== 0 ? (r.width / 2) / Math.abs(dx) : Infinity;
+      const sy = dy !== 0 ? (r.height / 2) / Math.abs(dy) : Infinity;
+      const s = Math.min(sx, sy);
+      return { x: cx + dx * s, y: cy + dy * s };
+    };
     asesores.forEach(a => {
       if (!a.asesor_de) return;
       const aEl = asesorRefs.current[a.id]; const tEl = nodeRefs.current[a.asesor_de];
       if (!aEl || !tEl) return;
       const ar = aEl.getBoundingClientRect(); const tr = tEl.getBoundingClientRect();
-      ls.push({
-        id: a.id,
-        x1: ar.left - wr.left + ar.width / 2, y1: ar.top - wr.top + ar.height / 2,
-        x2: tr.left - wr.left + tr.width / 2, y2: tr.top - wr.top + tr.height / 2,
-      });
+      const acx = ar.left - wr.left + ar.width / 2, acy = ar.top - wr.top + ar.height / 2;
+      const tcx = tr.left - wr.left + tr.width / 2, tcy = tr.top - wr.top + tr.height / 2;
+      const p1 = bordePunto(ar, tcx, tcy); // borde del asesor mirando al puesto
+      const p2 = bordePunto(tr, acx, acy); // borde del puesto mirando al asesor
+      ls.push({ id: a.id, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
     });
     setLines(ls);
   };
@@ -244,7 +254,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const nombres = asignadosNombres(p.id);
     return (
       <>
-        <div className="font-black text-[12px] text-text-main uppercase leading-tight">{p.nombre}</div>
+        <div className="font-black text-[10.5px] text-text-main uppercase leading-tight">{p.nombre}</div>
         {p.area && <div className="text-[8px] font-black uppercase tracking-widest text-brand-500 mt-0.5">{p.area}</div>}
         {p.branch_id && <div className="text-[8px] font-bold uppercase text-text-dim flex items-center gap-1"><Building2 size={8} /> {branchName(p.branch_id)}</div>}
         <div className="mt-1.5 min-h-[16px]">
@@ -265,7 +275,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const hijos = (childrenOf[p.id] || []).slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre));
     return (
       <li key={p.id}>
-        <div ref={el => { nodeRefs.current[p.id] = el; }} className="org-node bg-bg-sidebar border border-border-dim rounded-xl shadow-sm px-3 py-2.5 inline-block align-top text-left w-[190px]">
+        <div ref={el => { nodeRefs.current[p.id] = el; }} className="org-node bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 inline-block align-top text-left w-[148px]">
           <Caja p={p} />
           <Acciones p={p} extra />
         </div>
@@ -344,7 +354,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             {asesores.map(a => (
               <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
                 onPointerDown={e => onAsesorPointerDown(e, a)}
-                className={cn('absolute w-[190px] bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-xl shadow-sm px-3 py-2.5 text-left select-none', isReadOnly ? '' : 'cursor-move')}
+                className={cn('absolute w-[148px] bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 text-left select-none', isReadOnly ? '' : 'cursor-move')}
                 style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40 }}>
                 <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
                 <Caja p={a} />
