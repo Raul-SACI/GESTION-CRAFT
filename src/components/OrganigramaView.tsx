@@ -84,10 +84,13 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
 
   // ── Refs y líneas punteadas de asesores ──
   const canvasRef = useRef<HTMLDivElement>(null);
+  const treeRef = useRef<HTMLUListElement>(null);
   const nodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const asesorRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [lines, setLines] = useState<{ id: string; x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [treeW, setTreeW] = useState(0); // ancho real del árbol, para que el lienzo no lo corte
   const recomputeLines = () => {
+    const t = treeRef.current; if (t) setTreeW(t.scrollWidth);
     const wrap = canvasRef.current; if (!wrap) return;
     const wr = wrap.getBoundingClientRect();
     const ls: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
@@ -104,7 +107,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     });
     setLines(ls);
   };
-  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados]);
+  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados, treeW]);
   useEffect(() => {
     const h = () => recomputeLines();
     window.addEventListener('resize', h);
@@ -116,10 +119,10 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
 
   // Tamaño del lienzo (para que entren los asesores arrastrados lejos).
   const canvasSize = useMemo(() => {
-    let w = 1200, h = 620;
+    let w = Math.max(1200, treeW + 80), h = 620;
     asesores.forEach(a => { if (a.pos_x != null) w = Math.max(w, a.pos_x + 240); if (a.pos_y != null) h = Math.max(h, a.pos_y + 160); });
     return { w, h };
-  }, [asesores]);
+  }, [asesores, treeW]);
 
   // ── Drag de asesores ──
   const dragState = useRef<{ id: string; startX: number; startY: number; origX: number; origY: number } | null>(null);
@@ -335,7 +338,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             </svg>
             {/* Árbol jerárquico */}
             <div className="orgtree pt-4 flex justify-center">
-              <ul>{roots.slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre)).map(renderNode)}</ul>
+              <ul ref={treeRef}>{roots.slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre)).map(renderNode)}</ul>
             </div>
             {/* Asesores (arrastrables, línea punteada) */}
             {asesores.map(a => (
