@@ -53,7 +53,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
       const [pu, asg, emp] = await Promise.all([
         supabase.from('org_puestos').select('*').order('sort_order').order('nombre'),
         supabase.from('org_asignaciones').select('puesto_id, empleado_id'),
-        supabase.from('employees').select('id, name, legajo, position, branch_id, is_active'),
+        supabase.from('employees').select('id, name, position, branch_id, is_active'),
       ]);
       setPuestos(((pu.data as any[]) || []).map(r => ({
         id: r.id, nombre: r.nombre || '', area: r.area || '', parent_id: r.parent_id || null, branch_id: r.branch_id || '',
