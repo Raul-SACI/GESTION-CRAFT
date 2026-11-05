@@ -47,12 +47,14 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
       setLoading(true);
       try {
         const page = 1000;
-        // Presupuestos aprobados
+        // Presupuestos (planificadas). Se toma el presupuesto cargado aunque todavía no
+        // esté aprobado: hay un único juego de filas por sucursal+mes (al guardar se
+        // reemplaza), así que no hay duplicación.
         const budgets: any[] = [];
         for (let from = 0; from < 200000; from += page) {
           const { data } = await supabase.from('hour_budgets')
-            .select('branch_id, month, position_name, week1, week2, week3, week4, week5, planned_hours, status')
-            .eq('status', 'approved').range(from, from + page - 1);
+            .select('branch_id, month, position_name, week1, week2, week3, week4, week5, planned_hours, total_hours, status')
+            .range(from, from + page - 1);
           const rows = data || []; budgets.push(...rows);
           if (rows.length < page) break;
         }
@@ -78,7 +80,7 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
           const bid = b.branch_id; const m = b.month; if (!bid || !m) return;
           const role = budgetNameToRoleId(b.position_name || '') || 'otros';
           let sum = 0; for (let w = 1; w <= 5; w++) sum += Number(b[`week${w}`]) || 0;
-          if (sum === 0) sum = Number(b.planned_hours) || 0;
+          if (sum === 0) sum = Number(b.planned_hours) || Number(b.total_hours) || 0;
           const t = touch(bid, m, role); t.tot.planned += sum; t.role.planned += sum;
         });
         logs.forEach(l => {
