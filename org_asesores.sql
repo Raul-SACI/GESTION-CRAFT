@@ -5,3 +5,6 @@ alter table public.org_puestos
   add column if not exists pos_x     numeric,
   add column if not exists pos_y     numeric,
   add column if not exists asesor_de uuid references public.org_puestos(id) on delete set null;
+
+-- Refresca el cache del API (si no, PostgREST sigue sin "ver" las columnas nuevas).
+notify pgrst, 'reload schema';
