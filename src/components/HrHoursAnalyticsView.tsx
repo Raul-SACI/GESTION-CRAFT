@@ -298,7 +298,7 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
                       <th className="p-1.5 text-right text-[8px] font-black uppercase border-l border-border-dim">Real</th>
                       <th className="p-1.5 text-right text-[8px] font-black uppercase">Presup.</th>
                       <th className="p-1.5 text-right text-[8px] font-black uppercase">%</th>
-                      <th className="p-1.5 text-right text-[8px] font-black uppercase">Var.</th>
+                      <th className="p-1.5 text-right text-[8px] font-black uppercase leading-tight" title="Variación de horas reales respecto al mes anterior de esta sucursal">Var. vs<br />mes ant.</th>
                     </React.Fragment>
                   ))}
                 </tr>
