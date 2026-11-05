@@ -53,7 +53,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
       const [pu, asg, emp] = await Promise.all([
         supabase.from('org_puestos').select('*').order('sort_order').order('nombre'),
         supabase.from('org_asignaciones').select('puesto_id, empleado_id'),
-        supabase.from('employees').select('id, name, legajo, position, branch_id, active'),
+        supabase.from('employees').select('id, name, legajo, position, branch_id, is_active'),
       ]);
       setPuestos(((pu.data as any[]) || []).map(r => ({
         id: r.id, nombre: r.nombre || '', area: r.area || '', parent_id: r.parent_id || null, branch_id: r.branch_id || '',
@@ -61,7 +61,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
         es_asesor: !!r.es_asesor, pos_x: r.pos_x == null ? null : Number(r.pos_x), pos_y: r.pos_y == null ? null : Number(r.pos_y), asesor_de: r.asesor_de || null,
       })));
       setAsign(((asg.data as any[]) || []).map(r => ({ puesto_id: r.puesto_id, empleado_id: r.empleado_id })));
-      setEmpleados(((emp.data as any[]) || []).map(r => ({ id: r.id, name: r.name || '', legajo: r.legajo || '', position: r.position || '', branch_id: r.branch_id || '', active: r.active !== false })));
+      setEmpleados(((emp.data as any[]) || []).map(r => ({ id: r.id, name: r.name || '', legajo: r.legajo || '', position: r.position || '', branch_id: r.branch_id || '', active: r.is_active !== false })));
     } catch (e) { console.warn('Organigrama load error', e); }
     finally { setLoading(false); }
   };
@@ -87,37 +87,35 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   const treeRef = useRef<HTMLUListElement>(null);
   const nodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const asesorRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [lines, setLines] = useState<{ id: string; x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [lines, setLines] = useState<{ id: string; points: string }[]>([]);
   const [treeW, setTreeW] = useState(0); // ancho real del árbol, para que el lienzo no lo corte
+  // Tamaño (ancho) de las tarjetas, ajustable por el usuario y persistido.
+  const [cardW, setCardW] = useState(() => { const v = Number(localStorage.getItem('org_card_w')); return v >= 110 && v <= 260 ? v : 150; });
+  useEffect(() => { try { localStorage.setItem('org_card_w', String(cardW)); } catch { /* ignore */ } }, [cardW]);
   const recomputeLines = () => {
     const t = treeRef.current; if (t) setTreeW(t.scrollWidth);
     const wrap = canvasRef.current; if (!wrap) return;
     const wr = wrap.getBoundingClientRect();
-    const ls: { id: string; x1: number; y1: number; x2: number; y2: number }[] = [];
-    // Punto donde la recta centro→centro corta el borde del rectángulo (para no atravesar la caja).
-    const bordePunto = (r: DOMRect, haciaX: number, haciaY: number) => {
-      const cx = r.left - wr.left + r.width / 2, cy = r.top - wr.top + r.height / 2;
-      const dx = haciaX - cx, dy = haciaY - cy;
-      if (dx === 0 && dy === 0) return { x: cx, y: cy };
-      const sx = dx !== 0 ? (r.width / 2) / Math.abs(dx) : Infinity;
-      const sy = dy !== 0 ? (r.height / 2) / Math.abs(dy) : Infinity;
-      const s = Math.min(sx, sy);
-      return { x: cx + dx * s, y: cy + dy * s };
-    };
+    const ls: { id: string; points: string }[] = [];
     asesores.forEach(a => {
       if (!a.asesor_de) return;
       const aEl = asesorRefs.current[a.id]; const tEl = nodeRefs.current[a.asesor_de];
       if (!aEl || !tEl) return;
       const ar = aEl.getBoundingClientRect(); const tr = tEl.getBoundingClientRect();
-      const acx = ar.left - wr.left + ar.width / 2, acy = ar.top - wr.top + ar.height / 2;
-      const tcx = tr.left - wr.left + tr.width / 2, tcy = tr.top - wr.top + tr.height / 2;
-      const p1 = bordePunto(ar, tcx, tcy); // borde del asesor mirando al puesto
-      const p2 = bordePunto(tr, acx, acy); // borde del puesto mirando al asesor
-      ls.push({ id: a.id, x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+      const aL = ar.left - wr.left, aR = ar.right - wr.left, ay = ar.top - wr.top + ar.height / 2;
+      const tL = tr.left - wr.left, tR = tr.right - wr.left, ty = tr.top - wr.top + tr.height / 2;
+      // Conector ortogonal tipo L/escalón: sale por el lado del asesor que mira al puesto,
+      // va en el espacio del medio y entra por el lado del puesto. Nunca cruza las cajas.
+      const targetRight = (tL + tR) / 2 >= (aL + aR) / 2;
+      const aX = targetRight ? aR : aL;
+      const tX = targetRight ? tL : tR;
+      const midX = (aX + tX) / 2;
+      const points = `${aX},${ay} ${midX},${ay} ${midX},${ty} ${tX},${ty}`;
+      ls.push({ id: a.id, points });
     });
     setLines(ls);
   };
-  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados, treeW]);
+  useLayoutEffect(() => { recomputeLines(); /* eslint-disable-next-line */ }, [puestos, asign, empleados, treeW, cardW]);
   useEffect(() => {
     const h = () => recomputeLines();
     window.addEventListener('resize', h);
@@ -275,7 +273,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const hijos = (childrenOf[p.id] || []).slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre));
     return (
       <li key={p.id}>
-        <div ref={el => { nodeRefs.current[p.id] = el; }} className="org-node bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 inline-block align-top text-left w-[148px]">
+        <div ref={el => { nodeRefs.current[p.id] = el; }} style={{ width: cardW }} className="org-node bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 inline-block align-top text-left">
           <Caja p={p} />
           <Acciones p={p} extra />
         </div>
@@ -326,7 +324,13 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             </button>
           )}
           {loading && <Loader2 size={15} className="animate-spin text-brand-500" />}
-          <span className="text-[10px] text-text-dim font-bold uppercase ml-auto">{jerarquicos.length} puesto(s) · {asesores.length} asesor(es)</span>
+          <div className="flex items-center gap-2 ml-auto bg-bg-accent/40 border border-border-dim rounded-lg px-3 py-1.5">
+            <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Tamaño</span>
+            <button onClick={() => setCardW(w => Math.max(110, w - 10))} className="text-text-dim hover:text-text-main w-5 h-5 flex items-center justify-center rounded border border-border-dim text-[12px] font-black">−</button>
+            <input type="range" min={110} max={260} step={2} value={cardW} onChange={e => setCardW(Number(e.target.value))} className="w-28 accent-brand-500" />
+            <button onClick={() => setCardW(w => Math.min(260, w + 10))} className="text-text-dim hover:text-text-main w-5 h-5 flex items-center justify-center rounded border border-border-dim text-[12px] font-black">+</button>
+          </div>
+          <span className="text-[10px] text-text-dim font-bold uppercase">{jerarquicos.length} puesto(s) · {asesores.length} asesor(es)</span>
         </div>
       </div>
 
@@ -343,7 +347,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             {/* Líneas punteadas asesor → puesto */}
             <svg className="absolute inset-0 pointer-events-none" width={canvasSize.w} height={canvasSize.h} style={{ overflow: 'visible' }}>
               {lines.map(l => (
-                <line key={l.id} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="rgb(99,102,241)" strokeWidth={1.6} strokeDasharray="5 4" />
+                <polyline key={l.id} points={l.points} fill="none" stroke="rgb(99,102,241)" strokeWidth={1.6} strokeDasharray="5 4" strokeLinejoin="round" />
               ))}
             </svg>
             {/* Árbol jerárquico */}
@@ -354,8 +358,8 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             {asesores.map(a => (
               <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
                 onPointerDown={e => onAsesorPointerDown(e, a)}
-                className={cn('absolute w-[148px] bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 text-left select-none', isReadOnly ? '' : 'cursor-move')}
-                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40 }}>
+                className={cn('absolute bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 text-left select-none', isReadOnly ? '' : 'cursor-move')}
+                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: cardW }}>
                 <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
                 <Caja p={a} />
                 <Acciones p={a} />
