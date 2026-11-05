@@ -25,12 +25,14 @@ import {
   Plus,
   Trash2,
   DollarSign,
+  BarChart3,
   X
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { Branch } from '../types';
 import { supabase } from '../lib/supabase';
 import HrMonthlyPayrollView from './HrMonthlyPayrollView';
+import HrHoursAnalyticsView from './HrHoursAnalyticsView';
 
 interface HrHourRecord {
   id: string;
@@ -76,7 +78,7 @@ function getMaestroTitleForRole(roleId: string, branchId?: string): string | nul
 }
 
 // Normaliza el nombre de puesto del presupuesto (position_name) a un roleId genérico.
-function budgetNameToRoleId(name: string): string | null {
+export function budgetNameToRoleId(name: string): string | null {
   const n = (name || '').toLowerCase().trim();
   if (n.includes('encargado')) return 'encargado';
   if (n.includes('lider de cocina') || n.includes('líder de cocina') || n.includes('jefe de cocina') || n.includes('jefe cocina')) return 'jefe_cocina';
@@ -145,7 +147,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // --- MONTHLY PAYROLL STATES & HANDLERS ---
-  const [activeTab, setActiveTab] = useState<'weekly_control' | 'monthly_payroll'>('weekly_control');
+  const [activeTab, setActiveTab] = useState<'weekly_control' | 'monthly_payroll' | 'analytics'>('weekly_control');
 
   // Helper to calculate date ranges for a given year, month, and week number
   const getWeekRange = (yearMonthStr: string, weekNum: number) => {
@@ -674,14 +676,27 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           >
             <Users size={12} /> Liquidación Mensual
           </button>
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={cn(
+              "flex-1 px-4 py-2 text-[9px] font-black uppercase tracking-wider rounded transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeTab === 'analytics'
+                ? "bg-brand-500 text-black shadow font-black"
+                : "text-text-dim hover:text-text-main"
+            )}
+          >
+            <BarChart3 size={12} /> Análisis
+          </button>
         </div>
       </div>
 
-      {activeTab === 'monthly_payroll' ? (
-        <HrMonthlyPayrollView 
-          branches={branches} 
-          selectedMonth={selectedMonth} 
-          setSelectedMonth={setSelectedMonth} 
+      {activeTab === 'analytics' ? (
+        <HrHoursAnalyticsView branches={branches} />
+      ) : activeTab === 'monthly_payroll' ? (
+        <HrMonthlyPayrollView
+          branches={branches}
+          selectedMonth={selectedMonth}
+          setSelectedMonth={setSelectedMonth}
         />
       ) : (
         <>
