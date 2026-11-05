@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Upload, FileSpreadsheet, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Minus, Banknote,
-  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy, Search, X, Percent, Plus, Pencil
+  MessageSquareWarning, Settings2, Store, Tag, BarChart3, Trash2, Info, CalendarDays, Megaphone, Activity, Trophy, Search, X, Percent, Plus, Pencil, Copy
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Branch } from '../types';
@@ -1287,6 +1287,9 @@ function CampaniasTab({ month, isReadOnly }: { month: string; isReadOnly: boolea
   const [editId, setEditId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const prevMonthKey = (() => { const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; })();
+  const [srcMonth, setSrcMonth] = useState(prevMonthKey);
+  const [copiando, setCopiando] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -1323,6 +1326,36 @@ function CampaniasTab({ month, isReadOnly }: { month: string; isReadOnly: boolea
     if (!window.confirm('¿Eliminar esta campaña?')) return;
     try { const { error } = await supabase.from('py_campanias').delete().eq('id', id); if (error) throw error; if (editId === id) resetForm(); await load(); }
     catch (e: any) { setErr(e.message || String(e)); }
+  };
+
+  const copiarDeMes = async () => {
+    if (isReadOnly) { alert(READONLY_MSG); return; }
+    if (srcMonth === month) { setErr('Elegí un mes de origen distinto al actual.'); return; }
+    const [sy, sm] = srcMonth.split('-').map(Number);
+    const sStart = `${srcMonth}-01`, sEnd = `${srcMonth}-${String(new Date(sy, sm, 0).getDate()).padStart(2, '0')}`;
+    setCopiando(true); setErr(null);
+    try {
+      const { data, error } = await supabase.from('py_campanias').select('*').lte('desde', sEnd).gte('hasta', sStart).order('desde', { ascending: true });
+      if (error) throw error;
+      const origen = (data as any[]) || [];
+      if (origen.length === 0) { setErr(`No hay campañas en ${monthLabel(srcMonth)} para copiar.`); setCopiando(false); return; }
+      // Mueve una fecha al mes actual conservando el día (recortado al largo del mes).
+      const shift = (dateStr: string) => { const day = Math.min(parseInt(String(dateStr || '').slice(8, 10)) || 1, new Date(y, m, 0).getDate()); return `${month}-${String(day).padStart(2, '0')}`; };
+      // Evita duplicar las que ya están cargadas este mes (misma marca + campaña + producto).
+      const key = (c: any) => `${(c.marca || 'Craft')}|${String(c.campania || '').trim().toLowerCase()}|${String(c.producto || '').trim().toLowerCase()}`;
+      const yaHay = new Set(rows.map(key));
+      const nuevas = origen.filter(c => !yaHay.has(key(c))).map(c => {
+        let desde = shift(c.desde || sStart), hasta = shift(c.hasta || sEnd);
+        if (hasta < desde) hasta = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+        return { marca: c.marca || 'Craft', campania: String(c.campania || '').trim(), detalle: String(c.detalle || '').trim(), producto: String(c.producto || '').trim(), precio: Number(c.precio) || 0, precio_desc: Number(c.precio_desc) || 0, desde, hasta };
+      });
+      if (nuevas.length === 0) { setErr('Todas las campañas de ese mes ya están cargadas en el mes actual.'); setCopiando(false); return; }
+      const { error: insErr } = await supabase.from('py_campanias').insert(nuevas);
+      if (insErr) throw insErr;
+      await load();
+      alert(`Se copiaron ${nuevas.length} campaña(s) de ${monthLabel(srcMonth)} a ${monthLabel(month)}${origen.length - nuevas.length > 0 ? ` (${origen.length - nuevas.length} ya existían)` : ''}.`);
+    } catch (e: any) { setErr(e.message || String(e)); }
+    finally { setCopiando(false); }
   };
 
   const lista = filtro === 'all' ? rows : rows.filter(r => (r.marca || 'Craft') === filtro);
@@ -1376,6 +1409,16 @@ function CampaniasTab({ month, isReadOnly }: { month: string; isReadOnly: boolea
         </div>
         {loading && <RefreshCw size={13} className="animate-spin text-rose-500" />}
         <span className="text-[10px] text-text-dim font-bold">{lista.length} campaña(s) en {monthLabel(month)}</span>
+        {!isReadOnly && (
+          <div className="flex items-center gap-1.5 ml-auto bg-bg-accent/40 border border-border-dim rounded-lg px-2.5 py-1.5">
+            <span className="text-[9px] font-black uppercase text-text-dim tracking-widest">Copiar de</span>
+            <input type="month" value={srcMonth} onChange={e => setSrcMonth(e.target.value)} className="bg-bg-card border border-border-dim rounded px-2 py-1 text-[10px] font-bold text-text-main outline-none focus:border-rose-500" />
+            <button onClick={copiarDeMes} disabled={copiando} title="Copiar las campañas de ese mes a este mes (ajusta las fechas y no duplica)"
+              className="flex items-center gap-1 bg-rose-600/10 text-rose-600 border border-rose-500/30 rounded px-2.5 py-1 text-[9px] font-black uppercase tracking-widest hover:bg-rose-600/20 disabled:opacity-50">
+              {copiando ? <RefreshCw size={11} className="animate-spin" /> : <Copy size={11} />} Copiar a {monthLabel(month)}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabla */}
