@@ -53,7 +53,10 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
         const budgets: any[] = [];
         for (let from = 0; from < 200000; from += page) {
           const { data } = await supabase.from('hour_budgets')
-            .select('branch_id, month, position_name, week1, week2, week3, week4, week5, planned_hours, total_hours, status')
+            .select('branch_id, month, position_name, position_id, week1, week2, week3, week4, week5, planned_hours, total_hours, status')
+            // Orden estable: sin esto la paginación con .range() saltea filas (>1000 por turno).
+            .order('branch_id', { ascending: true }).order('month', { ascending: true })
+            .order('position_name', { ascending: true }).order('position_id', { ascending: true })
             .range(from, from + page - 1);
           const rows = data || []; budgets.push(...rows);
           if (rows.length < page) break;
@@ -62,7 +65,10 @@ export default function HrHoursAnalyticsView({ branches }: { branches: Branch[] 
         const logs: any[] = [];
         for (let from = 0; from < 500000; from += page) {
           const { data } = await supabase.from('hr_hour_logs')
-            .select('branch_id, month, position_name, position_id, hours_rrhh').range(from, from + page - 1);
+            .select('branch_id, month, position_name, position_id, hours_rrhh, week_number')
+            .order('branch_id', { ascending: true }).order('month', { ascending: true })
+            .order('week_number', { ascending: true }).order('position_id', { ascending: true })
+            .range(from, from + page - 1);
           const rows = data || []; logs.push(...rows);
           if (rows.length < page) break;
         }
