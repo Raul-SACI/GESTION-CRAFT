@@ -142,7 +142,7 @@ class TabErrorBoundary extends React.Component<{ children: React.ReactNode }, { 
 }
 
 export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
-  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'ranking' | 'importar' | 'campanias' | 'config'>('comercial');
+  const [tab, setTab] = useState<'comercial' | 'dia' | 'publicidad' | 'operativo' | 'liquidaciones' | 'reclamos' | 'ranking' | 'importar' | 'campanias' | 'performance' | 'config'>('comercial');
   const [periodo, setPeriodo] = useState<ComPeriodo[]>([]);
   const [comDia, setComDia] = useState<ComDia[]>([]);
   const [adsDia, setAdsDia] = useState<AdsDia[]>([]);
@@ -302,6 +302,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
           ['liquidaciones', 'Liquidaciones', Banknote],
           ['importar', 'Importar', Upload],
           ['campanias', 'Campañas del Mes', Percent],
+          ['performance', 'Performance', TrendingUp],
           ['config', 'Semáforos', Settings2],
         ] as const).map(([k, l, Icon]) => (
           <button key={k} onClick={() => setTab(k as any)}
@@ -312,7 +313,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         ))}
       </div>
 
-      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos' || tab === 'ranking' || tab === 'campanias') && (
+      {(tab === 'comercial' || tab === 'dia' || tab === 'publicidad' || tab === 'operativo' || tab === 'reclamos' || tab === 'ranking' || tab === 'campanias' || tab === 'performance') && (
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/80">
             <button onClick={prevMonth} className="p-1.5 hover:bg-bg-sidebar rounded text-text-dim"><ChevronLeft size={15} /></button>
@@ -322,7 +323,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
           </div>
           <span className="text-[10px] text-text-dim font-bold uppercase tracking-wider">Semanas del negocio · 1: 1-7 · 2: 8-14 · 3: 15-21 · 4: 22-fin</span>
           {loading && <RefreshCw size={13} className="animate-spin text-rose-500" />}
-          {!loading && tab !== 'campanias' && (
+          {!loading && tab !== 'campanias' && tab !== 'performance' && (
             dataUpTo
               ? <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-600 bg-emerald-500/10 border border-emerald-500/25 rounded-lg px-2.5 py-1"><CalendarDays size={12} /> Datos cargados hasta: {dataUpTo}</span>
               : <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-500/10 border border-amber-500/25 rounded-lg px-2.5 py-1"><AlertTriangle size={12} /> Sin datos cargados en este mes</span>
@@ -354,6 +355,7 @@ export default function PedidosYaInformesView({ isReadOnly = false }: Props) {
         {tab === 'ranking' && <RankingTab productos={productos} campanias={campanias} month={month} loading={loading} onGoImport={() => setTab('importar')} />}
         {tab === 'importar' && <ImportarTab isReadOnly={isReadOnly} onDone={loadAll} defMonth={month} />}
         {tab === 'campanias' && <CampaniasTab month={month} isReadOnly={isReadOnly} />}
+        {tab === 'performance' && <PerformanceTab month={month} isReadOnly={isReadOnly} />}
         {tab === 'config' && <ConfigTab isReadOnly={isReadOnly} semaforos={semaforos} onSaved={setSemaforos} />}
       </TabErrorBoundary>
     </div>
@@ -1272,6 +1274,129 @@ function RankingTab({ productos, campanias, month, loading, onGoImport }: { prod
 // ════════════════════════════════════════════════════════════════════════════
 // CAMPAÑAS DEL MES (carga manual de promociones por marca)
 // ════════════════════════════════════════════════════════════════════════════
+// ─────────────────────────── Performance (Impresiones · Sesiones · CVR) ───────────────────────────
+type PerfRow = { id?: number; sucursal: string; marca: string; impresiones: number; sesiones: number; ordenes: number; cvr: number };
+function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: boolean }) {
+  const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+  const [y, m] = month.split('-').map(Number);
+  const [rows, setRows] = useState<PerfRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const { data, error } = await supabase.from('py_performance').select('*').eq('anio', y).eq('mes', m).order('marca', { ascending: true }).order('sucursal', { ascending: true });
+      if (error) throw error;
+      setRows(((data as any[]) || []).map(r => ({ id: r.id, sucursal: r.sucursal || '', marca: r.marca || 'Resto', impresiones: N(r.impresiones), sesiones: N(r.sesiones), ordenes: N(r.ordenes), cvr: N(r.cvr) })));
+    } catch (e: any) { setErr(e.message || String(e)); }
+    finally { setLoading(false); }
+  }, [y, m]);
+  useEffect(() => { load(); }, [load]);
+
+  const setRow = (i: number, patch: Partial<PerfRow>) => setRows(prev => prev.map((r, idx) => idx === i ? { ...r, ...patch } : r));
+  const addRow = (marca = 'Resto') => setRows(prev => [...prev, { sucursal: '', marca, impresiones: 0, sesiones: 0, ordenes: 0, cvr: 0 }]);
+  const delRow = (i: number) => setRows(prev => prev.filter((_, idx) => idx !== i));
+
+  const guardar = async () => {
+    if (isReadOnly) { alert(READONLY_MSG); return; }
+    setSaving(true); setErr(null);
+    try {
+      const validas = rows.filter(r => r.sucursal.trim());
+      // Reemplazar los datos del mes: borrar e insertar lo cargado.
+      const { error: delErr } = await supabase.from('py_performance').delete().eq('anio', y).eq('mes', m);
+      if (delErr) throw delErr;
+      if (validas.length) {
+        const payload = validas.map(r => ({ anio: y, mes: m, sucursal: r.sucursal.trim(), marca: r.marca, impresiones: N(r.impresiones), sesiones: N(r.sesiones), ordenes: N(r.ordenes), cvr: N(r.cvr) }));
+        const { error } = await supabase.from('py_performance').insert(payload); if (error) throw error;
+      }
+      await load();
+      alert('Performance guardado para ' + monthLabel(month) + '.');
+    } catch (e: any) { setErr(e.message || String(e)); }
+    finally { setSaving(false); }
+  };
+
+  const tot = rows.reduce((s, r) => ({ imp: s.imp + N(r.impresiones), ses: s.ses + N(r.sesiones), ord: s.ord + N(r.ordenes) }), { imp: 0, ses: 0, ord: 0 });
+  const cvrGlobal = tot.ses > 0 ? (tot.ord / tot.ses) * 100 : 0;
+  const nf = (n: number) => Math.round(N(n)).toLocaleString('es-AR');
+  const inp = 'bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-mono font-bold text-text-main outline-none focus:border-rose-500 text-right w-full';
+
+  return (
+    <div className="space-y-4">
+      {/* Resumen */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { l: 'Impresiones', v: nf(tot.imp), c: 'text-sky-600' },
+          { l: 'Sesiones', v: nf(tot.ses), c: 'text-indigo-600' },
+          { l: 'Órdenes', v: nf(tot.ord), c: 'text-emerald-600' },
+          { l: 'CVR global (órd/ses)', v: `${cvrGlobal.toFixed(2)}%`, c: 'text-rose-600' },
+        ].map(k => (
+          <div key={k.l} className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+            <div className="text-[9px] font-black uppercase tracking-widest text-text-dim">{k.l}</div>
+            <div className={cn('text-xl font-black font-mono mt-1', k.c)}>{k.v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="text-[10px] font-black uppercase tracking-widest text-text-dim flex items-center gap-1.5">
+            <TrendingUp size={13} className="text-rose-500" /> Performance comercial · {monthLabel(month)}
+          </div>
+          {!isReadOnly && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => addRow('Resto')} className="flex items-center gap-1 text-[9px] font-black uppercase text-rose-600 border border-rose-500/30 rounded px-2.5 py-1.5 hover:bg-rose-500/10"><Plus size={12} /> Fila Resto</button>
+              <button onClick={() => addRow('Café')} className="flex items-center gap-1 text-[9px] font-black uppercase text-amber-600 border border-amber-500/30 rounded px-2.5 py-1.5 hover:bg-amber-500/10"><Plus size={12} /> Fila Café</button>
+            </div>
+          )}
+        </div>
+        <p className="text-[9px] text-text-dim">Cargá los datos del informe que envía Pedidos Ya (por sucursal y perfil). La <b>CVR3</b> se carga tal cual la trae el informe.</p>
+        {err && <div className="text-[10px] text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{err}</div>}
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px] border-collapse min-w-[720px]">
+            <thead><tr className="bg-bg-accent/20 text-text-dim">
+              <th className="p-2 text-left text-[9px] font-black uppercase tracking-widest">Sucursal</th>
+              <th className="p-2 text-center text-[9px] font-black uppercase tracking-widest w-28">Perfil</th>
+              <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest w-28">Impresiones</th>
+              <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest w-24">Sesiones</th>
+              <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest w-24">Órdenes</th>
+              <th className="p-2 text-right text-[9px] font-black uppercase tracking-widest w-24">CVR3 %</th>
+              <th className="w-8" />
+            </tr></thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} className="p-6 text-center text-text-dim"><RefreshCw size={16} className="animate-spin mx-auto" /></td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={7} className="p-6 text-center text-text-dim text-[11px] italic">Sin datos de performance para este mes. {!isReadOnly && 'Agregá filas con los botones de arriba.'}</td></tr>
+              ) : rows.map((r, i) => (
+                <tr key={i} className="border-t border-border-dim/25">
+                  <td className="p-1.5"><input disabled={isReadOnly} className={cn(inp, 'text-left')} placeholder="Ej. Barrio Norte" value={r.sucursal} onChange={e => setRow(i, { sucursal: e.target.value })} /></td>
+                  <td className="p-1.5">
+                    <select disabled={isReadOnly} className="bg-bg-accent border border-border-dim rounded px-2 py-1.5 text-[11px] font-bold text-text-main outline-none focus:border-rose-500 w-full" value={r.marca} onChange={e => setRow(i, { marca: e.target.value })}>
+                      <option value="Resto">Resto</option><option value="Café">Café</option>
+                    </select>
+                  </td>
+                  <td className="p-1.5"><input type="number" disabled={isReadOnly} className={inp} value={r.impresiones || ''} onChange={e => setRow(i, { impresiones: Number(e.target.value) })} /></td>
+                  <td className="p-1.5"><input type="number" disabled={isReadOnly} className={inp} value={r.sesiones || ''} onChange={e => setRow(i, { sesiones: Number(e.target.value) })} /></td>
+                  <td className="p-1.5"><input type="number" disabled={isReadOnly} className={inp} value={r.ordenes || ''} onChange={e => setRow(i, { ordenes: Number(e.target.value) })} /></td>
+                  <td className="p-1.5"><input type="number" step="0.01" disabled={isReadOnly} className={inp} value={r.cvr || ''} onChange={e => setRow(i, { cvr: Number(e.target.value) })} /></td>
+                  <td className="p-1.5 text-center">{!isReadOnly && <button onClick={() => delRow(i)} className="text-text-dim hover:text-red-500"><Trash2 size={13} /></button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!isReadOnly && (
+          <div className="flex justify-end">
+            <button onClick={guardar} disabled={saving} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-5 py-2.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">{saving ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Guardar {monthLabel(month)}</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type Campania = { id?: number; marca: string; campania: string; detalle: string; producto: string; precio: number; precio_desc: number; desde: string; hasta: string };
 
 function CampaniasTab({ month, isReadOnly }: { month: string; isReadOnly: boolean }) {
