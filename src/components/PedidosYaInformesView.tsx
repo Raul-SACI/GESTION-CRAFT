@@ -1276,6 +1276,36 @@ function RankingTab({ productos, campanias, month, loading, onGoImport }: { prod
 // ════════════════════════════════════════════════════════════════════════════
 // ─────────────────────────── Performance (Impresiones · Sesiones · CVR) ───────────────────────────
 type PerfRow = { id?: number; sucursal: string; marca: string; impresiones: number; sesiones: number; ordenes: number; cvr: number };
+// En el Excel de Pedidos Ya, impresiones/sesiones vienen con el "." como separador de miles,
+// pero Excel las guarda como número decimal (45.036 = 45036, 1.39 = 1390). Si no es entero, ×1000.
+const perfToInt = (cell: any): number => {
+  if (cell == null || cell === '') return 0;
+  if (typeof cell === 'number') return Number.isInteger(cell) ? cell : Math.round(cell * 1000);
+  let s = String(cell).trim().replace(/\s/g, '').replace('%', '').replace(/,.*/, '').replace(/\./g, '');
+  const n = parseInt(s, 10); return isNaN(n) ? 0 : n;
+};
+// CVR3: 0.3022 (fracción) → 30.22 ; "30,22%" → 30.22
+const perfToCvr = (cell: any): number => {
+  if (cell == null || cell === '') return 0;
+  const raw = typeof cell === 'number' ? cell : parseFloat(String(cell).trim().replace('%', '').replace(',', '.'));
+  if (isNaN(raw)) return 0;
+  return Math.round((raw <= 1 ? raw * 100 : raw) * 100) / 100;
+};
+function parsePerfSheet(rows: any[][]): PerfRow[] {
+  if (!rows || rows.length < 2) return [];
+  const header = (rows[0] || []).map((h: any) => String(h || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''));
+  const col = (...keys: string[]) => header.findIndex(h => keys.some(k => h.includes(k)));
+  const ci = { suc: col('sucursal', 'local', 'tienda'), tipo: col('tipo', 'perfil', 'marca'), imp: col('impres'), ses: col('sesion'), cvr: col('cvr', 'conversi'), ord: col('orden', 'pedido') };
+  if (ci.suc < 0 || ci.imp < 0) return [];
+  const out: PerfRow[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r) continue;
+    const suc = String(r[ci.suc] ?? '').trim(); if (!suc) continue;
+    const marca = /caf/i.test(ci.tipo >= 0 ? String(r[ci.tipo] ?? '') : '') ? 'Café' : 'Resto';
+    out.push({ sucursal: suc, marca, impresiones: perfToInt(r[ci.imp]), sesiones: ci.ses >= 0 ? perfToInt(r[ci.ses]) : 0, ordenes: ci.ord >= 0 ? perfToInt(r[ci.ord]) : 0, cvr: ci.cvr >= 0 ? perfToCvr(r[ci.cvr]) : 0 });
+  }
+  return out;
+}
 function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: boolean }) {
   const N = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
   const [y, m] = month.split('-').map(Number);
@@ -1283,6 +1313,23 @@ function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: bool
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const importar = async (file?: File) => {
+    if (!file || isReadOnly) return;
+    setErr(null); setImportMsg(null);
+    try {
+      const XLSX = await import('xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      let all: PerfRow[] = [];
+      wb.SheetNames.forEach(n => { const rs = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }) as any[][]; all = all.concat(parsePerfSheet(rs)); });
+      if (all.length === 0) { setErr('No se reconocieron filas. El Excel debe tener columnas Sucursal, Tipo, Impresiones, Sesiones y Conversión (CVR3).'); return; }
+      setRows(all);
+      setImportMsg(`Se cargaron ${all.length} fila(s) del Excel en ${monthLabel(month)}. Revisá los datos y tocá "Guardar".`);
+    } catch (e: any) { setErr('Error al leer el Excel: ' + (e.message || e)); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -1345,13 +1392,16 @@ function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: bool
             <TrendingUp size={13} className="text-rose-500" /> Performance comercial · {monthLabel(month)}
           </div>
           {!isReadOnly && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={e => { importar(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+              <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 text-[9px] font-black uppercase text-sky-600 border border-sky-500/30 rounded px-2.5 py-1.5 hover:bg-sky-500/10"><Upload size={12} /> Importar Excel</button>
               <button onClick={() => addRow('Resto')} className="flex items-center gap-1 text-[9px] font-black uppercase text-rose-600 border border-rose-500/30 rounded px-2.5 py-1.5 hover:bg-rose-500/10"><Plus size={12} /> Fila Resto</button>
               <button onClick={() => addRow('Café')} className="flex items-center gap-1 text-[9px] font-black uppercase text-amber-600 border border-amber-500/30 rounded px-2.5 py-1.5 hover:bg-amber-500/10"><Plus size={12} /> Fila Café</button>
             </div>
           )}
         </div>
-        <p className="text-[9px] text-text-dim">Cargá los datos del informe que envía Pedidos Ya (por sucursal y perfil). La <b>CVR3</b> se carga tal cual la trae el informe.</p>
+        <p className="text-[9px] text-text-dim">Importá el Excel que envía Pedidos Ya (Sucursal · Tipo · Impresiones · Sesiones · Conversión CVR3) o cargá las filas a mano. Al importar, los datos quedan en <b>{monthLabel(month)}</b>; revisá y <b>Guardá</b>.</p>
+        {importMsg && <div className="text-[10px] text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded px-3 py-2">{importMsg}</div>}
         {err && <div className="text-[10px] text-red-500 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">{err}</div>}
         <div className="overflow-x-auto">
           <table className="w-full text-[12px] border-collapse min-w-[720px]">
