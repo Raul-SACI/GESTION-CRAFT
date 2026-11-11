@@ -1314,6 +1314,7 @@ function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: bool
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string | null>(null);
+  const [vista, setVista] = useState<'carga' | 'comparativo'>('carga');
   const fileRef = useRef<HTMLInputElement>(null);
 
   const importar = async (file?: File) => {
@@ -1371,6 +1372,14 @@ function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: bool
 
   return (
     <div className="space-y-4">
+      {/* Sub-toggle: carga vs comparativo */}
+      <div className="flex gap-1 bg-bg-accent/40 p-1 rounded-lg border border-border-dim/60 w-fit">
+        {([['carga', 'Carga mensual'], ['comparativo', 'Comparativo mes a mes']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setVista(k)} className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', vista === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+        ))}
+      </div>
+
+      {vista === 'comparativo' ? <PerformanceComparativo /> : (<>
       {/* Resumen */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -1442,6 +1451,125 @@ function PerformanceTab({ month, isReadOnly }: { month: string; isReadOnly: bool
             <button onClick={guardar} disabled={saving} className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg px-5 py-2.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50">{saving ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />} Guardar {monthLabel(month)}</button>
           </div>
         )}
+      </div>
+      </>)}
+    </div>
+  );
+}
+
+// Comparativo mes a mes de Performance (impresiones, sesiones, CVR, órdenes).
+function PerformanceComparativo() {
+  const NN = (v: any) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [metric, setMetric] = useState<'impresiones' | 'sesiones' | 'cvr' | 'ordenes'>('impresiones');
+  const [marcaF, setMarcaF] = useState<'all' | 'Resto' | 'Café'>('all');
+
+  useEffect(() => { (async () => { setLoading(true); try { const { data } = await supabase.from('py_performance').select('*').order('anio', { ascending: true }).order('mes', { ascending: true }); setRows((data as any[]) || []); } catch { setRows([]); } finally { setLoading(false); } })(); }, []);
+
+  const mk = (r: any) => `${r.anio}-${String(r.mes).padStart(2, '0')}`;
+  const sucNorm = (s: any) => String(s || '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const filtered = useMemo(() => marcaF === 'all' ? rows : rows.filter(r => (r.marca || 'Resto') === marcaF), [rows, marcaF]);
+  const months = useMemo(() => Array.from(new Set(filtered.map(mk))).sort(), [filtered]);
+
+  const metricLabel = metric === 'impresiones' ? 'Impresiones' : metric === 'sesiones' ? 'Sesiones' : metric === 'cvr' ? 'CVR3' : 'Órdenes';
+  const esCvr = metric === 'cvr';
+  const fmtVal = (v: number | null) => v == null ? '—' : esCvr ? `${v.toFixed(2)}%` : Math.round(v).toLocaleString('es-AR');
+
+  // Serie total por mes (del métrico elegido)
+  const serie = useMemo(() => months.map(m => {
+    const rs = filtered.filter(r => mk(r) === m);
+    const ses = rs.reduce((s, r) => s + NN(r.sesiones), 0);
+    let valor: number;
+    if (esCvr) { const w = rs.reduce((s, r) => s + NN(r.cvr) * NN(r.sesiones), 0); valor = ses > 0 ? w / ses : (rs.length ? rs.reduce((s, r) => s + NN(r.cvr), 0) / rs.length : 0); }
+    else valor = rs.reduce((s, r) => s + NN(r[metric]), 0);
+    return { mes: monthLabel(m), valor: Math.round(valor * 100) / 100 };
+  }), [months, filtered, metric]);
+
+  // Pivot: filas = sucursal, columnas = meses
+  const pivot = useMemo(() => {
+    const bySuc: Record<string, { name: string; pm: Record<string, { imp: number; ses: number; ord: number; cvrW: number }> }> = {};
+    filtered.forEach(r => {
+      const k = sucNorm(r.sucursal); const e = (bySuc[k] ||= { name: String(r.sucursal || '').trim(), pm: {} });
+      const c = (e.pm[mk(r)] ||= { imp: 0, ses: 0, ord: 0, cvrW: 0 });
+      c.imp += NN(r.impresiones); c.ses += NN(r.sesiones); c.ord += NN(r.ordenes); c.cvrW += NN(r.cvr) * NN(r.sesiones);
+    });
+    const valOf = (c?: { imp: number; ses: number; ord: number; cvrW: number }): number | null => {
+      if (!c) return null;
+      if (esCvr) return c.ses > 0 ? Math.round((c.cvrW / c.ses) * 100) / 100 : null;
+      return metric === 'impresiones' ? c.imp : metric === 'sesiones' ? c.ses : c.ord;
+    };
+    return Object.values(bySuc).sort((a, b) => a.name.localeCompare(b.name)).map(e => {
+      const vals = months.map(m => valOf(e.pm[m]));
+      // variación último mes con dato vs el anterior con dato
+      let varTxt: string | null = null, varColor = 'text-text-dim';
+      const idxs = vals.map((v, i) => v != null ? i : -1).filter(i => i >= 0);
+      if (idxs.length >= 2) {
+        const last = vals[idxs[idxs.length - 1]]!, prev = vals[idxs[idxs.length - 2]]!;
+        if (esCvr) { const d = last - prev; varTxt = `${d >= 0 ? '+' : ''}${d.toFixed(1)} pp`; varColor = d > 0.05 ? 'text-emerald-600' : d < -0.05 ? 'text-red-500' : 'text-text-dim'; }
+        else if (prev > 0) { const d = ((last - prev) / prev) * 100; varTxt = `${d > 0 ? '▲+' : d < 0 ? '▼' : ''}${d.toFixed(1)}%`; varColor = d > 0.05 ? 'text-emerald-600' : d < -0.05 ? 'text-red-500' : 'text-text-dim'; }
+      }
+      return { name: e.name, vals, varTxt, varColor };
+    });
+  }, [filtered, months, metric]);
+
+  const axisTick = { fill: 'var(--text-dim)', fontSize: 10, fontWeight: 700 };
+  const tooltipStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-dim)', borderRadius: 8, color: 'var(--text-main)', fontSize: 11 };
+
+  if (loading) return <div className="py-12 text-center"><RefreshCw size={20} className="animate-spin text-rose-500 mx-auto" /></div>;
+  if (months.length === 0) return <div className="bg-bg-sidebar border border-border-dim rounded-xl p-8 text-center text-[11px] text-text-dim italic">Todavía no hay datos de Performance cargados. Cargá al menos un mes en "Carga mensual".</div>;
+
+  const sel = 'bg-bg-accent border border-border-dim rounded px-3 py-1.5 text-[10px] font-black uppercase text-text-main outline-none focus:border-rose-500';
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex gap-1 bg-bg-accent/30 p-1 rounded-lg border border-border-dim/60">
+          {([['all', 'Todas'], ['Resto', 'Resto'], ['Café', 'Café']] as const).map(([k, l]) => (
+            <button key={k} onClick={() => setMarcaF(k)} className={cn('px-3 py-1.5 text-[10px] font-black uppercase rounded', marcaF === k ? 'bg-rose-600 text-white' : 'text-text-dim hover:text-text-main')}>{l}</button>
+          ))}
+        </div>
+        <select value={metric} onChange={e => setMetric(e.target.value as any)} className={sel}>
+          <option value="impresiones">Impresiones</option>
+          <option value="sesiones">Sesiones</option>
+          <option value="cvr">CVR3 (%)</option>
+          <option value="ordenes">Órdenes</option>
+        </select>
+        <span className="text-[10px] text-text-dim font-bold uppercase">{months.length} mes(es)</span>
+      </div>
+
+      {/* Evolución total del métrico */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+        <h3 className="text-[11px] font-black uppercase tracking-wider text-text-main mb-3">Evolución · {metricLabel} {marcaF !== 'all' ? `· ${marcaF}` : '· total'}</h3>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={serie} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-dim)" />
+            <XAxis dataKey="mes" tick={axisTick} />
+            <YAxis tick={axisTick} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => esCvr ? `${Number(v).toFixed(2)}%` : Math.round(v).toLocaleString('es-AR')} />
+            <Line type="monotone" dataKey="valor" name={metricLabel} stroke="#e11d48" strokeWidth={2.5} dot={{ r: 3 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Pivot sucursal × mes */}
+      <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
+        <div className="px-4 pt-3 text-[9px] font-black uppercase tracking-widest text-text-dim">{metricLabel} por sucursal y mes {marcaF !== 'all' ? `· ${marcaF}` : ''}</div>
+        <table className="w-full text-[11px] border-collapse" style={{ minWidth: `${160 + months.length * 90 + 90}px` }}>
+          <thead><tr className="text-text-dim">
+            <th className="p-2.5 text-left text-[9px] font-black uppercase sticky left-0 bg-bg-sidebar">Sucursal</th>
+            {months.map(m => <th key={m} className="p-2.5 text-right text-[9px] font-black uppercase whitespace-nowrap">{monthLabel(m)}</th>)}
+            <th className="p-2.5 text-right text-[9px] font-black uppercase bg-bg-accent/20">Var. último</th>
+          </tr></thead>
+          <tbody>
+            {pivot.map(r => (
+              <tr key={r.name} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                <td className="p-2.5 font-bold text-text-main whitespace-nowrap sticky left-0 bg-bg-sidebar">{r.name}</td>
+                {r.vals.map((v, i) => <td key={i} className="p-2.5 text-right font-mono text-text-dim">{fmtVal(v)}</td>)}
+                <td className={cn('p-2.5 text-right font-mono font-bold bg-bg-accent/10', r.varColor)}>{r.varTxt || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
