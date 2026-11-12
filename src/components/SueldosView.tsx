@@ -81,7 +81,30 @@ function getMaestroTitleForRole(roleId: string, branchId?: string): string | nul
   return map[roleId] || null;
 }
 
-function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string): number {
+// Valor base VIGENTE para un mes dado, usando el historial del puesto (acepta campos
+// en camelCase o snake_case). Permite que un mes pasado use el sueldo de ese momento.
+function baseValueForMonth(p: any, targetMonth?: string): number {
+  const curVal = Number(p.baseValue ?? p.base_value ?? p.base_hourly_rate ?? 0);
+  const curMonth = p.baseMonth ?? p.base_month ?? '';
+  const prevVal = Number(p.prevBaseValue ?? p.prev_base_value ?? 0);
+  const prevMonth = p.prevBaseMonth ?? p.prev_base_month ?? '';
+  const hist = Array.isArray(p.history) ? p.history : [];
+  const timeline: { date: string; value: number }[] = [];
+  hist.forEach((h: any) => { if (h && h.date) timeline.push({ date: String(h.date), value: Number(h.value) || 0 }); });
+  if (curMonth) {
+    const i = timeline.findIndex(t => t.date === curMonth);
+    if (i >= 0) timeline[i] = { date: String(curMonth), value: curVal };
+    else timeline.push({ date: String(curMonth), value: curVal });
+  }
+  if (prevMonth && !timeline.some(t => t.date === prevMonth)) timeline.push({ date: String(prevMonth), value: prevVal });
+  if (timeline.length === 0) return curVal;
+  timeline.sort((a, b) => a.date.localeCompare(b.date));
+  if (!targetMonth) return timeline[timeline.length - 1].value;
+  const applicable = timeline.filter(t => t.date <= targetMonth);
+  return applicable.length > 0 ? applicable[applicable.length - 1].value : timeline[0].value;
+}
+
+function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string, targetMonth?: string): number {
   // Usa la escala pasada (desde Supabase); si no, cae a localStorage como respaldo.
   let positions: any[] = scale && scale.length > 0 ? scale : [];
   if (positions.length === 0) {
@@ -94,7 +117,7 @@ function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: a
     const norm = (p: any) => ({
       title: String(p.title || p.name || '').toLowerCase().trim(),
       type: (p.type === 'monthly' ? 'monthly' : 'hourly'),
-      value: Number(p.baseValue ?? p.base_value ?? p.base_hourly_rate ?? 0)
+      value: baseValueForMonth(p, targetMonth)
     });
     // El "valor hora": si es mensual, sueldo/240; si es por hora, el valor tal cual.
     const rateOf = (p: any) => {
@@ -337,7 +360,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
             id: e.id,
             name: e.name,
             position: mapPositionToRoleId(e.position),
-            hourly_rate: getPositionRateFromMaestro(mapPositionToRoleId(e.position), e.position, salaryScale, localBranchId)
+            hourly_rate: getPositionRateFromMaestro(mapPositionToRoleId(e.position), e.position, salaryScale, localBranchId, monthKey)
           }));
           setStaffPool(mapped);
           localStorage.setItem(`staff_pool_${branchIdToFetch}`, JSON.stringify(mapped));
@@ -369,7 +392,11 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           const mapped = data.map((p: any) => ({
             id: p.id, area: p.area, sector: p.sector, title: p.title || p.name,
             type: p.type === 'monthly' ? 'monthly' : 'hourly',
-            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0)
+            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0),
+            baseMonth: p.base_month || '',
+            prevBaseValue: Number(p.prev_base_value ?? 0),
+            prevBaseMonth: p.prev_base_month || '',
+            history: Array.isArray(p.history) ? p.history : []
           }));
           localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
         } else {
@@ -389,7 +416,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
     if (salaryScale.length === 0) return;
     setRecords(prev => prev.map(r => {
       const roleLabel = ROLES.find(rol => rol.id === r.roleId)?.label || r.roleId;
-      return { ...r, rate: getPositionRateFromMaestro(r.roleId, roleLabel, salaryScale, localBranchId) };
+      return { ...r, rate: getPositionRateFromMaestro(r.roleId, roleLabel, salaryScale, localBranchId, monthKey) };
     }));
   }, [salaryScale]);
 
@@ -439,7 +466,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
 
       const buildDefaults = () => staffPool.map(emp => {
         const roleLabel = ROLES.find(r => r.id === emp.position)?.label || emp.position;
-        const currentRate = getPositionRateFromMaestro(emp.position, roleLabel, salaryScale, localBranchId);
+        const currentRate = getPositionRateFromMaestro(emp.position, roleLabel, salaryScale, localBranchId, monthKey);
         return {
           id: `daily-${emp.id}-${selectedDate}`,
           branchId: branchIdToFetch,
@@ -468,7 +495,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           const mapped: HourRecord[] = rows.map((row: any) => {
             const roleId = row.position_id || row.position || 'mozos';
             const roleLabel = ROLES.find(r => r.id === roleId)?.label || roleId;
-            const currentRate = getPositionRateFromMaestro(roleId, roleLabel, salaryScale, localBranchId);
+            const currentRate = getPositionRateFromMaestro(roleId, roleLabel, salaryScale, localBranchId, monthKey);
             return {
               id: row.id,
               branchId: row.branch_id,
@@ -498,7 +525,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
         if (activeLogs.length > 0) {
           setRecords(activeLogs.map(log => {
             const roleLabel = ROLES.find(r => r.id === log.roleId)?.label || log.roleId;
-            return { ...log, rate: getPositionRateFromMaestro(log.roleId, roleLabel, salaryScale, localBranchId) };
+            return { ...log, rate: getPositionRateFromMaestro(log.roleId, roleLabel, salaryScale, localBranchId, monthKey) };
           }));
         } else {
           setRecords([]);
@@ -513,7 +540,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
 
   // Sync state for new employee rate display
   useEffect(() => {
-    const rate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position, salaryScale, localBranchId);
+    const rate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position, salaryScale, localBranchId, monthKey);
     setNewStaff(prev => ({ ...prev, rate }));
   }, [newStaff.position]);
 
@@ -521,7 +548,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA. No podés modificar datos en este módulo.'); return; }
     if (!newStaff.name.trim()) return;
     const nameUpper = newStaff.name.trim().toUpperCase();
-    const resolvedRate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position, salaryScale, localBranchId);
+    const resolvedRate = getPositionRateFromMaestro(newStaff.position, ROLES.find(r => r.id === newStaff.position)?.label || newStaff.position, salaryScale, localBranchId, monthKey);
     const branchIdToFetch = localBranchId || activeBranches[0]?.id || '';
 
     let newEmp = {
@@ -573,7 +600,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
       monthKey,
       weekNum,
       roleId: 'mozos',
-      rate: getPositionRateFromMaestro('mozos', 'Mozos', salaryScale, localBranchId),
+      rate: getPositionRateFromMaestro('mozos', 'Mozos', salaryScale, localBranchId, monthKey),
       hours: 0,
       confirmed: false,
       shift: 'Mañana'
@@ -648,7 +675,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
       monthKey,
       weekNum,
       roleId,
-      rate: getPositionRateFromMaestro(roleId, person.position, salaryScale, localBranchId),
+      rate: getPositionRateFromMaestro(roleId, person.position, salaryScale, localBranchId, monthKey),
       hours: 0,
       confirmed: false,
       shift: 'Mañana'
@@ -707,7 +734,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
           if (emp) {
             updated.roleId = emp.position;
             const roleLabel = ROLES.find(rol => rol.id === emp.position)?.label || emp.position;
-            updated.rate = getPositionRateFromMaestro(emp.position, roleLabel, salaryScale, localBranchId);
+            updated.rate = getPositionRateFromMaestro(emp.position, roleLabel, salaryScale, localBranchId, monthKey);
           }
         }
         return updated;
@@ -1179,7 +1206,7 @@ export default function HourControlView({ selectedBranchId, branches, isReadOnly
                             onChange={(e) => {
                               const newRoleId = e.target.value;
                               const roleLabel = ROLES.find(rol => rol.id === newRoleId)?.label || newRoleId;
-                              const newRate = getPositionRateFromMaestro(newRoleId, roleLabel, salaryScale, localBranchId);
+                              const newRate = getPositionRateFromMaestro(newRoleId, roleLabel, salaryScale, localBranchId, monthKey);
                               handleUpdateRecord(r.id, 'roleId', newRoleId);
                               setRecords(prev => prev.map(rec => rec.id === r.id ? { ...rec, roleId: newRoleId, rate: newRate } : rec));
                             }}
