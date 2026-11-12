@@ -92,7 +92,33 @@ export function budgetNameToRoleId(name: string): string | null {
   return null;
 }
 
-function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string): number {
+// Resuelve el valor base (sueldo/valor hora) VIGENTE para un mes dado (YYYY-MM),
+// usando el historial de cambios del puesto. Si el mes consultado es anterior a un
+// aumento, devuelve el valor que estaba vigente en ese momento (no el actual).
+function baseValueForMonth(p: any, targetMonth?: string): number {
+  const timeline: { date: string; value: number }[] = [];
+  if (Array.isArray(p.history)) {
+    p.history.forEach((h: any) => { if (h && h.date) timeline.push({ date: String(h.date), value: Number(h.value) || 0 }); });
+  }
+  // Asegurar que el valor actual (baseMonth/baseValue) esté en la línea de tiempo.
+  if (p.baseMonth) {
+    const i = timeline.findIndex(t => t.date === p.baseMonth);
+    if (i >= 0) timeline[i] = { date: String(p.baseMonth), value: Number(p.baseValue) || 0 };
+    else timeline.push({ date: String(p.baseMonth), value: Number(p.baseValue) || 0 });
+  }
+  // Incluir también el valor anterior si está registrado (puestos sin history completo).
+  if (p.prevBaseMonth && !timeline.some(t => t.date === p.prevBaseMonth)) {
+    timeline.push({ date: String(p.prevBaseMonth), value: Number(p.prevBaseValue) || 0 });
+  }
+  if (timeline.length === 0) return Number(p.baseValue) || 0;
+  timeline.sort((a, b) => a.date.localeCompare(b.date));
+  if (!targetMonth) return timeline[timeline.length - 1].value;
+  // Mayor entrada con fecha <= mes consultado; si ninguna, la más antigua conocida.
+  const applicable = timeline.filter(t => t.date <= targetMonth);
+  return applicable.length > 0 ? applicable[applicable.length - 1].value : timeline[0].value;
+}
+
+function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: any[], branchId?: string, targetMonth?: string): number {
   let positions: any[] = scale && scale.length > 0 ? scale : [];
   if (positions.length === 0) {
     const saved = localStorage.getItem('craft_salary_positions');
@@ -100,8 +126,9 @@ function getPositionRateFromMaestro(roleId: string, roleLabel: string, scale?: a
   }
 
   const rateFromPosition = (p: any): number => {
-    if (p.type === 'monthly') return (p.baseValue || 0) / 240;
-    return p.baseValue || 0;
+    const base = baseValueForMonth(p, targetMonth);
+    if (p.type === 'monthly') return base / 240;
+    return base;
   };
 
   if (positions.length > 0) {
@@ -196,7 +223,11 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
           const mapped = data.map((p: any) => ({
             id: p.id, area: p.area, sector: p.sector, title: p.title || p.name,
             type: p.type === 'monthly' ? 'monthly' : 'hourly',
-            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0)
+            baseValue: Number(p.base_value ?? p.base_hourly_rate ?? 0),
+            baseMonth: p.base_month || '',
+            prevBaseValue: Number(p.prev_base_value ?? 0),
+            prevBaseMonth: p.prev_base_month || '',
+            history: Array.isArray(p.history) ? p.history : []
           }));
           setSalaryScale(mapped);
           localStorage.setItem('craft_salary_positions', JSON.stringify(mapped));
@@ -211,9 +242,9 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
     if (salaryScale.length === 0) return;
     setRecords(prev => prev.map(r => ({
       ...r,
-      valorHora: getPositionRateFromMaestro(r.roleId, r.roleLabel, salaryScale, selectedBranch)
+      valorHora: getPositionRateFromMaestro(r.roleId, r.roleLabel, salaryScale, selectedBranch, selectedMonth)
     })));
-  }, [salaryScale, selectedBranch]);
+  }, [salaryScale, selectedBranch, selectedMonth]);
 
   useEffect(() => {
     const storageKey = `hr_hours_${selectedBranch}_${selectedMonth}_w${selectedWeek}`;
@@ -297,7 +328,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
         // Use saved definitive hours if exist, otherwise 0 (don't invent data)
         const definitiveHours = existing ? existing.definitiveHours : 0;
 
-        const rate = getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch);
+        const rate = getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch, selectedMonth);
 
         return {
           id: p.id,
@@ -387,7 +418,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
                 referenceHours: planned || 0,
                 horasSucursal: 0,
                 definitiveHours: 0,
-                valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale, selectedBranch),
+                valorHora: getPositionRateFromMaestro(posId, log.position || '', salaryScale, selectedBranch, selectedMonth),
                 status: 'pending',
                 notes: ''
               };
@@ -438,7 +469,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
             referenceHours: plannedFromBudget || p.refHours,
             horasSucursal: dailySum,
             definitiveHours: existing ? existing.definitiveHours : 0,
-            valorHora: getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch),
+            valorHora: getPositionRateFromMaestro(p.id, p.label, salaryScale, selectedBranch, selectedMonth),
             status: existing ? existing.status : 'pending',
             notes: existing ? existing.notes : ''
           };
@@ -625,7 +656,7 @@ export default function HrHourControlView({ branches, isReadOnly = false }: { br
       const rows = Array.from(allRoles).map(role => {
         const planned = budM[role] || 0;
         const real = realM[role] || 0;
-        const rate = getPositionRateFromMaestro(role, roleLabelsMap[role] || role, salaryScale, selectedBranch) || 0;
+        const rate = getPositionRateFromMaestro(role, roleLabelsMap[role] || role, salaryScale, selectedBranch, selectedMonth) || 0;
         const devH = real - planned;
         return { role, label: roleLabelsMap[role] || role, planned, real, devH, devPesos: devH * rate };
       }).sort((a, b) => a.label.localeCompare(b.label));

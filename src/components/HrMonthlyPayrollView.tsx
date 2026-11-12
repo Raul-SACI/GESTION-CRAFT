@@ -26,19 +26,41 @@ interface HrMonthlyPayrollViewProps {
   setSelectedMonth: (month: string) => void;
 }
 
-function getPositionRateFromMaestro(roleId: string, roleLabel: string): number {
+// Valor base (valor hora) VIGENTE para un mes dado, usando el historial del puesto.
+// Así la liquidación de un mes pasado usa el sueldo vigente en ese mes, no el actual.
+function baseValueForMonth(p: any, targetMonth?: string): number {
+  const timeline: { date: string; value: number }[] = [];
+  if (Array.isArray(p.history)) {
+    p.history.forEach((h: any) => { if (h && h.date) timeline.push({ date: String(h.date), value: Number(h.value) || 0 }); });
+  }
+  if (p.baseMonth) {
+    const i = timeline.findIndex(t => t.date === p.baseMonth);
+    if (i >= 0) timeline[i] = { date: String(p.baseMonth), value: Number(p.baseValue) || 0 };
+    else timeline.push({ date: String(p.baseMonth), value: Number(p.baseValue) || 0 });
+  }
+  if (p.prevBaseMonth && !timeline.some(t => t.date === p.prevBaseMonth)) {
+    timeline.push({ date: String(p.prevBaseMonth), value: Number(p.prevBaseValue) || 0 });
+  }
+  if (timeline.length === 0) return Number(p.baseValue) || 0;
+  timeline.sort((a, b) => a.date.localeCompare(b.date));
+  if (!targetMonth) return timeline[timeline.length - 1].value;
+  const applicable = timeline.filter(t => t.date <= targetMonth);
+  return applicable.length > 0 ? applicable[applicable.length - 1].value : timeline[0].value;
+}
+
+function getPositionRateFromMaestro(roleId: string, roleLabel: string, targetMonth?: string): number {
   const saved = localStorage.getItem('craft_salary_positions');
   if (saved) {
     try {
       const positions = JSON.parse(saved);
       const hourly = positions.filter((p: any) => p.type === 'hourly');
       const exact = hourly.find((p: any) => p.title.toLowerCase().trim() === roleLabel.toLowerCase().trim());
-      if (exact) return exact.baseValue;
+      if (exact) return baseValueForMonth(exact, targetMonth);
       const approx = hourly.find((p: any) =>
         p.title.toLowerCase().includes(roleLabel.toLowerCase()) ||
         roleLabel.toLowerCase().includes(p.title.toLowerCase())
       );
-      if (approx) return approx.baseValue;
+      if (approx) return baseValueForMonth(approx, targetMonth);
     } catch(e) {}
   }
   return 0;
@@ -225,7 +247,7 @@ export default function HrMonthlyPayrollView({ branches, selectedMonth, setSelec
       });
 
       const newItems = Object.values(groupMap).map((g: any) => {
-        const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel);
+        const rate = g.hourlyRate || getPositionRateFromMaestro(g.positionId, g.positionLabel, selectedMonth);
         const computed = Math.round(g.totalHours * rate);
         // Holiday calculation happens when RRHH edits the feriados field
         return {
