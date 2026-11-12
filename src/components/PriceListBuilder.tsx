@@ -3,7 +3,7 @@
  * Armado de una nueva lista de precios a partir de los precios sugeridos (ideales s/inflación).
  * Permite editar cada precio, guardar borrador, exportar (Excel/PDF) y confirmar vigencia desde una fecha.
  */
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, type ChangeEvent } from 'react';
 import { motion } from 'motion/react';
 import { X, Save, FileSpreadsheet, FileText, CheckCircle2, Loader2, FolderOpen, Trash2, Upload, Download, AlertTriangle, PlusCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -29,6 +29,15 @@ interface Draft {
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const fmt = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
 const uid = () => Math.random().toString(36).slice(2, 12);
+
+// Redondeo comercial: lleva el precio a un múltiplo "lindo" según su magnitud.
+// Mismo criterio que usa la lista principal para los precios sugeridos.
+const redondeoComercial = (n: number): number => {
+  if (!isFinite(n) || n <= 0) return 0;
+  if (n < 1000) return Math.round(n / 50) * 50;        // < $1.000 → múltiplos de 50
+  if (n < 10000) return Math.round(n / 100) * 100;     // < $10.000 → múltiplos de 100
+  return Math.round(n / 500) * 500;                    // >= $10.000 → múltiplos de 500
+};
 
 // Normaliza un nombre para emparejar (sin espacios de más, en mayúsculas)
 const norm = (s: any) => String(s ?? '').trim().toUpperCase();
@@ -86,6 +95,10 @@ export default function PriceListBuilder({
   const [draftId, setDraftId] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [showDrafts, setShowDrafts] = useState(false);
+  // ─── Ajuste masivo por % (previsualización) ───
+  const [ajustePct, setAjustePct] = useState<string>('');
+  const [ajusteBase, setAjusteBase] = useState<'actual' | 'sugerido'>('actual');
+  const [redondear, setRedondear] = useState(true);
 
   // ─── Importación desde Excel ───
   const [showImport, setShowImport] = useState(false);
@@ -109,6 +122,34 @@ export default function PriceListBuilder({
 
   const setPrecio = (id: string, v: number) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, precioSugerido: v } : r));
+  };
+
+  // Precio sugerido original (base inflación) de cada producto, inmutable, para poder
+  // reaplicar el % sobre un valor estable sin que se acumule en cada click.
+  const sugeridoOriginalById = useMemo(
+    () => Object.fromEntries(items.map(i => [i.id, i.precioSugerido])),
+    [items]
+  );
+
+  // Aplica un % a TODOS los precios como previsualización. El usuario puede seguir
+  // editando a mano después. Base: precio actual (vigente) o precio sugerido original.
+  const aplicarAjuste = () => {
+    const pct = parseFloat(String(ajustePct).replace(',', '.'));
+    if (!isFinite(pct)) { alert('Ingresá un porcentaje válido, por ejemplo 3.'); return; }
+    setRows(prev => prev.map(r => {
+      const base = ajusteBase === 'sugerido'
+        ? (sugeridoOriginalById[r.id] ?? r.precioActual)
+        : r.precioActual;
+      if (!base || base <= 0) return r;
+      const nuevo = base * (1 + pct / 100);
+      return { ...r, precioSugerido: redondear ? redondeoComercial(nuevo) : Math.round(nuevo) };
+    }));
+  };
+
+  // Vuelve a los precios sugeridos originales (base inflación) que trajo la lista.
+  const restaurarSugeridos = () => {
+    setAjustePct('');
+    setRows(prev => prev.map(r => ({ ...r, precioSugerido: sugeridoOriginalById[r.id] ?? r.precioSugerido })));
   };
 
   const guardarBorrador = async () => {
@@ -450,6 +491,48 @@ export default function PriceListBuilder({
             </button>
           )}
         </div>
+
+        {/* Ajuste masivo por % (previsualización) */}
+        {!isReadOnly && (
+          <div className="p-4 border-b border-border-dim flex flex-wrap items-end gap-3 bg-brand-500/5">
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Ajuste masivo (%)</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number" step="0.1" value={ajustePct}
+                  onChange={e => setAjustePct(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') aplicarAjuste(); }}
+                  placeholder="ej: 3"
+                  className="w-24 bg-bg-card border border-border-dim rounded px-3 py-2 text-[12px] font-mono font-bold text-text-main outline-none focus:border-brand-500 text-right"
+                />
+                <span className="text-text-dim font-black text-sm">%</span>
+              </div>
+            </div>
+            <div>
+              <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Aplicar sobre</label>
+              <select value={ajusteBase} onChange={e => setAjusteBase(e.target.value as 'actual' | 'sugerido')}
+                className="bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500">
+                <option value="actual">Precio actual (vigente)</option>
+                <option value="sugerido">Precio sugerido (s/inflación)</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-1.5 text-[10px] font-bold text-text-dim cursor-pointer pb-2.5">
+              <input type="checkbox" checked={redondear} onChange={e => setRedondear(e.target.checked)} className="accent-brand-500" />
+              Redondeo comercial
+            </label>
+            <button onClick={aplicarAjuste}
+              className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
+              Previsualizar
+            </button>
+            <button onClick={restaurarSugeridos}
+              className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">
+              Restaurar sugeridos
+            </button>
+            <p className="w-full text-[9px] text-text-dim leading-relaxed">
+              Aplica el % a <b className="text-text-main">todos</b> los productos como previsualización. Después podés seguir editando cualquier precio a mano. Nada se guarda hasta que toques <b className="text-text-main">Guardar borrador</b> o <b className="text-text-main">Dejar vigente</b>.
+            </p>
+          </div>
+        )}
 
         {/* Lista de borradores */}
         {showDrafts && (
