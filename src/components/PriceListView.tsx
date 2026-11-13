@@ -115,7 +115,10 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
 
   // Maestro de Platos (products) para vincular cada ítem y traer su costo de receta
   const [platos, setPlatos] = useState<Plato[]>([]);
-  const [secciones, setSecciones] = useState<string[]>([]); // Maestro Secciones Carta
+  const [secciones, setSecciones] = useState<string[]>([]); // Maestro Secciones Carta (nombres)
+  const [seccionCodeByName, setSeccionCodeByName] = useState<Record<string, string>>({}); // NOMBRE(upper) -> código del maestro
+  const [showMaestros, setShowMaestros] = useState(false); // panel de diagnóstico vs. maestros
+  const [syncing, setSyncing] = useState(false);
   const [linkPick, setLinkPick] = useState<Record<string, string>>({}); // itemId -> texto de búsqueda del plato a vincular
   const [platoSearch, setPlatoSearch] = useState(''); // búsqueda de plato en "Agregar ítem"
 
@@ -174,8 +177,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     const platosList: Plato[] = (prods as any[] || []).map(p => ({ id: p.id, name: p.name, code: p.code ?? null, category: p.category ?? null, cost: p.cost ?? null }));
     setPlatos(platosList);
     // Secciones de la carta (Maestro Secciones Carta = recipe_masters tipo 'seccion_carta')
-    const { data: secs } = await supabase.from('recipe_masters').select('name').eq('tipo', 'seccion_carta').order('name');
+    const { data: secs } = await supabase.from('recipe_masters').select('name, code').eq('tipo', 'seccion_carta').order('name');
     setSecciones(Array.from(new Set((secs as any[] || []).map(s => String(s.name || '').toUpperCase().trim()).filter(Boolean))));
+    const secCodeMap: Record<string, string> = {};
+    (secs as any[] || []).forEach(s => { const nm = String(s.name || '').toUpperCase().trim(); if (nm && s.code) secCodeMap[nm] = String(s.code).trim(); });
+    setSeccionCodeByName(secCodeMap);
 
     // ¿Qué platos tienen RECETA de verdad? Un plato con receta costeada tiene una op_recipes
     // (tipo 'carta') CON ítems. Si no, products.cost puede ser un valor sembrado (= precio) y
@@ -461,12 +467,15 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
     if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
     const plato = platos.find(p => p.id === productId);
     if (!plato) return;
-    const { error } = await supabase.from('menu_items').update({ product_id: productId }).eq('id', itemId);
+    // Además del vínculo, copiar el CÓDIGO del plato al ítem para que lleve el mismo del Maestro.
+    const upd: Record<string, any> = { product_id: productId };
+    if (plato.code) upd.external_code = String(plato.code).trim();
+    const { error } = await supabase.from('menu_items').update(upd).eq('id', itemId);
     if (error) { alert('Error al vincular: ' + error.message); return; }
     setMenus(prev => {
       const next: Record<string, MenuItem[]> = { ...prev };
       Object.keys(next).forEach(mt => {
-        next[mt] = next[mt].map(it => it.id === itemId ? { ...it, productId, hasProduct: true, cost: plato.cost } : it);
+        next[mt] = next[mt].map(it => it.id === itemId ? { ...it, productId, hasProduct: true, cost: plato.cost, externalCode: plato.code ? String(plato.code).trim() : it.externalCode } : it);
       });
       return next;
     });
@@ -490,6 +499,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       name: plato.name.toUpperCase(),
       price: newItem.price,
       product_id: plato.id,
+      external_code: plato.code ? String(plato.code).trim() : null, // mismo código que el Maestro de Platos
       last_update: new Date().toISOString().split('T')[0]
     }]).select().single();
     if (error) { alert('Error al agregar: ' + error.message); return; }
@@ -632,6 +642,42 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       alert(`"${moveItem.name}" se movió a "${destino}". El precio y el historial quedaron intactos.`);
     } catch (e: any) { alert('Error al mover el producto: ' + (e.message || e)); }
     finally { setMoving(false); }
+  };
+
+  // ── Diagnóstico contra los maestros (punto 3) ──
+  const platoById = new Map<string, Plato>(platos.map(p => [p.id, p] as [string, Plato]));
+  const seccionSet = new Set(secciones.map(s => s.toUpperCase().trim()));
+  const diagItems = menus[activeMenu] || [];
+  const diagSinPlato = diagItems.filter(i => !i.hasProduct && !i.productId);
+  const diagSeccionFuera = diagItems.filter(i => {
+    const c = String(i.category || '').toUpperCase().trim();
+    return c && !seccionSet.has(c);
+  });
+  const diagCodigoDistinto: { item: MenuItem; platoCode: string }[] = [];
+  const diagPlatoSinCodigo: MenuItem[] = [];
+  diagItems.forEach(i => {
+    const p = i.productId ? platoById.get(i.productId) : null;
+    if (!p) return;
+    if (!p.code) { diagPlatoSinCodigo.push(i); return; }
+    if (String(i.externalCode || '').trim() !== String(p.code).trim()) diagCodigoDistinto.push({ item: i, platoCode: String(p.code).trim() });
+  });
+  const diagOk = diagSinPlato.length === 0 && diagSeccionFuera.length === 0 && diagCodigoDistinto.length === 0 && diagPlatoSinCodigo.length === 0;
+
+  // ── Sincronizar códigos desde el Maestro de Platos (puntos 1 y 4, sobre datos existentes) ──
+  const syncCodigosDesdeMaestro = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (diagCodigoDistinto.length === 0) { alert('Todos los ítems vinculados ya tienen el mismo código que el Maestro de Platos.'); return; }
+    if (!window.confirm(`Se va a copiar el código del Maestro de Platos a ${diagCodigoDistinto.length} ítem(s) de ${menuLabel}, para que lleven el mismo código. ¿Confirmás?`)) return;
+    setSyncing(true);
+    try {
+      for (const { item, platoCode } of diagCodigoDistinto) {
+        const { error } = await supabase.from('menu_items').update({ external_code: platoCode }).eq('id', item.id);
+        if (error) throw error;
+      }
+      await fetchData();
+      alert(`Códigos sincronizados en ${diagCodigoDistinto.length} ítem(s).`);
+    } catch (e: any) { alert('Error al sincronizar: ' + (e.message || e)); }
+    finally { setSyncing(false); }
   };
 
   const filteredItems = (menus[activeMenu] || []).filter(item => {
@@ -1085,6 +1131,12 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               <Tag size={13} /> Renombrar sección
             </button>
           )}
+          <button onClick={() => setShowMaestros(true)}
+            className={cn("border px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5",
+              diagOk ? "bg-bg-accent border-border-dim text-text-main hover:border-brand-500/50 hover:text-brand-500" : "bg-amber-500/10 border-amber-500/40 text-amber-500 hover:bg-amber-500/20")}
+            title="Verificar que los productos y secciones de la carta coincidan con el Maestro de Platos y el Maestro Secciones Carta (mismos códigos)">
+            <Layers size={13} /> Maestros {!diagOk && `(${diagSinPlato.length + diagSeccionFuera.length + diagCodigoDistinto.length})`}
+          </button>
           {activeMenu === 'pedidosya' && (
             <button onClick={() => setShowCategoriesModal(true)}
               className="bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
@@ -1528,7 +1580,7 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                   >
                     <option value="">— Elegir sección —</option>
                     {Array.from(new Set([...(newItem.category ? [newItem.category.toUpperCase()] : []), ...secciones])).map(c => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>{seccionCodeByName[c] ? `${seccionCodeByName[c]} · ${c}` : c}</option>
                     ))}
                   </select>
                 </div>
@@ -1797,11 +1849,13 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección destino</label>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección destino (Maestro Secciones Carta)</label>
                 <select value={moveTarget} onChange={e => { setMoveTarget(e.target.value); setMoveNewSection(''); }} disabled={moving}
                   className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500">
-                  <option value="">— Elegí una sección existente —</option>
-                  {availableCategories.filter(c => c !== moveItem.category).map(c => <option key={c} value={c}>{c}</option>)}
+                  <option value="">— Elegí una sección —</option>
+                  {Array.from(new Set([...secciones, ...availableCategories])).filter(c => c !== moveItem.category).map(c => (
+                    <option key={c} value={c}>{seccionCodeByName[c] ? `${seccionCodeByName[c]} · ${c}` : (seccionSet.has(c) ? c : `${c} (fuera del maestro)`)}</option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -1822,6 +1876,103 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                 className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
                 {moving ? <Loader2 size={13} className="animate-spin" /> : <Layers size={13} />} Mover
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Diagnóstico contra los maestros */}
+      {showMaestros && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => !syncing && setShowMaestros(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-2xl shadow-2xl max-h-[88vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Verificación vs. Maestros · {menuLabel}</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">Productos ↔ Maestro de Platos · Secciones ↔ Maestro Secciones Carta</p>
+              </div>
+              <button onClick={() => !syncing && setShowMaestros(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {diagOk ? (
+                <div className="bg-emerald-500/5 border border-emerald-500/30 rounded-lg p-6 text-center">
+                  <p className="text-[12px] font-black uppercase text-emerald-500">Todo alineado ✓</p>
+                  <p className="text-[10px] text-text-dim mt-1">Todos los productos están vinculados al Maestro de Platos con el mismo código, y todas las secciones existen en el Maestro Secciones Carta.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Código distinto al del Maestro de Platos */}
+                  {diagCodigoDistinto.length > 0 && (
+                    <div className="border border-amber-500/30 rounded-lg overflow-hidden">
+                      <div className="flex items-center justify-between gap-2 bg-amber-500/10 px-4 py-2.5">
+                        <span className="text-[10px] font-black uppercase text-amber-600">{diagCodigoDistinto.length} producto(s) con código distinto al Maestro</span>
+                        {!isReadOnly && (
+                          <button onClick={syncCodigosDesdeMaestro} disabled={syncing}
+                            className="flex items-center gap-1.5 bg-brand-500 text-white px-3 py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
+                            {syncing ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Sincronizar códigos
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-border-dim/25">
+                        {diagCodigoDistinto.map(({ item, platoCode }) => (
+                          <div key={item.id} className="flex items-center justify-between gap-2 px-4 py-2 text-[11px]">
+                            <span className="font-bold text-text-main truncate">{item.name}</span>
+                            <span className="font-mono text-text-dim shrink-0">carta: <b className="text-red-500">{item.externalCode || '∅'}</b> → maestro: <b className="text-emerald-600">{platoCode}</b></span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sin vínculo al Maestro de Platos */}
+                  {diagSinPlato.length > 0 && (
+                    <div className="border border-border-dim rounded-lg overflow-hidden">
+                      <div className="bg-bg-accent/30 px-4 py-2.5 text-[10px] font-black uppercase text-text-main">{diagSinPlato.length} producto(s) sin vínculo al Maestro de Platos</div>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-border-dim/25">
+                        {diagSinPlato.map(item => (
+                          <div key={item.id} className="flex items-center justify-between gap-2 px-4 py-2 text-[11px]">
+                            <span className="font-bold text-text-main truncate">{item.name}</span>
+                            <span className="font-mono text-text-dim shrink-0 text-[9px] uppercase">{item.category}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="px-4 py-2 text-[9px] text-text-dim bg-bg-accent/10">Vinculalos con el ícono de cadena en la fila, o dalos de alta en el Maestro de Platos.</p>
+                    </div>
+                  )}
+
+                  {/* Sección fuera del Maestro Secciones Carta */}
+                  {diagSeccionFuera.length > 0 && (
+                    <div className="border border-border-dim rounded-lg overflow-hidden">
+                      <div className="bg-bg-accent/30 px-4 py-2.5 text-[10px] font-black uppercase text-text-main">{diagSeccionFuera.length} producto(s) con sección que no está en el Maestro Secciones Carta</div>
+                      <div className="max-h-40 overflow-y-auto divide-y divide-border-dim/25">
+                        {diagSeccionFuera.map(item => (
+                          <div key={item.id} className="flex items-center justify-between gap-2 px-4 py-2 text-[11px]">
+                            <span className="font-bold text-text-main truncate">{item.name}</span>
+                            <span className="font-mono text-amber-600 shrink-0 text-[9px] uppercase">{item.category || '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="px-4 py-2 text-[9px] text-text-dim bg-bg-accent/10">Usá "Mover de sección" para asignarles una sección del maestro, o agregá esa sección en el Maestro Secciones Carta.</p>
+                    </div>
+                  )}
+
+                  {/* Plato sin código en el Maestro */}
+                  {diagPlatoSinCodigo.length > 0 && (
+                    <div className="border border-border-dim rounded-lg overflow-hidden">
+                      <div className="bg-bg-accent/30 px-4 py-2.5 text-[10px] font-black uppercase text-text-main">{diagPlatoSinCodigo.length} producto(s) cuyo plato no tiene código en el Maestro</div>
+                      <div className="max-h-32 overflow-y-auto divide-y divide-border-dim/25">
+                        {diagPlatoSinCodigo.map(item => (
+                          <div key={item.id} className="px-4 py-2 text-[11px] font-bold text-text-main truncate">{item.name}</div>
+                        ))}
+                      </div>
+                      <p className="px-4 py-2 text-[9px] text-text-dim bg-bg-accent/10">Cargá el código en el Maestro de Platos para que el ítem lo pueda heredar.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t border-border-dim">
+              <p className="text-[9px] text-text-dim uppercase tracking-wide">La verificación es de la carta activa ({menuLabel}). Los productos se vinculan por código del Maestro de Platos; las secciones se validan contra el Maestro Secciones Carta.</p>
             </div>
           </div>
         </div>
