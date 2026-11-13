@@ -67,6 +67,10 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
   const [py, setPy] = useState<PyData | null>(null);
   const [pyPrev, setPyPrev] = useState<{ venta: number; pedidos: number } | null>(null);
   const [loadingPy, setLoadingPy] = useState(false);
+  // CVR (conversión) desde Administración → Pedidos Ya → Performance (tabla py_performance)
+  type CvrLocal = { sucursal: string; impresiones: number; sesiones: number; ordenes: number; cvr: number | null; cvrPrev: number | null };
+  type CvrData = { locales: CvrLocal[]; impresiones: number; sesiones: number; ordenes: number; cvr: number | null; cvrPrev: number | null };
+  const [pyCvr, setPyCvr] = useState<CvrData | null>(null);
   // Productos: prodMap[weekKey][branchId][categoriaNorm] = unidades
   const [prodMap, setProdMap] = useState<Record<string, Record<string, Record<string, number>>>>({});
   // itemMap[weekKey][branchId][categoriaNorm][productoNorm] = { name, qty } (para el detalle por producto)
@@ -188,13 +192,16 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       const [y, mm] = month.split('-').map(Number);
       const [py2, pmn] = prevMonthOf(month).split('-').map(Number);
       const start = `${month}-01`, end = monthEndExcl(month);
-      const [com, ops, rec, comPrev, dia] = await Promise.all([
+      const [com, ops, rec, comPrev, dia, perf, perfPrev] = await Promise.all([
         supabase.from('py_comercial_periodo').select('marca, pedidos, venta').eq('anio', y).eq('mes', mm),
         supabase.from('py_operativo_periodo').select('prep_seg, rechazo, reclamos, listos').eq('anio', y).eq('mes', mm),
         supabase.from('py_reclamos').select('tipo, monto').gte('fecha', start).lt('fecha', end),
         supabase.from('py_comercial_periodo').select('pedidos, venta').eq('anio', py2).eq('mes', pmn),
         // Venta NETA (lo que paga Pedidos Ya) y comisión: salen del Estado de cuenta diario.
         supabase.from('py_comercial_dia').select('venta_neta, comision').gte('fecha', start).lt('fecha', end),
+        // CVR (conversión) por sucursal: Performance del mes actual y del anterior.
+        supabase.from('py_performance').select('sucursal, marca, impresiones, sesiones, ordenes, cvr').eq('anio', y).eq('mes', mm),
+        supabase.from('py_performance').select('sucursal, impresiones, sesiones, cvr').eq('anio', py2).eq('mes', pmn),
       ]);
       const N = (v: any) => Number(v) || 0;
       const comRows = (com.data as any[]) || [];
@@ -220,6 +227,36 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
       });
       const cp = (comPrev.data as any[]) || [];
       setPyPrev({ venta: cp.reduce((s, r) => s + N(r.venta), 0), pedidos: cp.reduce((s, r) => s + N(r.pedidos), 0) });
+
+      // ── CVR por local (conversión) ──
+      // CVR por sucursal = promedio de la CVR de sus perfiles (Resto/Café) PONDERADO por sesiones.
+      const perfRows = (perf.data as any[]) || [];
+      const perfPrevRows = (perfPrev.data as any[]) || [];
+      const sucKey = (s: any) => String(s || '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      // CVR ponderada previa por sucursal
+      const prevBySuc: Record<string, { ses: number; cvrW: number }> = {};
+      perfPrevRows.forEach(r => { const k = sucKey(r.sucursal); const e = (prevBySuc[k] ||= { ses: 0, cvrW: 0 }); e.ses += N(r.sesiones); e.cvrW += N(r.cvr) * N(r.sesiones); });
+      const prevCvrOf = (k: string): number | null => { const e = prevBySuc[k]; return e && e.ses > 0 ? e.cvrW / e.ses : null; };
+      // Agregado por sucursal del mes actual
+      const bySuc: Record<string, { sucursal: string; imp: number; ses: number; ord: number; cvrW: number }> = {};
+      perfRows.forEach(r => { const k = sucKey(r.sucursal); const e = (bySuc[k] ||= { sucursal: String(r.sucursal || '').trim(), imp: 0, ses: 0, ord: 0, cvrW: 0 }); e.imp += N(r.impresiones); e.ses += N(r.sesiones); e.ord += N(r.ordenes); e.cvrW += N(r.cvr) * N(r.sesiones); });
+      const locales: CvrLocal[] = Object.entries(bySuc).map(([k, e]) => ({
+        sucursal: e.sucursal, impresiones: e.imp, sesiones: e.ses, ordenes: e.ord,
+        cvr: e.ses > 0 ? Math.round((e.cvrW / e.ses) * 100) / 100 : null,
+        cvrPrev: prevCvrOf(k),
+      })).sort((a, b) => a.sucursal.localeCompare(b.sucursal));
+      const gImp = locales.reduce((s, l) => s + l.impresiones, 0);
+      const gSes = locales.reduce((s, l) => s + l.sesiones, 0);
+      const gOrd = locales.reduce((s, l) => s + l.ordenes, 0);
+      const gCvrW = perfRows.reduce((s, r) => s + N(r.cvr) * N(r.sesiones), 0);
+      const gSesAll = perfRows.reduce((s, r) => s + N(r.sesiones), 0);
+      const gPrevW = perfPrevRows.reduce((s, r) => s + N(r.cvr) * N(r.sesiones), 0);
+      const gPrevSes = perfPrevRows.reduce((s, r) => s + N(r.sesiones), 0);
+      setPyCvr(locales.length ? {
+        locales, impresiones: gImp, sesiones: gSes, ordenes: gOrd,
+        cvr: gSesAll > 0 ? Math.round((gCvrW / gSesAll) * 100) / 100 : null,
+        cvrPrev: gPrevSes > 0 ? gPrevW / gPrevSes : null,
+      } : null);
     } finally { setLoadingPy(false); }
   }, [month]);
 
@@ -678,10 +715,16 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
 
       {/* ─────────── DESEMPEÑO PEDIDOS YA ─────────── */}
       {tab === 'pedidosya' && (
-        !py || (py.venta === 0 && py.pedidos === 0 && py.nReclamos === 0) ? (
+      <div className="space-y-4">
+        {(!py || (py.venta === 0 && py.pedidos === 0 && py.nReclamos === 0)) && !pyCvr ? (
           <div className="bg-bg-sidebar border border-border-dim rounded-xl p-10 text-center">
             <p className="text-[12px] font-black uppercase text-text-dim">No hay datos de Pedidos Ya para {monthLabel(month)}.</p>
-            <p className="text-[10px] text-text-dim mt-1">Importá los reportes en Administración → Pedidos Ya (Comercial, Operativo y Estado de cuenta).</p>
+            <p className="text-[10px] text-text-dim mt-1">Importá los reportes en Administración → Pedidos Ya (Comercial, Operativo, Estado de cuenta y Performance).</p>
+          </div>
+        ) : (!py || (py.venta === 0 && py.pedidos === 0 && py.nReclamos === 0)) ? (
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl p-6 text-center">
+            <p className="text-[11px] font-black uppercase text-text-dim">Sin resumen comercial/operativo de Pedidos Ya para {monthLabel(month)}.</p>
+            <p className="text-[9px] text-text-dim mt-1">Abajo se muestra el CVR (Performance). Importá los demás reportes en Administración → Pedidos Ya para ver venta, pedidos y operativo.</p>
           </div>
         ) : (
           <>
@@ -743,7 +786,83 @@ export default function MktInformesView({ branches = [], isReadOnly = false }: {
             </div>
             <p className="text-[10px] text-text-dim">Datos del módulo <b className="text-text-main">Pedidos Ya</b> (Administración) para {monthLabel(month)}. La <b className="text-text-main">venta bruta</b> y los pedidos salen del resumen comercial; la <b className="text-text-main">venta neta</b> (= bruta − descuentos/promos y − IVA ÷1,21, para que coincida con la venta neta de tus tickets en Ventas) y la comisión, del estado de cuenta diario. Ojo: la comisión es un cargo <b className="text-text-main">aparte</b> y no se resta de la venta neta. Esto <b className="text-text-main">no es la liquidación</b> (lo que efectivamente paga Pedidos Ya, ya neto de comisión, cargos operativos y publicidad): eso sale de la pestaña <b className="text-text-main">Liquidaciones</b> y puede no estar cargado este mes. El operativo (prep, cancelaciones, reclamos, listos) sale del resumen de operaciones. Y tampoco es lo mismo que el <b className="text-text-main">Canal Pedidos Ya</b> de Semanal/Mensual, que es la venta neta de <b className="text-text-main">tus tickets</b> (otra fuente: tu POS).</p>
           </>
-        )
+        )}
+
+        {/* ─── CVR (Conversión) · Performance ─── */}
+        {pyCvr && (() => {
+          const pp = (cur: number | null, prev: number | null) => (cur != null && prev != null) ? Math.round((cur - prev) * 100) / 100 : null;
+          const PpDelta = ({ cur, prev }: { cur: number | null; prev: number | null }) => {
+            const d = pp(cur, prev);
+            if (d == null) return <span className="text-text-dim">—</span>;
+            const up = d > 0.05, down = d < -0.05;
+            return <span className={cn('font-mono font-bold', up ? 'text-emerald-500' : down ? 'text-red-500' : 'text-text-dim')}>{d > 0 ? '▲ +' : d < 0 ? '▼ ' : ''}{d.toFixed(2)} pp</span>;
+          };
+          const cvrFmt = (v: number | null) => v != null ? v.toFixed(2) + '%' : '—';
+          return (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm" title="CVR3 (conversión): sesiones que terminan en pedido. Ponderado por sesiones entre todas las sucursales. Fuente: Administración → Pedidos Ya → Performance.">
+                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Activity size={12} className="text-rose-500" /> CVR (conversión)</div>
+                  <div className="text-2xl font-black font-mono text-text-main mt-1">{cvrFmt(pyCvr.cvr)}</div>
+                  <div className="mt-1.5"><span className="text-[9px] text-text-dim uppercase mr-1">vs mes ant</span><PpDelta cur={pyCvr.cvr} prev={pyCvr.cvrPrev} /></div>
+                </div>
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><TrendingUp size={12} className="text-rose-500" /> Impresiones</div>
+                  <div className="text-2xl font-black font-mono text-text-main mt-1">{fmtNum(pyCvr.impresiones)}</div>
+                  <div className="text-[9px] text-text-dim uppercase mt-1.5">veces que apareció el local</div>
+                </div>
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Store size={12} className="text-rose-500" /> Sesiones</div>
+                  <div className="text-2xl font-black font-mono text-text-main mt-1">{fmtNum(pyCvr.sesiones)}</div>
+                  <div className="text-[9px] text-text-dim uppercase mt-1.5">visitas al menú</div>
+                </div>
+                <div className="bg-bg-sidebar border border-border-dim rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-text-dim"><Receipt size={12} className="text-rose-500" /> Sesión → impresión</div>
+                  <div className="text-2xl font-black font-mono text-text-main mt-1">{pyCvr.impresiones > 0 ? ((pyCvr.sesiones / pyCvr.impresiones) * 100).toFixed(1) + '%' : '—'}</div>
+                  <div className="text-[9px] text-text-dim uppercase mt-1.5">entran al menú tras ver el local</div>
+                </div>
+              </div>
+
+              <div className="bg-bg-sidebar border border-border-dim rounded-xl shadow-sm overflow-x-auto">
+                <div className="flex items-center gap-1.5 px-5 pt-4 text-[10px] font-black uppercase tracking-widest text-text-main"><Store size={13} className="text-rose-500" /> CVR por local · {monthLabel(month)} vs {monthLabel(prevMonthOf(month))}</div>
+                <table className="w-full text-[12px] mt-2">
+                  <thead><tr className="text-text-dim border-b border-border-dim/40">
+                    <th className="p-2.5 text-left text-[9px] uppercase font-black">Local</th>
+                    <th className="p-2.5 text-right text-[9px] uppercase font-black">Impresiones</th>
+                    <th className="p-2.5 text-right text-[9px] uppercase font-black">Sesiones</th>
+                    <th className="p-2.5 text-right text-[9px] uppercase font-black">CVR</th>
+                    <th className="p-2.5 text-right text-[9px] uppercase font-black">Mes ant.</th>
+                    <th className="p-2.5 text-right text-[9px] uppercase font-black">Var.</th>
+                  </tr></thead>
+                  <tbody>
+                    {pyCvr.locales.map(l => (
+                      <tr key={l.sucursal} className="border-t border-border-dim/25 hover:bg-bg-accent/10">
+                        <td className="p-2.5 text-left font-bold text-text-main">{l.sucursal}</td>
+                        <td className="p-2.5 text-right font-mono text-text-dim">{fmtNum(l.impresiones)}</td>
+                        <td className="p-2.5 text-right font-mono text-text-dim">{fmtNum(l.sesiones)}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-text-main">{cvrFmt(l.cvr)}</td>
+                        <td className="p-2.5 text-right font-mono text-text-dim">{cvrFmt(l.cvrPrev)}</td>
+                        <td className="p-2.5 text-right"><PpDelta cur={l.cvr} prev={l.cvrPrev} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-border-dim/50 bg-bg-accent/10">
+                      <td className="p-2.5 text-left font-black uppercase text-[10px] text-rose-500">Total</td>
+                      <td className="p-2.5 text-right font-mono font-bold text-text-main">{fmtNum(pyCvr.impresiones)}</td>
+                      <td className="p-2.5 text-right font-mono font-bold text-text-main">{fmtNum(pyCvr.sesiones)}</td>
+                      <td className="p-2.5 text-right font-mono font-black text-text-main">{cvrFmt(pyCvr.cvr)}</td>
+                      <td className="p-2.5 text-right font-mono text-text-dim">{cvrFmt(pyCvr.cvrPrev)}</td>
+                      <td className="p-2.5 text-right"><PpDelta cur={pyCvr.cvr} prev={pyCvr.cvrPrev} /></td>
+                    </tr>
+                  </tfoot>
+                </table>
+                <p className="px-5 py-3 text-[10px] text-text-dim">El <b className="text-text-main">CVR (conversión / CVR3)</b> sale de <b className="text-text-main">Administración → Pedidos Ya → Performance</b>. Por local se pondera por sesiones entre perfiles (Resto/Café). La variación es en <b className="text-text-main">puntos porcentuales (pp)</b> contra {monthLabel(prevMonthOf(month))}.</p>
+              </div>
+            </>
+          );
+        })()}
+      </div>
       )}
 
       {/* ─────────── AGREGADOS Y POSTRES ─────────── */}
