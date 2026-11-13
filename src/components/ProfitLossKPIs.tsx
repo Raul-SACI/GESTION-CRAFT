@@ -129,6 +129,25 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
   const current = allMonths[allMonths.length - 1];
   const prevMonth = allMonths[allMonths.length - 2];
 
+  // Meses para cargar la inflación: no solo los que tienen Estado de Resultado,
+  // sino TODO el año en curso hasta el mes actual (para poder cargar, p. ej.,
+  // octubre aunque su P&L todavía no esté), más los que ya tengan inflación cargada.
+  const inflationMonths = (() => {
+    const set = new Set<string>();
+    allMonths.forEach(m => set.add(m.month));
+    Object.keys(inflationMap).forEach(k => set.add(k));
+    const now = new Date();
+    const curY = now.getFullYear();
+    const curM = now.getMonth() + 1;
+    const years = Array.from(set).map(s => parseInt(s.slice(0, 4), 10)).filter(n => !isNaN(n));
+    const startY = years.length ? Math.min(Math.min(...years), curY) : curY;
+    for (let y = startY; y <= curY; y++) {
+      const lastM = y === curY ? curM : 12;
+      for (let mm = 1; mm <= lastM; mm++) set.add(`${y}-${String(mm).padStart(2, '0')}`);
+    }
+    return Array.from(set).sort();
+  })();
+
   // Punto de equilibrio económico: usa el MES SELECCIONADO en pantalla.
   // El resto de KPIs sigue usando 'current'.
   const mesPESeleccionado = selectedMonth ? allMonths.find(m => m.month === selectedMonth) : current;
@@ -442,12 +461,12 @@ export default function ProfitLossKPIs({ scope = 'consolidated', compact = false
         {editingInflation && (
           <>
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
-              {allMonths.map(m => (
-                <div key={m.month}>
-                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block">{monthLabel(m.month)}</label>
+              {inflationMonths.map(month => (
+                <div key={month}>
+                  <label className="text-[8px] font-black uppercase text-text-dim tracking-widest block">{monthLabel(month)}</label>
                   <div className="flex items-center bg-bg-accent border border-border-dim rounded px-2 mt-0.5">
-                    <input type="number" step="0.1" value={inflationMap[m.month] ?? ''} placeholder="0"
-                      onChange={(e) => setInflationLocal(m.month, e.target.value)}
+                    <input type="number" step="0.1" value={inflationMap[month] ?? ''} placeholder="0"
+                      onChange={(e) => setInflationLocal(month, e.target.value)}
                       className="w-full bg-transparent border-none py-1.5 text-[11px] font-mono font-bold text-text-main outline-none" />
                     <span className="text-[9px] text-text-dim font-bold">%</span>
                   </div>
