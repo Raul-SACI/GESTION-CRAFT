@@ -288,9 +288,10 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
         code: ['artículo', 'articulo'],
         description: ['descrip'],
         cantidad: ['cantidad'],
+        precioNeto: ['precio neto', 'precio unit', 'p. neto', 'p.neto', 'precio'],
         importe: ['importe', 'gravado'],
       });
-      if (!found) throw new Error('No reconocí las columnas del "Detalle de Compras por Artículo". Esperaba: Fecha · Nombre Prov. · Cód. Artículo · Descripción · Cantidad · Importe Gravado.');
+      if (!found) throw new Error('No reconocí las columnas del "Detalle de Compras por Artículo". Esperaba: Fecha · Nombre Prov. · Cód. Artículo · Descripción · Cantidad · Precio Neto (o Importe).');
       const { headerRow, idx } = found;
 
       // Fecha de Excel (serial) o texto dd/mm/aaaa → 'YYYY-MM-DD'
@@ -320,8 +321,14 @@ export default function ComprasInformesView({ branches = [], isReadOnly = false 
         const period = fecha.slice(0, 7);
         const code = norm(r[idx.code]);
         const desc = norm(r[idx.description]);
-        const importe = toNum(r[idx.importe]);
         const cantidad = idx.cantidad != null ? toNum(r[idx.cantidad]) : 0;
+        const precioNeto = idx.precioNeto != null ? toNum(r[idx.precioNeto]) : 0;
+        const importeDirecto = idx.importe != null ? toNum(r[idx.importe]) : 0;
+        // Importe REAL de la línea = Cantidad × Precio Neto (unitario). La columna
+        // "Importe Gravado" solo trae la parte gravada de algunas filas (0 en las
+        // exentas), así que no sirve como total; se usa solo de respaldo cuando no
+        // hay precio unitario en la fila.
+        const importe = (precioNeto > 0 && cantidad !== 0) ? cantidad * precioNeto : importeDirecto;
         const prov = idx.prov != null ? norm(r[idx.prov]) : '';
         if (!code && !prov) continue;
         filas++;
