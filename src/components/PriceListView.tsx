@@ -1382,9 +1382,14 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                         />
                       </div>
                     ) : (
-                      <span className="text-[14px] font-black font-mono text-brand-500">
-                        ${item.price.toLocaleString('es-AR')}
-                      </span>
+                      <div>
+                        <p className="text-[14px] font-black font-mono text-brand-500">
+                          ${item.price.toLocaleString('es-AR')}
+                        </p>
+                        {item.lastUpdate && (
+                          <p className="text-[8px] font-mono text-text-dim/60">{fmtFecha(item.lastUpdate)}</p>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-6 py-4 text-right">
