@@ -216,15 +216,19 @@ export default function PriceListBuilder({
     doc.save(`lista_precios_${menuType}_${fechaVigencia}.pdf`);
   };
 
-  // Descarga una plantilla simple (Categoría, Producto, Precio) con los precios actuales.
-  // El usuario edita la columna "Precio" y la vuelve a subir con "Importar Excel".
+  // Descarga una plantilla (Categoría, Producto, Código, Precio) con los precios actuales.
+  // El usuario puede: renombrar secciones en "Categoría", editar "Precio" y AGREGAR filas
+  // para productos nuevos (dejando el Código vacío). Al reimportar, los productos se
+  // emparejan por Código (o por Nombre si no hay) y CONSERVAN su historial de aumentos,
+  // aunque su sección haya cambiado de nombre.
   const descargarPlantilla = () => {
     const data = rows.map(r => ({
       'Categoría': r.category,
       'Producto': r.name,
+      'Código': r.externalCode || '',
       'Precio': Math.round(r.precioActual),
     }));
-    const ws = XLSX.utils.json_to_sheet(data, { header: ['Categoría', 'Producto', 'Precio'] });
+    const ws = XLSX.utils.json_to_sheet(data, { header: ['Categoría', 'Producto', 'Código', 'Precio'] });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Plantilla');
     XLSX.writeFile(wb, `plantilla_precios_${menuType}_${todayISO()}.xlsx`);
@@ -266,13 +270,15 @@ export default function PriceListBuilder({
       } else {
         // Autodetección de columnas (archivo genérico / plantilla)
         setMaxirestMode(false);
-        setColCodigo('');
         const find = (regexes: RegExp[]) => {
           for (const rx of regexes) { const h = headers.find(x => rx.test(x)); if (h) return h; }
           return '';
         };
         setColProducto(find([/producto/i, /nombre/i, /art[ií]culo/i]) || headers[0] || '');
-        setColCategoria(find([/categor/i]));
+        setColCategoria(find([/categor|secci[oó]n|rubro/i]));
+        // Si la plantilla trae "Código", se empareja por código: así un producto conserva su
+        // historial aunque le hayas cambiado la sección (categoría) o el nombre.
+        setColCodigo(find([/c[oó]digo|cod\.?\s*art/i]) || '');
         setColPrecio(find([/precio\s*nuevo/i, /precio\s*a\s*fijar/i, /^precio$/i, /precio\s*actual/i, /precio\s*sugerido/i]) || '');
       }
     } catch (err: any) {
@@ -482,7 +488,7 @@ export default function PriceListBuilder({
           <button onClick={() => { setShowDrafts(!showDrafts); setShowImport(false); }} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">
             <FolderOpen size={13} /> Borradores ({drafts.length})
           </button>
-          <button onClick={descargarPlantilla} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all" title="Descargá una plantilla con los productos y sus precios actuales para editar y volver a subir">
+          <button onClick={descargarPlantilla} className="flex items-center gap-1.5 bg-bg-card border border-border-dim px-3 py-2 rounded text-[9px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all" title="Plantilla con Categoría, Producto, Código y Precio actual. Podés renombrar secciones en Categoría, editar precios y agregar filas para productos nuevos (sin código). Al reimportar, los productos conservan su historial de aumentos.">
             <Download size={13} /> Plantilla
           </button>
           {!isReadOnly && (
@@ -563,6 +569,16 @@ export default function PriceListBuilder({
                   <input type="file" accept=".xlsx,.xls,.csv" onChange={onImportFile} className="hidden" />
                 </label>
                 {importFileName && <span className="text-[10px] font-mono text-text-dim">{importFileName}</span>}
+              </div>
+
+              <div className="bg-brand-500/5 border border-brand-500/20 rounded px-3 py-2 text-[10px] text-text-dim leading-relaxed">
+                <p className="font-black uppercase text-brand-500 tracking-widest mb-0.5">Renombrar secciones sin perder el historial</p>
+                <p>
+                  Los productos se emparejan por <b className="text-text-main">Código</b> (o por <b className="text-text-main">Nombre</b> si no tienen código), <b className="text-text-main">no por categoría</b>.
+                  Así podés renombrar una sección (ej. <i>Ensaladas</i> → <i>Ensaladas &amp; Wraps</i>) y el producto <b className="text-text-main">conserva todo su historial de aumentos</b>: solo se actualiza su sección y su precio.
+                  Las filas con un producto que no existía todavía se dan de alta como <b className="text-text-main">nuevas</b>.
+                  Lo más seguro es partir de <b className="text-text-main">Plantilla</b> (trae el Código), renombrar ahí la columna Categoría y agregar las filas nuevas.
+                </p>
               </div>
 
               {importRows.length > 0 && (
