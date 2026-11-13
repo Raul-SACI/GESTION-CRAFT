@@ -137,6 +137,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [managedCats, setManagedCats] = useState<Record<string, string[]>>({ salon: [], celiacos: [], pedidosya: [] });
   const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  // ─── Renombrar sección (conserva el historial de cada producto) ───
+  const [showRename, setShowRename] = useState(false);
+  const [renameOld, setRenameOld] = useState('');
+  const [renameNew, setRenameNew] = useState('');
+  const [renaming, setRenaming] = useState(false);
   // ─── Simulador de venta ───
   const [showSimModal, setShowSimModal] = useState(false);
   const [simLoading, setSimLoading] = useState(false);
@@ -569,6 +574,38 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       if (error) throw error;
       setManagedCats(prev => ({ ...prev, [activeMenu]: (prev[activeMenu] || []).filter(c => c !== name) }));
     } catch (e: any) { alert('Error al quitar la categoría: ' + (e.message || e)); }
+  };
+
+  // Renombra una sección (categoría) en TODOS los productos de la carta activa.
+  // Es un simple UPDATE de la categoría: los productos siguen siendo los mismos
+  // (mismo menu_item_id), así que precios e historial de aumentos quedan intactos.
+  const renameCategory = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const oldName = renameOld.trim();
+    const newName = renameNew.trim().toUpperCase();
+    if (!oldName) { alert('Elegí la sección que querés renombrar.'); return; }
+    if (!newName) { alert('Escribí el nuevo nombre de la sección.'); return; }
+    if (newName === oldName.toUpperCase()) { alert('El nombre nuevo es igual al actual.'); return; }
+    const afectados = (menus[activeMenu] || []).filter(i => String(i.category) === oldName).length;
+    if (!window.confirm(
+      `Vas a renombrar la sección "${oldName}" → "${newName}" en ${afectados} producto(s) de ${menuLabel}.\n\n` +
+      `Los precios y TODO el historial de aumentos se conservan (son los mismos productos). ¿Confirmás?`
+    )) return;
+    setRenaming(true);
+    try {
+      const { error: e1 } = await supabase.from('menu_items').update({ category: newName }).eq('menu_type', activeMenu).eq('category', oldName);
+      if (e1) throw e1;
+      // Etiqueta del historial (cosmético, para que los reportes muestren el nombre nuevo).
+      await supabase.from('menu_price_history').update({ category: newName }).eq('menu_type', activeMenu).eq('category', oldName);
+      // Si era una categoría creada a mano, renombrarla también en el maestro.
+      await supabase.from('menu_categories').update({ name: newName }).eq('menu_type', activeMenu).eq('name', oldName);
+      setManagedCats(prev => ({ ...prev, [activeMenu]: (prev[activeMenu] || []).map(c => c === oldName ? newName : c) }));
+      await fetchData();
+      setCategoryFilter('all');
+      setShowRename(false); setRenameOld(''); setRenameNew('');
+      alert(`Sección renombrada a "${newName}" en ${afectados} producto(s). El historial quedó intacto.`);
+    } catch (e: any) { alert('Error al renombrar la sección: ' + (e.message || e)); }
+    finally { setRenaming(false); }
   };
 
   const filteredItems = (menus[activeMenu] || []).filter(item => {
@@ -1015,6 +1052,13 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             <option value="all">Todas las categorías</option>
             {availableCategories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {!isReadOnly && availableCategories.length > 0 && (
+            <button onClick={() => { setRenameOld(categoryFilter !== 'all' ? categoryFilter : ''); setRenameNew(''); setShowRename(true); }}
+              className="bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
+              title="Cambiar el nombre de una sección en todos sus productos, conservando precios e historial de aumentos">
+              <Tag size={13} /> Renombrar sección
+            </button>
+          )}
           {activeMenu === 'pedidosya' && (
             <button onClick={() => setShowCategoriesModal(true)}
               className="bg-bg-accent border border-border-dim text-text-main px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest hover:border-brand-500/50 hover:text-brand-500 transition-all flex items-center gap-1.5"
@@ -1652,6 +1696,52 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
             </div>
             <div className="px-4 py-2 border-t border-border-dim">
               <p className="text-[8px] text-text-dim uppercase tracking-wide">Las que dicen "de productos" salen solas de los ítems cargados y no se pueden quitar desde acá.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Renombrar sección */}
+      {showRename && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => !renaming && setShowRename(false)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Renombrar sección · {menuLabel}</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">Cambia el nombre en todos sus productos, sin perder el historial</p>
+              </div>
+              <button onClick={() => !renaming && setShowRename(false)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección actual</label>
+                <select value={renameOld} onChange={e => setRenameOld(e.target.value)} disabled={renaming}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500">
+                  <option value="">— Elegí una sección —</option>
+                  {availableCategories.map(c => {
+                    const n = (menus[activeMenu] || []).filter(i => String(i.category) === c).length;
+                    return <option key={c} value={c}>{c}{n ? ` (${n} prod.)` : ''}</option>;
+                  })}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Nuevo nombre</label>
+                <input type="text" value={renameNew} onChange={e => setRenameNew(e.target.value)} disabled={renaming}
+                  placeholder="Ej: ENSALADAS & WRAPS"
+                  onKeyDown={e => { if (e.key === 'Enter') renameCategory(); }}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500" />
+              </div>
+              <div className="bg-emerald-500/5 border border-emerald-500/25 rounded px-3 py-2 text-[10px] text-text-dim leading-relaxed">
+                Se renombra la sección en <b className="text-text-main">todos</b> los productos que la tienen. Siguen siendo los mismos productos, así que <b className="text-text-main">precios e historial de aumentos quedan intactos</b> (incluida la "Variación del año").
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-border-dim flex items-center justify-end gap-2">
+              <button onClick={() => setShowRename(false)} disabled={renaming}
+                className="bg-bg-card border border-border-dim px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all disabled:opacity-50">Cancelar</button>
+              <button onClick={renameCategory} disabled={renaming || !renameOld || !renameNew.trim()}
+                className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
+                {renaming ? <Loader2 size={13} className="animate-spin" /> : <Tag size={13} />} Renombrar
+              </button>
             </div>
           </div>
         </div>
