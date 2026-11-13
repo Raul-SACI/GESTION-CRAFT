@@ -142,6 +142,11 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
   const [renameOld, setRenameOld] = useState('');
   const [renameNew, setRenameNew] = useState('');
   const [renaming, setRenaming] = useState(false);
+  // ─── Mover un producto de sección ───
+  const [moveItem, setMoveItem] = useState<MenuItem | null>(null);
+  const [moveTarget, setMoveTarget] = useState('');
+  const [moveNewSection, setMoveNewSection] = useState('');
+  const [moving, setMoving] = useState(false);
   // ─── Simulador de venta ───
   const [showSimModal, setShowSimModal] = useState(false);
   const [simLoading, setSimLoading] = useState(false);
@@ -606,6 +611,27 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
       alert(`Sección renombrada a "${newName}" en ${afectados} producto(s). El historial quedó intacto.`);
     } catch (e: any) { alert('Error al renombrar la sección: ' + (e.message || e)); }
     finally { setRenaming(false); }
+  };
+
+  // Mueve UN producto a otra sección. Solo cambia su categoría (mismo menu_item_id),
+  // así su precio y su historial de aumentos se conservan.
+  const moveItemToSection = async () => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    if (!moveItem) return;
+    const destino = (moveNewSection.trim() || moveTarget).trim().toUpperCase();
+    if (!destino) { alert('Elegí o escribí la sección destino.'); return; }
+    if (destino === String(moveItem.category).toUpperCase()) { alert('El producto ya está en esa sección.'); return; }
+    setMoving(true);
+    try {
+      const { error } = await supabase.from('menu_items').update({ category: destino }).eq('id', moveItem.id);
+      if (error) throw error;
+      // Etiqueta del historial (cosmético, para reportes).
+      await supabase.from('menu_price_history').update({ category: destino }).eq('menu_item_id', moveItem.id);
+      await fetchData();
+      setMoveItem(null); setMoveTarget(''); setMoveNewSection('');
+      alert(`"${moveItem.name}" se movió a "${destino}". El precio y el historial quedaron intactos.`);
+    } catch (e: any) { alert('Error al mover el producto: ' + (e.message || e)); }
+    finally { setMoving(false); }
   };
 
   const filteredItems = (menus[activeMenu] || []).filter(item => {
@@ -1390,15 +1416,26 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
+                      <button
                         onClick={() => setEditingItem(item)}
                         className="p-1.5 hover:text-brand-500 transition-colors"
+                        title="Editar precio"
                       >
                         <Edit2 size={14} />
                       </button>
-                      <button 
+                      {!isReadOnly && (
+                        <button
+                          onClick={() => { setMoveItem(item); setMoveTarget(''); setMoveNewSection(''); }}
+                          className="p-1.5 hover:text-brand-500 transition-colors"
+                          title="Mover a otra sección (conserva precio e historial)"
+                        >
+                          <Layers size={14} />
+                        </button>
+                      )}
+                      <button
                         onClick={() => handleDeleteItem(item.id)}
                         className="p-1.5 hover:text-red-500 transition-colors"
+                        title="Eliminar producto"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -1741,6 +1778,49 @@ export default function PriceListView({ isReadOnly = false }: { isReadOnly?: boo
               <button onClick={renameCategory} disabled={renaming || !renameOld || !renameNew.trim()}
                 className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
                 {renaming ? <Loader2 size={13} className="animate-spin" /> : <Tag size={13} />} Renombrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Mover producto de sección */}
+      {moveItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => !moving && setMoveItem(null)}>
+          <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border-dim flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Mover de sección</h3>
+                <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">{moveItem.name} · hoy en "{moveItem.category}"</p>
+              </div>
+              <button onClick={() => !moving && setMoveItem(null)} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">Sección destino</label>
+                <select value={moveTarget} onChange={e => { setMoveTarget(e.target.value); setMoveNewSection(''); }} disabled={moving}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500">
+                  <option value="">— Elegí una sección existente —</option>
+                  {availableCategories.filter(c => c !== moveItem.category).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">…o una sección nueva</label>
+                <input type="text" value={moveNewSection} onChange={e => { setMoveNewSection(e.target.value); if (e.target.value) setMoveTarget(''); }} disabled={moving}
+                  placeholder="Ej: ENSALADAS & WRAPS"
+                  onKeyDown={e => { if (e.key === 'Enter') moveItemToSection(); }}
+                  className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold uppercase text-text-main outline-none focus:border-brand-500" />
+              </div>
+              <div className="bg-emerald-500/5 border border-emerald-500/25 rounded px-3 py-2 text-[10px] text-text-dim leading-relaxed">
+                Solo cambia la sección del producto. El <b className="text-text-main">precio y el historial de aumentos quedan intactos</b>.
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-border-dim flex items-center justify-end gap-2">
+              <button onClick={() => setMoveItem(null)} disabled={moving}
+                className="bg-bg-card border border-border-dim px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all disabled:opacity-50">Cancelar</button>
+              <button onClick={moveItemToSection} disabled={moving || (!moveTarget && !moveNewSection.trim())}
+                className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all disabled:opacity-40">
+                {moving ? <Loader2 size={13} className="animate-spin" /> : <Layers size={13} />} Mover
               </button>
             </div>
           </div>
