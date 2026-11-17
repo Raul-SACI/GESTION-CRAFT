@@ -166,39 +166,50 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   };
 
   // ── Redimensionar una tarjeta (ancho y alto), individual y persistido ──
-  const resizeState = useRef<{ id: string; startX: number; startY: number; origW: number; origH: number; w: number; h: number } | null>(null);
+  // Durante el arrastre se aplica el tamaño DIRECTO al DOM (fluido, sin re-render
+  // ni recálculo de líneas por frame); recién al soltar se guarda en estado + DB.
+  const resizeState = useRef<{ id: string; el: HTMLElement; factor: number; startX: number; startY: number; origW: number; origH: number; w: number; h: number } | null>(null);
   const onResizeStart = (e: React.PointerEvent, p: Puesto) => {
     if (isReadOnly) return;
     e.stopPropagation(); e.preventDefault(); // no arrastrar la tarjeta al redimensionar
     const el = (p.es_asesor ? asesorRefs : nodeRefs).current[p.id];
-    const rect = el?.getBoundingClientRect();
-    const origW = p.card_w ?? (rect ? Math.round(rect.width) : (p.es_asesor ? asesorW : cardW));
-    const origH = p.card_h ?? (rect ? Math.round(rect.height) : 60);
-    resizeState.current = { id: p.id, startX: e.clientX, startY: e.clientY, origW, origH, w: origW, h: origH };
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const origW = p.card_w ?? Math.round(rect.width);
+    const origH = p.card_h ?? Math.round(rect.height);
+    // Los nodos del árbol están centrados: al crecer se corren a la izquierda, así
+    // que el borde derecho avanza la mitad. Con factor 2 el tirador sigue al cursor.
+    const factor = p.es_asesor ? 1 : 2;
+    resizeState.current = { id: p.id, el, factor, startX: e.clientX, startY: e.clientY, origW, origH, w: origW, h: origH };
+    try { el.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
     window.addEventListener('pointermove', onResizeMove);
     window.addEventListener('pointerup', onResizeUp);
   };
   const onResizeMove = (e: PointerEvent) => {
     const d = resizeState.current; if (!d) return;
-    const w = Math.max(110, Math.min(460, Math.round(d.origW + (e.clientX - d.startX))));
-    const h = Math.max(52, Math.min(520, Math.round(d.origH + (e.clientY - d.startY))));
+    const w = Math.max(120, Math.min(480, Math.round(d.origW + (e.clientX - d.startX) * d.factor)));
+    const h = Math.max(56, Math.min(540, Math.round(d.origH + (e.clientY - d.startY))));
     d.w = w; d.h = h;
-    setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, card_w: w, card_h: h } : p));
+    d.el.style.width = w + 'px';
+    d.el.style.minHeight = h + 'px';
   };
   const onResizeUp = async () => {
     const d = resizeState.current; resizeState.current = null;
     window.removeEventListener('pointermove', onResizeMove);
     window.removeEventListener('pointerup', onResizeUp);
     if (!d || isReadOnly) return;
+    setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, card_w: d.w, card_h: d.h } : p));
     try { await supabase.from('org_puestos').upsert({ id: d.id, card_w: d.w, card_h: d.h, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
     catch (e) { console.warn('No se pudo guardar el tamaño de la tarjeta', e); }
   };
-  // Handle (esquina inferior derecha) para redimensionar.
+  // Tirador (esquina inferior derecha) para redimensionar: visible y fácil de agarrar.
   const ResizeHandle = ({ p }: { p: Puesto }) => isReadOnly ? null : (
-    <div onPointerDown={e => onResizeStart(e, p)} title="Arrastrá para cambiar el tamaño"
-      className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize opacity-40 hover:opacity-90"
+    <div onPointerDown={e => onResizeStart(e, p)} title="Arrastrá para cambiar el tamaño de esta tarjeta"
+      className="absolute -bottom-1.5 -right-1.5 w-6 h-6 flex items-end justify-end cursor-nwse-resize z-10 group/rz"
       style={{ touchAction: 'none' }}>
-      <svg viewBox="0 0 10 10" width="100%" height="100%"><path d="M9 1 L9 9 L1 9" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M9 5 L5 9 M9 8 L8 9" stroke="currentColor" strokeWidth="1.1" /></svg>
+      <div className="w-4 h-4 rounded-br-lg rounded-tl-sm bg-brand-500/80 group-hover/rz:bg-brand-500 border border-white/70 shadow-md flex items-end justify-end p-[1px]">
+        <svg viewBox="0 0 10 10" width="8" height="8" className="text-white"><path d="M9 3 L9 9 L3 9 M9 6 L6 9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
+      </div>
     </div>
   );
 
