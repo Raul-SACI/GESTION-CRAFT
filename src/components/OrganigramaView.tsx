@@ -161,8 +161,10 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     if (!d || isReadOnly) return;
     // Solo guardar si de verdad se movió (evita escribir al hacer un simple clic).
     if (d.lastX === d.origX && d.lastY === d.origY) return;
-    try { await supabase.from('org_puestos').upsert({ id: d.id, pos_x: d.lastX, pos_y: d.lastY, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
-    catch (e) { console.warn('No se pudo guardar la posición del asesor', e); }
+    // UPDATE (no upsert): el row ya existe; upsert haría INSERT...ON CONFLICT y
+    // fallaría por columnas NOT NULL (ej. nombre) antes de resolver el conflicto.
+    const { error } = await supabase.from('org_puestos').update({ pos_x: d.lastX, pos_y: d.lastY, updated_at: new Date().toISOString() }).eq('id', d.id);
+    if (error) { console.warn('No se pudo guardar la posición del asesor', error); alert('No se pudo guardar la posición: ' + error.message); }
   };
 
   // ── Redimensionar una tarjeta (ancho y alto), individual y persistido ──
@@ -201,8 +203,12 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     window.removeEventListener('pointerup', onResizeUp);
     if (!d || isReadOnly) return;
     setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, card_w: d.w, card_h: d.h } : p));
-    try { await supabase.from('org_puestos').upsert({ id: d.id, card_w: d.w, card_h: d.h, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
-    catch (e) { console.warn('No se pudo guardar el tamaño de la tarjeta', e); }
+    const { error } = await supabase.from('org_puestos').update({ card_w: d.w, card_h: d.h, updated_at: new Date().toISOString() }).eq('id', d.id);
+    if (error) {
+      console.warn('No se pudo guardar el tamaño de la tarjeta', error);
+      if (/card_w|card_h|column/i.test(error.message)) alert('Para guardar el tamaño de las tarjetas falta correr el SQL en Supabase (agrega card_w y card_h a org_puestos). Archivo: org_puestos_card_size.sql');
+      else alert('No se pudo guardar el tamaño: ' + error.message);
+    }
   };
   // Tirador (esquina inferior derecha) para redimensionar: visible y fácil de agarrar.
   const ResizeHandle = ({ p }: { p: Puesto }) => isReadOnly ? null : (
