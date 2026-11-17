@@ -21,13 +21,14 @@ interface Puesto {
   id: string; nombre: string; area: string; parent_id: string | null; branch_id: string;
   objetivo: string; funciones: string; requisitos: string; sort_order: number;
   es_asesor: boolean; pos_x: number | null; pos_y: number | null; asesor_de: string | null;
+  card_w: number | null; card_h: number | null;
 }
 interface Empleado { id: string; name: string; legajo: string; position: string; branch_id: string; active: boolean; }
 const newId = () => (crypto?.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
 const emptyPuesto = (parent_id: string | null = null, es_asesor = false): Puesto => ({
   id: newId(), nombre: '', area: '', parent_id: es_asesor ? null : parent_id, branch_id: '', objetivo: '', funciones: '', requisitos: '', sort_order: 0,
-  es_asesor, pos_x: null, pos_y: null, asesor_de: null,
+  es_asesor, pos_x: null, pos_y: null, asesor_de: null, card_w: null, card_h: null,
 });
 
 export default function OrganigramaView({ branches = [], isReadOnly = false }: { branches?: Branch[]; isReadOnly?: boolean }) {
@@ -59,6 +60,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
         id: r.id, nombre: r.nombre || '', area: r.area || '', parent_id: r.parent_id || null, branch_id: r.branch_id || '',
         objetivo: r.objetivo || '', funciones: r.funciones || '', requisitos: r.requisitos || '', sort_order: Number(r.sort_order) || 0,
         es_asesor: !!r.es_asesor, pos_x: r.pos_x == null ? null : Number(r.pos_x), pos_y: r.pos_y == null ? null : Number(r.pos_y), asesor_de: r.asesor_de || null,
+        card_w: r.card_w == null ? null : Number(r.card_w), card_h: r.card_h == null ? null : Number(r.card_h),
       })));
       setAsign(((asg.data as any[]) || []).map(r => ({ puesto_id: r.puesto_id, empleado_id: r.empleado_id })));
       setEmpleados(((emp.data as any[]) || []).map(r => ({ id: r.id, name: r.name || '', legajo: r.legajo || '', position: r.position || '', branch_id: r.branch_id || '', active: r.is_active !== false })));
@@ -162,6 +164,43 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     try { await supabase.from('org_puestos').upsert({ id: d.id, pos_x: d.lastX, pos_y: d.lastY, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
     catch (e) { console.warn('No se pudo guardar la posición del asesor', e); }
   };
+
+  // ── Redimensionar una tarjeta (ancho y alto), individual y persistido ──
+  const resizeState = useRef<{ id: string; startX: number; startY: number; origW: number; origH: number; w: number; h: number } | null>(null);
+  const onResizeStart = (e: React.PointerEvent, p: Puesto) => {
+    if (isReadOnly) return;
+    e.stopPropagation(); e.preventDefault(); // no arrastrar la tarjeta al redimensionar
+    const el = (p.es_asesor ? asesorRefs : nodeRefs).current[p.id];
+    const rect = el?.getBoundingClientRect();
+    const origW = p.card_w ?? (rect ? Math.round(rect.width) : (p.es_asesor ? asesorW : cardW));
+    const origH = p.card_h ?? (rect ? Math.round(rect.height) : 60);
+    resizeState.current = { id: p.id, startX: e.clientX, startY: e.clientY, origW, origH, w: origW, h: origH };
+    window.addEventListener('pointermove', onResizeMove);
+    window.addEventListener('pointerup', onResizeUp);
+  };
+  const onResizeMove = (e: PointerEvent) => {
+    const d = resizeState.current; if (!d) return;
+    const w = Math.max(110, Math.min(460, Math.round(d.origW + (e.clientX - d.startX))));
+    const h = Math.max(52, Math.min(520, Math.round(d.origH + (e.clientY - d.startY))));
+    d.w = w; d.h = h;
+    setPuestos(prev => prev.map(p => p.id === d.id ? { ...p, card_w: w, card_h: h } : p));
+  };
+  const onResizeUp = async () => {
+    const d = resizeState.current; resizeState.current = null;
+    window.removeEventListener('pointermove', onResizeMove);
+    window.removeEventListener('pointerup', onResizeUp);
+    if (!d || isReadOnly) return;
+    try { await supabase.from('org_puestos').upsert({ id: d.id, card_w: d.w, card_h: d.h, updated_at: new Date().toISOString() }, { onConflict: 'id' }); }
+    catch (e) { console.warn('No se pudo guardar el tamaño de la tarjeta', e); }
+  };
+  // Handle (esquina inferior derecha) para redimensionar.
+  const ResizeHandle = ({ p }: { p: Puesto }) => isReadOnly ? null : (
+    <div onPointerDown={e => onResizeStart(e, p)} title="Arrastrá para cambiar el tamaño"
+      className="absolute bottom-0 right-0 w-3.5 h-3.5 cursor-nwse-resize opacity-40 hover:opacity-90"
+      style={{ touchAction: 'none' }}>
+      <svg viewBox="0 0 10 10" width="100%" height="100%"><path d="M9 1 L9 9 L1 9" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M9 5 L5 9 M9 8 L8 9" stroke="currentColor" strokeWidth="1.1" /></svg>
+    </div>
+  );
 
   // ── Abrir editor ──
   const abrirNuevo = (parent_id: string | null = null) => { if (isReadOnly) return; setEditing(emptyPuesto(parent_id, false)); setEditAsign([]); setOrigAsign([]); setIsNew(true); setEmpSearch(''); };
@@ -275,9 +314,12 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     const hijos = (childrenOf[p.id] || []).slice().sort((a, b) => a.sort_order - b.sort_order || a.nombre.localeCompare(b.nombre));
     return (
       <li key={p.id}>
-        <div ref={el => { nodeRefs.current[p.id] = el; }} style={{ width: cardW }} className="org-node bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 inline-block align-top text-left">
+        <div ref={el => { nodeRefs.current[p.id] = el; }}
+          style={{ width: p.card_w ?? cardW, minHeight: p.card_h ?? undefined }}
+          className="org-node relative bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 pb-3 inline-block align-top text-left">
           <Caja p={p} />
           <Acciones p={p} extra />
+          <ResizeHandle p={p} />
         </div>
         {hijos.length > 0 && <ul>{hijos.map(renderNode)}</ul>}
       </li>
@@ -364,17 +406,18 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
             {asesores.map(a => (
               <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
                 onPointerDown={e => onAsesorPointerDown(e, a)}
-                className={cn('absolute bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 text-left select-none', isReadOnly ? '' : 'cursor-move')}
-                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: asesorW }}>
+                className={cn('absolute bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 pb-3 text-left select-none', isReadOnly ? '' : 'cursor-move')}
+                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: a.card_w ?? asesorW, minHeight: a.card_h ?? undefined }}>
                 <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
                 <Caja p={a} />
                 <Acciones p={a} />
+                <ResizeHandle p={a} />
               </div>
             ))}
           </div>
         </div>
       )}
-      {asesores.length > 0 && !isReadOnly && <p className="text-[10px] text-text-dim">Arrastrá las cajas de <b className="text-indigo-500">asesores</b> (borde punteado) para ubicarlas donde quieras; la posición se guarda sola. La línea punteada los conecta con el puesto que elijas.</p>}
+      {!isReadOnly && <p className="text-[10px] text-text-dim">Arrastrá la <b className="text-text-main">esquina inferior derecha</b> de cualquier recuadro para cambiar su <b className="text-text-main">ancho y alto</b> (se guarda solo). {asesores.length > 0 && <>Arrastrá las cajas de <b className="text-indigo-500">asesores</b> (borde punteado) para ubicarlas donde quieras; la posición también se guarda sola. </>}Los sliders de arriba fijan el tamaño <b className="text-text-main">por defecto</b>.</p>}
 
       {/* ─────────── MANUAL (lectura) ─────────── */}
       {manual && (() => {
