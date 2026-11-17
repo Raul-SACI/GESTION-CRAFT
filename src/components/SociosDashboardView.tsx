@@ -148,7 +148,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         while (more && page < 50) {
           const { data: rows, error } = await supabase
             .from('sales_tickets')
-            .select('branch_id, date, gross_sales, net_sales, orders')
+            .select('branch_id, date, gross_sales, net_sales, orders, comprobante')
             .gte('date', start)
             .lte('date', end)
             // Orden estable: sin ORDER BY, la paginación con .range() devuelve filas
@@ -207,18 +207,39 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
 
       const daysWithData: Record<string, Set<string>> = {};       // branch -> fechas completas (YYYY-MM-DD) del mes actual
       const dayNumsWithData: Record<string, Set<string>> = {};     // branch -> números de día (DD) cargados en el mes actual
+
+      // Conteo de tickets por COMPROBANTE ÚNICO (mismo criterio que la tabla
+      // "TICKETS / ÓRDENES"): se deduplica por branch|date|comprobante; las filas
+      // sin comprobante caen al fallback sumando `orders`. Un mismo comprobante
+      // partido en varias filas (turno/hora/medio de pago) cuenta UNA sola vez.
+      type Bkt = { comp: Set<string>; fb: number };
+      const mkBkt = (): Bkt => ({ comp: new Set(), fb: 0 });
+      const compKey = (t: any): string | null => {
+        const c = t.comprobante != null && String(t.comprobante).trim() !== '' ? String(t.comprobante).trim() : null;
+        return c ? `${t.branch_id}|${t.date}|${c}` : null;
+      };
+      const addTk = (b: Bkt, t: any) => { const k = compKey(t); if (k) b.comp.add(k); else b.fb += Number(t.orders) || 0; };
+      const cntTk = (b?: Bkt) => b ? b.comp.size + b.fb : 0;
+      const curTot: Record<string, Bkt> = {};
+      const curWk: Record<string, Record<number, Bkt>> = {};
+      const prevFullB: Record<string, Bkt> = {};
+      const prevSameB: Record<string, Bkt> = {};
+      const prevWkB: Record<string, Record<number, Bkt>> = {};
+      const ensureWk = (m: Record<string, Record<number, Bkt>>, br: string): Record<number, Bkt> => (m[br] ||= { 1: mkBkt(), 2: mkBkt(), 3: mkBkt(), 4: mkBkt() });
+
       currTickets.forEach(t => {
         const a = agg[t.branch_id];
         if (!a) return;
         a.netCurrent += Number(t.net_sales) || 0;
         a.grossCurrent += Number(t.gross_sales) || 0;
-        a.ticketsCurrent += Number(t.orders) || 0;
         // Desglose por semana según el día del mes (1-7=S1, 8-14=S2, 15-21=S3, 22+=S4)
         const diaMes = parseInt(String(t.date).slice(8, 10));
         const wk = diaMes <= 7 ? 1 : diaMes <= 14 ? 2 : diaMes <= 21 ? 3 : 4;
         a.semanas[wk].net += Number(t.net_sales) || 0;
         a.semanas[wk].gross += Number(t.gross_sales) || 0;
-        a.semanas[wk].tickets += Number(t.orders) || 0;
+        // Tickets por comprobante único (total y por semana)
+        addTk(curTot[t.branch_id] ||= mkBkt(), t);
+        addTk(ensureWk(curWk, t.branch_id)[wk], t);
         if (!daysWithData[t.branch_id]) daysWithData[t.branch_id] = new Set();
         daysWithData[t.branch_id].add(t.date);
         if (!dayNumsWithData[t.branch_id]) dayNumsWithData[t.branch_id] = new Set();
@@ -232,7 +253,7 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         if (!a) return;
         // Total del mes anterior COMPLETO (todos los días), para comparar contra la
         // proyección mensual. Se suma siempre, sin el filtro de "mismos días".
-        a.ticketsPrevFull += Number(t.orders) || 0;
+        addTk(prevFullB[t.branch_id] ||= mkBkt(), t);
         a.netPrevFull += Number(t.net_sales) || 0;
         a.grossPrevFull += Number(t.gross_sales) || 0;
         const dayNum = String(t.date).slice(8, 10);
@@ -241,17 +262,25 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
         if (loadedDays && loadedDays.size > 0 && !loadedDays.has(dayNum)) return;
         a.netPrev += Number(t.net_sales) || 0;
         a.grossPrev += Number(t.gross_sales) || 0;
-        a.ticketsPrev += Number(t.orders) || 0;
         // Desglose por semana del mes anterior (mismos días comparables)
         const diaMesP = parseInt(dayNum);
         const wkP = diaMesP <= 7 ? 1 : diaMesP <= 14 ? 2 : diaMesP <= 21 ? 3 : 4;
         a.semanasPrev[wkP].net += Number(t.net_sales) || 0;
         a.semanasPrev[wkP].gross += Number(t.gross_sales) || 0;
-        a.semanasPrev[wkP].tickets += Number(t.orders) || 0;
+        addTk(prevSameB[t.branch_id] ||= mkBkt(), t);
+        addTk(ensureWk(prevWkB, t.branch_id)[wkP], t);
       });
 
       const daysInMonth = new Date(cy, cm, 0).getDate();
       Object.values(agg).forEach(a => {
+        // Volcar los conteos de comprobantes únicos a los campos de tickets.
+        a.ticketsCurrent = cntTk(curTot[a.branchId]);
+        a.ticketsPrevFull = cntTk(prevFullB[a.branchId]);
+        a.ticketsPrev = cntTk(prevSameB[a.branchId]);
+        [1, 2, 3, 4].forEach(wk => {
+          a.semanas[wk].tickets = cntTk(curWk[a.branchId]?.[wk]);
+          a.semanasPrev[wk].tickets = cntTk(prevWkB[a.branchId]?.[wk]);
+        });
         const ud = daysWithData[a.branchId]?.size || 0;
         a.diasCargados = ud;
         a.projection = ud > 0 ? (a.netCurrent / ud) * daysInMonth : 0;
