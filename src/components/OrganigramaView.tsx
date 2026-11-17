@@ -188,10 +188,12 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   const onResizeMove = (e: PointerEvent) => {
     const d = resizeState.current; if (!d) return;
     const w = Math.max(120, Math.min(480, Math.round(d.origW + (e.clientX - d.startX) * d.factor)));
-    const h = Math.max(56, Math.min(540, Math.round(d.origH + (e.clientY - d.startY))));
+    const h = Math.max(38, Math.min(540, Math.round(d.origH + (e.clientY - d.startY))));
     d.w = w; d.h = h;
     d.el.style.width = w + 'px';
-    d.el.style.minHeight = h + 'px';
+    // Alto FIJO (no min): permite aplastar la tarjeta por debajo de su contenido.
+    d.el.style.height = h + 'px';
+    d.el.style.overflow = 'hidden';
   };
   const onResizeUp = async () => {
     const d = resizeState.current; resizeState.current = null;
@@ -204,10 +206,10 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
   };
   // Tirador (esquina inferior derecha) para redimensionar: visible y fácil de agarrar.
   const ResizeHandle = ({ p }: { p: Puesto }) => isReadOnly ? null : (
-    <div onPointerDown={e => onResizeStart(e, p)} title="Arrastrá para cambiar el tamaño de esta tarjeta"
-      className="absolute -bottom-1.5 -right-1.5 w-6 h-6 flex items-end justify-end cursor-nwse-resize z-10 group/rz"
+    <div onPointerDown={e => onResizeStart(e, p)} title="Arrastrá para cambiar el ancho y el alto de esta tarjeta"
+      className="absolute bottom-0 right-0 w-6 h-6 flex items-end justify-end cursor-nwse-resize z-10 group/rz"
       style={{ touchAction: 'none' }}>
-      <div className="w-4 h-4 rounded-br-lg rounded-tl-sm bg-brand-500/80 group-hover/rz:bg-brand-500 border border-white/70 shadow-md flex items-end justify-end p-[1px]">
+      <div className="w-4 h-4 rounded-br-md rounded-tl-sm bg-brand-500/80 group-hover/rz:bg-brand-500 border border-white/70 shadow-md flex items-end justify-end p-[1px]">
         <svg viewBox="0 0 10 10" width="8" height="8" className="text-white"><path d="M9 3 L9 9 L3 9 M9 6 L6 9" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
       </div>
     </div>
@@ -326,7 +328,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
     return (
       <li key={p.id}>
         <div ref={el => { nodeRefs.current[p.id] = el; }}
-          style={{ width: p.card_w ?? cardW, minHeight: p.card_h ?? undefined }}
+          style={{ width: p.card_w ?? cardW, height: p.card_h ?? undefined, overflow: p.card_h ? 'hidden' : undefined }}
           className="org-node relative bg-bg-sidebar border border-border-dim rounded-lg shadow-sm px-2.5 py-2 pb-3 inline-block align-top text-left">
           <Caja p={p} />
           <Acciones p={p} extra />
@@ -418,7 +420,7 @@ export default function OrganigramaView({ branches = [], isReadOnly = false }: {
               <div key={a.id} ref={el => { asesorRefs.current[a.id] = el; }}
                 onPointerDown={e => onAsesorPointerDown(e, a)}
                 className={cn('absolute bg-indigo-500/5 border-2 border-dashed border-indigo-400 rounded-lg shadow-sm px-2.5 py-2 pb-3 text-left select-none', isReadOnly ? '' : 'cursor-move')}
-                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: a.card_w ?? asesorW, minHeight: a.card_h ?? undefined }}>
+                style={{ left: a.pos_x ?? 40, top: a.pos_y ?? 40, width: a.card_w ?? asesorW, height: a.card_h ?? undefined, overflow: a.card_h ? 'hidden' : undefined }}>
                 <div className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-indigo-500 mb-0.5"><Briefcase size={9} /> Asesor{a.asesor_de ? ` · ${nombreById(a.asesor_de)}` : ''}</div>
                 <Caja p={a} />
                 <Acciones p={a} />
