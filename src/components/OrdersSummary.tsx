@@ -32,6 +32,9 @@ export default function OrdersSummary({ scope, branches }: Props) {
 
   const [orders, setOrders] = useState<Record<string, number>>({});
   const [daysLoadedByMonth, setDaysLoadedByMonth] = useState<Record<string, number>>({});
+  // Proyección del mes en curso = suma de proyecciones POR SUCURSAL (cada una con
+  // sus días), igual que el Dashboard de Socios. Null si no aplica / no hay datos.
+  const [curMonthProj, setCurMonthProj] = useState<number | null>(null);
   const [sales, setSales] = useState<Record<string, number>>({});
   const [inflationMap, setInflationMap] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -108,6 +111,50 @@ export default function OrdersSummary({ scope, branches }: Props) {
         const im: Record<string, number> = {};
         (infl || []).forEach((r: any) => { im[r.month] = Number(r.inflation_pct) || 0; });
         setInflationMap(im);
+
+        // ── Proyección del mes en curso POR SUCURSAL (coincide con "Ventas por sucursal") ──
+        // Cada sucursal se proyecta con SUS días cargados y se suma, en vez de dividir
+        // el total por los días únicos (que subestima si las sucursales tienen distinta
+        // cantidad de días). Solo el mes actual (los pasados ya están completos).
+        try {
+          const nowD = new Date();
+          const cmKey = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+          const [cyP, cmP] = cmKey.split('-').map(Number);
+          const dim = new Date(cyP, cmP, 0).getDate();
+          const cmStart = `${cmKey}-01`;
+          const cmEnd = `${cmKey}-${String(dim).padStart(2, '0')}`;
+          let q = supabase.from('sales_tickets').select('branch_id, date, orders, comprobante')
+            .gte('date', cmStart).lte('date', cmEnd)
+            .order('date').order('branch_id').order('comprobante');
+          if (effScope !== 'consolidated') q = q.eq('branch_id', effScope);
+          let pg = 0; const cmRows: any[] = [];
+          while (pg < 100) {
+            const { data: d2 } = await q.range(pg * 1000, pg * 1000 + 999);
+            if (!d2 || d2.length === 0) break;
+            cmRows.push(...d2);
+            if (d2.length < 1000) break;
+            pg++;
+          }
+          if (cmRows.length > 0) {
+            const comp: Record<string, Set<string>> = {};
+            const fb: Record<string, number> = {};
+            const days: Record<string, Set<string>> = {};
+            cmRows.forEach((t: any) => {
+              const b = String(t.branch_id);
+              (days[b] ||= new Set()).add(String(t.date));
+              const c = t.comprobante != null && String(t.comprobante).trim() !== '' ? String(t.comprobante).trim() : null;
+              if (c) (comp[b] ||= new Set()).add(`${b}|${t.date}|${c}`);
+              else fb[b] = (fb[b] || 0) + (Number(t.orders) || 0);
+            });
+            let sum = 0;
+            Object.keys(days).forEach(b => {
+              const cnt = (comp[b]?.size || 0) + (fb[b] || 0);
+              const d = days[b]?.size || 0;
+              if (d > 0) sum += (cnt / d) * dim;
+            });
+            setCurMonthProj(Math.round(sum));
+          } else setCurMonthProj(null);
+        } catch { setCurMonthProj(null); }
       } catch (e) { console.error('Error OrdersSummary:', e); }
       setLoading(false);
     };
@@ -145,6 +192,9 @@ export default function OrdersSummary({ scope, branches }: Props) {
       const daysLoaded = daysLoadedByMonth[month] || 0;
       const daysInMonth = new Date(Number(year), Number(mm), 0).getDate();
       if (daysLoaded > 0 && daysLoaded < daysInMonth) {
+        // Proyección por sucursal (coincide con "Ventas por sucursal"); si no está
+        // disponible, se cae al prorrateo consolidado por días únicos.
+        if (curMonthProj != null) return { value: curMonthProj, isProjected: true };
         return { value: Math.round((raw / daysLoaded) * daysInMonth), isProjected: true };
       }
     }
