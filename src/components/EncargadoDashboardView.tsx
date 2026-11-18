@@ -1682,8 +1682,20 @@ export default function EncargadoDashboardView({
   // momento Carga de Resultados solo lee (lo único editable ahí son las negras).
   // esAdmin ya está definido más arriba (se usa para los ajustes manuales de premio)
   const [cerrando, setCerrando] = useState(false);
-  const [cierreInfo, setCierreInfo] = useState<{ closedAt: string; closedBy: string } | null>(null);
+  const [cierreInfo, setCierreInfo] = useState<{ closedAt: string; closedBy: string; frozenByRole: Record<string, number> } | null>(null);
   const branchKeyCierre = selectedBranchId === 'all' ? '' : selectedBranchId;
+
+  // Diferencia entre lo que daría el cierre HOY (en vivo) y la foto congelada al
+  // cerrar el mes. Si difiere, conviene volver a cerrar para actualizar los premios.
+  const cierreDifs = (cierreInfo && !isSimulationMode)
+    ? (Object.keys(calculatedPrizesBreakdown) as string[]).map(role => {
+        const bd = (calculatedPrizesBreakdown as any)[role];
+        if (!bd || !(role in (cierreInfo.frozenByRole || {}))) return null;
+        const live = Math.round(bd.finalCalculatedPrize || 0);
+        const frozen = Math.round(cierreInfo.frozenByRole[role] || 0);
+        return Math.abs(live - frozen) >= 1 ? { role, label: bd.roleLabel || role, live, frozen } : null;
+      }).filter(Boolean) as { role: string; label: string; live: number; frozen: number }[]
+    : [];
 
   const mesLabelCierre = (m: string) => {
     const [y, mm] = m.split('-');
@@ -1696,12 +1708,17 @@ export default function EncargadoDashboardView({
     try {
       const { data, error } = await supabase
         .from('performance_reports')
-        .select('closed_at, closed_by')
+        .select('role, total_calculated_prize, closed_at, closed_by')
         .eq('branch_id', branchId).eq('month', month)
-        .not('closed_at', 'is', null)
-        .limit(1);
+        .not('closed_at', 'is', null);
       if (error || !data || data.length === 0) { setCierreInfo(null); return; }
-      setCierreInfo({ closedAt: data[0].closed_at, closedBy: data[0].closed_by || '' });
+      const frozenByRole: Record<string, number> = {};
+      let closedAt = ''; let closedBy = '';
+      (data as any[]).forEach(r => {
+        if (r.role) frozenByRole[r.role] = Number(r.total_calculated_prize) || 0;
+        if (!closedAt && r.closed_at) { closedAt = r.closed_at; closedBy = r.closed_by || ''; }
+      });
+      setCierreInfo({ closedAt, closedBy, frozenByRole });
     } catch {
       setCierreInfo(null);
     }
@@ -1898,6 +1915,30 @@ export default function EncargadoDashboardView({
           )}
         </div>
       </div>
+
+      {/* Aviso: los premios en vivo difieren de la foto congelada del cierre */}
+      {esAdmin && cierreDifs.length > 0 && (
+        <div className="bg-amber-500/10 border border-amber-500/40 rounded-xl px-4 py-3 flex items-start gap-3">
+          <AlertTriangle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+          <div className="text-[10px] leading-relaxed">
+            <span className="font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Los premios cambiaron después del cierre
+            </span>
+            <p className="text-text-dim mt-1">
+              La foto congelada del cierre no coincide con el cálculo actual (probablemente se cargó/corrigió información del mes después de cerrar). En <b className="text-text-main">Configuración de Premios</b> se sigue viendo la foto vieja. Para actualizarla, volvé a tocar <b className="text-text-main">"Mes Cerrado"</b> (reemplaza la foto por la actual).
+            </p>
+            <div className="mt-1.5 space-y-0.5">
+              {cierreDifs.map(d => (
+                <div key={d.role} className="font-mono text-[10px]">
+                  <span className="font-bold text-text-main">{d.label}:</span>{' '}
+                  congelado <b className="text-text-dim">${d.frozen.toLocaleString('es-AR')}</b> → actual <b className={d.live >= d.frozen ? 'text-emerald-600' : 'text-red-500'}>${d.live.toLocaleString('es-AR')}</b>
+                  <span className="text-text-dim"> ({d.live >= d.frozen ? '+' : ''}${(d.live - d.frozen).toLocaleString('es-AR')})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Widget resumen de Tareas del día */}
       {currentUser && (
