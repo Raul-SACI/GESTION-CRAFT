@@ -457,6 +457,60 @@ export default function FinanceView({
   // Custom batch loader state for generated installments
   const [tempCuotas, setTempCuotas] = useState<Array<{ installmentNumber: string; dueDate: string; amount: number }>>([]);
 
+  // Edición de un préstamo completo (regenera su cronograma de cuotas).
+  const [showEditLoan, setShowEditLoan] = useState(false);
+  const [editLoanData, setEditLoanData] = useState<any>(null);
+  const abrirEditLoan = (stat: any) => {
+    if (isReadOnly) { alert('Tu rol tiene acceso de SOLO LECTURA.'); return; }
+    const rows = payments.filter(p => p.category === 'loan' && (p.bank || 'OTROS').trim().toUpperCase() === stat.bank && String((p as any).loanNumber || '1').trim() === stat.loanNumber);
+    const sorted = rows.slice().sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
+    const firstDue = sorted[0]?.dueDate || toLocalISO(new Date());
+    const amount = (stat.installmentAmounts && stat.installmentAmounts[0]) || sorted[0]?.amount || 0;
+    setEditLoanData({
+      origBank: stat.bank, origLoan: stat.loanNumber,
+      bank: stat.bank, loanNumber: stat.loanNumber,
+      requestedAmount: stat.requestedAmount || 0,
+      destination: stat.destination === 'S/D' ? '' : (stat.destination || ''),
+      rate: stat.rate === 'S/D' ? '' : (stat.rate || ''),
+      count: stat.totalInstallments || rows.length,
+      amount, firstDue,
+    });
+    setShowEditLoan(true);
+  };
+  const guardarEditLoan = async () => {
+    if (isReadOnly || !editLoanData) return;
+    const d = editLoanData;
+    const count = parseInt(String(d.count), 10);
+    const amount = Number(d.amount);
+    if (!String(d.bank).trim()) { alert('Indicá el banco.'); return; }
+    if (!count || count <= 0) { alert('Indicá una cantidad de cuotas válida.'); return; }
+    if (!amount || amount <= 0) { alert('Indicá un monto de cuota válido.'); return; }
+    if (!d.firstDue) { alert('Indicá la fecha de la primera cuota.'); return; }
+    if (!window.confirm(
+      `Se reemplazan TODAS las cuotas de ${d.origBank} · Préstamo ${d.origLoan} por ${count} cuota(s) de $${amount.toLocaleString('es-AR')} c/u, desde el ${String(d.firstDue).split('-').reverse().join('/')} (una por mes).\n\n` +
+      `Las marcas de "pagado" de este préstamo se pierden (quedan todas pendientes). ¿Confirmás?`
+    )) return;
+    const bankU = String(d.bank).trim().toUpperCase();
+    const loanN = String(d.loanNumber || '1').trim();
+    // Quitar las cuotas viejas de este préstamo (por banco + N° original).
+    const others = payments.filter(p => !(p.category === 'loan' && (p.bank || 'OTROS').trim().toUpperCase() === d.origBank && String((p as any).loanNumber || '1').trim() === d.origLoan));
+    const nuevas: any[] = [];
+    const dt = new Date(d.firstDue + 'T12:00:00');
+    for (let i = 1; i <= count; i++) {
+      nuevas.push({
+        id: `loan_${Date.now()}_${i}`,
+        description: `CUOTA PRÉSTAMO ${bankU}${loanN ? ` #${loanN}` : ''} ${i}/${count}`,
+        dueDate: toLocalISO(dt), amount, status: 'pending', category: 'loan',
+        bank: bankU, loanNumber: loanN, requestedAmount: Number(d.requestedAmount) || 0,
+        destination: d.destination || '', rate: d.rate || '', installmentNumber: `${i} de ${count}`,
+      });
+      dt.setMonth(dt.getMonth() + 1);
+    }
+    await savePayments([...others, ...nuevas] as any);
+    setShowEditLoan(false);
+    setEditLoanData(null);
+  };
+
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
   
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
@@ -3164,18 +3218,26 @@ export default function FinanceView({
                     {bankEntityStats.map(stat => (
                       <div key={`${stat.bank}#${stat.loanNumber}`} className="bg-bg-accent/30 border border-border-dim p-4 rounded-lg relative overflow-hidden group hover:border-brand-500/30 transition-all flex flex-col justify-between min-h-[180px]">
                         <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider">
+                          <div className="flex justify-between items-center mb-2 gap-1">
+                            <span className="text-[11px] font-black uppercase text-brand-500 tracking-wider truncate">
                               {stat.bank}{stat.loanNumber ? ` · Préstamo ${stat.loanNumber}` : ''}
                             </span>
-                            <span className={cn(
-                              "text-[8px] font-mono font-black px-2 py-0.5 rounded border",
-                              stat.pendingInstallmentsCount > 0 
-                                ? "bg-orange-500/10 border-orange-500/20 text-brand-500 animate-pulse"
-                                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                            )}>
-                              {stat.pendingInstallmentsCount} {stat.pendingInstallmentsCount === 1 ? 'CUOTA PEND.' : 'CUOTAS PEND.'}
-                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className={cn(
+                                "text-[8px] font-mono font-black px-2 py-0.5 rounded border",
+                                stat.pendingInstallmentsCount > 0
+                                  ? "bg-orange-500/10 border-orange-500/20 text-brand-500 animate-pulse"
+                                  : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                              )}>
+                                {stat.pendingInstallmentsCount} {stat.pendingInstallmentsCount === 1 ? 'CUOTA PEND.' : 'CUOTAS PEND.'}
+                              </span>
+                              {!isReadOnly && (
+                                <button onClick={() => abrirEditLoan(stat)} title="Editar préstamo (regenerar cuotas)"
+                                  className="p-1 rounded text-text-dim hover:text-brand-500 hover:bg-brand-500/10 transition-all">
+                                  <Pencil size={12} />
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           <div className="space-y-1">
@@ -4478,9 +4540,58 @@ export default function FinanceView({
           </div>
         )}
 
+        {showEditLoan && editLoanData && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => { setShowEditLoan(false); setEditLoanData(null); }}>
+            <div className="bg-bg-sidebar border border-border-dim rounded-xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-border-dim flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-text-main">Editar préstamo</h3>
+                  <p className="text-[9px] font-bold text-text-dim uppercase tracking-widest mt-0.5">{editLoanData.origBank} · Préstamo {editLoanData.origLoan} · regenera el cronograma</p>
+                </div>
+                <button onClick={() => { setShowEditLoan(false); setEditLoanData(null); }} className="text-text-dim hover:text-text-main"><X size={20} /></button>
+              </div>
+              <div className="p-5 grid grid-cols-2 gap-3">
+                {([
+                  ['bank', 'Banco', 'text'],
+                  ['loanNumber', 'N° Préstamo', 'text'],
+                  ['requestedAmount', 'Monto solicitado', 'number'],
+                  ['rate', 'Tasa', 'text'],
+                  ['destination', 'Destino', 'text'],
+                  ['count', 'Cantidad de cuotas', 'number'],
+                  ['amount', 'Monto de cada cuota', 'number'],
+                  ['firstDue', 'Fecha 1ª cuota', 'date'],
+                ] as const).map(([k, label, type]) => (
+                  <div key={k} className={k === 'destination' ? 'col-span-2' : ''}>
+                    <label className="text-[9px] font-black uppercase text-text-dim tracking-widest block mb-1">{label}</label>
+                    <input type={type} value={editLoanData[k] ?? ''}
+                      onChange={e => setEditLoanData({ ...editLoanData, [k]: type === 'number' ? e.target.value.replace(/[^0-9.]/g, '') : e.target.value })}
+                      className="w-full bg-bg-card border border-border-dim rounded px-3 py-2 text-[11px] font-bold text-text-main outline-none focus:border-brand-500" />
+                  </div>
+                ))}
+                <div className="col-span-2 bg-amber-500/5 border border-amber-500/25 rounded px-3 py-2 text-[10px] text-text-dim leading-relaxed">
+                  Al guardar se <b className="text-text-main">reemplazan todas las cuotas</b> de este préstamo por las nuevas (una por mes, todas pendientes). Útil para corregir un préstamo mal cargado.
+                </div>
+              </div>
+              <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2">
+                <span className="text-[10px] text-text-dim font-mono">
+                  {(() => { const c = parseInt(String(editLoanData.count), 10) || 0; const a = Number(editLoanData.amount) || 0; return c > 0 && a > 0 ? `Total: ${c} × $${a.toLocaleString('es-AR')} = $${(c * a).toLocaleString('es-AR')}` : ''; })()}
+                </span>
+                <div className="flex gap-2">
+                  <button onClick={() => { setShowEditLoan(false); setEditLoanData(null); }}
+                    className="bg-bg-card border border-border-dim px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">Cancelar</button>
+                  <button onClick={guardarEditLoan}
+                    className="flex items-center gap-1.5 bg-brand-500 text-white px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-brand-600 transition-all">
+                    <Pencil size={13} /> Guardar y regenerar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showBankLoteModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
