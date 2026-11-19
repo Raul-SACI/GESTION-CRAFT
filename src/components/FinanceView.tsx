@@ -5495,63 +5495,88 @@ export default function FinanceView({
                       return isNaN(n) ? 0 : (neg ? -n : n);
                     };
 
-                    rows.forEach((row, rIdx) => {
-                      if (row.length === 0 || row.join('').trim() === '') return;
-                      const getValue = (field: string) => {
-                        const index = columnMapping[field];
-                        return index !== undefined ? row[index] : '';
-                      };
+                    const getValueOf = (row: any[], field: string) => {
+                      const index = columnMapping[field];
+                      return index !== undefined ? row[index] : '';
+                    };
+                    // Clave de préstamo/plan para agrupar las filas del Excel.
+                    const keyOf = (row: any[]) => mode === 'bank'
+                      ? `${String(getValueOf(row, 'bank') || 'BANCO').trim().toUpperCase()}#${String(getValueOf(row, 'loanNumber') || '1').trim()}`
+                      : `${String(getValueOf(row, 'entity') || 'ENT').trim().toUpperCase()}#${String(getValueOf(row, 'paymentPlanNumber') || 'CORRIENTE').trim().toUpperCase()}`;
 
-                      const parsedAmount = parseMoney(getValue('amount'));
-                      const firstDueISO = toISO(getValue('dueDate'));
-                      const inst = parseInstallment(getValue('installmentNumber'));
-                      // Generar una cuota por cada N desde la actual hasta la total, mensual desde firstDueISO
-                      const cuotasAGenerar = Math.max(1, inst.total - inst.current + 1);
-
-                      for (let i = 0; i < cuotasAGenerar; i++) {
-                        const cuotaNum = inst.current + i;
-                        const cuotaDue = firstDueISO ? addMonthsISO(firstDueISO, i) : firstDueISO;
-                        // Pendiente solo si su fecha es posterior a hoy
-                        const cuotaStatus = (cuotaDue && cuotaDue > todayISO) ? 'pending' : 'paid';
-
-                        if (mode === 'bank') {
-                          listToImport.push({
-                            id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
-                            bank: getValue('bank') || 'BANCO',
-                            loanNumber: String(getValue('loanNumber') || '1').trim(),
-                            requestDate: toISO(getValue('requestDate')) || todayISO,
-                            requestedAmount: parseMoney(getValue('requestedAmount')),
-                            destination: getValue('destination') || 'Financiamiento General',
-                            rate: getValue('rate') || 'S/D',
-                            installmentNumber: `${cuotaNum} de ${inst.total}`,
-                            amount: parsedAmount,
-                            dueDate: cuotaDue,
-                            status: cuotaStatus,
-                            category: 'loan'
-                          });
-                        } else {
-                          const taxType = getValue('taxType') || 'Otros Tributos';
-                          listToImport.push({
-                            id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
-                            entity: getValue('entity') || 'ARCA (AFIP)',
-                            taxType,
-                            description: `${taxType} - Plan de Pagos`,
-                            totalAmount: parseMoney(getValue('totalAmount')),
-                            paymentPlanNumber: getValue('paymentPlanNumber') || 'CORRIENTE',
-                            installmentNumber: `${cuotaNum} de ${inst.total}`,
-                            amount: parsedAmount,
-                            dueDate: cuotaDue,
-                            status: cuotaStatus,
-                            category: (mode === 'legal' ? 'legal' : 'tax')
-                          });
-                        }
-                      }
+                    // Agrupar filas por préstamo/plan.
+                    const groups: Record<string, any[]> = {};
+                    rows.forEach(row => {
+                      if (!row || row.length === 0 || row.join('').trim() === '') return;
+                      (groups[keyOf(row)] ||= []).push(row);
                     });
 
-                    const updated = [...payments, ...listToImport];
+                    Object.values(groups).forEach(groupRows => {
+                      // Si el Excel trae VARIAS filas para el mismo préstamo, ya detalla
+                      // cada cuota (con su propio importe y vencimiento): se importa 1:1,
+                      // sin proyectar. Si es una sola fila-resumen, se proyectan las cuotas
+                      // que faltan mensualmente desde su vencimiento.
+                      const detallado = groupRows.length > 1;
+                      groupRows.forEach((row, rIdx) => {
+                        const getValue = (field: string) => getValueOf(row, field);
+                        const parsedAmount = parseMoney(getValue('amount'));
+                        const firstDueISO = toISO(getValue('dueDate'));
+                        const inst = parseInstallment(getValue('installmentNumber'));
+                        const cuotasAGenerar = detallado ? 1 : Math.max(1, inst.total - inst.current + 1);
+
+                        for (let i = 0; i < cuotasAGenerar; i++) {
+                          const cuotaNum = detallado ? inst.current : inst.current + i;
+                          const cuotaDue = detallado ? firstDueISO : (firstDueISO ? addMonthsISO(firstDueISO, i) : firstDueISO);
+                          const cuotaStatus = (cuotaDue && cuotaDue > todayISO) ? 'pending' : 'paid';
+
+                          if (mode === 'bank') {
+                            listToImport.push({
+                              id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
+                              bank: getValue('bank') || 'BANCO',
+                              loanNumber: String(getValue('loanNumber') || '1').trim(),
+                              requestDate: toISO(getValue('requestDate')) || todayISO,
+                              requestedAmount: parseMoney(getValue('requestedAmount')),
+                              destination: getValue('destination') || 'Financiamiento General',
+                              rate: getValue('rate') || 'S/D',
+                              installmentNumber: `${cuotaNum} de ${inst.total}`,
+                              amount: parsedAmount,
+                              dueDate: cuotaDue,
+                              status: cuotaStatus,
+                              category: 'loan'
+                            });
+                          } else {
+                            const taxType = getValue('taxType') || 'Otros Tributos';
+                            listToImport.push({
+                              id: `imported_${Date.now()}_${rIdx}_${i}_${Math.random()}`,
+                              entity: getValue('entity') || 'ARCA (AFIP)',
+                              taxType,
+                              description: `${taxType} - Plan de Pagos`,
+                              totalAmount: parseMoney(getValue('totalAmount')),
+                              paymentPlanNumber: getValue('paymentPlanNumber') || 'CORRIENTE',
+                              installmentNumber: `${cuotaNum} de ${inst.total}`,
+                              amount: parsedAmount,
+                              dueDate: cuotaDue,
+                              status: cuotaStatus,
+                              category: (mode === 'legal' ? 'legal' : 'tax')
+                            });
+                          }
+                        }
+                      });
+                    });
+
+                    // Reemplazar los préstamos/planes que vienen en el Excel (por su clave),
+                    // en vez de duplicarlos; se conserva todo lo demás.
+                    const importedKeys = new Set(Object.keys(groups));
+                    const sameCat = (p: any) => mode === 'bank' ? p.category === 'loan' : (mode === 'legal' ? p.category === 'legal' : p.category === 'tax');
+                    const keyOfPayment = (p: any) => mode === 'bank'
+                      ? `${String(p.bank || 'BANCO').trim().toUpperCase()}#${String(p.loanNumber || '1').trim()}`
+                      : `${String(p.entity || 'ENT').trim().toUpperCase()}#${String(p.paymentPlanNumber || 'CORRIENTE').trim().toUpperCase()}`;
+                    const kept = payments.filter(p => !(sameCat(p) && importedKeys.has(keyOfPayment(p))));
+                    const reemplazados = payments.length - kept.length;
+                    const updated = [...kept, ...listToImport];
                     savePayments(updated);
                     setShowImportModal(false);
-                    alert(`Éxito: Se generaron ${listToImport.length} cuotas a partir de los préstamos/planes importados.`);
+                    alert(`Éxito: se importaron ${listToImport.length} cuota(s) de ${importedKeys.size} préstamo(s)/plan(es).` + (reemplazados > 0 ? `\nSe reemplazaron ${reemplazados} cuota(s) de préstamos que ya existían (misma entidad y N°).` : ''));
                   }}
                   className="bg-brand-500 hover:bg-brand-600 font-black text-black px-8 py-2.5 rounded text-[10px] uppercase tracking-widest transition-all"
                 >
