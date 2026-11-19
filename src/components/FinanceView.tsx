@@ -510,6 +510,19 @@ export default function FinanceView({
     setShowEditLoan(false);
     setEditLoanData(null);
   };
+  // Elimina por completo un préstamo (todas sus cuotas).
+  const eliminarEditLoan = async () => {
+    if (isReadOnly || !editLoanData) return;
+    const d = editLoanData;
+    const rows = payments.filter(p => p.category === 'loan' && (p.bank || 'OTROS').trim().toUpperCase() === d.origBank && String((p as any).loanNumber || '1').trim() === d.origLoan);
+    if (!window.confirm(
+      `Vas a ELIMINAR el préstamo ${d.origBank} · Préstamo ${d.origLoan} y sus ${rows.length} cuota(s). Esta acción no se puede deshacer. ¿Confirmás?`
+    )) return;
+    const others = payments.filter(p => !(p.category === 'loan' && (p.bank || 'OTROS').trim().toUpperCase() === d.origBank && String((p as any).loanNumber || '1').trim() === d.origLoan));
+    await savePayments(others as any);
+    setShowEditLoan(false);
+    setEditLoanData(null);
+  };
 
   const [categories, setCategories] = useState<FinanceCategory[]>(FINANCE_CATEGORIES);
   
@@ -4572,11 +4585,15 @@ export default function FinanceView({
                   Al guardar se <b className="text-text-main">reemplazan todas las cuotas</b> de este préstamo por las nuevas (una por mes, todas pendientes). Útil para corregir un préstamo mal cargado.
                 </div>
               </div>
-              <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2">
-                <span className="text-[10px] text-text-dim font-mono">
-                  {(() => { const c = parseInt(String(editLoanData.count), 10) || 0; const a = Number(editLoanData.amount) || 0; return c > 0 && a > 0 ? `Total: ${c} × $${a.toLocaleString('es-AR')} = $${(c * a).toLocaleString('es-AR')}` : ''; })()}
-                </span>
-                <div className="flex gap-2">
+              <div className="px-5 py-4 border-t border-border-dim flex items-center justify-between gap-2 flex-wrap">
+                <button onClick={eliminarEditLoan}
+                  className="flex items-center gap-1.5 bg-red-500/10 border border-red-500/30 text-red-500 px-3 py-2 rounded text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">
+                  <Trash2 size={13} /> Eliminar préstamo
+                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] text-text-dim font-mono">
+                    {(() => { const c = parseInt(String(editLoanData.count), 10) || 0; const a = Number(editLoanData.amount) || 0; return c > 0 && a > 0 ? `${c} × $${a.toLocaleString('es-AR')} = $${(c * a).toLocaleString('es-AR')}` : ''; })()}
+                  </span>
                   <button onClick={() => { setShowEditLoan(false); setEditLoanData(null); }}
                     className="bg-bg-card border border-border-dim px-4 py-2 rounded text-[10px] font-black uppercase tracking-widest text-text-dim hover:text-text-main transition-all">Cancelar</button>
                   <button onClick={guardarEditLoan}
