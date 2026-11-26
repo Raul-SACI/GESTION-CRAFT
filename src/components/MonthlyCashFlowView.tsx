@@ -175,6 +175,7 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const [months, setMonths] = useState<string[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [data, setData] = useState<MonthData | null>(null);
+  const [prevData, setPrevData] = useState<MonthData | null>(null); // mes anterior, para la variación %
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<'resumen' | 'analisis'>('resumen');
   const [allData, setAllData] = useState<MonthData[]>([]); // todos los meses, para comparar
@@ -211,6 +212,13 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
       if (row?.data) setData(row.data as MonthData);
       else setData(null);
     } catch (e) { console.error('Error cargando mes:', e); }
+    // Cargar el mes CALENDARIO anterior para la variación % (si no hay datos, queda null).
+    try {
+      const [y, m] = month.split('-').map(Number);
+      const pm = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+      const { data: prow } = await supabase.from('monthly_cashflow').select('data').eq('month', pm).maybeSingle();
+      setPrevData(prow?.data ? (prow.data as MonthData) : null);
+    } catch (e) { setPrevData(null); }
   };
 
   const monthLabel = (m: string) => {
@@ -496,6 +504,32 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const saldoInicial = saldoInicialResumen || saldoSeccionCuentas;
   const acumulado = data?.resumenTotales['acumulado'] || 0;
 
+  // ── Variación % vs el mes anterior (para categorías e ítems del Resumen) ──
+  const nrm = (s: string) => (s || '').trim().toUpperCase();
+  const prevSecByTitulo: Record<string, Seccion> = {};
+  (prevData?.secciones || []).forEach(s => { prevSecByTitulo[nrm(s.titulo)] = s; });
+  const prevRubroTotal = (titulo: string, nombre: string): number | null => {
+    const ps = prevSecByTitulo[nrm(titulo)];
+    if (!ps) return null;
+    const pr = ps.rubros.find(r => nrm(r.nombre) === nrm(nombre));
+    return pr ? pr.total : null;
+  };
+  const prevSecTotal = (titulo: string): number | null => {
+    const ps = prevSecByTitulo[nrm(titulo)];
+    return ps ? ps.total : null;
+  };
+  // Badge de variación: verde si es favorable (ingreso sube / egreso baja), rojo si no.
+  const VarPct = ({ cur, prev, esIngreso }: { cur: number; prev: number | null; esIngreso: boolean }) => {
+    if (prev == null || prev === 0) {
+      return <span className="text-[9px] font-mono font-bold text-text-dim/60">{prev === 0 ? (cur !== 0 ? 'nuevo' : '—') : 's/d'}</span>;
+    }
+    const pct = ((cur - prev) / Math.abs(prev)) * 100;
+    const up = pct > 0.05, down = pct < -0.05;
+    const favorable = esIngreso ? up : down;
+    const color = (!up && !down) ? 'text-text-dim/70' : favorable ? 'text-emerald-500' : 'text-red-500';
+    return <span className={cn('text-[9px] font-mono font-bold', color)} title={`Mes anterior: ${fmt(prev)}`}>{up ? '▲' : down ? '▼' : ''}{pct > 0 ? '+' : ''}{pct.toFixed(1)}%</span>;
+  };
+
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       {/* Cabecera */}
@@ -611,14 +645,20 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
                       <h3 className="text-[11px] font-black uppercase text-text-main tracking-widest">{s.titulo}</h3>
                       <span className="text-[8px] font-bold text-text-dim uppercase">({s.rubros.length})</span>
                     </div>
-                    <span className={cn("text-[13px] font-mono font-black", esIngreso ? "text-emerald-500" : "text-red-500")}>{fmt(s.total)}</span>
+                    <div className="flex items-center gap-3">
+                      <VarPct cur={s.total} prev={prevSecTotal(s.titulo)} esIngreso={esIngreso} />
+                      <span className={cn("text-[13px] font-mono font-black", esIngreso ? "text-emerald-500" : "text-red-500")}>{fmt(s.total)}</span>
+                    </div>
                   </button>
                   {isOpen && (
                     <div className="divide-y divide-border-dim/30">
                       {s.rubros.map(r => (
                         <div key={r.nombre} className="px-5 py-2 flex items-center justify-between hover:bg-bg-accent/10">
                           <span className="text-[10px] font-bold text-text-dim uppercase">{r.nombre}</span>
-                          <span className={cn("text-[11px] font-mono font-black", r.total < 0 ? "text-red-400" : "text-text-main")}>{fmt(r.total)}</span>
+                          <div className="flex items-center gap-3">
+                            <VarPct cur={r.total} prev={prevRubroTotal(s.titulo, r.nombre)} esIngreso={esIngreso} />
+                            <span className={cn("text-[11px] font-mono font-black", r.total < 0 ? "text-red-400" : "text-text-main")}>{fmt(r.total)}</span>
+                          </div>
                         </div>
                       ))}
                     </div>
