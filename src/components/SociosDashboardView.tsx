@@ -789,9 +789,19 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                             })()}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.netCurrent)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>{fmt(d.netCurrent)}</span>
+                            <span className="text-[8px] font-bold text-brand-500/80" title="% sobre el total vendido (neto) del mes">{totals.netCurrent > 0 ? ((d.netCurrent / totals.netCurrent) * 100).toFixed(1) + '% del total' : '—'}</span>
+                          </div>
+                        </td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pn, d.netPrev)}</td>
-                        <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(d.grossCurrent)}</td>
+                        <td className="px-3 py-2.5 text-right font-mono text-text-main">
+                          <div className="flex flex-col items-end leading-tight">
+                            <span>{fmt(d.grossCurrent)}</span>
+                            <span className="text-[8px] font-bold text-brand-500/80" title="% sobre el total vendido (bruto) del mes">{totals.grossCurrent > 0 ? ((d.grossCurrent / totals.grossCurrent) * 100).toFixed(1) + '% del total' : '—'}</span>
+                          </div>
+                        </td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pg, d.grossPrev)}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-text-main">{d.ticketsCurrent.toLocaleString('es-AR')}</td>
                         <td className="px-3 py-2.5 text-right font-mono text-[10px] font-bold">{cell(pt, d.ticketsPrev, false)}</td>
@@ -833,9 +843,13 @@ export default function SociosDashboardView({ branches }: SociosDashboardViewPro
                   {shown.length > 1 && (
                     <tr className="text-[11px] font-black bg-bg-accent/40 border-t-2 border-border-dim">
                       <td className="px-3 py-2.5 uppercase text-text-main">Total</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(totals.netCurrent)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-main">
+                        <div className="flex flex-col items-end leading-tight"><span>{fmt(totals.netCurrent)}</span><span className="text-[8px] font-bold text-brand-500/80">100% del total</span></div>
+                      </td>
                       <td className="px-3 py-2.5"></td>
-                      <td className="px-3 py-2.5 text-right font-mono text-text-main">{fmt(totals.grossCurrent)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-text-main">
+                        <div className="flex flex-col items-end leading-tight"><span>{fmt(totals.grossCurrent)}</span><span className="text-[8px] font-bold text-brand-500/80">100% del total</span></div>
+                      </td>
                       <td className="px-3 py-2.5"></td>
                       <td className="px-3 py-2.5 text-right font-mono text-text-main">{totals.ticketsCurrent.toLocaleString('es-AR')}</td>
                       <td className="px-3 py-2.5"></td>
