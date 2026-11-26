@@ -504,6 +504,17 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
   const saldoInicial = saldoInicialResumen || saldoSeccionCuentas;
   const acumulado = data?.resumenTotales['acumulado'] || 0;
 
+  // Equivalentes del MES ANTERIOR (para la variación de las tarjetas de arriba).
+  const prevTotIngresos = prevData?.resumenTotales['total ingresos'] || 0;
+  const prevTotEgresos = prevData?.resumenTotales['total egresos'] || 0;
+  const prevTotNeto = prevData?.resumenTotales['neto'] ?? (prevTotIngresos - prevTotEgresos);
+  const prevPrimerDia = prevData?.dias?.[0];
+  const prevSaldoInicial = prevData?.resumenTotales['saldo inicial']
+    || (prevData?.secciones || [])
+      .filter(s => s.titulo.toUpperCase().includes('SALDO INICIAL'))
+      .reduce((acc, s) => acc + s.rubros.reduce((a, r) => a + (prevPrimerDia != null ? (r.dias[prevPrimerDia] || 0) : 0), 0), 0);
+  const prevAcumulado = prevData?.resumenTotales['acumulado'] || 0;
+
   // ── Variación % vs el mes anterior (para categorías e ítems del Resumen) ──
   const nrm = (s: string) => (s || '').trim().toUpperCase();
   const prevSecByTitulo: Record<string, Seccion> = {};
@@ -599,15 +610,18 @@ export default function MonthlyCashFlowView({ isReadOnly }: { isReadOnly?: boole
           {/* Tarjetas de resumen */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {[
-              { label: 'Saldo Inicial', val: saldoInicial, color: 'text-text-main' },
-              { label: 'Total Ingresos', val: totIngresos, color: 'text-emerald-500' },
-              { label: 'Total Egresos', val: totEgresos, color: 'text-red-500' },
-              { label: 'Neto del Mes', val: totNeto, color: totNeto >= 0 ? 'text-emerald-500' : 'text-red-500' },
-              { label: 'Acumulado', val: acumulado, color: 'text-brand-500' },
+              { label: 'Saldo Inicial', val: saldoInicial, prev: prevData ? prevSaldoInicial : null, esIngreso: true, color: 'text-text-main' },
+              { label: 'Total Ingresos', val: totIngresos, prev: prevData ? prevTotIngresos : null, esIngreso: true, color: 'text-emerald-500' },
+              { label: 'Total Egresos', val: totEgresos, prev: prevData ? prevTotEgresos : null, esIngreso: false, color: 'text-red-500' },
+              { label: 'Neto del Mes', val: totNeto, prev: prevData ? prevTotNeto : null, esIngreso: true, color: totNeto >= 0 ? 'text-emerald-500' : 'text-red-500' },
+              { label: 'Acumulado', val: acumulado, prev: prevData ? prevAcumulado : null, esIngreso: true, color: 'text-brand-500' },
             ].map(c => (
               <div key={c.label} className="bg-bg-sidebar border border-border-dim rounded-xl p-4">
                 <p className="text-[8px] font-black uppercase tracking-[0.2em] text-text-dim mb-1">{c.label}</p>
-                <p className={cn("text-[15px] font-mono font-black", c.color)}>{fmt(c.val)}</p>
+                <div className="flex items-end justify-between gap-2">
+                  <p className={cn("text-[15px] font-mono font-black", c.color)}>{fmt(c.val)}</p>
+                  <span className="mb-0.5"><VarPct cur={c.val} prev={c.prev} esIngreso={c.esIngreso} /></span>
+                </div>
               </div>
             ))}
           </div>
